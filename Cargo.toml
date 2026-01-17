@@ -3,4 +3,9 @@ name = "brix"
 version = "0.1.0"
 edition = "2024"
 
+[workspace]
+members = ["crates/lexer"]
+
 [dependencies]
+lexer = { path = "crates/lexer" }
+ariadne = "0.4"
