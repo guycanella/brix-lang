@@ -11,6 +11,10 @@ fn main() {
         // Arrays e Matemática
         var dados := [1, 2, 3]
         
+        var potencia := 2 ** 3        // Deve dar 8
+        var prioridade := 2 + 2 ** 3  // Deve dar 10 (e não 64)
+        var bitwise := 10 + 2 & 1     // Deve somar (12) depois fazer AND 1
+
         // Precedência e Modulo
         var calculo := 10 + 5 * 2
         var resto := 10 % 3
