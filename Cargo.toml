@@ -4,8 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [workspace]
-members = ["crates/lexer"]
+members = ["crates/lexer", "crates/parser"]
 
 [dependencies]
 lexer = { path = "crates/lexer" }
+parser = { path = "crates/parser" }
 ariadne = "0.4"
+logos = "0.16"
