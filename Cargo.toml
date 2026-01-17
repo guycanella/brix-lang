@@ -11,3 +11,4 @@ lexer = { path = "crates/lexer" }
 parser = { path = "crates/parser" }
 ariadne = "0.4"
 logos = "0.16"
+chumsky = "0.9.3"
