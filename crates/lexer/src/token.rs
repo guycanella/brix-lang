@@ -3,6 +3,7 @@ use std::fmt;
 
 #[derive(Logos, Debug, PartialEq, Clone)]
 #[logos(skip r"[ \t\n\f]+")] // Ignore spaces, tabs and line breaks automatically
+#[logos(skip r"//.*")] // Ignore comments
 pub enum Token {
     // --- Keywords ---
     #[token("function")]
@@ -32,8 +33,8 @@ pub enum Token {
     #[token("in")]
     In,
 
-    #[token("when")]
-    When, // Pattern Matching (switch substitute)
+    #[token("match")]
+    Match, // Pattern Matching (switch substitute)
 
     // --- Literals ---
 
@@ -84,6 +85,9 @@ pub enum Token {
     #[token("/")]
     Slash,
 
+    #[token("%")]
+    Percent,
+
     #[token(">")]
     Gt,
 
@@ -128,7 +132,7 @@ pub enum Token {
     RBrace,
 
     #[token("[")]
-    LBracket, // Array
+    LBracket,
 
     #[token("]")]
     RBracket,
