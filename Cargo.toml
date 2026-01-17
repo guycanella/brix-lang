@@ -4,11 +4,17 @@ version = "0.1.0"
 edition = "2024"
 
 [workspace]
-members = ["crates/lexer", "crates/parser"]
+members = ["crates/codegen", "crates/lexer", "crates/parser"]
 
 [dependencies]
 lexer = { path = "crates/lexer" }
 parser = { path = "crates/parser" }
+codegen = { path = "crates/codegen" }
+
 ariadne = "0.4"
 logos = "0.16"
 chumsky = "0.9.3"
+
+[dependencies.inkwell]
+version = "0.5.0"
+features = ["llvm18-0"]
