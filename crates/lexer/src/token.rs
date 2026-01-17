@@ -1,7 +1,7 @@
 use logos::Logos;
 use std::fmt;
 
-#[derive(Logos, Debug, PartialEq, Clone)]
+#[derive(Logos, Debug, PartialEq, Eq, Hash, Clone)]
 #[logos(skip r"[ \t\n\f]+")] // Ignore spaces, tabs and line breaks automatically
 #[logos(skip r"//.*")] // Ignore comments
 pub enum Token {
@@ -47,8 +47,8 @@ pub enum Token {
     Int(i64),
 
     // Floats (ex: 3.14, 0.5)
-    #[regex(r"[0-9]+\.[0-9]+", |lex| lex.slice().parse::<f64>().ok())]
-    Float(f64),
+    #[regex(r"[0-9]+\.[0-9]+", |lex| lex.slice().to_string())]
+    Float(String),
 
     // Strings (ex: "Olá Brix")
     #[regex(r#""([^"\\]|\\["\\bnfrt])*""#, |lex| lex.slice().to_string())]
@@ -136,6 +136,9 @@ pub enum Token {
 
     #[token("]")]
     RBracket,
+
+    #[token("ERROR")]
+    Error,
 }
 
 // This helps to show the token prettily in the print
