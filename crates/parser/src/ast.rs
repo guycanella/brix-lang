@@ -69,6 +69,14 @@ pub enum Stmt {
         value: Expr,
     },
 
+    Block(Vec<Stmt>),
+
+    If {
+        condition: Expr,
+        then_block: Box<Stmt>,
+        else_block: Option<Box<Stmt>>,
+    },
+
     Expr(Expr),
 }
 
