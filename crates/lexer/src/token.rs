@@ -88,6 +88,15 @@ pub enum Token {
     #[token("%")]
     Percent,
 
+    #[token("**")]
+    Pow,
+
+    #[token("^")]
+    Caret,
+
+    #[token("|")]
+    Pipe,
+
     #[token(">")]
     Gt,
 
