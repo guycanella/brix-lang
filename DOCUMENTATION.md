@@ -177,10 +177,10 @@ res, err := divide(10.0, 2.0)
 ## 8. Stack Tecnológica
 
 - **Linguagem do Compilador:** Rust 🦀
-- **Backend:** LLVM (via `inkwell` ou `llvm-sys`).
+- **Backend:** LLVM (via `inkwell`).
 - **Lexer:** Crate `logos` (Performance extrema).
-- **Parser:** Crate `chumsky` ou `lalrpop`.
-- **Gerenciamento de Memória:** ARC (Automatic Reference Counting) ou Ownership simplificado (sem Garbage Collector pesado).
+- **Parser:** Crate `chumsky`.
+- **Gerenciamento de Memória:** ARC (Automatic Reference Counting).
 
 ## 9. Gerenciamento de Memória e Passagem de Dados
 
@@ -201,6 +201,41 @@ Sistema híbrido focado em performance e segurança.
 - **Tipos Complexos (Arrays, Structs):** Passagem por **Referência Imutável (View)**.
   - _Padrão:_ A função recebe um ponteiro para os dados originais (custo zero de cópia), mas não pode alterá-los.
   - _Mutabilidade:_ Para alterar os dados originais, o parâmetro deve ser explicitamente marcado (ex: `fn process(mut dados: [int])`).
+
+## 10. Status do Desenvolvimento
+
+### O que já foi construído?
+
+1. **Arquitetura de Workspace:**
+
+- Separação clara em crates: `lexer`, `parser`, `codegen` (LLVM).
+- Gerenciamento de dependências otimizado no `Cargo.toml` raiz.
+
+2. **Lexer (Tokenizador):**
+
+- Implementado com `Logos`.
+- Suporte a comentários (`//`), operadores matemáticos completos (incluindo `**` e `%`), bitwise (`&`, `|`, `^`) e blocos (`{`, `}`).
+
+3. **Parser (Análise Sintática):**
+
+- Implementado com `Chumsky`.
+- **Precedência de Operadores:** Hierarquia correta (Átomo -> Potência -> Multiplicação -> Soma -> Bitwise -> Comparação).
+- **Estruturas:** Declarações, Atribuições, Blocos de Escopo, If/Else e Arrays.
+
+4. **Codegen (LLVM Backend):**
+
+- **Engine:** LLVM 18 via `inkwell`.
+- **Memória:** Sistema de Tabela de Símbolos (`HashMap`) para alocação de variáveis na Stack (`alloca`, `store`, `load`).
+- **Fluxo de Controle:** Implementação completa de `If / Else` com Basic Blocks e Conditional Branching.
+- **Arrays:** Suporte a criação de Arrays literais e acesso via índice (`x[0]`) usando `GetElementPtr` (GEP).
+- **Otimização:** Constant Folding automático (o LLVM pré-calcula constantes matemáticas).
+
+### Próximos passos
+
+1. **Loops:** Implementar `while` and `for` (essencial para Brix ser Turing complete)
+2. **Executável Real:** Transformar o LLVM IR (`.ll`) em um binário executável (`.o` -> Linked -> Executável final)
+3. **Tipagem de Floats:** Expandir o Codegen (atualmente apenas inteiros) para suportar operações com ponto flutuante (`f64`)
+4. **CLI:** Melhorar a interface de linha de comando para aceitar arquivos (`brix run main.bx`)
 
 ### Onde vamos começar?
 
