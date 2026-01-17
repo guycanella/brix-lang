@@ -11,29 +11,44 @@ pub fn parser() -> impl Parser<Token, Program, Error = Simple<Token>> {
 }
 
 fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
-    // Declaration: var x := ...
-    let decl = just(Token::Var)
-        .to(false)
-        .or(just(Token::Const).to(true))
-        .then(select! { Token::Identifier(name) => name })
-        .then_ignore(just(Token::ColonEq))
-        .then(expr_parser())
-        .map(|((is_const, name), value)| Stmt::VariableDecl {
-            name,
-            value,
-            is_const,
-        });
+    recursive(|stmt| {
+        let decl = just(Token::Var)
+            .to(false)
+            .or(just(Token::Const).to(true))
+            .then(select! { Token::Identifier(name) => name })
+            .then_ignore(just(Token::ColonEq))
+            .then(expr_parser())
+            .map(|((is_const, name), value)| Stmt::VariableDecl {
+                name,
+                value,
+                is_const,
+            });
 
-    // Assignment: x = ...
-    let assignment = select! { Token::Identifier(name) => name }
-        .then_ignore(just(Token::Eq).or(just(Token::ColonEq)))
-        .then(expr_parser())
-        .map(|(target, value)| Stmt::Assignment { target, value });
+        let assignment = select! { Token::Identifier(name) => name }
+            .then_ignore(just(Token::Eq).or(just(Token::ColonEq)))
+            .then(expr_parser())
+            .map(|(target, value)| Stmt::Assignment { target, value });
 
-    // Expression statement
-    let expr_stmt = expr_parser().map(Stmt::Expr);
+        let block = stmt
+            .clone()
+            .repeated()
+            .delimited_by(just(Token::LBrace), just(Token::RBrace))
+            .map(Stmt::Block);
 
-    decl.or(assignment).or(expr_stmt)
+        let if_stmt = just(Token::If)
+            .ignore_then(expr_parser())
+            .then(block.clone())
+            .then(just(Token::Else).ignore_then(block.clone()).or_not())
+            .map(|((condition, then_block), else_block)| Stmt::If {
+                condition,
+                then_block: Box::new(then_block),
+                else_block: else_block.map(Box::new),
+            });
+
+        let expr_stmt = expr_parser().map(Stmt::Expr);
+
+        decl.or(assignment).or(if_stmt).or(block).or(expr_stmt)
+    })
 }
 
 fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
@@ -46,38 +61,46 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
             Token::Identifier(s) => Expr::Identifier(s),
         };
 
-        let array = expr
+        let array_literal = expr
             .clone()
             .separated_by(just(Token::Comma))
             .allow_trailing()
             .delimited_by(just(Token::LBracket), just(Token::RBracket))
             .map(Expr::Array);
 
-        let atom = val
-            .or(array)
-            .or(expr.delimited_by(just(Token::LParen), just(Token::RParen)));
-
-        // 2. Power (**). Highest precedence.
-        // Note: Mathematical power is usually right-associative (2^3^4 = 2^(3^4)),
-        // but for simplicity in v0.1 we are keeping it left-associative like others.
-        let power = atom
+        let atom = val.or(array_literal).or(expr
             .clone()
-            .then(just(Token::Pow).to(BinaryOp::Pow).then(atom).repeated())
+            .delimited_by(just(Token::LParen), just(Token::RParen)));
+
+        let index = atom
+            .clone()
+            .then(
+                expr.clone()
+                    .delimited_by(just(Token::LBracket), just(Token::RBracket))
+                    .repeated(),
+            )
+            .foldl(|lhs, index_expr| Expr::Index {
+                array: Box::new(lhs),
+                index: Box::new(index_expr),
+            });
+
+        let power = index
+            .clone()
+            .then(just(Token::Pow).to(BinaryOp::Pow).then(index).repeated())
             .foldl(|lhs, (op, rhs)| Expr::Binary {
                 op,
                 lhs: Box::new(lhs),
                 rhs: Box::new(rhs),
             });
 
-        // 3. Product (*, /, %) - Operates on 'power', not 'atom'
-        let product = power // <--- Change here: consumes 'power'
+        let product = power
             .clone()
             .then(
                 just(Token::Star)
                     .to(BinaryOp::Mul)
                     .or(just(Token::Slash).to(BinaryOp::Div))
                     .or(just(Token::Percent).to(BinaryOp::Mod))
-                    .then(power) // <--- and here
+                    .then(power)
                     .repeated(),
             )
             .foldl(|lhs, (op, rhs)| Expr::Binary {
@@ -86,7 +109,6 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
                 rhs: Box::new(rhs),
             });
 
-        // 4. Sum (+, -) - Operates on 'product'
         let sum = product
             .clone()
             .then(
@@ -102,8 +124,6 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
                 rhs: Box::new(rhs),
             });
 
-        // 5. Bitwise (&, |, ^) - Lower precedence than Sum (Standard C/Rust behavior)
-        // ex: 5 + 1 & 2  becomes  (5+1) & 2 = 6 & 2
         let bitwise = sum
             .clone()
             .then(
@@ -120,9 +140,8 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
                 rhs: Box::new(rhs),
             });
 
-        // 6. Comparison (==, <, >) - Lowest precedence. Operates on 'bitwise'
         bitwise
-            .clone() // <--- Change here: consumes 'bitwise'
+            .clone()
             .then(
                 just(Token::DoubleEq)
                     .to(BinaryOp::Eq)
@@ -131,7 +150,7 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
                     .or(just(Token::Lt).to(BinaryOp::Lt))
                     .or(just(Token::GtEq).to(BinaryOp::GtEq))
                     .or(just(Token::LtEq).to(BinaryOp::LtEq))
-                    .then(bitwise) // <--- and here
+                    .then(bitwise)
                     .or_not(),
             )
             .map(|(lhs, maybe_op)| match maybe_op {

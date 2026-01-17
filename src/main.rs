@@ -7,10 +7,20 @@ use parser::parser::parser;
 
 fn main() {
     let code = r#"
-        var x := 10
-        var y := 5
-        var resultado := (x + y) * 2
-        // resultado deve ser (10+5)*2 = 30
+        // 1. Array declaration
+        var lista := [10, 20, 30]
+        
+        // 2. Array Access and Math
+        // Pega o item 1 (20) e soma com item 2 (30).
+        var soma := lista[1] + lista[2]
+        
+        // 3. Logic
+        var resultado := 0
+        if soma > 40 {
+            resultado = 1
+        } else {
+            resultado = 0
+        }
     "#;
 
     let tokens: Vec<Token> = Token::lexer(code)
