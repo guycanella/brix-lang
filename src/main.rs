@@ -1,26 +1,46 @@
+use chumsky::Parser;
 use lexer::token::Token;
 use logos::Logos;
+use parser::parser::parser;
 
 fn main() {
     let code = r#"
         const PI := 3.1415
         var raio := 10
         
-        // Testando array e calculo
-        dados := [1, 2, 3] --
-        area := PI * (raio * raio)
+        // Arrays e Matemática
+        var dados := [1, 2, 3]
+        
+        // Precedência e Modulo
+        var calculo := 10 + 5 * 2
+        var resto := 10 % 3
     "#;
 
-    println!("--- Lendo código Brix ---");
-    println!("Código fonte:\n{}\n", code);
-    println!("--- Tokens Gerados ---");
+    println!("--- Compilando Brix ---");
 
-    let lexer = Token::lexer(code);
+    let tokens_com_span: Vec<(Token, std::ops::Range<usize>)> = Token::lexer(code)
+        .spanned()
+        .map(|(token, span)| match token {
+            Ok(t) => (t, span),
+            Err(_) => (Token::Error, span),
+        })
+        .collect();
 
-    for result in lexer {
-        match result {
-            Ok(token) => println!("Token: {:?}", token),
-            Err(_) => println!("ERRO: Caractere inválido encontrado!"),
+    let token_stream: Vec<Token> = tokens_com_span
+        .iter()
+        .map(|(token, _)| token.clone())
+        .collect();
+
+    match parser().parse(token_stream) {
+        Ok(program) => {
+            println!("✅ Sucesso! AST Gerada:\n");
+            println!("{:#?}", program);
+        }
+        Err(errors) => {
+            println!("❌ Erros de parsing encontrados:");
+            for err in errors {
+                println!("{:?}", err);
+            }
         }
     }
 }
