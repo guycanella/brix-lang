@@ -122,6 +122,41 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
                 self.builder.position_at_end(merge_bb);
             }
+
+            Stmt::While { condition, body } => {
+                let header_bb = self.context.append_basic_block(function, "while_header");
+                let body_bb = self.context.append_basic_block(function, "while_body");
+                let after_bb = self.context.append_basic_block(function, "while_after");
+
+                let _ = self.builder.build_unconditional_branch(header_bb);
+
+                self.builder.position_at_end(header_bb);
+
+                let cond_val = self.compile_expr(condition).unwrap().into_int_value();
+                let i64_type = self.context.i64_type();
+                let zero = i64_type.const_int(0, false);
+
+                let cond_bool = self
+                    .builder
+                    .build_int_compare(inkwell::IntPredicate::NE, cond_val, zero, "loop_cond")
+                    .unwrap();
+
+                // If true -> Go to Body. If false -> Go to After.
+                let _ = self
+                    .builder
+                    .build_conditional_branch(cond_bool, body_bb, after_bb);
+
+                // --- BODY BLOCK ---
+                self.builder.position_at_end(body_bb);
+
+                self.compile_stmt(body, function);
+
+                // CRITICAL: Jump back to Header to check condition again!
+                let _ = self.builder.build_unconditional_branch(header_bb);
+
+                // Continue the rest of the program
+                self.builder.position_at_end(after_bb);
+            }
         }
     }
 
@@ -137,9 +172,6 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
             Expr::Array(elements) => {
                 let i64_type = self.context.i64_type();
-                let len = elements.len() as u32;
-
-                let array_type = i64_type.array_type(len);
 
                 let mut compiled_elements = Vec::new();
                 for el in elements {

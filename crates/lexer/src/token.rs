@@ -27,6 +27,9 @@ pub enum Token {
     #[token("else")]
     Else,
 
+    #[token("while")]
+    While,
+
     #[token("for")]
     For,
 
