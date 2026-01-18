@@ -25,9 +25,39 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
             });
 
         let assignment = select! { Token::Identifier(name) => name }
-            .then_ignore(just(Token::Eq).or(just(Token::ColonEq)))
+            .then(
+                // Option A: Standard Assignment "=" or ":="
+                just(Token::Eq)
+                    .or(just(Token::ColonEq))
+                    .to(None)
+                    // Option B: Compound Assignment "+=", "-=", etc.
+                    // We map them to the corresponding BinaryOp immediately
+                    .or(just(Token::PlusEq).to(Some(BinaryOp::Add)))
+                    .or(just(Token::MinusEq).to(Some(BinaryOp::Sub)))
+                    .or(just(Token::StarEq).to(Some(BinaryOp::Mul)))
+                    .or(just(Token::SlashEq).to(Some(BinaryOp::Div))),
+            )
             .then(expr_parser())
-            .map(|(target, value)| Stmt::Assignment { target, value });
+            .map(|((name, maybe_op), value)| {
+                match maybe_op {
+                    // Case 1: Simple assignment (x = 10)
+                    None => Stmt::Assignment {
+                        target: name,
+                        value,
+                    },
+
+                    // Case 2: Compound assignment (x += 10)
+                    // We transform this into: x = x + 10
+                    Some(op) => Stmt::Assignment {
+                        target: name.clone(),
+                        value: Expr::Binary {
+                            op,
+                            lhs: Box::new(Expr::Identifier(name)),
+                            rhs: Box::new(value),
+                        },
+                    },
+                }
+            });
 
         let block = stmt
             .clone()
