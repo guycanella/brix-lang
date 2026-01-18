@@ -91,6 +91,18 @@ pub enum Token {
     #[token("**")]
     Pow,
 
+    #[token("+=")]
+    PlusEq,
+
+    #[token("-=")]
+    MinusEq,
+
+    #[token("*=")]
+    StarEq,
+
+    #[token("/=")]
+    SlashEq,
+
     #[token("^")]
     Caret,
 
