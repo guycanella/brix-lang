@@ -75,9 +75,21 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
                 else_block: else_block.map(Box::new),
             });
 
+        let while_stmt = just(Token::While)
+            .ignore_then(expr_parser())
+            .then(block.clone())
+            .map(|(condition, body)| Stmt::While {
+                condition,
+                body: Box::new(body),
+            });
+
         let expr_stmt = expr_parser().map(Stmt::Expr);
 
-        decl.or(assignment).or(if_stmt).or(block).or(expr_stmt)
+        decl.or(assignment)
+            .or(if_stmt)
+            .or(while_stmt)
+            .or(block)
+            .or(expr_stmt)
     })
 }
 

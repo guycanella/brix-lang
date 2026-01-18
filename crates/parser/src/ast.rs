@@ -77,6 +77,11 @@ pub enum Stmt {
         else_block: Option<Box<Stmt>>,
     },
 
+    While {
+        condition: Expr,
+        body: Box<Stmt>,
+    },
+
     Expr(Expr),
 }
 
