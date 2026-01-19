@@ -83,11 +83,35 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
                 body: Box::new(body),
             });
 
+        let print_stmt = just(Token::Printf)
+            .ignore_then(
+                select! { Token::String(s) => s }
+                    .then(
+                        just(Token::Comma)
+                            .ignore_then(expr_parser())
+                            .repeated()
+                            .or_not(),
+                    )
+                    .delimited_by(just(Token::LParen), just(Token::RParen)),
+            )
+            .map(|(format_raw, args)| {
+                let format = format_raw
+                    .trim_matches('"')
+                    .replace("\\n", "\n")
+                    .to_string();
+
+                Stmt::Printf {
+                    format,
+                    args: args.unwrap_or_default(),
+                }
+            });
+
         let expr_stmt = expr_parser().map(Stmt::Expr);
 
         decl.or(assignment)
             .or(if_stmt)
             .or(while_stmt)
+            .or(print_stmt)
             .or(block)
             .or(expr_stmt)
     })
