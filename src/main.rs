@@ -1,4 +1,5 @@
 use chumsky::Parser;
+use clap::Parser as ClapParser;
 use codegen::Compiler;
 use inkwell::OptimizationLevel;
 use inkwell::context::Context;
@@ -8,27 +9,48 @@ use inkwell::targets::{
 use lexer::token::Token;
 use logos::Logos;
 use parser::parser::parser;
+use std::fs;
 use std::path::Path;
 use std::process::Command;
 
+#[derive(ClapParser)]
+#[command(name = "Brix Compiler")]
+#[command(version = "0.1")]
+#[command(about = "Compila e executa arquivos .bx", long_about = None)]
+struct Cli {
+    file_path: String,
+}
+
 fn main() {
-    let code = r#"
-        var i := 0
-        var soma := 0
-        
-        while i < 5 {
-            soma += i
-            i += 1
+    let cli = Cli::parse();
+    let source_path = Path::new(&cli.file_path);
+
+    println!("📂 Lendo arquivo: {:?}", source_path);
+
+    let code = match fs::read_to_string(source_path) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("❌ Erro ao ler arquivo '{}': {}", cli.file_path, e);
+            return;
         }
-    "#;
+    };
 
     println!("--- 1. Lexing & Parsing ---");
-    let tokens: Vec<Token> = Token::lexer(code)
+    let tokens: Vec<Token> = Token::lexer(&code)
         .spanned()
         .map(|(t, _)| t.unwrap_or(Token::Error))
         .collect();
 
-    let ast = parser().parse(tokens).unwrap();
+    let ast = match parser().parse(tokens) {
+        Ok(ast) => ast,
+        Err(errs) => {
+            eprintln!("❌ Erro de Sintaxe:");
+            for err in errs {
+                eprintln!("  -> {:?}", err);
+            }
+            return;
+        }
+    };
 
     println!("--- 2. Generating LLVM IR ---");
     let context = Context::create();
@@ -39,15 +61,10 @@ fn main() {
     compiler.compile_program(&ast);
 
     println!("--- 3. Compiling to Native Object Code (.o) ---");
-
-    // A. Initialize the Target Machine
     Target::initialize_all(&InitializationConfig::default());
-
-    // CORREÇÃO 2: Usamos TargetMachine::get_default_triple()
     let triple = TargetMachine::get_default_triple();
     module.set_triple(&triple);
 
-    // C. Create the Machine
     let target = Target::from_triple(&triple).unwrap();
     let target_machine = target
         .create_target_machine(
@@ -60,29 +77,43 @@ fn main() {
         )
         .unwrap();
 
-    // D. Write to Disk
     let object_path = Path::new("output.o");
-    target_machine
-        .write_to_file(&module, FileType::Object, object_path)
-        .unwrap();
+    if let Err(e) = target_machine.write_to_file(&module, FileType::Object, object_path) {
+        eprintln!("❌ Erro ao escrever objeto: {}", e);
+        return;
+    }
 
-    println!("✅ Object file created at: {:?}", object_path);
+    println!("--- 4. Linking and Running ---");
+    let exe_name = source_path.file_stem().unwrap().to_str().unwrap();
+    let exe_path = format!("./{}", exe_name);
 
-    println!("--- 4. Linking to Executable ---");
-    // Link using system compiler (cc)
-    let output = Command::new("cc")
+    let link_output = Command::new("cc")
         .arg("output.o")
         .arg("-o")
-        .arg("brix_app")
+        .arg(exe_name)
         .output()
         .expect("Failed to link");
 
-    if output.status.success() {
-        println!("🚀 Executable created: ./brix_app");
-        println!("Run it with: ./brix_app");
-        println!("Check exit code with: echo $?");
-    } else {
-        println!("❌ Linking failed:");
-        println!("{}", String::from_utf8_lossy(&output.stderr));
+    if !link_output.status.success() {
+        eprintln!("❌ Linking failed:");
+        eprintln!("{}", String::from_utf8_lossy(&link_output.stderr));
+        return;
     }
+
+    if let Err(e) = std::fs::remove_file("output.o") {
+        eprintln!(
+            "⚠️ Aviso: Não foi possível remover o arquivo temporário output.o: {}",
+            e
+        );
+    }
+
+    println!("🚀 Executando {}...\n", exe_path);
+    println!("--------------------------------------------------");
+
+    let run_output = Command::new(&exe_path)
+        .status()
+        .expect("Failed to run executable");
+
+    println!("--------------------------------------------------");
+    println!("🏁 Processo finalizado com código: {}", run_output);
 }

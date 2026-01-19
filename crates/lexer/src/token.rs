@@ -39,6 +39,9 @@ pub enum Token {
     #[token("match")]
     Match, // Pattern Matching (switch substitute)
 
+    #[token("printf")]
+    Printf,
+
     // --- Literals ---
 
     // Identifiers: variable names, functions (ex: "minha_variavel")

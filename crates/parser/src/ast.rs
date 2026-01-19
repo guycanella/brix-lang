@@ -82,6 +82,11 @@ pub enum Stmt {
         body: Box<Stmt>,
     },
 
+    Printf {
+        format: String,
+        args: Vec<Expr>,
+    },
+
     Expr(Expr),
 }
 
