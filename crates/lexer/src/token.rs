@@ -27,6 +27,12 @@ pub enum Token {
     #[token("else")]
     Else,
 
+    #[token("true")]
+    True,
+
+    #[token("false")]
+    False,
+
     #[token("while")]
     While,
 

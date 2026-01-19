@@ -123,7 +123,9 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
         let val = select! {
             Token::Int(n) => Expr::Literal(Literal::Int(n)),
             Token::Float(s) => Expr::Literal(Literal::Float(s.parse().unwrap())),
-            Token::String(s) => Expr::Literal(Literal::String(s)),
+            Token::String(s) => Expr::Literal(Literal::String(s.trim_matches('"').to_string())),
+            Token::True => Expr::Literal(Literal::Bool(true)),
+            Token::False => Expr::Literal(Literal::Bool(false)),
             Token::Identifier(s) => Expr::Identifier(s),
         };
 
