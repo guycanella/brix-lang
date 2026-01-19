@@ -64,33 +64,36 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         match stmt {
             Stmt::VariableDecl { name, value, .. } => {
                 if let Some(val) = self.compile_expr(value) {
-                    let alloca: PointerValue;
-                    let var_type: BasicTypeEnum;
-
-                    if val.is_array_value() {
+                    let (alloca, var_type) = if val.is_array_value() {
                         let array_val = val.into_array_value();
                         let array_type = array_val.get_type();
-                        alloca = self.builder.build_alloca(array_type, name).unwrap();
-                        self.builder.build_store(alloca, array_val).unwrap();
+                        let ptr = self.builder.build_alloca(array_type, name).unwrap();
+                        self.builder.build_store(ptr, array_val).unwrap();
 
-                        var_type = array_type.into();
+                        (ptr, array_type.into())
                     } else if val.is_float_value() {
                         let f64_type = self.context.f64_type();
-                        alloca = self.builder.build_alloca(f64_type, name).unwrap();
+                        let ptr = self.builder.build_alloca(f64_type, name).unwrap();
                         self.builder
-                            .build_store(alloca, val.into_float_value())
+                            .build_store(ptr, val.into_float_value())
                             .unwrap();
 
-                        var_type = f64_type.into();
+                        (ptr, f64_type.into())
+                    } else if val.is_pointer_value() {
+                        let ptr_type = self.context.ptr_type(AddressSpace::default());
+                        let ptr = self.builder.build_alloca(ptr_type, name).unwrap();
+                        self.builder
+                            .build_store(ptr, val.into_pointer_value())
+                            .unwrap();
+
+                        (ptr, ptr_type.into())
                     } else {
                         let i64_type = self.context.i64_type();
-                        alloca = self.builder.build_alloca(i64_type, name).unwrap();
-                        self.builder
-                            .build_store(alloca, val.into_int_value())
-                            .unwrap();
+                        let ptr = self.builder.build_alloca(i64_type, name).unwrap();
+                        self.builder.build_store(ptr, val.into_int_value()).unwrap();
 
-                        var_type = i64_type.into();
-                    }
+                        (ptr, i64_type.into())
+                    };
 
                     self.variables.insert(name.clone(), (alloca, var_type));
                 }
@@ -210,11 +213,35 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     let i64_type = self.context.i64_type();
                     Some(i64_type.const_int(*i as u64, false).as_basic_value_enum())
                 }
+
                 Literal::Float(f) => {
                     let f64_type = self.context.f64_type();
                     Some(f64_type.const_float(*f).as_basic_value_enum())
                 }
-                _ => None,
+
+                Literal::Bool(b) => {
+                    let i64_type = self.context.i64_type();
+                    let val = if *b { 1 } else { 0 };
+                    Some(i64_type.const_int(val, false).as_basic_value_enum())
+                }
+
+                Literal::String(s) => {
+                    let s_val = self.context.const_string(s.as_bytes(), true);
+                    let global = self.module.add_global(s_val.get_type(), None, "str_lit");
+                    global.set_initializer(&s_val);
+                    global.set_linkage(Linkage::Internal);
+
+                    let ptr = global.as_pointer_value();
+
+                    let zero = self.context.i64_type().const_int(0, false);
+                    let i8_ptr = unsafe {
+                        self.builder
+                            .build_gep(s_val.get_type(), ptr, &[zero, zero], "str_ptr")
+                            .ok()?
+                    };
+
+                    Some(i8_ptr.as_basic_value_enum())
+                }
             },
 
             Expr::Array(elements) => {
