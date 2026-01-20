@@ -61,6 +61,20 @@ fn main() {
     compiler.compile_program(&ast);
 
     println!("--- 3. Compiling to Native Object Code (.o) ---");
+
+    let runtime_status = Command::new("cc")
+        .arg("-c")
+        .arg("runtime.c")
+        .arg("-o")
+        .arg("runtime.o")
+        .status()
+        .expect("Failed to compile runtime");
+
+    if !runtime_status.success() {
+        eprintln!("Error to compile runtime.c (verify if gcc/clang is installed)");
+        return;
+    }
+
     Target::initialize_all(&InitializationConfig::default());
     let triple = TargetMachine::get_default_triple();
     module.set_triple(&triple);
@@ -84,11 +98,13 @@ fn main() {
     }
 
     println!("--- 4. Linking and Running ---");
+
     let exe_name = source_path.file_stem().unwrap().to_str().unwrap();
     let exe_path = format!("./{}", exe_name);
 
     let link_output = Command::new("cc")
         .arg("output.o")
+        .arg("runtime.o")
         .arg("-o")
         .arg(exe_name)
         .output()

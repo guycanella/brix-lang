@@ -308,6 +308,33 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         return self.compile_matrix_constructor(&args);
                     }
 
+                    if fn_name == "read_csv" {
+                        if args.len() != 1 {
+                            eprintln!("Error: read_csv requires 1 argument (file name).");
+                            return None;
+                        }
+
+                        let ptr_type = self.context.ptr_type(AddressSpace::default());
+                        let fn_type = ptr_type.fn_type(&[ptr_type.into()], false);
+
+                        let read_csv_fn =
+                            self.module.get_function("read_csv").unwrap_or_else(|| {
+                                self.module.add_function(
+                                    "read_csv",
+                                    fn_type,
+                                    Some(Linkage::External),
+                                )
+                            });
+
+                        let filename_arg = self.compile_expr(&args[0])?;
+                        let call = self
+                            .builder
+                            .build_call(read_csv_fn, &[filename_arg.into()], "call_read_csv")
+                            .unwrap();
+
+                        return Some(call.try_as_basic_value().left().unwrap());
+                    }
+
                     let mut compiled_args = Vec::new();
                     for arg in args {
                         let val = self.compile_expr(arg)?;
