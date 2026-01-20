@@ -152,8 +152,28 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 compiled_args.push(global_str.as_pointer_value().into());
 
                 for arg in args {
-                    if let Some((val, _)) = self.compile_expr(arg) {
-                        compiled_args.push(val.into());
+                    if let Some((val, brix_type)) = self.compile_expr(arg) {
+                        match brix_type {
+                            BrixType::String => {
+                                let struct_ptr = val.into_pointer_value();
+                                let str_type = self.get_string_type();
+                                let data_ptr_ptr = self
+                                    .builder
+                                    .build_struct_gep(str_type, struct_ptr, 1, "str_data_ptr")
+                                    .unwrap();
+                                let data_ptr = self
+                                    .builder
+                                    .build_load(
+                                        self.context.ptr_type(AddressSpace::default()),
+                                        data_ptr_ptr,
+                                        "str_data",
+                                    )
+                                    .unwrap();
+                                compiled_args.push(data_ptr.into());
+                            }
+                            BrixType::Matrix => compiled_args.push(val.into()),
+                            _ => compiled_args.push(val.into()),
+                        }
                     }
                 }
                 self.builder
@@ -253,8 +273,21 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     Some((val.into(), BrixType::Float))
                 }
                 Literal::String(s) => {
-                    let str_val = self.builder.build_global_string_ptr(s, "str_lit").unwrap();
-                    Some((str_val.as_pointer_value().into(), BrixType::String))
+                    let raw_str = self.builder.build_global_string_ptr(s, "raw_str").unwrap();
+
+                    let ptr_type = self.context.ptr_type(AddressSpace::default());
+                    let fn_type = ptr_type.fn_type(&[ptr_type.into()], false);
+                    let str_new_fn = self.module.get_function("str_new").unwrap_or_else(|| {
+                        self.module
+                            .add_function("str_new", fn_type, Some(Linkage::External))
+                    });
+
+                    let call = self
+                        .builder
+                        .build_call(str_new_fn, &[raw_str.as_pointer_value().into()], "new_str")
+                        .unwrap();
+
+                    Some((call.try_as_basic_value().left().unwrap(), BrixType::String))
                 }
                 Literal::Bool(b) => {
                     let val = self.context.bool_type().const_int(*b as u64, false);
@@ -301,19 +334,87 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let (lhs_val, lhs_type) = self.compile_expr(lhs)?;
                 let (rhs_val, rhs_type) = self.compile_expr(rhs)?;
 
+                if lhs_type == BrixType::String && rhs_type == BrixType::String {
+                    match op {
+                        BinaryOp::Add => {
+                            let ptr_type = self.context.ptr_type(AddressSpace::default());
+                            let fn_type =
+                                ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+
+                            let concat_fn =
+                                self.module.get_function("str_concat").unwrap_or_else(|| {
+                                    self.module.add_function(
+                                        "str_concat",
+                                        fn_type,
+                                        Some(Linkage::External),
+                                    )
+                                });
+
+                            let res = self
+                                .builder
+                                .build_call(concat_fn, &[lhs_val.into(), rhs_val.into()], "str_add")
+                                .unwrap();
+
+                            return Some((
+                                res.try_as_basic_value().left().unwrap(),
+                                BrixType::String,
+                            ));
+                        }
+                        BinaryOp::Eq => {
+                            let ptr_type = self.context.ptr_type(AddressSpace::default());
+                            let i64_type = self.context.i64_type();
+                            let fn_type =
+                                i64_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+
+                            let eq_fn = self.module.get_function("str_eq").unwrap_or_else(|| {
+                                self.module
+                                    .add_function("str_eq", fn_type, Some(Linkage::External))
+                            });
+
+                            let res = self
+                                .builder
+                                .build_call(eq_fn, &[lhs_val.into(), rhs_val.into()], "str_eq_call")
+                                .unwrap();
+
+                            return Some((res.try_as_basic_value().left().unwrap(), BrixType::Int));
+                        }
+                        _ => {
+                            eprintln!("Erro: Operação não suportada para strings (apenas + e ==).");
+                            return None;
+                        }
+                    }
+                }
+
                 let is_float_op =
                     matches!(lhs_type, BrixType::Float) || matches!(rhs_type, BrixType::Float);
 
                 if is_float_op {
-                    // Operações com Float
-                    // Nota: Aqui assumimos conversão implícita ou que ambos já são float
-                    let val = self.compile_float_op(
-                        op,
-                        lhs_val.into_float_value(),
-                        rhs_val.into_float_value(),
-                    )?;
+                    let l_float = if lhs_type == BrixType::Int {
+                        self.builder
+                            .build_signed_int_to_float(
+                                lhs_val.into_int_value(),
+                                self.context.f64_type(),
+                                "cast_l",
+                            )
+                            .unwrap()
+                    } else {
+                        lhs_val.into_float_value()
+                    };
 
-                    // Comparações retornam Int (0 ou 1), Aritmética retorna Float
+                    let r_float = if rhs_type == BrixType::Int {
+                        self.builder
+                            .build_signed_int_to_float(
+                                rhs_val.into_int_value(),
+                                self.context.f64_type(),
+                                "cast_r",
+                            )
+                            .unwrap()
+                    } else {
+                        rhs_val.into_float_value()
+                    };
+
+                    let val = self.compile_float_op(op, l_float, r_float)?;
+
                     let res_type = match op {
                         BinaryOp::Gt
                         | BinaryOp::Lt
@@ -325,7 +426,6 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     };
                     Some((val, res_type))
                 } else {
-                    // Operações com Int
                     let val = self.compile_int_op(
                         op,
                         lhs_val.into_int_value(),
@@ -355,6 +455,22 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
             Expr::FieldAccess { target, field } => {
                 let (target_val, target_type) = self.compile_expr(target)?;
+
+                if target_type == BrixType::String {
+                    if field == "len" {
+                        let ptr = target_val.into_pointer_value();
+                        let str_type = self.get_string_type();
+                        let len_ptr = self
+                            .builder
+                            .build_struct_gep(str_type, ptr, 0, "len_ptr")
+                            .unwrap();
+                        let len_val = self
+                            .builder
+                            .build_load(self.context.i64_type(), len_ptr, "len_val")
+                            .unwrap();
+                        return Some((len_val, BrixType::Int));
+                    }
+                }
 
                 if target_type == BrixType::Matrix {
                     let target_ptr = target_val.into_pointer_value();
@@ -648,6 +764,14 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         let ptr_type = self.context.ptr_type(AddressSpace::default());
         self.context
             .struct_type(&[i64_type.into(), i64_type.into(), ptr_type.into()], false)
+    }
+
+    fn get_string_type(&self) -> inkwell::types::StructType<'ctx> {
+        let i64_type = self.context.i64_type();
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        // Struct { len: i64, data: char* }
+        self.context
+            .struct_type(&[i64_type.into(), ptr_type.into()], false)
     }
 
     fn compile_matrix_constructor(&self, args: &[Expr]) -> Option<BasicValueEnum<'ctx>> {
