@@ -288,7 +288,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 if let Expr::Identifier(fn_name) = func.as_ref() {
                     if fn_name == "input" {
                         if args.len() == 0 {
-                            eprintln!("Erro: input() requer um tipo ('int', 'float', 'string').");
+                            eprintln!("Error: input() requires a type ('int', 'float', 'string').");
                             return None;
                         }
                         if let Expr::Literal(Literal::String(type_str)) = &args[0] {
@@ -297,7 +297,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                 "float" => return self.compile_input_float(),
                                 "string" => return self.compile_input_string(),
                                 _ => {
-                                    eprintln!("Erro: Tipo de input desconhecido '{}'.", type_str);
+                                    eprintln!("Error: Unknown input type '{}'.", type_str);
                                     return None;
                                 }
                             }
@@ -346,6 +346,14 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         None
                     }
                 }
+            }
+
+            Expr::FieldAccess { target, field } => {
+                eprintln!(
+                    "Warning: Field access '.{}' not implemented in backend yet.",
+                    field
+                );
+                self.compile_expr(target)
             }
 
             Expr::Match { .. } => {

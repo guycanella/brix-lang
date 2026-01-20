@@ -148,14 +148,14 @@ pub enum Token {
     #[token("?")]
     Question, // Ternary
 
-    #[token(".")]
-    Dot,
-
     #[token(",")]
     Comma,
 
     #[token(":")]
     Colon,
+
+    #[token(".")]
+    Dot,
 
     // --- Delimiters ---
     #[token("(")]
