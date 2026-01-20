@@ -140,7 +140,24 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
             .clone()
             .delimited_by(just(Token::LParen), just(Token::RParen)));
 
-        let index = atom
+        let call = atom
+            .clone()
+            .then(
+                expr.clone()
+                    .separated_by(just(Token::Comma))
+                    .allow_trailing()
+                    .delimited_by(just(Token::LParen), just(Token::RParen))
+                    .or_not(),
+            )
+            .map(|(func, maybe_args)| match maybe_args {
+                Some(args) => Expr::Call {
+                    func: Box::new(func),
+                    args,
+                },
+                None => func,
+            });
+
+        let index = call
             .clone()
             .then(
                 expr.clone()
@@ -208,7 +225,7 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
                 rhs: Box::new(rhs),
             });
 
-        bitwise
+        let comparison = bitwise
             .clone()
             .then(
                 just(Token::DoubleEq)
@@ -228,6 +245,36 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
                     lhs: Box::new(lhs),
                     rhs: Box::new(rhs),
                 },
-            })
+            });
+
+        let logic_and = comparison
+            .clone()
+            .then(
+                just(Token::And)
+                    .to(BinaryOp::LogicalAnd)
+                    .then(comparison)
+                    .repeated(),
+            )
+            .foldl(|lhs, (op, rhs)| Expr::Binary {
+                op,
+                lhs: Box::new(lhs),
+                rhs: Box::new(rhs),
+            });
+
+        let logic_or = logic_and
+            .clone()
+            .then(
+                just(Token::Or)
+                    .to(BinaryOp::LogicalOr)
+                    .then(logic_and)
+                    .repeated(),
+            )
+            .foldl(|lhs, (op, rhs)| Expr::Binary {
+                op,
+                lhs: Box::new(lhs),
+                rhs: Box::new(rhs),
+            });
+
+        logic_or
     })
 }
