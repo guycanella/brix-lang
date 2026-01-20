@@ -304,6 +304,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         }
                     }
 
+                    if fn_name == "matrix" {
+                        return self.compile_matrix_constructor(&args);
+                    }
+
                     let mut compiled_args = Vec::new();
                     for arg in args {
                         let val = self.compile_expr(arg)?;
@@ -349,11 +353,41 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             }
 
             Expr::FieldAccess { target, field } => {
-                eprintln!(
-                    "Warning: Field access '.{}' not implemented in backend yet.",
-                    field
-                );
-                self.compile_expr(target)
+                let target_ptr = self.compile_expr(target)?.into_pointer_value();
+                let matrix_type = self.get_matrix_type();
+
+                let index = match field.as_str() {
+                    "rows" => 0,
+                    "cols" => 1,
+                    "data" => 2,
+                    _ => {
+                        eprintln!("Erro: Campo desconhecido '{}'.", field);
+                        return None;
+                    }
+                };
+
+                let field_ptr = self
+                    .builder
+                    .build_struct_gep(matrix_type, target_ptr, index, "field_ptr")
+                    .unwrap();
+
+                let loaded_val = match index {
+                    0 | 1 => self
+                        .builder
+                        .build_load(self.context.i64_type(), field_ptr, "load_field")
+                        .unwrap(),
+
+                    _ => self
+                        .builder
+                        .build_load(
+                            self.context.ptr_type(AddressSpace::default()),
+                            field_ptr,
+                            "load_ptr",
+                        )
+                        .unwrap(),
+                };
+
+                Some(loaded_val)
             }
 
             Expr::Match { .. } => {
@@ -631,5 +665,51 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             .build_int_z_extend(bool_val, i64_type, "bool_to_int")
             .ok()?;
         Some(int_val.as_basic_value_enum())
+    }
+
+    fn get_matrix_type(&self) -> inkwell::types::StructType<'ctx> {
+        let i64_type = self.context.i64_type();
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        self.context
+            .struct_type(&[i64_type.into(), i64_type.into(), ptr_type.into()], false)
+    }
+
+    fn compile_matrix_constructor(&self, args: &[Expr]) -> Option<BasicValueEnum<'ctx>> {
+        if args.len() != 2 {
+            eprintln!("Erro: matrix() requer 2 argumentos: matrix(rows, cols)");
+            return None;
+        }
+
+        let rows_val = self.compile_expr(&args[0])?.into_int_value();
+        let cols_val = self.compile_expr(&args[1])?.into_int_value();
+
+        let matrix_struct_type = self.get_matrix_type();
+        let matrix_ptr = self
+            .builder
+            .build_alloca(matrix_struct_type, "matrix_obj")
+            .unwrap();
+
+        let rows_ptr = self
+            .builder
+            .build_struct_gep(matrix_struct_type, matrix_ptr, 0, "rows_ptr")
+            .unwrap();
+        self.builder.build_store(rows_ptr, rows_val).unwrap();
+
+        let cols_ptr = self
+            .builder
+            .build_struct_gep(matrix_struct_type, matrix_ptr, 1, "cols_ptr")
+            .unwrap();
+        self.builder.build_store(cols_ptr, cols_val).unwrap();
+
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let null_ptr = ptr_type.const_null();
+
+        let data_field_ptr = self
+            .builder
+            .build_struct_gep(matrix_struct_type, matrix_ptr, 2, "data_ptr")
+            .unwrap();
+        self.builder.build_store(data_field_ptr, null_ptr).unwrap();
+
+        Some(matrix_ptr.as_basic_value_enum())
     }
 }
