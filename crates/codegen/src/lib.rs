@@ -29,19 +29,32 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         }
     }
 
+    // --- EXTERNAL FUNCTIONS (LibC) ---
+
     fn get_printf(&self) -> inkwell::values::FunctionValue<'ctx> {
         if let Some(fn_val) = self.module.get_function("printf") {
             return fn_val;
         }
-
         let i32_type = self.context.i32_type();
         let ptr_type = self.context.ptr_type(AddressSpace::default());
-
         let fn_type = i32_type.fn_type(&[ptr_type.into()], true);
-
         self.module
             .add_function("printf", fn_type, Some(Linkage::External))
     }
+
+    fn get_scanf(&self) -> inkwell::values::FunctionValue<'ctx> {
+        if let Some(fn_val) = self.module.get_function("scanf") {
+            return fn_val;
+        }
+        let i32_type = self.context.i32_type();
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        // scanf returns i32 and accepts variable pointers
+        let fn_type = i32_type.fn_type(&[ptr_type.into()], true);
+        self.module
+            .add_function("scanf", fn_type, Some(Linkage::External))
+    }
+
+    // --- MAIN COMPILATION ---
 
     pub fn compile_program(&mut self, program: &Program) {
         let i64_type = self.context.i64_type();
@@ -69,7 +82,6 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         let array_type = array_val.get_type();
                         let ptr = self.builder.build_alloca(array_type, name).unwrap();
                         self.builder.build_store(ptr, array_val).unwrap();
-
                         (ptr, array_type.into())
                     } else if val.is_float_value() {
                         let f64_type = self.context.f64_type();
@@ -77,7 +89,6 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         self.builder
                             .build_store(ptr, val.into_float_value())
                             .unwrap();
-
                         (ptr, f64_type.into())
                     } else if val.is_pointer_value() {
                         let ptr_type = self.context.ptr_type(AddressSpace::default());
@@ -85,13 +96,11 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         self.builder
                             .build_store(ptr, val.into_pointer_value())
                             .unwrap();
-
                         (ptr, ptr_type.into())
                     } else {
                         let i64_type = self.context.i64_type();
                         let ptr = self.builder.build_alloca(i64_type, name).unwrap();
                         self.builder.build_store(ptr, val.into_int_value()).unwrap();
-
                         (ptr, i64_type.into())
                     };
 
@@ -116,7 +125,6 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
                 use inkwell::values::BasicMetadataValueEnum;
                 let mut compiled_args: Vec<BasicMetadataValueEnum> = Vec::new();
-
                 compiled_args.push(global_str.as_pointer_value().into());
 
                 for arg in args {
@@ -124,7 +132,6 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         compiled_args.push(val.into());
                     }
                 }
-
                 self.builder
                     .build_call(printf_fn, &compiled_args, "call_printf")
                     .unwrap();
@@ -146,7 +153,6 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 else_block,
             } => {
                 let cond_val = self.compile_expr(condition).unwrap().into_int_value();
-
                 let i64_type = self.context.i64_type();
                 let zero = i64_type.const_int(0, false);
                 let cond_bool = self
@@ -171,7 +177,6 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     self.compile_stmt(else_stmt, function);
                 }
                 let _ = self.builder.build_unconditional_branch(merge_bb);
-
                 self.builder.position_at_end(merge_bb);
             }
 
@@ -181,13 +186,11 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let after_bb = self.context.append_basic_block(function, "while_after");
 
                 let _ = self.builder.build_unconditional_branch(header_bb);
-
                 self.builder.position_at_end(header_bb);
 
                 let cond_val = self.compile_expr(condition).unwrap().into_int_value();
                 let i64_type = self.context.i64_type();
                 let zero = i64_type.const_int(0, false);
-
                 let cond_bool = self
                     .builder
                     .build_int_compare(inkwell::IntPredicate::NE, cond_val, zero, "loop_cond")
@@ -200,7 +203,6 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 self.builder.position_at_end(body_bb);
                 self.compile_stmt(body, function);
                 let _ = self.builder.build_unconditional_branch(header_bb);
-
                 self.builder.position_at_end(after_bb);
             }
         }
@@ -213,64 +215,53 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     let i64_type = self.context.i64_type();
                     Some(i64_type.const_int(*i as u64, false).as_basic_value_enum())
                 }
-
                 Literal::Float(f) => {
                     let f64_type = self.context.f64_type();
                     Some(f64_type.const_float(*f).as_basic_value_enum())
                 }
-
                 Literal::Bool(b) => {
                     let i64_type = self.context.i64_type();
                     let val = if *b { 1 } else { 0 };
                     Some(i64_type.const_int(val, false).as_basic_value_enum())
                 }
-
                 Literal::String(s) => {
                     let s_val = self.context.const_string(s.as_bytes(), true);
                     let global = self.module.add_global(s_val.get_type(), None, "str_lit");
                     global.set_initializer(&s_val);
                     global.set_linkage(Linkage::Internal);
-
                     let ptr = global.as_pointer_value();
-
                     let zero = self.context.i64_type().const_int(0, false);
                     let i8_ptr = unsafe {
                         self.builder
                             .build_gep(s_val.get_type(), ptr, &[zero, zero], "str_ptr")
                             .ok()?
                     };
-
                     Some(i8_ptr.as_basic_value_enum())
                 }
             },
 
             Expr::Array(elements) => {
                 let i64_type = self.context.i64_type();
-
                 let mut compiled_elements = Vec::new();
                 for el in elements {
                     let val = self.compile_expr(el)?.into_int_value();
                     compiled_elements.push(val);
                 }
-
                 let const_array = i64_type.const_array(&compiled_elements);
                 Some(const_array.as_basic_value_enum())
             }
 
             Expr::Index { array, index } => {
                 let index_val = self.compile_expr(index)?.into_int_value();
-
                 if let Expr::Identifier(name) = array.as_ref() {
                     if let Some((ptr, _)) = self.variables.get(name) {
                         let i64_type = self.context.i64_type();
                         let zero = i64_type.const_int(0, false);
-
                         unsafe {
                             let item_ptr = self
                                 .builder
                                 .build_gep(i64_type, *ptr, &[zero, index_val], "array_item_ptr")
                                 .ok()?;
-
                             let loaded = self
                                 .builder
                                 .build_load(i64_type, item_ptr, "array_item")
@@ -293,6 +284,52 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 }
             },
 
+            Expr::Call { func, args } => {
+                if let Expr::Identifier(fn_name) = func.as_ref() {
+                    if fn_name == "input" {
+                        if args.len() == 0 {
+                            eprintln!("Erro: input() requer um tipo ('int', 'float', 'string').");
+                            return None;
+                        }
+                        if let Expr::Literal(Literal::String(type_str)) = &args[0] {
+                            match type_str.as_str() {
+                                "int" => return self.compile_input_int(),
+                                "float" => return self.compile_input_float(),
+                                "string" => return self.compile_input_string(),
+                                _ => {
+                                    eprintln!("Erro: Tipo de input desconhecido '{}'.", type_str);
+                                    return None;
+                                }
+                            }
+                        }
+                    }
+
+                    let mut compiled_args = Vec::new();
+                    for arg in args {
+                        let val = self.compile_expr(arg)?;
+                        compiled_args.push(val.into());
+                    }
+
+                    let function = if let Some(f) = self.module.get_function(fn_name) {
+                        f
+                    } else {
+                        let f64_type = self.context.f64_type();
+                        let arg_types: Vec<inkwell::types::BasicMetadataTypeEnum> =
+                            args.iter().map(|_| f64_type.into()).collect();
+                        let fn_type = f64_type.fn_type(&arg_types, false);
+                        self.module
+                            .add_function(fn_name, fn_type, Some(Linkage::External))
+                    };
+
+                    let call_val = self
+                        .builder
+                        .build_call(function, &compiled_args, "tmp_call")
+                        .unwrap();
+                    return Some(call_val.try_as_basic_value().left().unwrap());
+                }
+                None
+            }
+
             Expr::Binary { op, lhs, rhs } => {
                 let left_val = self.compile_expr(lhs)?;
                 let right_val = self.compile_expr(rhs)?;
@@ -311,9 +348,134 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 }
             }
 
-            _ => None,
+            Expr::Match { .. } => {
+                eprintln!("Warning: 'Match' expression not implemented in backend yet.");
+                None
+            }
         }
     }
+
+    fn compile_input_int(&self) -> Option<BasicValueEnum<'ctx>> {
+        let scanf_fn = self.get_scanf();
+        let i64_type = self.context.i64_type();
+
+        let alloca = self
+            .builder
+            .build_alloca(i64_type, "input_int_tmp")
+            .unwrap();
+
+        let format_str = self.context.const_string(b"%lld\0", true);
+        let global_fmt = self
+            .module
+            .add_global(format_str.get_type(), None, "fmt_scan_int");
+        global_fmt.set_initializer(&format_str);
+        global_fmt.set_linkage(Linkage::Internal);
+
+        let zero = i64_type.const_int(0, false);
+        let fmt_ptr = unsafe {
+            self.builder
+                .build_gep(
+                    format_str.get_type(),
+                    global_fmt.as_pointer_value(),
+                    &[zero, zero],
+                    "fmt_ptr",
+                )
+                .ok()?
+        };
+
+        self.builder
+            .build_call(scanf_fn, &[fmt_ptr.into(), alloca.into()], "call_scanf")
+            .unwrap();
+        let val = self
+            .builder
+            .build_load(i64_type, alloca, "read_int")
+            .unwrap();
+        Some(val)
+    }
+
+    fn compile_input_float(&self) -> Option<BasicValueEnum<'ctx>> {
+        let scanf_fn = self.get_scanf();
+        let f64_type = self.context.f64_type();
+        let i64_type = self.context.i64_type();
+
+        let alloca = self
+            .builder
+            .build_alloca(f64_type, "input_float_tmp")
+            .unwrap();
+
+        let format_str = self.context.const_string(b"%lf\0", true);
+        let global_fmt = self
+            .module
+            .add_global(format_str.get_type(), None, "fmt_scan_float");
+        global_fmt.set_initializer(&format_str);
+        global_fmt.set_linkage(Linkage::Internal);
+
+        let zero = i64_type.const_int(0, false);
+        let fmt_ptr = unsafe {
+            self.builder
+                .build_gep(
+                    format_str.get_type(),
+                    global_fmt.as_pointer_value(),
+                    &[zero, zero],
+                    "fmt_ptr",
+                )
+                .ok()?
+        };
+
+        self.builder
+            .build_call(scanf_fn, &[fmt_ptr.into(), alloca.into()], "call_scanf")
+            .unwrap();
+        let val = self
+            .builder
+            .build_load(f64_type, alloca, "read_float")
+            .unwrap();
+        Some(val)
+    }
+
+    fn compile_input_string(&self) -> Option<BasicValueEnum<'ctx>> {
+        let scanf_fn = self.get_scanf();
+        let i64_type = self.context.i64_type();
+
+        // 1. Cria buffer de 256 bytes na pilha [256 x i8]
+        let array_type = self.context.i8_type().array_type(256);
+        let alloca = self
+            .builder
+            .build_alloca(array_type, "input_str_buffer")
+            .unwrap();
+
+        // 2. Formato "%s" (lê string até espaço ou enter)
+        let format_str = self.context.const_string(b"%s\0", true);
+        let global_fmt = self
+            .module
+            .add_global(format_str.get_type(), None, "fmt_scan_str");
+        global_fmt.set_initializer(&format_str);
+        global_fmt.set_linkage(Linkage::Internal);
+
+        let zero = i64_type.const_int(0, false);
+        let fmt_ptr = unsafe {
+            self.builder
+                .build_gep(
+                    format_str.get_type(),
+                    global_fmt.as_pointer_value(),
+                    &[zero, zero],
+                    "fmt_ptr",
+                )
+                .ok()?
+        };
+        let buffer_ptr = unsafe {
+            self.builder
+                .build_gep(array_type, alloca, &[zero, zero], "buff_ptr")
+                .ok()?
+        };
+
+        self.builder
+            .build_call(scanf_fn, &[fmt_ptr.into(), buffer_ptr.into()], "call_scanf")
+            .unwrap();
+
+        Some(buffer_ptr.as_basic_value_enum())
+    }
+
+    // --- MATH OPERATORS ---
 
     fn compile_int_op(
         &self,
@@ -352,13 +514,13 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     .ok()?
                     .as_basic_value_enum(),
             ),
-            BinaryOp::BitAnd => Some(
+            BinaryOp::BitAnd | BinaryOp::LogicalAnd => Some(
                 self.builder
                     .build_and(lhs, rhs, "tmp_and")
                     .ok()?
                     .as_basic_value_enum(),
             ),
-            BinaryOp::BitOr => Some(
+            BinaryOp::BitOr | BinaryOp::LogicalOr => Some(
                 self.builder
                     .build_or(lhs, rhs, "tmp_or")
                     .ok()?
@@ -417,10 +579,6 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     .ok()?
                     .as_basic_value_enum(),
             ),
-
-            // Bitwise does not exist for float, returns error or None
-            BinaryOp::BitAnd | BinaryOp::BitOr | BinaryOp::BitXor => None,
-
             BinaryOp::Gt => self.compile_float_cmp(FloatPredicate::OGT, lhs, rhs),
             BinaryOp::Lt => self.compile_float_cmp(FloatPredicate::OLT, lhs, rhs),
             BinaryOp::GtEq => self.compile_float_cmp(FloatPredicate::OGE, lhs, rhs),
@@ -460,7 +618,6 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             .build_float_compare(pred, lhs, rhs, "tmp_fcmp")
             .ok()?;
         let i64_type = self.context.i64_type();
-        // Convert bool (1 bit) to int (64 bits) to keep consistency
         let int_val = self
             .builder
             .build_int_z_extend(bool_val, i64_type, "bool_to_int")

@@ -33,6 +33,12 @@ pub enum Token {
     #[token("false")]
     False,
 
+    #[token("&&")]
+    And,
+
+    #[token("||")]
+    Or,
+
     #[token("while")]
     While,
 
