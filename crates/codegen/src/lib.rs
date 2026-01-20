@@ -1,18 +1,28 @@
-use inkwell::AddressSpace;
-use inkwell::FloatPredicate;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::{Linkage, Module};
 use inkwell::types::BasicTypeEnum;
 use inkwell::values::{BasicValue, BasicValueEnum, FloatValue, IntValue, PointerValue};
+use inkwell::{AddressSpace, FloatPredicate, IntPredicate};
 use parser::ast::{BinaryOp, Expr, Literal, Program, Stmt};
 use std::collections::HashMap;
+
+// --- BRIX TYPE SYSTEM ---
+#[derive(Debug, Clone, PartialEq)]
+pub enum BrixType {
+    Int,
+    Float,
+    String,
+    Matrix,
+    FloatPtr,
+    Void,
+}
 
 pub struct Compiler<'a, 'ctx> {
     pub context: &'ctx Context,
     pub builder: &'a Builder<'ctx>,
     pub module: &'a Module<'ctx>,
-    pub variables: HashMap<String, (PointerValue<'ctx>, BasicTypeEnum<'ctx>)>,
+    pub variables: HashMap<String, (PointerValue<'ctx>, BrixType)>,
 }
 
 impl<'a, 'ctx> Compiler<'a, 'ctx> {
@@ -27,6 +37,28 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             module,
             variables: HashMap::new(),
         }
+    }
+
+    // --- AUXILIARY LLVM FUNCTIONS ---
+
+    fn create_entry_block_alloca(&self, ty: BasicTypeEnum<'ctx>, name: &str) -> PointerValue<'ctx> {
+        let builder = self.context.create_builder();
+
+        let entry = self
+            .builder
+            .get_insert_block()
+            .unwrap()
+            .get_parent()
+            .unwrap()
+            .get_first_basic_block()
+            .unwrap();
+
+        match entry.get_first_instruction() {
+            Some(first_instr) => builder.position_before(&first_instr),
+            None => builder.position_at_end(entry),
+        }
+
+        builder.build_alloca(ty, name).unwrap()
     }
 
     // --- EXTERNAL FUNCTIONS (LibC) ---
@@ -48,7 +80,6 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         }
         let i32_type = self.context.i32_type();
         let ptr_type = self.context.ptr_type(AddressSpace::default());
-        // scanf returns i32 and accepts variable pointers
         let fn_type = i32_type.fn_type(&[ptr_type.into()], true);
         self.module
             .add_function("scanf", fn_type, Some(Linkage::External))
@@ -75,44 +106,37 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
     fn compile_stmt(&mut self, stmt: &Stmt, function: inkwell::values::FunctionValue<'ctx>) {
         match stmt {
-            Stmt::VariableDecl { name, value, .. } => {
-                if let Some(val) = self.compile_expr(value) {
-                    let (alloca, var_type) = if val.is_array_value() {
-                        let array_val = val.into_array_value();
-                        let array_type = array_val.get_type();
-                        let ptr = self.builder.build_alloca(array_type, name).unwrap();
-                        self.builder.build_store(ptr, array_val).unwrap();
-                        (ptr, array_type.into())
-                    } else if val.is_float_value() {
-                        let f64_type = self.context.f64_type();
-                        let ptr = self.builder.build_alloca(f64_type, name).unwrap();
-                        self.builder
-                            .build_store(ptr, val.into_float_value())
-                            .unwrap();
-                        (ptr, f64_type.into())
-                    } else if val.is_pointer_value() {
-                        let ptr_type = self.context.ptr_type(AddressSpace::default());
-                        let ptr = self.builder.build_alloca(ptr_type, name).unwrap();
-                        self.builder
-                            .build_store(ptr, val.into_pointer_value())
-                            .unwrap();
-                        (ptr, ptr_type.into())
-                    } else {
-                        let i64_type = self.context.i64_type();
-                        let ptr = self.builder.build_alloca(i64_type, name).unwrap();
-                        self.builder.build_store(ptr, val.into_int_value()).unwrap();
-                        (ptr, i64_type.into())
+            Stmt::VariableDecl {
+                name,
+                value,
+                is_const: _,
+            } => {
+                if let Some((init_val, brix_type)) = self.compile_expr(value) {
+                    // Choose LLVM type based on BrixType
+                    let llvm_type: BasicTypeEnum = match brix_type {
+                        BrixType::Int => self.context.i64_type().into(),
+                        BrixType::Float => self.context.f64_type().into(),
+                        // Strings, Matrices and Pointers are stored as ptr (pointer)
+                        BrixType::String | BrixType::Matrix | BrixType::FloatPtr => {
+                            self.context.ptr_type(AddressSpace::default()).into()
+                        }
+                        _ => self.context.i64_type().into(),
                     };
 
-                    self.variables.insert(name.clone(), (alloca, var_type));
+                    let alloca = self.create_entry_block_alloca(llvm_type, name);
+                    self.builder.build_store(alloca, init_val).unwrap();
+
+                    self.variables.insert(name.clone(), (alloca, brix_type));
                 }
             }
 
             Stmt::Assignment { target, value } => {
                 if let Some((ptr, _)) = self.variables.get(target) {
-                    if let Some(val) = self.compile_expr(value) {
+                    if let Some((val, _)) = self.compile_expr(value) {
                         self.builder.build_store(*ptr, val).unwrap();
                     }
+                } else {
+                    eprintln!("Erro: Variável '{}' não declarada.", target);
                 }
             }
 
@@ -128,7 +152,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 compiled_args.push(global_str.as_pointer_value().into());
 
                 for arg in args {
-                    if let Some(val) = self.compile_expr(arg) {
+                    if let Some((val, _)) = self.compile_expr(arg) {
                         compiled_args.push(val.into());
                     }
                 }
@@ -152,12 +176,14 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 then_block,
                 else_block,
             } => {
-                let cond_val = self.compile_expr(condition).unwrap().into_int_value();
+                let (cond_val, _) = self.compile_expr(condition).unwrap();
+                let cond_int = cond_val.into_int_value(); // Assume int (booleano)
+
                 let i64_type = self.context.i64_type();
                 let zero = i64_type.const_int(0, false);
                 let cond_bool = self
                     .builder
-                    .build_int_compare(inkwell::IntPredicate::NE, cond_val, zero, "ifcond")
+                    .build_int_compare(IntPredicate::NE, cond_int, zero, "ifcond")
                     .unwrap();
 
                 let then_bb = self.context.append_basic_block(function, "then_block");
@@ -168,15 +194,19 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     .builder
                     .build_conditional_branch(cond_bool, then_bb, else_bb);
 
+                // THEN
                 self.builder.position_at_end(then_bb);
                 self.compile_stmt(then_block, function);
                 let _ = self.builder.build_unconditional_branch(merge_bb);
 
+                // ELSE
                 self.builder.position_at_end(else_bb);
                 if let Some(else_stmt) = else_block {
                     self.compile_stmt(else_stmt, function);
                 }
                 let _ = self.builder.build_unconditional_branch(merge_bb);
+
+                // MERGE
                 self.builder.position_at_end(merge_bb);
             }
 
@@ -188,12 +218,14 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let _ = self.builder.build_unconditional_branch(header_bb);
                 self.builder.position_at_end(header_bb);
 
-                let cond_val = self.compile_expr(condition).unwrap().into_int_value();
+                let (cond_val, _) = self.compile_expr(condition).unwrap();
+                let cond_int = cond_val.into_int_value();
+
                 let i64_type = self.context.i64_type();
                 let zero = i64_type.const_int(0, false);
                 let cond_bool = self
                     .builder
-                    .build_int_compare(inkwell::IntPredicate::NE, cond_val, zero, "loop_cond")
+                    .build_int_compare(IntPredicate::NE, cond_int, zero, "loop_cond")
                     .unwrap();
 
                 let _ = self
@@ -203,223 +235,275 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 self.builder.position_at_end(body_bb);
                 self.compile_stmt(body, function);
                 let _ = self.builder.build_unconditional_branch(header_bb);
+
                 self.builder.position_at_end(after_bb);
             }
         }
     }
 
-    pub fn compile_expr(&self, expr: &Expr) -> Option<BasicValueEnum<'ctx>> {
+    fn compile_expr(&self, expr: &Expr) -> Option<(BasicValueEnum<'ctx>, BrixType)> {
         match expr {
             Expr::Literal(lit) => match lit {
-                Literal::Int(i) => {
-                    let i64_type = self.context.i64_type();
-                    Some(i64_type.const_int(*i as u64, false).as_basic_value_enum())
+                Literal::Int(n) => {
+                    let val = self.context.i64_type().const_int(*n as u64, false);
+                    Some((val.into(), BrixType::Int))
                 }
-                Literal::Float(f) => {
-                    let f64_type = self.context.f64_type();
-                    Some(f64_type.const_float(*f).as_basic_value_enum())
-                }
-                Literal::Bool(b) => {
-                    let i64_type = self.context.i64_type();
-                    let val = if *b { 1 } else { 0 };
-                    Some(i64_type.const_int(val, false).as_basic_value_enum())
+                Literal::Float(n) => {
+                    let val = self.context.f64_type().const_float(*n);
+                    Some((val.into(), BrixType::Float))
                 }
                 Literal::String(s) => {
-                    let s_val = self.context.const_string(s.as_bytes(), true);
-                    let global = self.module.add_global(s_val.get_type(), None, "str_lit");
-                    global.set_initializer(&s_val);
-                    global.set_linkage(Linkage::Internal);
-                    let ptr = global.as_pointer_value();
-                    let zero = self.context.i64_type().const_int(0, false);
-                    let i8_ptr = unsafe {
-                        self.builder
-                            .build_gep(s_val.get_type(), ptr, &[zero, zero], "str_ptr")
-                            .ok()?
-                    };
-                    Some(i8_ptr.as_basic_value_enum())
+                    let str_val = self.builder.build_global_string_ptr(s, "str_lit").unwrap();
+                    Some((str_val.as_pointer_value().into(), BrixType::String))
+                }
+                Literal::Bool(b) => {
+                    let val = self.context.bool_type().const_int(*b as u64, false);
+                    Some((val.into(), BrixType::Int))
                 }
             },
 
-            Expr::Array(elements) => {
-                let i64_type = self.context.i64_type();
-                let mut compiled_elements = Vec::new();
-                for el in elements {
-                    let val = self.compile_expr(el)?.into_int_value();
-                    compiled_elements.push(val);
-                }
-                let const_array = i64_type.const_array(&compiled_elements);
-                Some(const_array.as_basic_value_enum())
-            }
-
-            Expr::Index { array, index } => {
-                let index_val = self.compile_expr(index)?.into_int_value();
-                if let Expr::Identifier(name) = array.as_ref() {
-                    if let Some((ptr, _)) = self.variables.get(name) {
-                        let i64_type = self.context.i64_type();
-                        let zero = i64_type.const_int(0, false);
-                        unsafe {
-                            let item_ptr = self
-                                .builder
-                                .build_gep(i64_type, *ptr, &[zero, index_val], "array_item_ptr")
-                                .ok()?;
-                            let loaded = self
-                                .builder
-                                .build_load(i64_type, item_ptr, "array_item")
-                                .ok()?;
-                            return Some(loaded);
-                        }
-                    }
-                }
-                None
-            }
-
             Expr::Identifier(name) => match self.variables.get(name) {
-                Some((ptr, var_type)) => {
-                    let loaded = self.builder.build_load(*var_type, *ptr, name).unwrap();
-                    Some(loaded)
-                }
+                Some((ptr, brix_type)) => match brix_type {
+                    BrixType::Matrix | BrixType::String | BrixType::FloatPtr => {
+                        let val = self
+                            .builder
+                            .build_load(self.context.ptr_type(AddressSpace::default()), *ptr, name)
+                            .unwrap();
+                        Some((val, brix_type.clone()))
+                    }
+
+                    BrixType::Int => {
+                        let val = self
+                            .builder
+                            .build_load(self.context.i64_type(), *ptr, name)
+                            .unwrap();
+                        Some((val, BrixType::Int))
+                    }
+                    BrixType::Float => {
+                        let val = self
+                            .builder
+                            .build_load(self.context.f64_type(), *ptr, name)
+                            .unwrap();
+                        Some((val, BrixType::Float))
+                    }
+                    _ => {
+                        eprintln!("Erro: Tipo não suportado em identificador.");
+                        None
+                    }
+                },
                 None => {
                     eprintln!("Error: Variable '{}' not found.", name);
                     None
                 }
             },
 
+            Expr::Binary { op, lhs, rhs } => {
+                let (lhs_val, lhs_type) = self.compile_expr(lhs)?;
+                let (rhs_val, rhs_type) = self.compile_expr(rhs)?;
+
+                let is_float_op =
+                    matches!(lhs_type, BrixType::Float) || matches!(rhs_type, BrixType::Float);
+
+                if is_float_op {
+                    // Operações com Float
+                    // Nota: Aqui assumimos conversão implícita ou que ambos já são float
+                    let val = self.compile_float_op(
+                        op,
+                        lhs_val.into_float_value(),
+                        rhs_val.into_float_value(),
+                    )?;
+
+                    // Comparações retornam Int (0 ou 1), Aritmética retorna Float
+                    let res_type = match op {
+                        BinaryOp::Gt
+                        | BinaryOp::Lt
+                        | BinaryOp::GtEq
+                        | BinaryOp::LtEq
+                        | BinaryOp::Eq
+                        | BinaryOp::NotEq => BrixType::Int,
+                        _ => BrixType::Float,
+                    };
+                    Some((val, res_type))
+                } else {
+                    // Operações com Int
+                    let val = self.compile_int_op(
+                        op,
+                        lhs_val.into_int_value(),
+                        rhs_val.into_int_value(),
+                    )?;
+                    Some((val, BrixType::Int))
+                }
+            }
+
             Expr::Call { func, args } => {
                 if let Expr::Identifier(fn_name) = func.as_ref() {
                     if fn_name == "input" {
-                        if args.len() == 0 {
-                            eprintln!("Error: input() requires a type ('int', 'float', 'string').");
-                            return None;
-                        }
-                        if let Expr::Literal(Literal::String(type_str)) = &args[0] {
-                            match type_str.as_str() {
-                                "int" => return self.compile_input_int(),
-                                "float" => return self.compile_input_float(),
-                                "string" => return self.compile_input_string(),
-                                _ => {
-                                    eprintln!("Error: Unknown input type '{}'.", type_str);
-                                    return None;
-                                }
-                            }
-                        }
+                        return self.compile_input_call(args);
                     }
-
                     if fn_name == "matrix" {
-                        return self.compile_matrix_constructor(&args);
+                        let val = self.compile_matrix_constructor(args)?;
+                        return Some((val, BrixType::Matrix));
                     }
-
                     if fn_name == "read_csv" {
-                        if args.len() != 1 {
-                            eprintln!("Error: read_csv requires 1 argument (file name).");
-                            return None;
-                        }
-
-                        let ptr_type = self.context.ptr_type(AddressSpace::default());
-                        let fn_type = ptr_type.fn_type(&[ptr_type.into()], false);
-
-                        let read_csv_fn =
-                            self.module.get_function("read_csv").unwrap_or_else(|| {
-                                self.module.add_function(
-                                    "read_csv",
-                                    fn_type,
-                                    Some(Linkage::External),
-                                )
-                            });
-
-                        let filename_arg = self.compile_expr(&args[0])?;
-                        let call = self
-                            .builder
-                            .build_call(read_csv_fn, &[filename_arg.into()], "call_read_csv")
-                            .unwrap();
-
-                        return Some(call.try_as_basic_value().left().unwrap());
+                        let ptr = self.compile_read_csv(args)?;
+                        return Some((ptr, BrixType::Matrix));
                     }
-
-                    let mut compiled_args = Vec::new();
-                    for arg in args {
-                        let val = self.compile_expr(arg)?;
-                        compiled_args.push(val.into());
-                    }
-
-                    let function = if let Some(f) = self.module.get_function(fn_name) {
-                        f
-                    } else {
-                        let f64_type = self.context.f64_type();
-                        let arg_types: Vec<inkwell::types::BasicMetadataTypeEnum> =
-                            args.iter().map(|_| f64_type.into()).collect();
-                        let fn_type = f64_type.fn_type(&arg_types, false);
-                        self.module
-                            .add_function(fn_name, fn_type, Some(Linkage::External))
-                    };
-
-                    let call_val = self
-                        .builder
-                        .build_call(function, &compiled_args, "tmp_call")
-                        .unwrap();
-                    return Some(call_val.try_as_basic_value().left().unwrap());
                 }
+                eprintln!("Função desconhecida: {:?}", func);
                 None
             }
 
-            Expr::Binary { op, lhs, rhs } => {
-                let left_val = self.compile_expr(lhs)?;
-                let right_val = self.compile_expr(rhs)?;
+            Expr::FieldAccess { target, field } => {
+                let (target_val, target_type) = self.compile_expr(target)?;
 
-                match (left_val, right_val) {
-                    (BasicValueEnum::IntValue(l), BasicValueEnum::IntValue(r)) => {
-                        self.compile_int_op(op, l, r)
+                if target_type == BrixType::Matrix {
+                    let target_ptr = target_val.into_pointer_value();
+                    let matrix_type = self.get_matrix_type();
+
+                    let index = match field.as_str() {
+                        "rows" => 0,
+                        "cols" => 1,
+                        "data" => 2,
+                        _ => return None,
+                    };
+
+                    let field_ptr = self
+                        .builder
+                        .build_struct_gep(matrix_type, target_ptr, index, "field_ptr")
+                        .unwrap();
+
+                    let val = match index {
+                        0 | 1 => {
+                            let v = self
+                                .builder
+                                .build_load(self.context.i64_type(), field_ptr, "load_field")
+                                .unwrap();
+                            (v, BrixType::Int)
+                        }
+                        _ => {
+                            let v = self
+                                .builder
+                                .build_load(
+                                    self.context.ptr_type(AddressSpace::default()),
+                                    field_ptr,
+                                    "load_ptr",
+                                )
+                                .unwrap();
+                            (v, BrixType::FloatPtr)
+                        }
+                    };
+                    return Some(val);
+                }
+                eprintln!("Type error: Access field on non-matrix.");
+                None
+            }
+
+            Expr::Index { array, index } => {
+                let (target_val, target_type) = self.compile_expr(array)?;
+                let (index_val, _) = self.compile_expr(index)?;
+                let index_int = index_val.into_int_value();
+
+                match target_type {
+                    BrixType::Matrix => {
+                        // m[i] -> Retorna ponteiro para o inicio da linha
+                        let ptr = target_val.into_pointer_value();
+                        let matrix_type = self.get_matrix_type();
+
+                        // Cols
+                        let cols_ptr = self
+                            .builder
+                            .build_struct_gep(matrix_type, ptr, 1, "cols")
+                            .unwrap();
+                        let cols = self
+                            .builder
+                            .build_load(self.context.i64_type(), cols_ptr, "cols")
+                            .unwrap()
+                            .into_int_value();
+
+                        // Data
+                        let data_ptr_ptr = self
+                            .builder
+                            .build_struct_gep(matrix_type, ptr, 2, "data")
+                            .unwrap();
+                        let data = self
+                            .builder
+                            .build_load(
+                                self.context.ptr_type(AddressSpace::default()),
+                                data_ptr_ptr,
+                                "data",
+                            )
+                            .unwrap()
+                            .into_pointer_value();
+
+                        // Offset = i * cols
+                        let offset = self
+                            .builder
+                            .build_int_mul(index_int, cols, "offset")
+                            .unwrap();
+
+                        unsafe {
+                            let f64 = self.context.f64_type();
+                            let row_start = self
+                                .builder
+                                .build_gep(f64, data, &[offset], "row_ptr")
+                                .unwrap();
+                            Some((row_start.as_basic_value_enum(), BrixType::FloatPtr))
+                        }
                     }
-                    (BasicValueEnum::FloatValue(l), BasicValueEnum::FloatValue(r)) => {
-                        self.compile_float_op(op, l, r)
+
+                    BrixType::FloatPtr => {
+                        // (m[i])[j] -> Retorna o float
+                        let ptr = target_val.into_pointer_value();
+                        unsafe {
+                            let f64 = self.context.f64_type();
+                            let item_ptr = self
+                                .builder
+                                .build_gep(f64, ptr, &[index_int], "item_ptr")
+                                .unwrap();
+                            let val = self.builder.build_load(f64, item_ptr, "val").unwrap();
+                            Some((val, BrixType::Float))
+                        }
                     }
+
                     _ => {
-                        eprintln!("Error: Mismatched types in binary operation.");
+                        eprintln!("Type error: Trying to index {:?}", target_type);
                         None
                     }
                 }
             }
 
-            Expr::FieldAccess { target, field } => {
-                let target_ptr = self.compile_expr(target)?.into_pointer_value();
-                let matrix_type = self.get_matrix_type();
-
-                let index = match field.as_str() {
-                    "rows" => 0,
-                    "cols" => 1,
-                    "data" => 2,
-                    _ => {
-                        eprintln!("Erro: Campo desconhecido '{}'.", field);
-                        return None;
-                    }
-                };
-
-                let field_ptr = self
-                    .builder
-                    .build_struct_gep(matrix_type, target_ptr, index, "field_ptr")
-                    .unwrap();
-
-                let loaded_val = match index {
-                    0 | 1 => self
-                        .builder
-                        .build_load(self.context.i64_type(), field_ptr, "load_field")
-                        .unwrap(),
-
-                    _ => self
-                        .builder
-                        .build_load(
-                            self.context.ptr_type(AddressSpace::default()),
-                            field_ptr,
-                            "load_ptr",
-                        )
-                        .unwrap(),
-                };
-
-                Some(loaded_val)
-            }
-
-            Expr::Match { .. } => {
-                eprintln!("Warning: 'Match' expression not implemented in backend yet.");
+            _ => {
+                eprintln!("Expressão não implementada na v0.3");
                 None
+            }
+        }
+    }
+
+    // --- HELPER FUNCTIONS ---
+
+    fn compile_input_call(&self, args: &[Expr]) -> Option<(BasicValueEnum<'ctx>, BrixType)> {
+        let arg_str = if args.len() > 0 {
+            if let Expr::Literal(Literal::String(s)) = &args[0] {
+                s.as_str()
+            } else {
+                "string"
+            }
+        } else {
+            "string"
+        };
+
+        match arg_str {
+            "int" => {
+                let val = self.compile_input_int()?;
+                Some((val, BrixType::Int))
+            }
+            "float" => {
+                let val = self.compile_input_float()?;
+                Some((val, BrixType::Float))
+            }
+            _ => {
+                let val = self.compile_input_string()?;
+                Some((val, BrixType::String))
             }
         }
     }
@@ -427,7 +511,6 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     fn compile_input_int(&self) -> Option<BasicValueEnum<'ctx>> {
         let scanf_fn = self.get_scanf();
         let i64_type = self.context.i64_type();
-
         let alloca = self
             .builder
             .build_alloca(i64_type, "input_int_tmp")
@@ -465,8 +548,6 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     fn compile_input_float(&self) -> Option<BasicValueEnum<'ctx>> {
         let scanf_fn = self.get_scanf();
         let f64_type = self.context.f64_type();
-        let i64_type = self.context.i64_type();
-
         let alloca = self
             .builder
             .build_alloca(f64_type, "input_float_tmp")
@@ -479,7 +560,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         global_fmt.set_initializer(&format_str);
         global_fmt.set_linkage(Linkage::Internal);
 
-        let zero = i64_type.const_int(0, false);
+        let zero = self.context.i64_type().const_int(0, false);
         let fmt_ptr = unsafe {
             self.builder
                 .build_gep(
@@ -503,16 +584,12 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
     fn compile_input_string(&self) -> Option<BasicValueEnum<'ctx>> {
         let scanf_fn = self.get_scanf();
-        let i64_type = self.context.i64_type();
-
-        // 1. Cria buffer de 256 bytes na pilha [256 x i8]
         let array_type = self.context.i8_type().array_type(256);
         let alloca = self
             .builder
             .build_alloca(array_type, "input_str_buffer")
             .unwrap();
 
-        // 2. Formato "%s" (lê string até espaço ou enter)
         let format_str = self.context.const_string(b"%s\0", true);
         let global_fmt = self
             .module
@@ -520,7 +597,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         global_fmt.set_initializer(&format_str);
         global_fmt.set_linkage(Linkage::Internal);
 
-        let zero = i64_type.const_int(0, false);
+        let zero = self.context.i64_type().const_int(0, false);
         let fmt_ptr = unsafe {
             self.builder
                 .build_gep(
@@ -540,8 +617,77 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         self.builder
             .build_call(scanf_fn, &[fmt_ptr.into(), buffer_ptr.into()], "call_scanf")
             .unwrap();
-
         Some(buffer_ptr.as_basic_value_enum())
+    }
+
+    fn compile_read_csv(&self, args: &[Expr]) -> Option<BasicValueEnum<'ctx>> {
+        if args.len() != 1 {
+            eprintln!("Erro: read_csv requer 1 argumento.");
+            return None;
+        }
+
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let fn_type = ptr_type.fn_type(&[ptr_type.into()], false);
+
+        let read_csv_fn = self.module.get_function("read_csv").unwrap_or_else(|| {
+            self.module
+                .add_function("read_csv", fn_type, Some(Linkage::External))
+        });
+
+        let (filename_arg, _) = self.compile_expr(&args[0])?;
+        let call = self
+            .builder
+            .build_call(read_csv_fn, &[filename_arg.into()], "call_read_csv")
+            .unwrap();
+
+        Some(call.try_as_basic_value().left().unwrap())
+    }
+
+    fn get_matrix_type(&self) -> inkwell::types::StructType<'ctx> {
+        let i64_type = self.context.i64_type();
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        self.context
+            .struct_type(&[i64_type.into(), i64_type.into(), ptr_type.into()], false)
+    }
+
+    fn compile_matrix_constructor(&self, args: &[Expr]) -> Option<BasicValueEnum<'ctx>> {
+        if args.len() != 2 {
+            return None;
+        }
+        let (rows_val, _) = self.compile_expr(&args[0])?;
+        let (cols_val, _) = self.compile_expr(&args[1])?;
+
+        let matrix_struct_type = self.get_matrix_type();
+        let matrix_ptr = self
+            .builder
+            .build_alloca(matrix_struct_type, "matrix_obj")
+            .unwrap();
+
+        let rows_ptr = self
+            .builder
+            .build_struct_gep(matrix_struct_type, matrix_ptr, 0, "rows_ptr")
+            .unwrap();
+        self.builder
+            .build_store(rows_ptr, rows_val.into_int_value())
+            .unwrap();
+
+        let cols_ptr = self
+            .builder
+            .build_struct_gep(matrix_struct_type, matrix_ptr, 1, "cols_ptr")
+            .unwrap();
+        self.builder
+            .build_store(cols_ptr, cols_val.into_int_value())
+            .unwrap();
+
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let null_ptr = ptr_type.const_null();
+        let data_field_ptr = self
+            .builder
+            .build_struct_gep(matrix_struct_type, matrix_ptr, 2, "data_ptr")
+            .unwrap();
+        self.builder.build_store(data_field_ptr, null_ptr).unwrap();
+
+        Some(matrix_ptr.as_basic_value_enum())
     }
 
     // --- MATH OPERATORS ---
@@ -583,30 +729,12 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     .ok()?
                     .as_basic_value_enum(),
             ),
-            BinaryOp::BitAnd | BinaryOp::LogicalAnd => Some(
-                self.builder
-                    .build_and(lhs, rhs, "tmp_and")
-                    .ok()?
-                    .as_basic_value_enum(),
-            ),
-            BinaryOp::BitOr | BinaryOp::LogicalOr => Some(
-                self.builder
-                    .build_or(lhs, rhs, "tmp_or")
-                    .ok()?
-                    .as_basic_value_enum(),
-            ),
-            BinaryOp::BitXor => Some(
-                self.builder
-                    .build_xor(lhs, rhs, "tmp_xor")
-                    .ok()?
-                    .as_basic_value_enum(),
-            ),
-            BinaryOp::Gt => self.compile_cmp(inkwell::IntPredicate::SGT, lhs, rhs),
-            BinaryOp::Lt => self.compile_cmp(inkwell::IntPredicate::SLT, lhs, rhs),
-            BinaryOp::GtEq => self.compile_cmp(inkwell::IntPredicate::SGE, lhs, rhs),
-            BinaryOp::LtEq => self.compile_cmp(inkwell::IntPredicate::SLE, lhs, rhs),
-            BinaryOp::Eq => self.compile_cmp(inkwell::IntPredicate::EQ, lhs, rhs),
-            BinaryOp::NotEq => self.compile_cmp(inkwell::IntPredicate::NE, lhs, rhs),
+            BinaryOp::Gt => self.compile_cmp(IntPredicate::SGT, lhs, rhs),
+            BinaryOp::Lt => self.compile_cmp(IntPredicate::SLT, lhs, rhs),
+            BinaryOp::GtEq => self.compile_cmp(IntPredicate::SGE, lhs, rhs),
+            BinaryOp::LtEq => self.compile_cmp(IntPredicate::SLE, lhs, rhs),
+            BinaryOp::Eq => self.compile_cmp(IntPredicate::EQ, lhs, rhs),
+            BinaryOp::NotEq => self.compile_cmp(IntPredicate::NE, lhs, rhs),
             _ => None,
         }
     }
@@ -642,12 +770,6 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     .ok()?
                     .as_basic_value_enum(),
             ),
-            BinaryOp::Mod => Some(
-                self.builder
-                    .build_float_rem(lhs, rhs, "tmp_frem")
-                    .ok()?
-                    .as_basic_value_enum(),
-            ),
             BinaryOp::Gt => self.compile_float_cmp(FloatPredicate::OGT, lhs, rhs),
             BinaryOp::Lt => self.compile_float_cmp(FloatPredicate::OLT, lhs, rhs),
             BinaryOp::GtEq => self.compile_float_cmp(FloatPredicate::OGE, lhs, rhs),
@@ -660,7 +782,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
     fn compile_cmp(
         &self,
-        pred: inkwell::IntPredicate,
+        pred: IntPredicate,
         lhs: IntValue<'ctx>,
         rhs: IntValue<'ctx>,
     ) -> Option<BasicValueEnum<'ctx>> {
@@ -692,51 +814,5 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             .build_int_z_extend(bool_val, i64_type, "bool_to_int")
             .ok()?;
         Some(int_val.as_basic_value_enum())
-    }
-
-    fn get_matrix_type(&self) -> inkwell::types::StructType<'ctx> {
-        let i64_type = self.context.i64_type();
-        let ptr_type = self.context.ptr_type(AddressSpace::default());
-        self.context
-            .struct_type(&[i64_type.into(), i64_type.into(), ptr_type.into()], false)
-    }
-
-    fn compile_matrix_constructor(&self, args: &[Expr]) -> Option<BasicValueEnum<'ctx>> {
-        if args.len() != 2 {
-            eprintln!("Erro: matrix() requer 2 argumentos: matrix(rows, cols)");
-            return None;
-        }
-
-        let rows_val = self.compile_expr(&args[0])?.into_int_value();
-        let cols_val = self.compile_expr(&args[1])?.into_int_value();
-
-        let matrix_struct_type = self.get_matrix_type();
-        let matrix_ptr = self
-            .builder
-            .build_alloca(matrix_struct_type, "matrix_obj")
-            .unwrap();
-
-        let rows_ptr = self
-            .builder
-            .build_struct_gep(matrix_struct_type, matrix_ptr, 0, "rows_ptr")
-            .unwrap();
-        self.builder.build_store(rows_ptr, rows_val).unwrap();
-
-        let cols_ptr = self
-            .builder
-            .build_struct_gep(matrix_struct_type, matrix_ptr, 1, "cols_ptr")
-            .unwrap();
-        self.builder.build_store(cols_ptr, cols_val).unwrap();
-
-        let ptr_type = self.context.ptr_type(AddressSpace::default());
-        let null_ptr = ptr_type.const_null();
-
-        let data_field_ptr = self
-            .builder
-            .build_struct_gep(matrix_struct_type, matrix_ptr, 2, "data_ptr")
-            .unwrap();
-        self.builder.build_store(data_field_ptr, null_ptr).unwrap();
-
-        Some(matrix_ptr.as_basic_value_enum())
     }
 }
