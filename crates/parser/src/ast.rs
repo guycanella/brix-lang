@@ -1,5 +1,3 @@
-// crates/parser/src/ast.rs
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum Literal {
     Int(i64),
