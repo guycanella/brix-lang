@@ -47,9 +47,15 @@ pub enum Expr {
         array: Box<Expr>,
         index: Box<Expr>,
     },
+
     Call {
         func: Box<Expr>,
         args: Vec<Expr>,
+    },
+
+    FieldAccess {
+        target: Box<Expr>,
+        field: String,
     },
 
     Match {

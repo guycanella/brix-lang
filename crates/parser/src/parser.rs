@@ -157,21 +157,43 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
                 None => func,
             });
 
-        let index = call
+        let index_or_field = call
             .clone()
             .then(
+                // Opção A: Indexação [expr]
                 expr.clone()
                     .delimited_by(just(Token::LBracket), just(Token::RBracket))
+                    .map(|idx| (true, idx, String::new())) // true = é indice
+                    // Opção B: Acesso de Campo .identificador
+                    .or(
+                        just(Token::Dot)
+                            .ignore_then(select! { Token::Identifier(name) => name })
+                            .map(|name| (false, Expr::Identifier("dummy".to_string()), name)), // false = é campo
+                    )
                     .repeated(),
             )
-            .foldl(|lhs, index_expr| Expr::Index {
-                array: Box::new(lhs),
-                index: Box::new(index_expr),
+            .foldl(|lhs, (is_index, index_expr, field_name)| {
+                if is_index {
+                    Expr::Index {
+                        array: Box::new(lhs),
+                        index: Box::new(index_expr),
+                    }
+                } else {
+                    Expr::FieldAccess {
+                        target: Box::new(lhs),
+                        field: field_name,
+                    }
+                }
             });
 
-        let power = index
+        let power = index_or_field
             .clone()
-            .then(just(Token::Pow).to(BinaryOp::Pow).then(index).repeated())
+            .then(
+                just(Token::Pow)
+                    .to(BinaryOp::Pow)
+                    .then(index_or_field)
+                    .repeated(),
+            )
             .foldl(|lhs, (op, rhs)| Expr::Binary {
                 op,
                 lhs: Box::new(lhs),
