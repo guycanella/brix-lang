@@ -250,23 +250,62 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
         let comparison = bitwise
             .clone()
             .then(
-                just(Token::DoubleEq)
-                    .to(BinaryOp::Eq)
-                    .or(just(Token::NotEq).to(BinaryOp::NotEq))
-                    .or(just(Token::Gt).to(BinaryOp::Gt))
-                    .or(just(Token::Lt).to(BinaryOp::Lt))
-                    .or(just(Token::GtEq).to(BinaryOp::GtEq))
-                    .or(just(Token::LtEq).to(BinaryOp::LtEq))
-                    .then(bitwise)
-                    .or_not(),
+                choice((
+                    just(Token::DoubleEq).to(BinaryOp::Eq),
+                    just(Token::NotEq).to(BinaryOp::NotEq),
+                    just(Token::Gt).to(BinaryOp::Gt),
+                    just(Token::Lt).to(BinaryOp::Lt),
+                    just(Token::GtEq).to(BinaryOp::GtEq),
+                    just(Token::LtEq).to(BinaryOp::LtEq),
+                ))
+                .then(bitwise.clone())
+                .repeated(),
             )
-            .map(|(lhs, maybe_op)| match maybe_op {
-                None => lhs,
-                Some((op, rhs)) => Expr::Binary {
-                    op,
+            .map(|(lhs, pairs)| {
+                if pairs.is_empty() {
+                    return lhs;
+                }
+
+                if pairs.len() == 1 {
+                    let (op, rhs) = pairs[0].clone();
+                    return Expr::Binary {
+                        op,
+                        lhs: Box::new(lhs),
+                        rhs: Box::new(rhs),
+                    };
+                }
+
+                // --- CHAINED COMPARISON ---
+                // Something like: 1 <= n <= 10
+                // Transforms into: (1 <= n) && (n <= 10)
+
+                let (first_op, first_rhs) = pairs[0].clone();
+
+                let mut final_expr = Expr::Binary {
+                    op: first_op,
                     lhs: Box::new(lhs),
-                    rhs: Box::new(rhs),
-                },
+                    rhs: Box::new(first_rhs.clone()),
+                };
+
+                let mut prev_rhs = first_rhs;
+
+                for (op, rhs) in pairs.into_iter().skip(1) {
+                    let next_comparison = Expr::Binary {
+                        op,
+                        lhs: Box::new(prev_rhs.clone()),
+                        rhs: Box::new(rhs.clone()),
+                    };
+
+                    final_expr = Expr::Binary {
+                        op: BinaryOp::LogicalAnd,
+                        lhs: Box::new(final_expr),
+                        rhs: Box::new(next_comparison),
+                    };
+
+                    prev_rhs = rhs;
+                }
+
+                final_expr
             });
 
         let logic_and = comparison
