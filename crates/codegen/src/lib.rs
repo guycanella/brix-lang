@@ -104,19 +104,146 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             .build_return(Some(&i64_type.const_int(0, false)));
     }
 
+    fn compile_lvalue_addr(&self, expr: &Expr) -> Option<PointerValue<'ctx>> {
+        match expr {
+            Expr::Identifier(name) => {
+                if let Some((ptr, _)) = self.variables.get(name) {
+                    Some(*ptr)
+                } else {
+                    eprintln!("Error: Variable '{}' not found for assignment.", name);
+                    None
+                }
+            }
+
+            Expr::Index { array, indices } => {
+                let (target_val, target_type) = self.compile_expr(array)?;
+
+                if target_type != BrixType::Matrix {
+                    return None;
+                }
+
+                let matrix_ptr = target_val.into_pointer_value();
+                let matrix_type = self.get_matrix_type();
+                let i64_type = self.context.i64_type();
+
+                let cols_ptr = self
+                    .builder
+                    .build_struct_gep(matrix_type, matrix_ptr, 1, "cols")
+                    .unwrap();
+                let cols = self
+                    .builder
+                    .build_load(i64_type, cols_ptr, "cols")
+                    .unwrap()
+                    .into_int_value();
+
+                let data_ptr_ptr = self
+                    .builder
+                    .build_struct_gep(matrix_type, matrix_ptr, 2, "data")
+                    .unwrap();
+                let data = self
+                    .builder
+                    .build_load(
+                        self.context.ptr_type(AddressSpace::default()),
+                        data_ptr_ptr,
+                        "data",
+                    )
+                    .unwrap()
+                    .into_pointer_value();
+
+                let final_offset = if indices.len() == 1 {
+                    let (idx0_val, _) = self.compile_expr(&indices[0])?;
+                    idx0_val.into_int_value()
+                } else if indices.len() == 2 {
+                    let (row_val, _) = self.compile_expr(&indices[0])?;
+                    let (col_val, _) = self.compile_expr(&indices[1])?;
+                    let row_offset = self
+                        .builder
+                        .build_int_mul(row_val.into_int_value(), cols, "row_off")
+                        .unwrap();
+                    self.builder
+                        .build_int_add(row_offset, col_val.into_int_value(), "final_off")
+                        .unwrap()
+                } else {
+                    return None;
+                };
+
+                unsafe {
+                    let f64 = self.context.f64_type();
+                    let item_ptr = self
+                        .builder
+                        .build_gep(f64, data, &[final_offset], "addr_ptr")
+                        .unwrap();
+                    Some(item_ptr)
+                }
+            }
+
+            _ => {
+                eprintln!("Error: Invalid expression for the left side of an assignment.");
+                None
+            }
+        }
+    }
+
     fn compile_stmt(&mut self, stmt: &Stmt, function: inkwell::values::FunctionValue<'ctx>) {
         match stmt {
             Stmt::VariableDecl {
                 name,
+                type_hint,
                 value,
                 is_const: _,
             } => {
-                if let Some((init_val, brix_type)) = self.compile_expr(value) {
-                    // Choose LLVM type based on BrixType
-                    let llvm_type: BasicTypeEnum = match brix_type {
+                if let Some((init_val, mut val_type)) = self.compile_expr(value) {
+                    let mut final_val = init_val;
+
+                    // --- AUTOMATIC CASTING ---
+                    if let Some(hint) = type_hint {
+                        match hint.as_str() {
+                            "int" => {
+                                if val_type == BrixType::Float {
+                                    final_val = self
+                                        .builder
+                                        .build_float_to_signed_int(
+                                            init_val.into_float_value(),
+                                            self.context.i64_type(),
+                                            "cast_f2i",
+                                        )
+                                        .unwrap()
+                                        .into();
+                                    val_type = BrixType::Int;
+                                }
+                            }
+                            "float" => {
+                                if val_type == BrixType::Int {
+                                    final_val = self
+                                        .builder
+                                        .build_signed_int_to_float(
+                                            init_val.into_int_value(),
+                                            self.context.f64_type(),
+                                            "cast_i2f",
+                                        )
+                                        .unwrap()
+                                        .into();
+                                    val_type = BrixType::Float;
+                                }
+                            }
+                            "bool" => {
+                                val_type = BrixType::Int;
+                            }
+                            "string" => {
+                                if val_type != BrixType::String {
+                                    eprintln!(
+                                        "Aviso: Tentando atribuir tipo incompatível para string."
+                                    );
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    // --- ALLOCATION ---
+                    let llvm_type: BasicTypeEnum = match val_type {
                         BrixType::Int => self.context.i64_type().into(),
                         BrixType::Float => self.context.f64_type().into(),
-                        // Strings, Matrices and Pointers are stored as ptr (pointer)
                         BrixType::String | BrixType::Matrix | BrixType::FloatPtr => {
                             self.context.ptr_type(AddressSpace::default()).into()
                         }
@@ -124,19 +251,30 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     };
 
                     let alloca = self.create_entry_block_alloca(llvm_type, name);
-                    self.builder.build_store(alloca, init_val).unwrap();
+                    self.builder.build_store(alloca, final_val).unwrap();
 
-                    self.variables.insert(name.clone(), (alloca, brix_type));
+                    self.variables.insert(name.clone(), (alloca, val_type));
                 }
             }
 
             Stmt::Assignment { target, value } => {
-                if let Some((ptr, _)) = self.variables.get(target) {
-                    if let Some((val, _)) = self.compile_expr(value) {
-                        self.builder.build_store(*ptr, val).unwrap();
+                if let Some(target_ptr) = self.compile_lvalue_addr(target) {
+                    if let Some((val, val_type)) = self.compile_expr(value) {
+                        let final_val = if val_type == BrixType::Int {
+                            self.builder
+                                .build_signed_int_to_float(
+                                    val.into_int_value(),
+                                    self.context.f64_type(),
+                                    "cast",
+                                )
+                                .unwrap()
+                                .into()
+                        } else {
+                            val
+                        };
+
+                        self.builder.build_store(target_ptr, final_val).unwrap();
                     }
-                } else {
-                    eprintln!("Erro: Variável '{}' não declarada.", target);
                 }
             }
 
@@ -339,10 +477,136 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     } else {
                         self.variables.remove(var_name);
                     }
-                } else {
-                    eprintln!(
-                        "Error: The 'for' loop currently only supports numeric ranges (e.g., 1:10)."
-                    );
+                }
+
+                let (iterable_val, iterable_type) = self
+                    .compile_expr(iterable)
+                    .expect("Error to compile iterable of the loop");
+
+                match iterable_type {
+                    BrixType::Matrix => {
+                        let matrix_ptr = iterable_val.into_pointer_value();
+                        let matrix_type = self.get_matrix_type();
+                        let i64_type = self.context.i64_type();
+
+                        let rows_ptr = self
+                            .builder
+                            .build_struct_gep(matrix_type, matrix_ptr, 0, "rows")
+                            .unwrap();
+                        let cols_ptr = self
+                            .builder
+                            .build_struct_gep(matrix_type, matrix_ptr, 1, "cols")
+                            .unwrap();
+
+                        let rows = self
+                            .builder
+                            .build_load(i64_type, rows_ptr, "rows")
+                            .unwrap()
+                            .into_int_value();
+                        let cols = self
+                            .builder
+                            .build_load(i64_type, cols_ptr, "cols")
+                            .unwrap()
+                            .into_int_value();
+
+                        let total_len =
+                            self.builder.build_int_mul(rows, cols, "total_len").unwrap();
+
+                        let idx_alloca =
+                            self.create_entry_block_alloca(i64_type.into(), "_hidden_idx");
+                        self.builder
+                            .build_store(idx_alloca, i64_type.const_int(0, false))
+                            .unwrap();
+
+                        let user_var_alloca = self
+                            .create_entry_block_alloca(self.context.f64_type().into(), var_name);
+                        let old_var = self.variables.remove(var_name);
+                        self.variables
+                            .insert(var_name.clone(), (user_var_alloca, BrixType::Float));
+
+                        let cond_bb = self.context.append_basic_block(function, "arr_cond");
+                        let body_bb = self.context.append_basic_block(function, "arr_body");
+                        let inc_bb = self.context.append_basic_block(function, "arr_inc");
+                        let after_bb = self.context.append_basic_block(function, "arr_after");
+
+                        self.builder.build_unconditional_branch(cond_bb).unwrap();
+
+                        // --- COND ---
+                        self.builder.position_at_end(cond_bb);
+                        let cur_idx = self
+                            .builder
+                            .build_load(i64_type, idx_alloca, "cur_idx")
+                            .unwrap()
+                            .into_int_value();
+                        let loop_cond = self
+                            .builder
+                            .build_int_compare(IntPredicate::SLT, cur_idx, total_len, "check_idx")
+                            .unwrap();
+                        self.builder
+                            .build_conditional_branch(loop_cond, body_bb, after_bb)
+                            .unwrap();
+
+                        // --- BODY ---
+                        self.builder.position_at_end(body_bb);
+
+                        let data_ptr_ptr = self
+                            .builder
+                            .build_struct_gep(matrix_type, matrix_ptr, 2, "data_ptr")
+                            .unwrap();
+                        let data_base = self
+                            .builder
+                            .build_load(
+                                self.context.ptr_type(AddressSpace::default()),
+                                data_ptr_ptr,
+                                "data_base",
+                            )
+                            .unwrap()
+                            .into_pointer_value();
+
+                        unsafe {
+                            let elem_ptr = self
+                                .builder
+                                .build_gep(
+                                    self.context.f64_type(),
+                                    data_base,
+                                    &[cur_idx],
+                                    "elem_ptr",
+                                )
+                                .unwrap();
+                            let elem_val = self
+                                .builder
+                                .build_load(self.context.f64_type(), elem_ptr, "elem_val")
+                                .unwrap();
+                            self.builder.build_store(user_var_alloca, elem_val).unwrap();
+                        }
+
+                        self.compile_stmt(body, function);
+                        self.builder.build_unconditional_branch(inc_bb).unwrap();
+
+                        // --- INC ---
+                        self.builder.position_at_end(inc_bb);
+                        let tmp_idx = self
+                            .builder
+                            .build_load(i64_type, idx_alloca, "idx_load")
+                            .unwrap()
+                            .into_int_value();
+                        let next_idx = self
+                            .builder
+                            .build_int_add(tmp_idx, i64_type.const_int(1, false), "idx_next")
+                            .unwrap();
+                        self.builder.build_store(idx_alloca, next_idx).unwrap();
+                        self.builder.build_unconditional_branch(cond_bb).unwrap();
+
+                        // --- AFTER ---
+                        self.builder.position_at_end(after_bb);
+
+                        if let Some(old) = old_var {
+                            self.variables.insert(var_name.clone(), old);
+                        } else {
+                            self.variables.remove(var_name);
+                        }
+                    }
+                    _ => eprintln!("Erro: Tipo {:?} não é iterável.", iterable_type),
                 }
             }
         }
@@ -377,8 +641,12 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     Some((call.try_as_basic_value().left().unwrap(), BrixType::String))
                 }
                 Literal::Bool(b) => {
-                    let val = self.context.bool_type().const_int(*b as u64, false);
-                    Some((val.into(), BrixType::Int))
+                    let bool_val = self.context.bool_type().const_int(*b as u64, false);
+                    let int_val = self
+                        .builder
+                        .build_int_z_extend(bool_val, self.context.i64_type(), "bool_ext")
+                        .unwrap();
+                    Some((int_val.into(), BrixType::Int))
                 }
             },
 
@@ -593,6 +861,25 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
             Expr::Call { func, args } => {
                 if let Expr::Identifier(fn_name) = func.as_ref() {
+                    if fn_name == "typeof" {
+                        if args.len() != 1 {
+                            eprintln!("Error: typeof expects exactly 1 argument.");
+                            return None;
+                        }
+                        let (_, arg_type) = self.compile_expr(&args[0])?;
+
+                        let type_str = match arg_type {
+                            BrixType::Int => "int",
+                            BrixType::Float => "float",
+                            BrixType::String => "string",
+                            BrixType::Matrix => "matrix",
+                            BrixType::FloatPtr => "float_ptr",
+                            BrixType::Void => "void",
+                        };
+
+                        return self
+                            .compile_expr(&Expr::Literal(Literal::String(type_str.to_string())));
+                    }
                     if fn_name == "input" {
                         return self.compile_input_call(args);
                     }
@@ -605,7 +892,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         return Some((ptr, BrixType::Matrix));
                     }
                 }
-                eprintln!("Função desconhecida: {:?}", func);
+                eprintln!("Error: Unknown function: {:?}", func);
                 None
             }
 
@@ -670,78 +957,151 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 None
             }
 
-            Expr::Index { array, index } => {
+            Expr::Index { array, indices } => {
                 let (target_val, target_type) = self.compile_expr(array)?;
-                let (index_val, _) = self.compile_expr(index)?;
-                let index_int = index_val.into_int_value();
 
-                match target_type {
-                    BrixType::Matrix => {
-                        // m[i] -> Retorna ponteiro para o inicio da linha
-                        let ptr = target_val.into_pointer_value();
-                        let matrix_type = self.get_matrix_type();
+                if target_type != BrixType::Matrix {
+                    eprintln!("Erro: Tentando indexar algo que não é matriz.");
+                    return None;
+                }
 
-                        // Cols
-                        let cols_ptr = self
-                            .builder
-                            .build_struct_gep(matrix_type, ptr, 1, "cols")
-                            .unwrap();
-                        let cols = self
-                            .builder
-                            .build_load(self.context.i64_type(), cols_ptr, "cols")
-                            .unwrap()
-                            .into_int_value();
+                let matrix_ptr = target_val.into_pointer_value();
+                let matrix_type = self.get_matrix_type();
+                let i64_type = self.context.i64_type();
 
-                        // Data
-                        let data_ptr_ptr = self
-                            .builder
-                            .build_struct_gep(matrix_type, ptr, 2, "data")
-                            .unwrap();
-                        let data = self
-                            .builder
-                            .build_load(
-                                self.context.ptr_type(AddressSpace::default()),
-                                data_ptr_ptr,
-                                "data",
+                let cols_ptr = self
+                    .builder
+                    .build_struct_gep(matrix_type, matrix_ptr, 1, "cols")
+                    .unwrap();
+                let cols = self
+                    .builder
+                    .build_load(i64_type, cols_ptr, "cols")
+                    .unwrap()
+                    .into_int_value();
+
+                let data_ptr_ptr = self
+                    .builder
+                    .build_struct_gep(matrix_type, matrix_ptr, 2, "data")
+                    .unwrap();
+                let data = self
+                    .builder
+                    .build_load(
+                        self.context.ptr_type(AddressSpace::default()),
+                        data_ptr_ptr,
+                        "data",
+                    )
+                    .unwrap()
+                    .into_pointer_value();
+
+                let final_offset = if indices.len() == 1 {
+                    let (idx0_val, _) = self.compile_expr(&indices[0])?;
+                    idx0_val.into_int_value()
+                } else if indices.len() == 2 {
+                    let (row_val, _) = self.compile_expr(&indices[0])?;
+                    let (col_val, _) = self.compile_expr(&indices[1])?;
+
+                    let row_offset = self
+                        .builder
+                        .build_int_mul(row_val.into_int_value(), cols, "row_off")
+                        .unwrap();
+                    self.builder
+                        .build_int_add(row_offset, col_val.into_int_value(), "final_off")
+                        .unwrap()
+                } else {
+                    eprintln!("Erro: Suporte apenas para 1 ou 2 índices.");
+                    return None;
+                };
+
+                unsafe {
+                    let f64 = self.context.f64_type();
+                    let item_ptr = self
+                        .builder
+                        .build_gep(f64, data, &[final_offset], "item_ptr")
+                        .unwrap();
+                    let val = self.builder.build_load(f64, item_ptr, "val").unwrap();
+
+                    Some((val, BrixType::Float))
+                }
+            }
+
+            Expr::Array(elements) => {
+                let n = elements.len() as u64;
+
+                let i64_type = self.context.i64_type();
+                let rows_val = i64_type.const_int(1, false);
+                let cols_val = i64_type.const_int(n, false);
+
+                let matrix_type = self.get_matrix_type();
+                let matrix_ptr = self.builder.build_alloca(matrix_type, "array_lit").unwrap();
+
+                let rows_ptr = self
+                    .builder
+                    .build_struct_gep(matrix_type, matrix_ptr, 0, "rows")
+                    .unwrap();
+                self.builder.build_store(rows_ptr, rows_val).unwrap();
+                let cols_ptr = self
+                    .builder
+                    .build_struct_gep(matrix_type, matrix_ptr, 1, "cols")
+                    .unwrap();
+                self.builder.build_store(cols_ptr, cols_val).unwrap();
+
+                let ptr_type = self.context.ptr_type(AddressSpace::default());
+                let fn_type = ptr_type.fn_type(&[i64_type.into(), i64_type.into()], false);
+                let matrix_new_fn = self.module.get_function("matrix_new").unwrap_or_else(|| {
+                    self.module
+                        .add_function("matrix_new", fn_type, Some(Linkage::External))
+                });
+
+                let call = self
+                    .builder
+                    .build_call(
+                        matrix_new_fn,
+                        &[rows_val.into(), cols_val.into()],
+                        "alloc_arr",
+                    )
+                    .unwrap();
+                let new_matrix_ptr = call
+                    .try_as_basic_value()
+                    .left()
+                    .unwrap()
+                    .into_pointer_value();
+
+                let data_ptr_ptr = self
+                    .builder
+                    .build_struct_gep(matrix_type, new_matrix_ptr, 2, "data_ptr")
+                    .unwrap();
+                let data_ptr = self
+                    .builder
+                    .build_load(ptr_type, data_ptr_ptr, "data_base")
+                    .unwrap()
+                    .into_pointer_value();
+
+                for (i, expr) in elements.iter().enumerate() {
+                    let (val, val_type) = self.compile_expr(expr)?;
+
+                    let float_val = if val_type == BrixType::Int {
+                        self.builder
+                            .build_signed_int_to_float(
+                                val.into_int_value(),
+                                self.context.f64_type(),
+                                "cast",
                             )
                             .unwrap()
-                            .into_pointer_value();
+                    } else {
+                        val.into_float_value()
+                    };
 
-                        // Offset = i * cols
-                        let offset = self
+                    let index = i64_type.const_int(i as u64, false);
+                    unsafe {
+                        let elem_ptr = self
                             .builder
-                            .build_int_mul(index_int, cols, "offset")
+                            .build_gep(self.context.f64_type(), data_ptr, &[index], "elem_ptr")
                             .unwrap();
-
-                        unsafe {
-                            let f64 = self.context.f64_type();
-                            let row_start = self
-                                .builder
-                                .build_gep(f64, data, &[offset], "row_ptr")
-                                .unwrap();
-                            Some((row_start.as_basic_value_enum(), BrixType::FloatPtr))
-                        }
-                    }
-
-                    BrixType::FloatPtr => {
-                        // (m[i])[j] -> Retorna o float
-                        let ptr = target_val.into_pointer_value();
-                        unsafe {
-                            let f64 = self.context.f64_type();
-                            let item_ptr = self
-                                .builder
-                                .build_gep(f64, ptr, &[index_int], "item_ptr")
-                                .unwrap();
-                            let val = self.builder.build_load(f64, item_ptr, "val").unwrap();
-                            Some((val, BrixType::Float))
-                        }
-                    }
-
-                    _ => {
-                        eprintln!("Type error: Trying to index {:?}", target_type);
-                        None
+                        self.builder.build_store(elem_ptr, float_val).unwrap();
                     }
                 }
+
+                Some((new_matrix_ptr.as_basic_value_enum(), BrixType::Matrix))
             }
 
             Expr::Range { .. } => {
@@ -944,37 +1304,25 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         let (rows_val, _) = self.compile_expr(&args[0])?;
         let (cols_val, _) = self.compile_expr(&args[1])?;
 
-        let matrix_struct_type = self.get_matrix_type();
-        let matrix_ptr = self
-            .builder
-            .build_alloca(matrix_struct_type, "matrix_obj")
-            .unwrap();
-
-        let rows_ptr = self
-            .builder
-            .build_struct_gep(matrix_struct_type, matrix_ptr, 0, "rows_ptr")
-            .unwrap();
-        self.builder
-            .build_store(rows_ptr, rows_val.into_int_value())
-            .unwrap();
-
-        let cols_ptr = self
-            .builder
-            .build_struct_gep(matrix_struct_type, matrix_ptr, 1, "cols_ptr")
-            .unwrap();
-        self.builder
-            .build_store(cols_ptr, cols_val.into_int_value())
-            .unwrap();
-
+        let i64_type = self.context.i64_type();
         let ptr_type = self.context.ptr_type(AddressSpace::default());
-        let null_ptr = ptr_type.const_null();
-        let data_field_ptr = self
-            .builder
-            .build_struct_gep(matrix_struct_type, matrix_ptr, 2, "data_ptr")
-            .unwrap();
-        self.builder.build_store(data_field_ptr, null_ptr).unwrap();
+        let fn_type = ptr_type.fn_type(&[i64_type.into(), i64_type.into()], false);
 
-        Some(matrix_ptr.as_basic_value_enum())
+        let matrix_new_fn = self.module.get_function("matrix_new").unwrap_or_else(|| {
+            self.module
+                .add_function("matrix_new", fn_type, Some(Linkage::External))
+        });
+
+        let call = self
+            .builder
+            .build_call(
+                matrix_new_fn,
+                &[rows_val.into(), cols_val.into()],
+                "alloc_matrix",
+            )
+            .unwrap();
+
+        Some(call.try_as_basic_value().left().unwrap())
     }
 
     // --- MATH OPERATORS ---

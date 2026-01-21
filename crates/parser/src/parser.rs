@@ -16,46 +16,76 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
             .to(false)
             .or(just(Token::Const).to(true))
             .then(select! { Token::Identifier(name) => name })
-            .then_ignore(just(Token::ColonEq))
+            .then(
+                // Path 1: Explicit (: int =)
+                just(Token::Colon)
+                    .ignore_then(select! { Token::Identifier(t) => t })
+                    .then_ignore(just(Token::Eq))
+                    .map(Some)
+                    // Path 2: Inference (:=)
+                    .or(just(Token::ColonEq).to(None)),
+            )
             .then(expr_parser())
-            .map(|((is_const, name), value)| Stmt::VariableDecl {
-                name,
-                value,
-                is_const,
+            .map(
+                |(((is_const, name), type_hint), value)| Stmt::VariableDecl {
+                    name,
+                    type_hint,
+                    value,
+                    is_const,
+                },
+            );
+
+        let lvalue = select! { Token::Identifier(name) => Expr::Identifier(name) }
+            .then(
+                expr_parser()
+                    .delimited_by(just(Token::LBracket), just(Token::RBracket))
+                    .map(|idx| (true, idx, String::new()))
+                    .or(just(Token::Dot)
+                        .ignore_then(select! { Token::Identifier(name) => name })
+                        .map(|name| (false, Expr::Identifier("dummy".to_string()), name)))
+                    .repeated(),
+            )
+            .foldl(|lhs, (is_index, index_expr, field_name)| {
+                if is_index {
+                    match lhs {
+                        Expr::Index { array, mut indices } => {
+                            indices.push(index_expr);
+                            Expr::Index { array, indices }
+                        }
+                        _ => Expr::Index {
+                            array: Box::new(lhs),
+                            indices: vec![index_expr],
+                        },
+                    }
+                } else {
+                    Expr::FieldAccess {
+                        target: Box::new(lhs),
+                        field: field_name,
+                    }
+                }
             });
 
-        // --- Assignment (x = 10 or x += 10) ---
-        let assignment = select! { Token::Identifier(name) => name }
+        let assignment = lvalue
             .then(
-                // Option A: Simple assignment "=" or ":="
                 just(Token::Eq)
                     .or(just(Token::ColonEq))
                     .to(None)
-                    // Option B: Compound assignment "+=", "-=", etc.
                     .or(just(Token::PlusEq).to(Some(BinaryOp::Add)))
                     .or(just(Token::MinusEq).to(Some(BinaryOp::Sub)))
                     .or(just(Token::StarEq).to(Some(BinaryOp::Mul)))
                     .or(just(Token::SlashEq).to(Some(BinaryOp::Div))),
             )
             .then(expr_parser())
-            .map(|((name, maybe_op), value)| {
-                match maybe_op {
-                    // Case 1: Simple assignment (x = 10)
-                    None => Stmt::Assignment {
-                        target: name,
-                        value,
+            .map(|((target, maybe_op), value)| match maybe_op {
+                None => Stmt::Assignment { target, value },
+                Some(op) => Stmt::Assignment {
+                    target: target.clone(),
+                    value: Expr::Binary {
+                        op,
+                        lhs: Box::new(target),
+                        rhs: Box::new(value),
                     },
-
-                    // Case 2: Compound assignment (x += 10)
-                    Some(op) => Stmt::Assignment {
-                        target: name.clone(),
-                        value: Expr::Binary {
-                            op,
-                            lhs: Box::new(Expr::Identifier(name)),
-                            rhs: Box::new(value),
-                        },
-                    },
-                }
+                },
             });
 
         let block = stmt
@@ -63,37 +93,32 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
             .repeated()
             .delimited_by(just(Token::LBrace), just(Token::RBrace))
             .map(Stmt::Block);
-
         let if_stmt = just(Token::If)
             .ignore_then(expr_parser())
             .then(block.clone())
             .then(just(Token::Else).ignore_then(block.clone()).or_not())
-            .map(|((condition, then_block), else_block)| Stmt::If {
-                condition,
-                then_block: Box::new(then_block),
-                else_block: else_block.map(Box::new),
+            .map(|((c, t), e)| Stmt::If {
+                condition: c,
+                then_block: Box::new(t),
+                else_block: e.map(Box::new),
             });
-
         let while_stmt = just(Token::While)
             .ignore_then(expr_parser())
             .then(block.clone())
-            .map(|(condition, body)| Stmt::While {
-                condition,
-                body: Box::new(body),
+            .map(|(c, b)| Stmt::While {
+                condition: c,
+                body: Box::new(b),
             });
-
-        // --- For Loop (for i in 1:10) ---
         let for_stmt = just(Token::For)
-            .ignore_then(select! { Token::Identifier(name) => name })
+            .ignore_then(select! { Token::Identifier(n) => n })
             .then_ignore(just(Token::In))
             .then(expr_parser())
             .then(block.clone())
-            .map(|((var_name, iterable), body)| Stmt::For {
-                var_name,
-                iterable,
-                body: Box::new(body),
+            .map(|((n, i), b)| Stmt::For {
+                var_name: n,
+                iterable: i,
+                body: Box::new(b),
             });
-
         let print_stmt = just(Token::Printf)
             .ignore_then(
                 select! { Token::String(s) => s }
@@ -105,18 +130,13 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
                     )
                     .delimited_by(just(Token::LParen), just(Token::RParen)),
             )
-            .map(|(format_raw, args)| {
-                let format = format_raw
-                    .trim_matches('"')
-                    .replace("\\n", "\n")
-                    .to_string();
-
+            .map(|(f, a)| {
+                let format = f.trim_matches('"').replace("\\n", "\n").to_string();
                 Stmt::Printf {
                     format,
-                    args: args.unwrap_or_default(),
+                    args: a.unwrap_or_default(),
                 }
             });
-
         let expr_stmt = expr_parser().map(Stmt::Expr);
 
         decl.or(assignment)
@@ -180,11 +200,17 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
                         .map(|name| (false, Expr::Identifier("dummy".to_string()), name)))
                     .repeated(),
             )
-            .foldl(|lhs, (is_index, index_expr, field_name)| {
+            .foldl(|lhs, (is_index, expr_arg, field_name)| {
                 if is_index {
-                    Expr::Index {
-                        array: Box::new(lhs),
-                        index: Box::new(index_expr),
+                    match lhs {
+                        Expr::Index { array, mut indices } => {
+                            indices.push(expr_arg);
+                            Expr::Index { array, indices }
+                        }
+                        _ => Expr::Index {
+                            array: Box::new(lhs),
+                            indices: vec![expr_arg],
+                        },
                     }
                 } else {
                     Expr::FieldAccess {
