@@ -43,7 +43,7 @@ pub enum Expr {
 
     Index {
         array: Box<Expr>,
-        index: Box<Expr>,
+        indices: Vec<Expr>,
     },
 
     Call {
@@ -72,12 +72,13 @@ pub enum Expr {
 pub enum Stmt {
     VariableDecl {
         name: String,
+        type_hint: Option<String>,
         value: Expr,
         is_const: bool,
     },
 
     Assignment {
-        target: String,
+        target: Expr,
         value: Expr,
     },
 
