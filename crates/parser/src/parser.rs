@@ -24,14 +24,14 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
                 is_const,
             });
 
+        // --- Assignment (x = 10 or x += 10) ---
         let assignment = select! { Token::Identifier(name) => name }
             .then(
-                // Option A: Standard Assignment "=" or ":="
+                // Option A: Simple assignment "=" or ":="
                 just(Token::Eq)
                     .or(just(Token::ColonEq))
                     .to(None)
-                    // Option B: Compound Assignment "+=", "-=", etc.
-                    // We map them to the corresponding BinaryOp immediately
+                    // Option B: Compound assignment "+=", "-=", etc.
                     .or(just(Token::PlusEq).to(Some(BinaryOp::Add)))
                     .or(just(Token::MinusEq).to(Some(BinaryOp::Sub)))
                     .or(just(Token::StarEq).to(Some(BinaryOp::Mul)))
@@ -47,7 +47,6 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
                     },
 
                     // Case 2: Compound assignment (x += 10)
-                    // We transform this into: x = x + 10
                     Some(op) => Stmt::Assignment {
                         target: name.clone(),
                         value: Expr::Binary {
@@ -83,6 +82,18 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
                 body: Box::new(body),
             });
 
+        // --- For Loop (for i in 1:10) ---
+        let for_stmt = just(Token::For)
+            .ignore_then(select! { Token::Identifier(name) => name })
+            .then_ignore(just(Token::In))
+            .then(expr_parser())
+            .then(block.clone())
+            .map(|((var_name, iterable), body)| Stmt::For {
+                var_name,
+                iterable,
+                body: Box::new(body),
+            });
+
         let print_stmt = just(Token::Printf)
             .ignore_then(
                 select! { Token::String(s) => s }
@@ -111,15 +122,16 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
         decl.or(assignment)
             .or(if_stmt)
             .or(while_stmt)
+            .or(for_stmt)
             .or(print_stmt)
             .or(block)
             .or(expr_stmt)
+            .boxed()
     })
 }
 
 fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
     recursive(|expr| {
-        // 1. Atoms
         let val = select! {
             Token::Int(n) => Expr::Literal(Literal::Int(n)),
             Token::Float(s) => Expr::Literal(Literal::Float(s.parse().unwrap())),
@@ -160,16 +172,12 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
         let index_or_field = call
             .clone()
             .then(
-                // Opção A: Indexação [expr]
                 expr.clone()
                     .delimited_by(just(Token::LBracket), just(Token::RBracket))
-                    .map(|idx| (true, idx, String::new())) // true = é indice
-                    // Opção B: Acesso de Campo .identificador
-                    .or(
-                        just(Token::Dot)
-                            .ignore_then(select! { Token::Identifier(name) => name })
-                            .map(|name| (false, Expr::Identifier("dummy".to_string()), name)), // false = é campo
-                    )
+                    .map(|idx| (true, idx, String::new()))
+                    .or(just(Token::Dot)
+                        .ignore_then(select! { Token::Identifier(name) => name })
+                        .map(|name| (false, Expr::Identifier("dummy".to_string()), name)))
                     .repeated(),
             )
             .foldl(|lhs, (is_index, index_expr, field_name)| {
@@ -184,7 +192,8 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
                         field: field_name,
                     }
                 }
-            });
+            })
+            .boxed();
 
         let power = index_or_field
             .clone()
@@ -198,7 +207,8 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
                 op,
                 lhs: Box::new(lhs),
                 rhs: Box::new(rhs),
-            });
+            })
+            .boxed();
 
         let product = power
             .clone()
@@ -214,7 +224,8 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
                 op,
                 lhs: Box::new(lhs),
                 rhs: Box::new(rhs),
-            });
+            })
+            .boxed();
 
         let sum = product
             .clone()
@@ -229,7 +240,8 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
                 op,
                 lhs: Box::new(lhs),
                 rhs: Box::new(rhs),
-            });
+            })
+            .boxed();
 
         let bitwise = sum
             .clone()
@@ -245,7 +257,8 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
                 op,
                 lhs: Box::new(lhs),
                 rhs: Box::new(rhs),
-            });
+            })
+            .boxed();
 
         let comparison = bitwise
             .clone()
@@ -275,10 +288,7 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
                     };
                 }
 
-                // --- CHAINED COMPARISON ---
-                // Something like: 1 <= n <= 10
-                // Transforms into: (1 <= n) && (n <= 10)
-
+                // Chained Comparison: 1 <= n <= 10  ->  (1 <= n) && (n <= 10)
                 let (first_op, first_rhs) = pairs[0].clone();
 
                 let mut final_expr = Expr::Binary {
@@ -306,8 +316,10 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
                 }
 
                 final_expr
-            });
+            })
+            .boxed();
 
+        // 8. Logic AND (&& or and)
         let logic_and = comparison
             .clone()
             .then(
@@ -320,8 +332,10 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
                 op,
                 lhs: Box::new(lhs),
                 rhs: Box::new(rhs),
-            });
+            })
+            .boxed();
 
+        // 9. Logic OR (|| or or)
         let logic_or = logic_and
             .clone()
             .then(
@@ -334,8 +348,39 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
                 op,
                 lhs: Box::new(lhs),
                 rhs: Box::new(rhs),
+            })
+            .boxed();
+
+        // 10. Range (1:10 or 1:2:10)
+        let range_end_parser = logic_or.clone();
+        let range_step_parser = logic_or.clone();
+
+        let range = logic_or
+            .clone()
+            .then(
+                just(Token::Colon)
+                    .ignore_then(range_end_parser)
+                    .then(just(Token::Colon).ignore_then(range_step_parser).or_not())
+                    .or_not(),
+            )
+            .map(|(start, maybe_rest)| match maybe_rest {
+                None => start, // Is not range
+                Some((second, third_opt)) => match third_opt {
+                    // start:end
+                    None => Expr::Range {
+                        start: Box::new(start),
+                        end: Box::new(second),
+                        step: None,
+                    },
+                    // start:step:end
+                    Some(end) => Expr::Range {
+                        start: Box::new(start),
+                        end: Box::new(end),
+                        step: Some(Box::new(second)),
+                    },
+                },
             });
 
-        logic_or
+        range.boxed()
     })
 }
