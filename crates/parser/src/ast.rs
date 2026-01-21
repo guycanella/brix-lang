@@ -60,6 +60,12 @@ pub enum Expr {
         value: Box<Expr>,
         cases: Vec<(Expr, Expr)>,
     },
+
+    Range {
+        start: Box<Expr>,
+        end: Box<Expr>,
+        step: Option<Box<Expr>>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -85,6 +91,12 @@ pub enum Stmt {
 
     While {
         condition: Expr,
+        body: Box<Stmt>,
+    },
+
+    For {
+        var_name: String,
+        iterable: Expr,
         body: Box<Stmt>,
     },
 

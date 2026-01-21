@@ -258,6 +258,93 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
                 self.builder.position_at_end(after_bb);
             }
+
+            Stmt::For {
+                var_name,
+                iterable,
+                body,
+            } => {
+                if let Expr::Range { start, end, step } = iterable {
+                    let (start_val, _) = self.compile_expr(start).unwrap();
+                    let (end_val, _) = self.compile_expr(end).unwrap();
+
+                    let step_val = if let Some(step_expr) = step {
+                        self.compile_expr(step_expr).unwrap().0.into_int_value()
+                    } else {
+                        self.context.i64_type().const_int(1, false)
+                    };
+
+                    // Converte tudo para Int (Range float é possível, mas vamos focar em Int agora)
+                    let start_int = start_val.into_int_value();
+                    let end_int = end_val.into_int_value();
+
+                    // --- LOOP ---
+
+                    let i_alloca =
+                        self.create_entry_block_alloca(self.context.i64_type().into(), var_name);
+                    self.builder.build_store(i_alloca, start_int).unwrap();
+
+                    let old_var = self.variables.remove(var_name);
+                    self.variables
+                        .insert(var_name.clone(), (i_alloca, BrixType::Int));
+
+                    // 2. Basic blocks
+                    let cond_bb = self.context.append_basic_block(function, "for_cond");
+                    let body_bb = self.context.append_basic_block(function, "for_body");
+                    let inc_bb = self.context.append_basic_block(function, "for_inc");
+                    let after_bb = self.context.append_basic_block(function, "for_after");
+
+                    self.builder.build_unconditional_branch(cond_bb).unwrap();
+
+                    // --- BLOCK: COND ---
+                    self.builder.position_at_end(cond_bb);
+                    let cur_i = self
+                        .builder
+                        .build_load(self.context.i64_type(), i_alloca, "i_val")
+                        .unwrap()
+                        .into_int_value();
+
+                    let loop_cond = self
+                        .builder
+                        .build_int_compare(IntPredicate::SLE, cur_i, end_int, "loop_cond")
+                        .unwrap();
+                    self.builder
+                        .build_conditional_branch(loop_cond, body_bb, after_bb)
+                        .unwrap();
+
+                    // --- BLOCK: BODY ---
+                    self.builder.position_at_end(body_bb);
+                    self.compile_stmt(body, function);
+                    self.builder.build_unconditional_branch(inc_bb).unwrap();
+
+                    // --- BLOCK: INC ---
+                    self.builder.position_at_end(inc_bb);
+                    let tmp_i = self
+                        .builder
+                        .build_load(self.context.i64_type(), i_alloca, "i_load")
+                        .unwrap()
+                        .into_int_value();
+                    let next_i = self
+                        .builder
+                        .build_int_add(tmp_i, step_val, "i_next")
+                        .unwrap();
+                    self.builder.build_store(i_alloca, next_i).unwrap();
+                    self.builder.build_unconditional_branch(cond_bb).unwrap();
+
+                    // --- BLOCK: AFTER ---
+                    self.builder.position_at_end(after_bb);
+
+                    if let Some(old) = old_var {
+                        self.variables.insert(var_name.clone(), old);
+                    } else {
+                        self.variables.remove(var_name);
+                    }
+                } else {
+                    eprintln!(
+                        "Error: The 'for' loop currently only supports numeric ranges (e.g., 1:10)."
+                    );
+                }
+            }
         }
     }
 
@@ -657,8 +744,15 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 }
             }
 
+            Expr::Range { .. } => {
+                eprintln!(
+                    "Error: Ranges cannot be assigned to variables, use only inside 'for' loops."
+                );
+                None
+            }
+
             _ => {
-                eprintln!("Expressão não implementada na v0.3");
+                eprintln!("Expression not implemented in v0.3");
                 None
             }
         }
