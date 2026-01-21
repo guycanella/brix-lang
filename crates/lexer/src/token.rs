@@ -34,9 +34,11 @@ pub enum Token {
     False,
 
     #[token("&&")]
+    #[token("and")]
     And,
 
     #[token("||")]
+    #[token("or")]
     Or,
 
     #[token("while")]

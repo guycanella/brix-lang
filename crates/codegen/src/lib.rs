@@ -331,9 +331,79 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             },
 
             Expr::Binary { op, lhs, rhs } => {
+                if matches!(op, BinaryOp::LogicalAnd) || matches!(op, BinaryOp::LogicalOr) {
+                    let (lhs_val, _) = self.compile_expr(lhs)?;
+                    let lhs_int = lhs_val.into_int_value();
+
+                    let parent_fn = self
+                        .builder
+                        .get_insert_block()
+                        .unwrap()
+                        .get_parent()
+                        .unwrap();
+                    let rhs_bb = self.context.append_basic_block(parent_fn, "logic_rhs");
+                    let merge_bb = self.context.append_basic_block(parent_fn, "logic_merge");
+
+                    let entry_bb = self.builder.get_insert_block().unwrap();
+
+                    match op {
+                        BinaryOp::LogicalAnd => {
+                            let zero = self.context.i64_type().const_int(0, false);
+                            let lhs_bool = self
+                                .builder
+                                .build_int_compare(IntPredicate::NE, lhs_int, zero, "tobool")
+                                .unwrap();
+
+                            self.builder
+                                .build_conditional_branch(lhs_bool, rhs_bb, merge_bb)
+                                .unwrap();
+                        }
+                        BinaryOp::LogicalOr => {
+                            let zero = self.context.i64_type().const_int(0, false);
+                            let lhs_bool = self
+                                .builder
+                                .build_int_compare(IntPredicate::NE, lhs_int, zero, "tobool")
+                                .unwrap();
+
+                            self.builder
+                                .build_conditional_branch(lhs_bool, merge_bb, rhs_bb)
+                                .unwrap();
+                        }
+                        _ => unreachable!(),
+                    }
+
+                    self.builder.position_at_end(rhs_bb);
+                    let (rhs_val, _) = self.compile_expr(rhs)?;
+                    let rhs_int = rhs_val.into_int_value();
+
+                    self.builder.build_unconditional_branch(merge_bb).unwrap();
+                    let rhs_end_bb = self.builder.get_insert_block().unwrap();
+
+                    self.builder.position_at_end(merge_bb);
+                    let phi = self
+                        .builder
+                        .build_phi(self.context.i64_type(), "logic_result")
+                        .unwrap();
+
+                    match op {
+                        BinaryOp::LogicalAnd => {
+                            let zero = self.context.i64_type().const_int(0, false);
+                            phi.add_incoming(&[(&zero, entry_bb), (&rhs_int, rhs_end_bb)]);
+                        }
+                        BinaryOp::LogicalOr => {
+                            let one = self.context.i64_type().const_int(1, false);
+                            phi.add_incoming(&[(&one, entry_bb), (&rhs_int, rhs_end_bb)]);
+                        }
+                        _ => unreachable!(),
+                    }
+
+                    return Some((phi.as_basic_value().into(), BrixType::Int));
+                }
+
                 let (lhs_val, lhs_type) = self.compile_expr(lhs)?;
                 let (rhs_val, rhs_type) = self.compile_expr(rhs)?;
 
+                // --- Strings ---
                 if lhs_type == BrixType::String && rhs_type == BrixType::String {
                     match op {
                         BinaryOp::Add => {
@@ -354,7 +424,6 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                 .builder
                                 .build_call(concat_fn, &[lhs_val.into(), rhs_val.into()], "str_add")
                                 .unwrap();
-
                             return Some((
                                 res.try_as_basic_value().left().unwrap(),
                                 BrixType::String,
@@ -375,7 +444,6 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                 .builder
                                 .build_call(eq_fn, &[lhs_val.into(), rhs_val.into()], "str_eq_call")
                                 .unwrap();
-
                             return Some((res.try_as_basic_value().left().unwrap(), BrixType::Int));
                         }
                         _ => {
@@ -385,6 +453,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     }
                 }
 
+                // --- Numbers (Int and Float) ---
                 let is_float_op =
                     matches!(lhs_type, BrixType::Float) || matches!(rhs_type, BrixType::Float);
 
