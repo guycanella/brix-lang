@@ -166,6 +166,9 @@ res, err := divide(10.0, 2.0)
 - **String Interpolation:** `msg = f"User: {user.name}"`
 - **List Comprehension:** `evens := [x for x in nums if x % 2 == 0]`
 - **Métodos Funcionais:** `map`, `filter`, `reduce` (Lazy evaluation).
+- **Chained Comparison:** Verificação matemática de intervalos com sintaxe limpa.
+  - _Código:_ `if 10 < x <= 20 { ... }`
+  - _Compilação:_ Traduzido automaticamente para `(10 < x) && (x <= 20)`, garantindo avaliação única do termo central (side-effect safety).
 
 ## 7. Roteiro Técnico (Stack do Compilador)
 
@@ -184,60 +187,528 @@ res, err := divide(10.0, 2.0)
 
 ## 9. Gerenciamento de Memória e Passagem de Dados
 
-### Modelo de Memória: ARC (Automatic Reference Counting)
+O Brix adota uma filosofia de "Smart Defaults" (Padrões Inteligentes). O compilador toma as decisões difíceis de alocação para garantir performance e segurança, mas oferece controle total sobre mutabilidade.
 
-Optamos por **ARC** em vez de Garbage Collection (GC) ou Gerenciamento Manual.
+### 9.1. Modelo de Memória: ARC (Automatic Reference Counting)
 
-- **Motivo:** Garante performance determinística (sem pausas aleatórias do "lixeiro") e segurança de memória.
-- **Funcionamento:** O compilador insere incrementos/decrementos de contadores de referência automaticamente. Quando a referência chega a zero, a memória é liberada imediatamente.
-- **Otimização:** Loops críticos de processamento de dados (hot paths) não sofrem penalidade, pois a checagem ocorre fora do loop.
+Optamos por **ARC** em vez de Garbage Collection (GC) ou Gerenciamento Manual (`malloc/free`).
 
-### Passagem de Parâmetros
+- **Determinismo:** Não há pausas aleatórias ("Stop the world") do GC. A memória é liberada no exato momento em que a última variável para de usá-la.
+- **Performance:** O compilador otimiza incrementos/decrementos de contagem para evitar overhead em loops críticos.
 
-Sistema híbrido focado em performance e segurança.
+### 9.2. Passagem de Parâmetros (Cópia vs. Referência)
 
-- **Tipos Primitivos (int, float, bool):** Passagem por **Valor (Cópia)**.
-  - _Custo:_ Irrisório (registradores de CPU).
-- **Tipos Complexos (Arrays, Structs):** Passagem por **Referência Imutável (View)**.
-  - _Padrão:_ A função recebe um ponteiro para os dados originais (custo zero de cópia), mas não pode alterá-los.
-  - _Mutabilidade:_ Para alterar os dados originais, o parâmetro deve ser explicitamente marcado (ex: `fn process(mut dados: [int])`).
+O usuário não precisa gerenciar ponteiros manualmente (`*ptr` ou `&ref`). O compilador decide a estratégia mais eficiente baseada no tipo do dado:
 
-## 10. Status do Desenvolvimento
+1.  **Tipos Primitivos (`int`, `f64`, `bool`):** Passagem por **Valor (Copy)**.
+    - _Custo:_ Zero (registradores da CPU).
+2.  **Tipos Complexos (`Arrays`, `Structs`):** Passagem por **Referência (View)**.
+    - O compilador passa um ponteiro silencioso ("fat pointer") contendo endereço e tamanho. Não há cópia profunda de dados.
 
-### O que já foi construído?
+### 9.3. Imutabilidade e Controle (`mut`)
 
-1. **Arquitetura de Workspace:**
+Por padrão, referências a tipos complexos são **Imutáveis (Read-Only)**. Isso previne efeitos colaterais acidentais (o erro mais comum em concorrência).
 
-- Separação clara em crates: `lexer`, `parser`, `codegen` (LLVM).
-- Gerenciamento de dependências otimizado no `Cargo.toml` raiz.
+```rust
+// Padrão: Leitura (Rápido e Seguro)
+fn ler_dados(dados: [int]) {
+    print(dados[0])
+    // dados[0] = 99  <-- ERRO DE COMPILAÇÃO!
+}
 
-2. **Lexer (Tokenizador):**
+// Explícito: Escrita (Mutável)
+fn zerar_dados(mut dados: [int]) {
+    dados[0] = 0 // Permitido. Altera o dado original na memória.
+}
+```
 
-- Implementado com `Logos`.
-- Suporte a comentários (`//`), operadores matemáticos completos (incluindo `**` e `%`), bitwise (`&`, `|`, `^`) e blocos (`{`, `}`).
+### 9.4. Estruturas Recursivas e Heap (Linked Lists)
 
-3. **Parser (Análise Sintática):**
+Para criar estruturas de dados como Árvores ou Listas Encadeadas, o Brix evita a complexidade de Box<T> (Rust) ou ponteiros manuais (C).
 
-- Implementado com `Chumsky`.
-- **Precedência de Operadores:** Hierarquia correta (Átomo -> Potência -> Multiplicação -> Soma -> Bitwise -> Comparação).
-- **Estruturas:** Declarações, Atribuições, Blocos de Escopo, If/Else e Arrays.
+Utilizamos o sistema de tipos (`?` / `nil`) para inferir alocação na Heap.
 
-4. **Codegen (LLVM Backend):**
+- **Regra:** Se uma Struct contém um campo do seu próprio tipo, o compilador exige que ele seja opcional (`?`).
+- **Otimização:** O compilador detecta a recursão e, automaticamente, transforma esse campo em um **Ponteiro Gerenciado**.
 
-- **Engine:** LLVM 18 via `inkwell`.
-- **Memória:** Sistema de Tabela de Símbolos (`HashMap`) para alocação de variáveis na Stack (`alloca`, `store`, `load`).
-- **Fluxo de Controle:** Implementação completa de `If / Else` com Basic Blocks e Conditional Branching.
-- **Arrays:** Suporte a criação de Arrays literais e acesso via índice (`x[0]`) usando `GetElementPtr` (GEP).
-- **Otimização:** Constant Folding automático (o LLVM pré-calcula constantes matemáticas).
+```rust
+type Node = {
+    val: int,
+    // O '?' sinaliza ao compilador: "Aloque isso na Heap como um ponteiro gerenciado"
+    next: Node?
+}
 
-### Próximos passos
+// O usuário escreve código limpo, sem asteriscos (*) ou alocações manuais.
+var lista := Node { val: 10, next: Node { val: 20, next: nil } }
+```
 
-1. **Loops:** Implementar `while` and `for` (essencial para Brix ser Turing complete)
-2. **Executável Real:** Transformar o LLVM IR (`.ll`) em um binário executável (`.o` -> Linked -> Executável final)
-3. **Tipagem de Floats:** Expandir o Codegen (atualmente apenas inteiros) para suportar operações com ponto flutuante (`f64`)
-4. **CLI:** Melhorar a interface de linha de comando para aceitar arquivos (`brix run main.bx`)
+## 10. Status do Desenvolvimento (Atualizado - Jan 2026)
 
-### Onde vamos começar?
+### 📊 Progresso Geral: v0.3 (45% MVP Completo)
+
+---
+
+## ✅ IMPLEMENTADO (v0.1 - v0.3)
+
+### 1. Arquitetura do Compilador
+
+- ✅ **Workspace Cargo:** Separação em crates (`lexer`, `parser`, `codegen`)
+- ✅ **Lexer (Logos):** Tokenização completa com comentários, operadores e literais
+- ✅ **Parser (Chumsky):** Parser combinator com precedência de operadores correta
+- ✅ **Codegen (Inkwell/LLVM 18):** Geração de LLVM IR e compilação nativa
+- ✅ **Runtime C:** Biblioteca com funções de Matrix e String
+
+### 2. Sistema de Tipos
+
+- ✅ **Tipos Primitivos:** `int` (i64), `float` (f64), `bool` (i1→i64), `string` (struct), `matrix` (struct), `void`
+- ✅ **Inferência de Tipos:** `var x := 10` detecta automaticamente o tipo
+- ✅ **Tipagem Explícita:** `var x: float = 10`
+- ✅ **Casting Automático:**
+  - `var x: int = 99.9` → trunca para 99 (float→int)
+  - `var y: float = 50` → promove para 50.0 (int→float)
+  - Promoção automática em operações mistas (int + float → float)
+- ✅ **Introspecção:** `typeof(x)` retorna string do tipo em compile-time
+
+### 3. Estruturas de Dados
+
+- ✅ **Arrays Literais:** `var v := [10, 20, 30]` (implementado como Matrix 1xN)
+- ✅ **Matrizes Dinâmicas:** `var m := matrix(3, 4)` (alocação heap via Runtime C)
+- ✅ **Indexação:**
+  - Linear: `v[0]`
+  - 2D: `m[0][0]` (cálculo `row * cols + col`)
+  - L-Value: `m[0][0] = 5.5` (atribuição funcional)
+- ✅ **Field Access:**
+  - String: `.len`
+  - Matrix: `.rows`, `.cols`, `.data`
+
+### 4. Operadores
+
+- ✅ **Aritméticos:** `+`, `-`, `*`, `/`, `%`, `**` (potência)
+- ✅ **Comparação:** `<`, `<=`, `>`, `>=`, `==`, `!=`
+- ✅ **Chained Comparison:** `if 1 < x <= 10` (açúcar sintático → `1 < x && x <= 10`)
+- ✅ **Lógicos:** `&&`, `and`, `||`, `or` (com short-circuit evaluation)
+- ✅ **Strings:** `+` (concatenação), `==` (comparação)
+- ✅ **Compound Assignment (Parser):** `+=`, `-=`, `*=`, `/=` (desugared para `x = x + y`)
+- ⚠️ **Bitwise (Parcial):** Tokens definidos (`&`, `|`, `^`) mas não implementados no codegen
+
+### 5. Controle de Fluxo
+
+- ✅ **If/Else:** Com blocos aninhados e LLVM Basic Blocks
+- ✅ **While Loop:** Implementação completa com header/body/after blocks
+- ✅ **For Loop - Range Numérico (Julia Style):**
+  - `for i in 1:10` (1 a 10, inclusive)
+  - `for i in 0:2:10` (com step customizado)
+  - Suporte a expressões: `for k in (start + 1):end`
+- ✅ **For Loop - Iteração de Matriz:**
+  - `for val in lista` (detecta tipo automaticamente)
+  - Itera sobre arrays/matrizes linearmente
+
+### 6. Funções Built-in
+
+- ✅ **printf:** Saída formatada estilo C (`printf("x: %d", x)`)
+- ✅ **scanf/input:** Entrada tipada (`input("int")`, `input("float")`, `input("string")`)
+- ✅ **typeof:** Retorna tipo como string
+- ✅ **matrix:** Construtor de matriz vazia (`matrix(rows, cols)`)
+- ✅ **read_csv:** Lê arquivo CSV como matriz (via runtime C)
+
+### 7. Memória e Performance
+
+- ✅ **Tabela de Símbolos:** HashMap com `(PointerValue, BrixType)` para cada variável
+- ✅ **Stack Allocation:** Variáveis alocadas via `alloca` no entry block
+- ✅ **Heap (Runtime C):** Matrizes e Strings alocadas dinamicamente
+- ✅ **Constant Folding:** LLVM otimiza constantes automaticamente (ex: `2 + 3` → `5`)
+
+---
+
+## 🚧 ROADMAP: O QUE FALTA IMPLEMENTAR
+
+---
+
+### 🎯 **v0.4 - Operadores e Expressões Avançadas** (Próximo)
+
+**Prioridade Alta:**
+
+- [ ] **Increment/Decrement:** `x++`, `x--`, `++x`, `--x`
+- [ ] **Bitwise Operators (Codegen):** `&`, `|`, `^`, `<<`, `>>` (tokens já existem)
+- [ ] **Operador Ternário:** `cond ? true_val : false_val`
+- [ ] **Elvis Operator:** `val ?: default` (para null coalescing futuro)
+- [ ] **Operador de Potência para Floats:** Atualmente `**` só funciona para int
+
+**Açúcar Sintático:**
+
+- [ ] **String Interpolation:** `f"Valor: {x}"` ou `"Valor: ${x}"`
+- [ ] **Negação Lógica:** `!condition` ou `not condition`
+
+---
+
+### 🔧 **v0.5 - Funções de Usuário**
+
+**Core:**
+
+- [ ] **Declaração de Funções:** `function soma(a: int, b: int) -> int { return a + b }`
+- [ ] **Chamada de Funções:** `var resultado := soma(10, 20)`
+- [ ] **Return Statement:** `return valor`
+- [ ] **Funções Void:** Funções sem retorno
+- [ ] **Escopo Local:** Variáveis dentro de funções (shadow variables externas)
+
+**Avançado (v0.5.1):**
+
+- [ ] **Retornos Múltiplos (Go Style):** `function divide(a, b) -> (float, error)`
+- [ ] **Argumentos Opcionais:** `function greet(name: string = "World")`
+- [ ] **Funções Variádicas:** `function sum(nums: ...int)`
+
+---
+
+### 📦 **v0.6 - Arrays Avançados e Slicing**
+
+**Slicing:**
+
+- [ ] **Slicing Básico:** `arr[1:4]` retorna view (sem cópia)
+- [ ] **Índices Negativos:** `arr[-1]` pega último elemento
+- [ ] **Step em Slicing:** `arr[0:10:2]` (elementos pares)
+- [ ] **Omissão de Índices:** `arr[:5]`, `arr[5:]`, `arr[:]`
+
+**Broadcasting:**
+
+- [ ] **Operações Escalar-Vetor:** `vetor * 2` multiplica todos os elementos
+- [ ] **Operações Vetor-Vetor:** `v1 + v2` (elemento a elemento)
+
+**Construtores Especiais:**
+
+- [ ] **zeros(n):** Cria array/matriz de zeros
+- [ ] **ones(n):** Cria array/matriz de uns
+- [ ] **eye(n):** Cria matriz identidade
+- [ ] **linspace(start, end, n):** Array espaçado linearmente
+- [ ] **arange(start, end, step):** Similar ao range do NumPy
+
+---
+
+### 🗂️ **v0.7 - Structs e Tipos Customizados**
+
+**Structs Básicos:**
+
+- [ ] **Definição:** `type Point = { x: float, y: float }`
+- [ ] **Criação:** `var p := Point { x: 10.0, y: 20.0 }`
+- [ ] **Field Access:** `p.x`, `p.y`
+- [ ] **Field Assignment:** `p.x = 15.0`
+
+**Composição de Tipos (TypeScript Style):**
+
+- [ ] **Intersection Types:** `type NamedPoint = Point & Label`
+- [ ] **Herança via Composição:** Campos de múltiplos tipos em um único struct
+
+**Null Safety:**
+
+- [ ] **Tipos Opcionais:** `var x: string?` (pode ser `nil`)
+- [ ] **Safe Navigation:** `x?.length`
+- [ ] **Elvis com Nil:** `x ?: "default"`
+
+---
+
+### 🎭 **v0.8 - Pattern Matching**
+
+**Substituir switch/case complexos:**
+
+- [ ] **Match Básico:**
+  ```brix
+  when response {
+      { status: 200 } -> print("OK"),
+      { status: 404 } -> print("Not Found"),
+      _ -> print("Other")
+  }
+  ```
+- [ ] **Guards (Condições):** `{ status: s } if s > 500 -> ...`
+- [ ] **Desestruturação:** Extrair campos de structs no match
+
+---
+
+### 🔁 **v0.9 - Programação Funcional**
+
+**Iteradores:**
+
+- [ ] **map:** `nums.map(x -> x * 2)`
+- [ ] **filter:** `nums.filter(x -> x > 10)`
+- [ ] **reduce:** `nums.reduce(0, (acc, x) -> acc + x)`
+- [ ] **Lazy Evaluation:** Não processar até consumir resultado
+
+**List Comprehension:**
+
+- [ ] **Básico:** `[x * 2 for x in nums]`
+- [ ] **Com Filtro:** `[x for x in nums if x > 10]`
+- [ ] **Matrix Comprehension:** `[[i + j for j in 1:n] for i in 1:m]`
+
+**Pipeline Operator (`|>`):**
+
+- [ ] **Encadeamento Funcional:**
+  ```brix
+  dados |> filter(x -> x > 0) |> map(x -> x * 2) |> sum()
+  ```
+
+---
+
+### 📚 **v1.0 - Standard Library (Stdlib)**
+
+**Estruturas de Dados Nativas:**
+
+- [ ] **Vector<T>:** Array dinâmico com `push()`, `pop()`, `insert()`, `remove()`
+- [ ] **Stack<T>:** Pilha (LIFO) implementada sobre Vector
+- [ ] **Queue<T>:** Fila (FIFO) como Ring Buffer
+- [ ] **HashMap<K, V>:** Tabela hash O(1) com FNV/SipHash
+- [ ] **HashSet<T>:** Conjunto sem duplicatas
+- [ ] **MinHeap<T> / MaxHeap<T>:** Fila de prioridade (para Dijkstra, etc)
+- [ ] **AdjacencyList:** Grafo otimizado com Arena Allocation
+
+**Math Library:**
+
+- [ ] **Funções Básicas:** `sqrt`, `pow`, `log`, `exp`, `abs`, `floor`, `ceil`
+- [ ] **Trigonometria:** `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`
+- [ ] **Estatística:** `mean`, `median`, `std_dev`, `variance`, `min`, `max`
+- [ ] **Helpers:** `clamp`, `lerp`, `map_range`, `sign`
+
+**Date & Time:**
+
+- [ ] **Armazenamento:** Unix Timestamp (i64) para performance
+- [ ] **Parsing/Formatting:** ISO 8601 (`"2024-01-15T10:30:00Z"`)
+- [ ] **Timezones:** UTC por padrão, conversões via IANA timezone DB
+- [ ] **Aritmética:** `date.add(2.days)`, `date.sub(1.week)`
+
+---
+
+### 🚀 **v1.1 - Concorrência e Paralelismo**
+
+**Paralelismo de Dados:**
+
+- [ ] **par for:** Distribui iterações entre threads automaticamente
+- [ ] **par map:** Map paralelo sobre arrays
+- [ ] **Threads Nativas:** `spawn { ... }` (estilo Go)
+
+**I/O Assíncrono:**
+
+- [ ] **Non-blocking I/O:** Para servidores HTTP de alta performance
+- [ ] **async/await:** Modelo de programação assíncrona (opcional)
+
+---
+
+### 🌟 **v1.2+ - Features Experimentais**
+
+**SQL e JSON como Tipos Nativos (Zero-ORM):**
+
+- [ ] **SQL Typed:**
+  ```brix
+  var users := sql {
+      SELECT name, email FROM usuarios WHERE active = true
+  }
+  ```
+- [ ] **JSON Validation:** Objetos JSON validados em compile-time
+
+**Extension Methods:**
+
+- [ ] **Estender Tipos Existentes:**
+  ```brix
+  extension float {
+      fun to_percent() -> string { return f"{self * 100}%" }
+  }
+  ```
+
+**Unidades de Medida (Dimensional Safety):**
+
+- [ ] **Tipos com Unidades:** `var distancia: float<m> = 100.0`
+- [ ] **Inferência Dimensional:** `var velocidade := distancia / tempo` → `float<m/s>`
+- [ ] **Erro de Compilação:** `distancia + tempo` → `Cannot add float<m> to float<s>`
+
+---
+
+### 📝 **Backlog (Sem Versão Definida)**
+
+- [ ] **Módulos e Imports:** Sistema de pacotes (`import math from "std/math"`)
+- [ ] **Generics:** `function map<T, U>(arr: [T], fn: T -> U) -> [U]`
+- [ ] **Traits/Interfaces:** Polimorfismo sem herança
+- [ ] **Macros:** Metaprogramação compile-time
+- [ ] **Package Manager:** Gerenciador de dependências (estilo Cargo/npm)
+- [ ] **REPL:** Modo interativo para testes rápidos
+- [ ] **LSP (Language Server Protocol):** Autocomplete, go-to-definition, etc
+- [ ] **Debugger:** Integração com GDB/LLDB
+
+---
+
+## 11. Cronograma Visual de Desenvolvimento
+
+```
+v0.1 ████████████████████ 100% ✅ Lexer, Parser, Codegen básico
+v0.2 ████████████████████ 100% ✅ Tipos, Casting, Operadores
+v0.3 ████████████████████ 100% ✅ Matrizes, Loops, typeof()
+v0.4 ░░░░░░░░░░░░░░░░░░░░   0% 🚧 Operadores avançados, String interpolation
+v0.5 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Funções de usuário, return
+v0.6 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Slicing, broadcasting
+v0.7 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Structs, tipos customizados
+v0.8 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Pattern matching
+v0.9 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Programação funcional
+v1.0 ░░░░░░░░░░░░░░░░░░░░   0% 🎯 Standard Library completa
+```
+
+**Legenda:**
+- ✅ Completo
+- 🚧 Em desenvolvimento
+- 📋 Planejado
+- 🎯 Meta principal
+
+---
+
+## 12. Diferenciais Competitivos (The "Killer Features")
+
+Para destacar o Brix no cenário atual, a linguagem adota três pilares de inovação que resolvem dores latentes de Engenharia de Dados e Backend.
+
+### 12.1. Pipeline First (`|>`)
+
+Inspirado em Elixir e F#, mas focado em processamento de dados massivos. O operador pipe transforma código aninhado complexo em um fluxo linear de leitura natural.
+
+- **Conceito:** O resultado da expressão à esquerda é passado como o _primeiro argumento_ da função à direita.
+- **Paralelismo Implícito:** O compilador é capaz de otimizar cadeias de pipes, injetando paralelismo automaticamente em operações como `map` ou `filter` (via `par`).
+
+```rust
+// O "Jeito Brix" de processar dados
+"vendas_2024.csv"
+    |> io::read_csv()               // Carrega
+    |> par map(x -> x.total * 1.1)  // Ajusta preços (em todas as threads)
+    |> filter(x -> x.total > 100)   // Filtra relevantes
+    |> json::serialize()            // Transforma
+    |> http::post("api/vendas")     // Envia
+```
+
+### 12.2. SQL e JSON como Tipos Nativos (Zero-ORM)
+
+O Brix elimina a necessidade de ORMs lentos e a insegurança de strings SQL puras. O compilador entende a estrutura do banco de dados e valida queries em tempo de build.
+
+- **JSON Typed:** Objetos literais são validados estaticamente.
+- **SQL Checked:** Se a coluna não existe no banco, o código não compila.
+
+```rust
+// JSON é validado na compilação
+var config = {
+    "host": "localhost",
+    "retries": 3
+}
+
+// O retorno 'users' é inferido automaticamente como:
+// Array<{ name: string, email: string }>
+var users := sql {
+    SELECT name, email
+    FROM usuarios
+    WHERE active = true
+}
+```
+
+### 12.3. Unidades de Medida (Dimensional Safety)
+
+Focado em sistemas críticos (Engenharia, Finanças, Física), o sistema de tipos impede erros semânticos de grandezas.
+
+- **Segurança:** Impossível somar Metros com Segundos ou Reais com Dólares acidentalmente.
+- **Custo Zero:** As unidades existem apenas no compilador. No binário final, são apenas números f64 puros (sem overhead de performance).
+
+```rust
+// Definição de grandezas
+var distancia: f64<m> = 100.0
+var tempo: f64<s> = 9.58
+
+// Operação válida (Inferência: velocidade é f64<m/s>)
+var velocidade := distancia / tempo
+
+// Erro de Compilação: "Cannot add type f64<m> to f64<s>"
+// var erro := distancia + tempo
+```
+
+## 13. Modern Developer Experience (Influência Kotlin & Swift)
+
+Para garantir a adoção por desenvolvedores mobile e modernos, o Brix adota padrões de sintaxe que priorizam segurança e legibilidade fluida.
+
+### 13.1. Null Safety (`?`)
+
+O sistema de tipos elimina o erro de "referência nula" por design. Tipos são não-nulos por padrão.
+
+```rust
+var a: string = "Safe" // Nunca será null
+var b: string? = nil  // Pode ser null
+
+// Safe Call Operator
+var len := b?.length ?: 0 // Se b for null, retorna 0 (Elvis Operator)
+```
+
+### 13.2. Extension Methods
+
+Permite estender tipos existentes (incluindo primitivos) com novas funcionalidades, mantendo o código organizado sem herança complexa.
+
+```rust
+extension f64 {
+    fun to_percent() -> string {
+        return f"{self * 100}%"
+    }
+}
+
+var taxa := 0.75
+print(taxa.to_percent()) // Saída: "75%"
+```
+
+### 13.3. Trailing Closures (Sintaxe de DSL)
+
+Se o último argumento de uma função for uma closure (função anônima), os parênteses podem ser omitidos. Isso habilita a criação de APIs declarativas elegantes.
+
+```rust
+// Sintaxe limpa para iteradores e builders
+users.filter { u ->
+    u.active == true
+}.map { u ->
+    u.email
+}
+```
+
+---
+
+## 14. Sumário de Progresso e Próximos Passos
+
+### ✅ O que já temos (v0.3):
+
+1. **Compilador funcional completo:** Lexer → Parser → Codegen → Binário nativo
+2. **Sistema de tipos robusto:** 6 tipos primitivos com casting automático inteligente
+3. **Operadores matemáticos completos:** Incluindo potência, módulo, chained comparison
+4. **Controle de fluxo:** If/Else, While, For (range e iteração)
+5. **Matrizes e Arrays:** Com indexação 2D e field access
+6. **Strings:** Com concatenação, comparação e introspection
+7. **Runtime C:** Funções de matriz e string otimizadas
+8. **typeof():** Introspecção de tipos em compile-time
+
+### 🎯 Próximos Passos Imediatos (v0.4):
+
+**Prioridade 1 (Semana 1):**
+
+1. **Bitwise Operators (Codegen):** Implementar `&`, `|`, `^` no codegen (tokens já existem)
+2. **String Interpolation:** `f"Valor: {x}"` via transformação do parser
+3. **Operador Ternário:** `cond ? true : false`
+4. **Negação Lógica:** `!condition` ou `not condition`
+
+**Prioridade 2 (Semana 2):**
+
+5. **Increment/Decrement:** `x++`, `--x`, etc
+6. **Elvis Operator:** `val ?: default`
+7. **Testes de Integração:** Suite de testes automatizados para todas as features
+
+**Prioridade 3 (Semana 3):**
+
+8. **Mensagens de Erro Melhores:** Error reporting com Ariadne (já é dependência)
+9. **Otimizações LLVM:** Habilitar `-O2` e `-O3` via flag CLI
+10. **Documentação:** README completo com exemplos
+
+### 📊 Estatísticas do Projeto:
+
+- **Linhas de Código (Rust):** ~2500 linhas
+- **Linhas de Código (C Runtime):** ~125 linhas
+- **Arquivos de Teste (.bx):** 7 (types, for, logic, chain, string, arrays, csv)
+- **Features Implementadas:** ~35
+- **Features Planejadas:** ~120+
+- **Progresso MVP:** 45%
+
+---
+
+### Onde vamos começar? (Histórico - Jan 2024)
 
 Como você escolheu **Rust**, nosso fluxo de trabalho muda um pouco. Em vez de escrever scripts soltos, vamos criar um projeto estruturado com `cargo`.
 
