@@ -128,6 +128,7 @@ const pi = 3.1415     // Immutable
 ### Operators
 - Arithmetic: `+`, `-`, `*`, `/`, `%`, `**` (power)
 - Unary: `!`, `not` (logical negation), `-` (arithmetic negation)
+- Increment/Decrement: `++x`, `x++`, `--x`, `x--` (prefix and postfix)
 - Bitwise: `&`, `|`, `^` (integer only)
 - Logical: `&&`, `and`, `||`, `or`
 - Comparison: `<`, `<=`, `>`, `>=`, `==`, `!=`
@@ -239,6 +240,7 @@ Test files are `.bx` files in the root directory. Common test files include:
 - `bitwise_test.bx`: Bitwise operators (&, |, ^)
 - `ternary_test.bx`: Ternary operator (basic, nested, type mixing)
 - `negation_test.bx`: Logical negation (!, not) and unary minus
+- `increment_test.bx`: Increment/decrement (++, --, prefix/postfix)
 
 Run tests individually:
 ```bash
@@ -249,24 +251,24 @@ cargo run <test_file.bx>
 
 ## Project Status (v0.3 → v0.4 - Jan 2026)
 
-### Progress: 53% MVP Complete
+### Progress: 57% MVP Complete
 
 **Completed:**
 - ✅ Compiler pipeline (Lexer → Parser → Codegen → Native binary)
 - ✅ 6 primitive types with automatic casting
 - ✅ Arrays and matrices with 2D indexing
 - ✅ Control flow (if/else, while, for loops)
-- ✅ Operators (arithmetic, comparison, logical, bitwise, unary, string)
+- ✅ Operators (arithmetic, comparison, logical, bitwise, unary, inc/dec, string)
 - ✅ Chained comparisons (Julia-style)
 - ✅ Ternary operator (`cond ? true_val : false_val`)
 - ✅ Bitwise operators (`&`, `|`, `^` for integers)
 - ✅ Unary operators (`!`, `not` for logical negation; `-` for arithmetic negation)
+- ✅ Increment/Decrement (`++x`, `x++`, `--x`, `x--` - prefix and postfix)
 - ✅ Built-in functions (printf, scanf, typeof, matrix, read_csv)
 - ✅ Runtime library (C) for matrix and string operations
 
 ### Next Up (v0.4):
 - [ ] String interpolation (`f"Value: {x}"`)
-- [ ] Increment/decrement (`x++`, `--x`)
 
 ## Current Limitations (v0.3)
 

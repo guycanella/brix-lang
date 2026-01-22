@@ -56,6 +56,16 @@ pub enum Expr {
         else_expr: Box<Expr>,
     },
 
+    Increment {
+        expr: Box<Expr>,
+        is_prefix: bool,  // true = ++x, false = x++
+    },
+
+    Decrement {
+        expr: Box<Expr>,
+        is_prefix: bool,  // true = --x, false = x--
+    },
+
     Array(Vec<Expr>),
 
     Index {

@@ -477,136 +477,144 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     } else {
                         self.variables.remove(var_name);
                     }
-                }
+                } else {
+                    // For iterating over arrays/matrices
+                    let (iterable_val, iterable_type) = self
+                        .compile_expr(iterable)
+                        .expect("Error to compile iterable of the loop");
 
-                let (iterable_val, iterable_type) = self
-                    .compile_expr(iterable)
-                    .expect("Error to compile iterable of the loop");
+                    match iterable_type {
+                        BrixType::Matrix => {
+                            let matrix_ptr = iterable_val.into_pointer_value();
+                            let matrix_type = self.get_matrix_type();
+                            let i64_type = self.context.i64_type();
 
-                match iterable_type {
-                    BrixType::Matrix => {
-                        let matrix_ptr = iterable_val.into_pointer_value();
-                        let matrix_type = self.get_matrix_type();
-                        let i64_type = self.context.i64_type();
-
-                        let rows_ptr = self
-                            .builder
-                            .build_struct_gep(matrix_type, matrix_ptr, 0, "rows")
-                            .unwrap();
-                        let cols_ptr = self
-                            .builder
-                            .build_struct_gep(matrix_type, matrix_ptr, 1, "cols")
-                            .unwrap();
-
-                        let rows = self
-                            .builder
-                            .build_load(i64_type, rows_ptr, "rows")
-                            .unwrap()
-                            .into_int_value();
-                        let cols = self
-                            .builder
-                            .build_load(i64_type, cols_ptr, "cols")
-                            .unwrap()
-                            .into_int_value();
-
-                        let total_len =
-                            self.builder.build_int_mul(rows, cols, "total_len").unwrap();
-
-                        let idx_alloca =
-                            self.create_entry_block_alloca(i64_type.into(), "_hidden_idx");
-                        self.builder
-                            .build_store(idx_alloca, i64_type.const_int(0, false))
-                            .unwrap();
-
-                        let user_var_alloca = self
-                            .create_entry_block_alloca(self.context.f64_type().into(), var_name);
-                        let old_var = self.variables.remove(var_name);
-                        self.variables
-                            .insert(var_name.clone(), (user_var_alloca, BrixType::Float));
-
-                        let cond_bb = self.context.append_basic_block(function, "arr_cond");
-                        let body_bb = self.context.append_basic_block(function, "arr_body");
-                        let inc_bb = self.context.append_basic_block(function, "arr_inc");
-                        let after_bb = self.context.append_basic_block(function, "arr_after");
-
-                        self.builder.build_unconditional_branch(cond_bb).unwrap();
-
-                        // --- COND ---
-                        self.builder.position_at_end(cond_bb);
-                        let cur_idx = self
-                            .builder
-                            .build_load(i64_type, idx_alloca, "cur_idx")
-                            .unwrap()
-                            .into_int_value();
-                        let loop_cond = self
-                            .builder
-                            .build_int_compare(IntPredicate::SLT, cur_idx, total_len, "check_idx")
-                            .unwrap();
-                        self.builder
-                            .build_conditional_branch(loop_cond, body_bb, after_bb)
-                            .unwrap();
-
-                        // --- BODY ---
-                        self.builder.position_at_end(body_bb);
-
-                        let data_ptr_ptr = self
-                            .builder
-                            .build_struct_gep(matrix_type, matrix_ptr, 2, "data_ptr")
-                            .unwrap();
-                        let data_base = self
-                            .builder
-                            .build_load(
-                                self.context.ptr_type(AddressSpace::default()),
-                                data_ptr_ptr,
-                                "data_base",
-                            )
-                            .unwrap()
-                            .into_pointer_value();
-
-                        unsafe {
-                            let elem_ptr = self
+                            let rows_ptr = self
                                 .builder
-                                .build_gep(
-                                    self.context.f64_type(),
-                                    data_base,
-                                    &[cur_idx],
-                                    "elem_ptr",
+                                .build_struct_gep(matrix_type, matrix_ptr, 0, "rows")
+                                .unwrap();
+                            let cols_ptr = self
+                                .builder
+                                .build_struct_gep(matrix_type, matrix_ptr, 1, "cols")
+                                .unwrap();
+
+                            let rows = self
+                                .builder
+                                .build_load(i64_type, rows_ptr, "rows")
+                                .unwrap()
+                                .into_int_value();
+                            let cols = self
+                                .builder
+                                .build_load(i64_type, cols_ptr, "cols")
+                                .unwrap()
+                                .into_int_value();
+
+                            let total_len =
+                                self.builder.build_int_mul(rows, cols, "total_len").unwrap();
+
+                            let idx_alloca =
+                                self.create_entry_block_alloca(i64_type.into(), "_hidden_idx");
+                            self.builder
+                                .build_store(idx_alloca, i64_type.const_int(0, false))
+                                .unwrap();
+
+                            let user_var_alloca = self.create_entry_block_alloca(
+                                self.context.f64_type().into(),
+                                var_name,
+                            );
+                            let old_var = self.variables.remove(var_name);
+                            self.variables
+                                .insert(var_name.clone(), (user_var_alloca, BrixType::Float));
+
+                            let cond_bb = self.context.append_basic_block(function, "arr_cond");
+                            let body_bb = self.context.append_basic_block(function, "arr_body");
+                            let inc_bb = self.context.append_basic_block(function, "arr_inc");
+                            let after_bb = self.context.append_basic_block(function, "arr_after");
+
+                            self.builder.build_unconditional_branch(cond_bb).unwrap();
+
+                            // --- COND ---
+                            self.builder.position_at_end(cond_bb);
+                            let cur_idx = self
+                                .builder
+                                .build_load(i64_type, idx_alloca, "cur_idx")
+                                .unwrap()
+                                .into_int_value();
+                            let loop_cond = self
+                                .builder
+                                .build_int_compare(
+                                    IntPredicate::SLT,
+                                    cur_idx,
+                                    total_len,
+                                    "check_idx",
                                 )
                                 .unwrap();
-                            let elem_val = self
-                                .builder
-                                .build_load(self.context.f64_type(), elem_ptr, "elem_val")
+                            self.builder
+                                .build_conditional_branch(loop_cond, body_bb, after_bb)
                                 .unwrap();
-                            self.builder.build_store(user_var_alloca, elem_val).unwrap();
+
+                            // --- BODY ---
+                            self.builder.position_at_end(body_bb);
+
+                            let data_ptr_ptr = self
+                                .builder
+                                .build_struct_gep(matrix_type, matrix_ptr, 2, "data_ptr")
+                                .unwrap();
+                            let data_base = self
+                                .builder
+                                .build_load(
+                                    self.context.ptr_type(AddressSpace::default()),
+                                    data_ptr_ptr,
+                                    "data_base",
+                                )
+                                .unwrap()
+                                .into_pointer_value();
+
+                            unsafe {
+                                let elem_ptr = self
+                                    .builder
+                                    .build_gep(
+                                        self.context.f64_type(),
+                                        data_base,
+                                        &[cur_idx],
+                                        "elem_ptr",
+                                    )
+                                    .unwrap();
+                                let elem_val = self
+                                    .builder
+                                    .build_load(self.context.f64_type(), elem_ptr, "elem_val")
+                                    .unwrap();
+                                self.builder.build_store(user_var_alloca, elem_val).unwrap();
+                            }
+
+                            self.compile_stmt(body, function);
+                            self.builder.build_unconditional_branch(inc_bb).unwrap();
+
+                            // --- INC ---
+                            self.builder.position_at_end(inc_bb);
+                            let tmp_idx = self
+                                .builder
+                                .build_load(i64_type, idx_alloca, "idx_load")
+                                .unwrap()
+                                .into_int_value();
+                            let next_idx = self
+                                .builder
+                                .build_int_add(tmp_idx, i64_type.const_int(1, false), "idx_next")
+                                .unwrap();
+                            self.builder.build_store(idx_alloca, next_idx).unwrap();
+                            self.builder.build_unconditional_branch(cond_bb).unwrap();
+
+                            // --- AFTER ---
+                            self.builder.position_at_end(after_bb);
+
+                            if let Some(old) = old_var {
+                                self.variables.insert(var_name.clone(), old);
+                            } else {
+                                self.variables.remove(var_name);
+                            }
                         }
-
-                        self.compile_stmt(body, function);
-                        self.builder.build_unconditional_branch(inc_bb).unwrap();
-
-                        // --- INC ---
-                        self.builder.position_at_end(inc_bb);
-                        let tmp_idx = self
-                            .builder
-                            .build_load(i64_type, idx_alloca, "idx_load")
-                            .unwrap()
-                            .into_int_value();
-                        let next_idx = self
-                            .builder
-                            .build_int_add(tmp_idx, i64_type.const_int(1, false), "idx_next")
-                            .unwrap();
-                        self.builder.build_store(idx_alloca, next_idx).unwrap();
-                        self.builder.build_unconditional_branch(cond_bb).unwrap();
-
-                        // --- AFTER ---
-                        self.builder.position_at_end(after_bb);
-
-                        if let Some(old) = old_var {
-                            self.variables.insert(var_name.clone(), old);
-                        } else {
-                            self.variables.remove(var_name);
-                        }
+                        _ => eprintln!("Error: Type {:?} is not iterable.", iterable_type),
                     }
-                    _ => eprintln!("Erro: Tipo {:?} não é iterável.", iterable_type),
                 }
             }
         }
@@ -1226,7 +1234,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 };
 
                 // Cast values to same type if needed
-                let final_then_val = if then_type == BrixType::Int && result_type == BrixType::Float {
+                let final_then_val = if then_type == BrixType::Int && result_type == BrixType::Float
+                {
                     self.builder
                         .build_signed_int_to_float(
                             then_val.into_int_value(),
@@ -1239,7 +1248,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     then_val
                 };
 
-                let final_else_val = if else_type == BrixType::Int && result_type == BrixType::Float {
+                let final_else_val = if else_type == BrixType::Int && result_type == BrixType::Float
+                {
                     self.builder
                         .build_signed_int_to_float(
                             else_val.into_int_value(),
@@ -1256,20 +1266,83 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let phi_type = match result_type {
                     BrixType::Int => self.context.i64_type().as_basic_type_enum(),
                     BrixType::Float => self.context.f64_type().as_basic_type_enum(),
-                    BrixType::String | BrixType::Matrix | BrixType::FloatPtr => {
-                        self.context.ptr_type(AddressSpace::default()).as_basic_type_enum()
-                    }
+                    BrixType::String | BrixType::Matrix | BrixType::FloatPtr => self
+                        .context
+                        .ptr_type(AddressSpace::default())
+                        .as_basic_type_enum(),
                     _ => self.context.i64_type().as_basic_type_enum(),
                 };
 
-                let phi = self
-                    .builder
-                    .build_phi(phi_type, "tern_result")
-                    .unwrap();
+                let phi = self.builder.build_phi(phi_type, "tern_result").unwrap();
 
-                phi.add_incoming(&[(&final_then_val, then_end_bb), (&final_else_val, else_end_bb)]);
+                phi.add_incoming(&[
+                    (&final_then_val, then_end_bb),
+                    (&final_else_val, else_end_bb),
+                ]);
 
                 Some((phi.as_basic_value(), result_type))
+            }
+
+            Expr::Increment { expr, is_prefix } => {
+                // Get the address of the l-value
+                let var_ptr = self.compile_lvalue_addr(expr)?;
+
+                // Load current value
+                let current_val = self
+                    .builder
+                    .build_load(self.context.i64_type(), var_ptr, "load_for_inc")
+                    .unwrap()
+                    .into_int_value();
+
+                // Increment
+                let one = self.context.i64_type().const_int(1, false);
+                let new_val = self
+                    .builder
+                    .build_int_add(current_val, one, "incremented")
+                    .unwrap();
+
+                // Store new value
+                self.builder.build_store(var_ptr, new_val).unwrap();
+
+                // Return value depends on prefix/postfix
+                if *is_prefix {
+                    // Prefix: return new value (++x)
+                    Some((new_val.into(), BrixType::Int))
+                } else {
+                    // Postfix: return old value (x++)
+                    Some((current_val.into(), BrixType::Int))
+                }
+            }
+
+            Expr::Decrement { expr, is_prefix } => {
+                // Get the address of the l-value
+                let var_ptr = self.compile_lvalue_addr(expr)?;
+
+                // Load current value
+                let current_val = self
+                    .builder
+                    .build_load(self.context.i64_type(), var_ptr, "load_for_dec")
+                    .unwrap()
+                    .into_int_value();
+
+                // Decrement
+                let one = self.context.i64_type().const_int(1, false);
+                let new_val = self
+                    .builder
+                    .build_int_sub(current_val, one, "decremented")
+                    .unwrap();
+
+                // Store new value
+                self.builder.build_store(var_ptr, new_val).unwrap();
+
+                // Return value depends on prefix/postfix
+                if *is_prefix {
+                    // Prefix: return new value (--x)
+                    Some((new_val.into(), BrixType::Int))
+                } else {
+                    // Postfix: return old value (x--)
+                    Some((current_val.into(), BrixType::Int))
+                }
             }
 
             _ => {
@@ -1591,7 +1664,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             BinaryOp::Eq => self.compile_float_cmp(FloatPredicate::OEQ, lhs, rhs),
             BinaryOp::NotEq => self.compile_float_cmp(FloatPredicate::ONE, lhs, rhs),
             BinaryOp::BitAnd | BinaryOp::BitOr | BinaryOp::BitXor => {
-                eprintln!("Error: Bitwise operations (&, |, ^) are only supported on integers, not floats.");
+                eprintln!(
+                    "Error: Bitwise operations (&, |, ^) are only supported on integers, not floats."
+                );
                 None
             }
             _ => None,
