@@ -39,6 +39,12 @@ pub enum Expr {
         rhs: Box<Expr>,
     },
 
+    Ternary {
+        condition: Box<Expr>,
+        then_expr: Box<Expr>,
+        else_expr: Box<Expr>,
+    },
+
     Array(Vec<Expr>),
 
     Index {
