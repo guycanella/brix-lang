@@ -127,7 +127,7 @@ const pi = 3.1415     // Immutable
 
 ### Operators
 - Arithmetic: `+`, `-`, `*`, `/`, `%`, `**` (power)
-- Bitwise: `&`, `|`, `^` (tokens defined, codegen pending)
+- Bitwise: `&`, `|`, `^` (integer only)
 - Logical: `&&`, `and`, `||`, `or`
 - Comparison: `<`, `<=`, `>`, `>=`, `==`, `!=`
 - Chained comparison: `10 < x <= 20` (Julia-style, compiles to `(10 < x) && (x <= 20)`)
@@ -235,6 +235,7 @@ Test files are `.bx` files in the root directory. Common test files include:
 - `string_test.bx`: String operations
 - `arrays_test.bx`: Array operations
 - `csv_test.bx`: Matrix/CSV operations
+- `bitwise_test.bx`: Bitwise operators (&, |, ^)
 - `ternary_test.bx`: Ternary operator (basic, nested, type mixing)
 
 Run tests individually:
@@ -246,21 +247,21 @@ cargo run <test_file.bx>
 
 ## Project Status (v0.3 → v0.4 - Jan 2026)
 
-### Progress: 47% MVP Complete
+### Progress: 50% MVP Complete
 
 **Completed:**
 - ✅ Compiler pipeline (Lexer → Parser → Codegen → Native binary)
 - ✅ 6 primitive types with automatic casting
 - ✅ Arrays and matrices with 2D indexing
 - ✅ Control flow (if/else, while, for loops)
-- ✅ Operators (arithmetic, comparison, logical, string)
+- ✅ Operators (arithmetic, comparison, logical, bitwise, string)
 - ✅ Chained comparisons (Julia-style)
 - ✅ Ternary operator (`cond ? true_val : false_val`)
+- ✅ Bitwise operators (`&`, `|`, `^` for integers)
 - ✅ Built-in functions (printf, scanf, typeof, matrix, read_csv)
 - ✅ Runtime library (C) for matrix and string operations
 
 ### Next Up (v0.4):
-- [ ] Bitwise operators in codegen (`&`, `|`, `^`)
 - [ ] String interpolation (`f"Value: {x}"`)
 - [ ] Logical negation (`!cond` or `not cond`)
 - [ ] Increment/decrement (`x++`, `--x`)
