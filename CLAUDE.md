@@ -53,7 +53,13 @@ The project uses a Cargo workspace with three main crates:
    - Uses `chumsky` parser combinator library
    - Defines AST nodes: `Expr`, `Stmt`, `Literal`, `BinaryOp`, etc.
    - Located: `crates/parser/src/{ast.rs, parser.rs}`
-   - Implements operator precedence correctly (Atom → Power → Mult → Add → Bitwise → Comparison)
+   - Implements operator precedence (lowest to highest):
+     * Comparison/Logical (`<`, `<=`, `>`, `>=`, `==`, `!=`, `&&`, `||`)
+     * Bitwise (`&`, `|`, `^`)
+     * Additive (`+`, `-`)
+     * Multiplicative (`*`, `/`, `%`)
+     * Power (`**`)
+     * Atom (literals, identifiers, function calls, indexing)
 
 3. **`crates/codegen`**: LLVM Code Generation
    - Uses `inkwell` (LLVM 18 bindings)
@@ -66,21 +72,22 @@ The project uses a Cargo workspace with three main crates:
    - Orchestrates lexer → parser → codegen → linking
    - Uses `clap` for argument parsing
    - Handles compilation of `runtime.c` and native linking
+   - Pipeline: `.bx` → Tokens → AST → LLVM IR → `output.o` → link with `runtime.o` → executable `program` → run
 
 ### Runtime Library
 
-**File**: `runtime.c`
+**File**: `runtime.c` (must be in project root)
 
 Provides C implementations of built-in functions:
 
 - **Matrix operations**: `matrix_new()`, `read_csv()`
 - **String operations**: `str_new()`, `str_concat()`, `str_eq()`, `print_brix_string()`
 
-The runtime is compiled to `runtime.o` and linked with each program.
+The runtime is compiled to `runtime.o` and linked with each program automatically by `src/main.rs` using the system C compiler (`cc`).
 
 ## Type System
 
-Brix has 6 core types (defined in `codegen/src/lib.rs`):
+Brix has 6 core types (defined in `crates/codegen/src/lib.rs`):
 
 ```rust
 pub enum BrixType {
@@ -88,10 +95,12 @@ pub enum BrixType {
     Float,    // f64
     String,   // BrixString struct (in runtime.c)
     Matrix,   // Matrix struct (in runtime.c)
-    FloatPtr, // f64*
-    Void,
+    FloatPtr, // f64* (internal pointer type)
+    Void,     // for functions with no return
 }
 ```
+
+**Note:** `bool` is implemented as `i1` in LLVM and auto-extends to `i64` when stored as variables.
 
 ### Type Inference and Casting
 
@@ -118,10 +127,11 @@ const pi = 3.1415     // Immutable
 
 ### Operators
 - Arithmetic: `+`, `-`, `*`, `/`, `%`, `**` (power)
-- Bitwise: `&`, `|`, `^`
+- Bitwise: `&`, `|`, `^` (tokens defined, codegen pending)
 - Logical: `&&`, `and`, `||`, `or`
 - Comparison: `<`, `<=`, `>`, `>=`, `==`, `!=`
 - Chained comparison: `10 < x <= 20` (Julia-style, compiles to `(10 < x) && (x <= 20)`)
+- Ternary: `condition ? true_val : false_val` (supports type promotion int→float)
 
 ### Control Flow
 ```brix
@@ -190,6 +200,13 @@ while i <= end {
 - Runtime struct `BrixString` holds length and char pointer
 - Concatenation and comparison call C runtime functions
 
+### Ternary Operator Implementation
+- Syntax: `condition ? then_expr : else_expr`
+- Uses LLVM basic blocks: `tern_then`, `tern_else`, `tern_merge`
+- PHI node in merge block unifies the two branch values
+- Supports automatic type promotion (int → float when branches have different types)
+- Parser uses `logic_or` level for branches to avoid conflict with range's colon
+
 ## Common Patterns
 
 ### Adding a New Operator
@@ -210,7 +227,7 @@ while i <= end {
 
 ## Testing
 
-Test files are in the root directory with `.bx` extension:
+Test files are `.bx` files in the root directory. Common test files include:
 - `types.bx`: Type inference, explicit types, casting, typeof()
 - `for_test.bx`: Loop variants (range, step, nested)
 - `logic_test.bx`: Boolean operators
@@ -218,16 +235,18 @@ Test files are in the root directory with `.bx` extension:
 - `string_test.bx`: String operations
 - `arrays_test.bx`: Array operations
 - `csv_test.bx`: Matrix/CSV operations
+- `ternary_test.bx`: Ternary operator (basic, nested, type mixing)
 
 Run tests individually:
 ```bash
-cargo run types.bx
-cargo run for_test.bx
+cargo run <test_file.bx>
 ```
 
-## Project Status (v0.3 - Jan 2026)
+**Note:** The compiler generates intermediate files (`runtime.o`, `output.o`) and an executable `program` in the project root during compilation.
 
-### Progress: 45% MVP Complete
+## Project Status (v0.3 → v0.4 - Jan 2026)
+
+### Progress: 47% MVP Complete
 
 **Completed:**
 - ✅ Compiler pipeline (Lexer → Parser → Codegen → Native binary)
@@ -236,13 +255,13 @@ cargo run for_test.bx
 - ✅ Control flow (if/else, while, for loops)
 - ✅ Operators (arithmetic, comparison, logical, string)
 - ✅ Chained comparisons (Julia-style)
+- ✅ Ternary operator (`cond ? true_val : false_val`)
 - ✅ Built-in functions (printf, scanf, typeof, matrix, read_csv)
 - ✅ Runtime library (C) for matrix and string operations
 
 ### Next Up (v0.4):
 - [ ] Bitwise operators in codegen (`&`, `|`, `^`)
 - [ ] String interpolation (`f"Value: {x}"`)
-- [ ] Ternary operator (`cond ? true : false`)
 - [ ] Logical negation (`!cond` or `not cond`)
 - [ ] Increment/decrement (`x++`, `--x`)
 
@@ -274,3 +293,23 @@ cargo run for_test.bx
 - v0.3: Pattern matching, closures, generics
 - v0.4: Concurrency primitives
 - v1.0: Full standard library with data structures (Stack, Queue, HashMap, Heap)
+
+## Troubleshooting
+
+### Compilation Fails with "runtime.c not found"
+- Ensure `runtime.c` exists in the project root directory
+- The compiler looks for it in the current working directory
+
+### LLVM Errors
+- The project requires LLVM 18 to be installed
+- On macOS: `brew install llvm@18`
+- Ensure `inkwell` feature `llvm18-0` matches your LLVM version
+
+### "cc: command not found"
+- The compiler requires a C compiler (gcc/clang) to compile `runtime.c`
+- On macOS: Install Xcode Command Line Tools (`xcode-select --install`)
+- On Linux: Install `build-essential` (Debian/Ubuntu) or `gcc` (other distros)
+
+### Parse Errors Show Only Debug Output
+- Error reporting with Ariadne is planned but not yet implemented
+- Current errors display using Rust's `Debug` format (`{:?}`)

@@ -407,6 +407,26 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
                 },
             });
 
-        range.boxed()
+        // 11. Ternary (condition ? true_expr : false_expr)
+        // Use logic_or for branches to avoid conflict with range's colon
+        let ternary = range
+            .clone()
+            .then(
+                just(Token::Question)
+                    .ignore_then(logic_or.clone())
+                    .then_ignore(just(Token::Colon))
+                    .then(logic_or.clone())
+                    .or_not(),
+            )
+            .map(|(condition, maybe_branches)| match maybe_branches {
+                None => condition,
+                Some((then_expr, else_expr)) => Expr::Ternary {
+                    condition: Box::new(condition),
+                    then_expr: Box::new(then_expr),
+                    else_expr: Box::new(else_expr),
+                },
+            });
+
+        ternary.boxed()
     })
 }

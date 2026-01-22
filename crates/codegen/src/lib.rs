@@ -1,7 +1,7 @@
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::{Linkage, Module};
-use inkwell::types::BasicTypeEnum;
+use inkwell::types::{BasicType, BasicTypeEnum};
 use inkwell::values::{BasicValue, BasicValueEnum, FloatValue, IntValue, PointerValue};
 use inkwell::{AddressSpace, FloatPredicate, IntPredicate};
 use parser::ast::{BinaryOp, Expr, Literal, Program, Stmt};
@@ -1111,6 +1111,112 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 None
             }
 
+            Expr::Ternary {
+                condition,
+                then_expr,
+                else_expr,
+            } => {
+                // Compile condition
+                let (cond_val, _) = self.compile_expr(condition)?;
+                let cond_int = cond_val.into_int_value();
+
+                // Convert to boolean
+                let i64_type = self.context.i64_type();
+                let zero = i64_type.const_int(0, false);
+                let cond_bool = self
+                    .builder
+                    .build_int_compare(IntPredicate::NE, cond_int, zero, "terncond")
+                    .unwrap();
+
+                // Get parent function
+                let parent_fn = self
+                    .builder
+                    .get_insert_block()
+                    .unwrap()
+                    .get_parent()
+                    .unwrap();
+
+                // Create basic blocks
+                let then_bb = self.context.append_basic_block(parent_fn, "tern_then");
+                let else_bb = self.context.append_basic_block(parent_fn, "tern_else");
+                let merge_bb = self.context.append_basic_block(parent_fn, "tern_merge");
+
+                // Conditional branch
+                self.builder
+                    .build_conditional_branch(cond_bool, then_bb, else_bb)
+                    .unwrap();
+
+                // Compile then branch
+                self.builder.position_at_end(then_bb);
+                let (then_val, then_type) = self.compile_expr(then_expr)?;
+                self.builder.build_unconditional_branch(merge_bb).unwrap();
+                let then_end_bb = self.builder.get_insert_block().unwrap();
+
+                // Compile else branch
+                self.builder.position_at_end(else_bb);
+                let (else_val, else_type) = self.compile_expr(else_expr)?;
+                self.builder.build_unconditional_branch(merge_bb).unwrap();
+                let else_end_bb = self.builder.get_insert_block().unwrap();
+
+                // Merge with PHI node
+                self.builder.position_at_end(merge_bb);
+
+                // Determine result type (promote int to float if needed)
+                let result_type = if then_type == BrixType::Float || else_type == BrixType::Float {
+                    BrixType::Float
+                } else if then_type == BrixType::String || else_type == BrixType::String {
+                    BrixType::String
+                } else {
+                    then_type.clone()
+                };
+
+                // Cast values to same type if needed
+                let final_then_val = if then_type == BrixType::Int && result_type == BrixType::Float {
+                    self.builder
+                        .build_signed_int_to_float(
+                            then_val.into_int_value(),
+                            self.context.f64_type(),
+                            "then_cast",
+                        )
+                        .unwrap()
+                        .into()
+                } else {
+                    then_val
+                };
+
+                let final_else_val = if else_type == BrixType::Int && result_type == BrixType::Float {
+                    self.builder
+                        .build_signed_int_to_float(
+                            else_val.into_int_value(),
+                            self.context.f64_type(),
+                            "else_cast",
+                        )
+                        .unwrap()
+                        .into()
+                } else {
+                    else_val
+                };
+
+                // Create PHI node
+                let phi_type = match result_type {
+                    BrixType::Int => self.context.i64_type().as_basic_type_enum(),
+                    BrixType::Float => self.context.f64_type().as_basic_type_enum(),
+                    BrixType::String | BrixType::Matrix | BrixType::FloatPtr => {
+                        self.context.ptr_type(AddressSpace::default()).as_basic_type_enum()
+                    }
+                    _ => self.context.i64_type().as_basic_type_enum(),
+                };
+
+                let phi = self
+                    .builder
+                    .build_phi(phi_type, "tern_result")
+                    .unwrap();
+
+                phi.add_incoming(&[(&final_then_val, then_end_bb), (&final_else_val, else_end_bb)]);
+
+                Some((phi.as_basic_value(), result_type))
+            }
+
             _ => {
                 eprintln!("Expression not implemented in v0.3");
                 None
@@ -1370,6 +1476,24 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             BinaryOp::LtEq => self.compile_cmp(IntPredicate::SLE, lhs, rhs),
             BinaryOp::Eq => self.compile_cmp(IntPredicate::EQ, lhs, rhs),
             BinaryOp::NotEq => self.compile_cmp(IntPredicate::NE, lhs, rhs),
+            BinaryOp::BitAnd => Some(
+                self.builder
+                    .build_and(lhs, rhs, "tmp_and")
+                    .ok()?
+                    .as_basic_value_enum(),
+            ),
+            BinaryOp::BitOr => Some(
+                self.builder
+                    .build_or(lhs, rhs, "tmp_or")
+                    .ok()?
+                    .as_basic_value_enum(),
+            ),
+            BinaryOp::BitXor => Some(
+                self.builder
+                    .build_xor(lhs, rhs, "tmp_xor")
+                    .ok()?
+                    .as_basic_value_enum(),
+            ),
             _ => None,
         }
     }
@@ -1411,6 +1535,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             BinaryOp::LtEq => self.compile_float_cmp(FloatPredicate::OLE, lhs, rhs),
             BinaryOp::Eq => self.compile_float_cmp(FloatPredicate::OEQ, lhs, rhs),
             BinaryOp::NotEq => self.compile_float_cmp(FloatPredicate::ONE, lhs, rhs),
+            BinaryOp::BitAnd | BinaryOp::BitOr | BinaryOp::BitXor => {
+                eprintln!("Error: Bitwise operations (&, |, ^) are only supported on integers, not floats.");
+                None
+            }
             _ => None,
         }
     }

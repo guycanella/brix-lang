@@ -244,7 +244,7 @@ var lista := Node { val: 10, next: Node { val: 20, next: nil } }
 
 ## 10. Status do Desenvolvimento (Atualizado - Jan 2026)
 
-### 📊 Progresso Geral: v0.3 (45% MVP Completo)
+### 📊 Progresso Geral: v0.3 → v0.4 (47% MVP Completo)
 
 ---
 
@@ -287,6 +287,7 @@ var lista := Node { val: 10, next: Node { val: 20, next: nil } }
 - ✅ **Comparação:** `<`, `<=`, `>`, `>=`, `==`, `!=`
 - ✅ **Chained Comparison:** `if 1 < x <= 10` (açúcar sintático → `1 < x && x <= 10`)
 - ✅ **Lógicos:** `&&`, `and`, `||`, `or` (com short-circuit evaluation)
+- ✅ **Ternário:** `cond ? true_val : false_val` (com promoção automática de tipos)
 - ✅ **Strings:** `+` (concatenação), `==` (comparação)
 - ✅ **Compound Assignment (Parser):** `+=`, `-=`, `*=`, `/=` (desugared para `x = x + y`)
 - ⚠️ **Bitwise (Parcial):** Tokens definidos (`&`, `|`, `^`) mas não implementados no codegen
@@ -324,13 +325,13 @@ var lista := Node { val: 10, next: Node { val: 20, next: nil } }
 
 ---
 
-### 🎯 **v0.4 - Operadores e Expressões Avançadas** (Próximo)
+### 🎯 **v0.4 - Operadores e Expressões Avançadas** (Em Andamento)
 
 **Prioridade Alta:**
 
 - [ ] **Increment/Decrement:** `x++`, `x--`, `++x`, `--x`
 - [ ] **Bitwise Operators (Codegen):** `&`, `|`, `^`, `<<`, `>>` (tokens já existem)
-- [ ] **Operador Ternário:** `cond ? true_val : false_val`
+- [x] **Operador Ternário:** `cond ? true_val : false_val` ✅ **IMPLEMENTADO**
 - [ ] **Elvis Operator:** `val ?: default` (para null coalescing futuro)
 - [ ] **Operador de Potência para Floats:** Atualmente `**` só funciona para int
 
@@ -537,7 +538,7 @@ var lista := Node { val: 10, next: Node { val: 20, next: nil } }
 v0.1 ████████████████████ 100% ✅ Lexer, Parser, Codegen básico
 v0.2 ████████████████████ 100% ✅ Tipos, Casting, Operadores
 v0.3 ████████████████████ 100% ✅ Matrizes, Loops, typeof()
-v0.4 ░░░░░░░░░░░░░░░░░░░░   0% 🚧 Operadores avançados, String interpolation
+v0.4 ███░░░░░░░░░░░░░░░░░  15% 🚧 Operador ternário (1/7 features)
 v0.5 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Funções de usuário, return
 v0.6 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Slicing, broadcasting
 v0.7 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Structs, tipos customizados
@@ -665,31 +666,31 @@ users.filter { u ->
 
 ## 14. Sumário de Progresso e Próximos Passos
 
-### ✅ O que já temos (v0.3):
+### ✅ O que já temos (v0.3 → v0.4):
 
 1. **Compilador funcional completo:** Lexer → Parser → Codegen → Binário nativo
 2. **Sistema de tipos robusto:** 6 tipos primitivos com casting automático inteligente
 3. **Operadores matemáticos completos:** Incluindo potência, módulo, chained comparison
-4. **Controle de fluxo:** If/Else, While, For (range e iteração)
-5. **Matrizes e Arrays:** Com indexação 2D e field access
-6. **Strings:** Com concatenação, comparação e introspection
-7. **Runtime C:** Funções de matriz e string otimizadas
-8. **typeof():** Introspecção de tipos em compile-time
+4. **Operador ternário:** `cond ? true_val : false_val` com promoção automática de tipos
+5. **Controle de fluxo:** If/Else, While, For (range e iteração)
+6. **Matrizes e Arrays:** Com indexação 2D e field access
+7. **Strings:** Com concatenação, comparação e introspection
+8. **Runtime C:** Funções de matriz e string otimizadas
+9. **typeof():** Introspecção de tipos em compile-time
 
 ### 🎯 Próximos Passos Imediatos (v0.4):
 
-**Prioridade 1 (Semana 1):**
+**Prioridade 1:**
 
 1. **Bitwise Operators (Codegen):** Implementar `&`, `|`, `^` no codegen (tokens já existem)
 2. **String Interpolation:** `f"Valor: {x}"` via transformação do parser
-3. **Operador Ternário:** `cond ? true : false`
-4. **Negação Lógica:** `!condition` ou `not condition`
+3. **Negação Lógica:** `!condition` ou `not condition`
 
-**Prioridade 2 (Semana 2):**
+**Prioridade 2:**
 
-5. **Increment/Decrement:** `x++`, `--x`, etc
-6. **Elvis Operator:** `val ?: default`
-7. **Testes de Integração:** Suite de testes automatizados para todas as features
+4. **Increment/Decrement:** `x++`, `--x`, etc
+5. **Elvis Operator:** `val ?: default`
+6. **Testes de Integração:** Suite de testes automatizados para todas as features
 
 **Prioridade 3 (Semana 3):**
 
@@ -699,12 +700,12 @@ users.filter { u ->
 
 ### 📊 Estatísticas do Projeto:
 
-- **Linhas de Código (Rust):** ~2500 linhas
+- **Linhas de Código (Rust):** ~2600 linhas
 - **Linhas de Código (C Runtime):** ~125 linhas
-- **Arquivos de Teste (.bx):** 7 (types, for, logic, chain, string, arrays, csv)
-- **Features Implementadas:** ~35
+- **Arquivos de Teste (.bx):** 8 (types, for, logic, chain, string, arrays, csv, ternary)
+- **Features Implementadas:** ~36
 - **Features Planejadas:** ~120+
-- **Progresso MVP:** 45%
+- **Progresso MVP:** 47%
 
 ---
 
