@@ -244,7 +244,7 @@ var lista := Node { val: 10, next: Node { val: 20, next: nil } }
 
 ## 10. Status do Desenvolvimento (Atualizado - Jan 2026)
 
-### 📊 Progresso Geral: v0.3 → v0.4 (57% MVP Completo)
+### 📊 Progresso Geral: v0.4 Completo (60% MVP Completo)
 
 ---
 
@@ -327,7 +327,7 @@ var lista := Node { val: 10, next: Node { val: 20, next: nil } }
 
 ---
 
-### 🎯 **v0.4 - Operadores e Expressões Avançadas** (Em Andamento)
+### ✅ **v0.4 - Operadores e Expressões Avançadas** (COMPLETO)
 
 **Prioridade Alta:**
 
@@ -335,12 +335,12 @@ var lista := Node { val: 10, next: Node { val: 20, next: nil } }
 - [x] **Bitwise Operators:** `&`, `|`, `^` ✅ **IMPLEMENTADO**
 - [x] **Operador Ternário:** `cond ? true_val : false_val` ✅ **IMPLEMENTADO**
 - [x] **Negação Lógica:** `!condition` ou `not condition` ✅ **IMPLEMENTADO**
+- [x] **Operador de Potência:** `**` para int e float (usa LLVM intrinsic `llvm.pow.f64`) ✅ **IMPLEMENTADO**
 - [ ] **Elvis Operator:** `val ?: default` (para null coalescing futuro - adiado para v0.7)
-- [ ] **Operador de Potência para Floats:** Atualmente `**` só funciona para int
 
 **Açúcar Sintático:**
 
-- [ ] **String Interpolation:** `f"Valor: {x}"` ou `"Valor: ${x}"`
+- [x] **String Interpolation:** `f"Valor: {x}"` com conversão automática de tipos ✅ **IMPLEMENTADO**
 
 ---
 
@@ -540,7 +540,7 @@ var lista := Node { val: 10, next: Node { val: 20, next: nil } }
 v0.1 ████████████████████ 100% ✅ Lexer, Parser, Codegen básico
 v0.2 ████████████████████ 100% ✅ Tipos, Casting, Operadores
 v0.3 ████████████████████ 100% ✅ Matrizes, Loops, typeof()
-v0.4 ████████████░░░░░░░░  60% 🚧 Operadores avançados (4/7 features completas)
+v0.4 ████████████████████ 100% ✅ Operadores avançados, string interpolation
 v0.5 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Funções de usuário, return
 v0.6 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Slicing, broadcasting
 v0.7 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Structs, tipos customizados
@@ -668,46 +668,46 @@ users.filter { u ->
 
 ## 14. Sumário de Progresso e Próximos Passos
 
-### ✅ O que já temos (v0.3 → v0.4):
+### ✅ O que já temos (v0.4 COMPLETO):
 
 1. **Compilador funcional completo:** Lexer → Parser → Codegen → Binário nativo
 2. **Sistema de tipos robusto:** 6 tipos primitivos com casting automático inteligente
-3. **Operadores matemáticos completos:** Incluindo potência, módulo, chained comparison
+3. **Operadores matemáticos completos:** `+`, `-`, `*`, `/`, `%`, `**` (potência para int e float)
 4. **Operadores bitwise:** `&`, `|`, `^` (apenas para inteiros)
 5. **Operadores unários:** `!`, `not` (negação lógica), `-` (negação aritmética)
 6. **Increment/Decrement:** `++x`, `x++`, `--x`, `x--` (pré e pós-fixo)
 7. **Operador ternário:** `cond ? true_val : false_val` com promoção automática de tipos
-8. **Controle de fluxo:** If/Else, While, For (range e iteração)
-9. **Matrizes e Arrays:** Com indexação 2D e field access
-10. **Strings:** Com concatenação, comparação e introspection
-11. **Runtime C:** Funções de matriz e string otimizadas
-12. **typeof():** Introspecção de tipos em compile-time
+8. **String interpolation:** `f"Valor: {x}"` com conversão automática de tipos (int, float, string)
+9. **Controle de fluxo:** If/Else, While, For (range e iteração)
+10. **Chained comparisons:** `10 < x <= 20` (estilo Julia)
+11. **Matrizes e Arrays:** Com indexação 2D e field access
+12. **Strings:** Com concatenação, comparação e introspection
+13. **Runtime C:** Funções de matriz e string otimizadas
+14. **typeof():** Introspecção de tipos em compile-time
 
-### 🎯 Próximos Passos Imediatos (v0.4):
+### 🎯 Próximos Passos Imediatos (v0.5):
 
-**Prioridade 1:**
+**Prioridade 1 - Funções:**
 
-1. **String Interpolation:** `f"Valor: {x}"` via transformação do parser
+1. **Definição de funções:** `function nome(params) -> tipo { body }`
+2. **Chamadas de funções:** Com passagem de parâmetros
+3. **Return values:** Retorno de valores tipados
 
-**Prioridade 2:**
+**Prioridade 2 - Qualidade:**
 
-2. **Operador de Potência para Floats:** Atualmente `**` só funciona para int
-3. **Testes de Integração:** Suite de testes automatizados para todas as features
-
-**Prioridade 3 (Semana 3):**
-
-8. **Mensagens de Erro Melhores:** Error reporting com Ariadne (já é dependência)
-9. **Otimizações LLVM:** Habilitar `-O2` e `-O3` via flag CLI
-10. **Documentação:** README completo com exemplos
+4. **Testes de Integração:** Suite de testes automatizados para todas as features
+5. **Mensagens de Erro Melhores:** Error reporting com Ariadne (já é dependência)
+6. **Otimizações LLVM:** Habilitar `-O2` e `-O3` via flag CLI
 
 ### 📊 Estatísticas do Projeto:
 
-- **Linhas de Código (Rust):** ~2800 linhas
+- **Linhas de Código (Rust):** ~3200 linhas
 - **Linhas de Código (C Runtime):** ~125 linhas
-- **Arquivos de Teste (.bx):** 11 (types, for, logic, chain, string, arrays, csv, bitwise, ternary, negation, increment)
-- **Features Implementadas:** ~42
+- **Arquivos de Teste (.bx):** 12 (types, for, logic, chain, string, arrays, csv, bitwise, ternary, negation, increment, fstring)
+- **Features Implementadas:** ~45
 - **Features Planejadas:** ~120+
-- **Progresso MVP:** 57%
+- **Progresso MVP:** 60%
+- **Versão Atual:** v0.4 (Operadores e Expressões Avançadas) ✅ COMPLETO
 
 ---
 
