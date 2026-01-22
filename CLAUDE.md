@@ -127,6 +127,7 @@ const pi = 3.1415     // Immutable
 
 ### Operators
 - Arithmetic: `+`, `-`, `*`, `/`, `%`, `**` (power)
+- Unary: `!`, `not` (logical negation), `-` (arithmetic negation)
 - Bitwise: `&`, `|`, `^` (integer only)
 - Logical: `&&`, `and`, `||`, `or`
 - Comparison: `<`, `<=`, `>`, `>=`, `==`, `!=`
@@ -237,6 +238,7 @@ Test files are `.bx` files in the root directory. Common test files include:
 - `csv_test.bx`: Matrix/CSV operations
 - `bitwise_test.bx`: Bitwise operators (&, |, ^)
 - `ternary_test.bx`: Ternary operator (basic, nested, type mixing)
+- `negation_test.bx`: Logical negation (!, not) and unary minus
 
 Run tests individually:
 ```bash
@@ -247,23 +249,23 @@ cargo run <test_file.bx>
 
 ## Project Status (v0.3 → v0.4 - Jan 2026)
 
-### Progress: 50% MVP Complete
+### Progress: 53% MVP Complete
 
 **Completed:**
 - ✅ Compiler pipeline (Lexer → Parser → Codegen → Native binary)
 - ✅ 6 primitive types with automatic casting
 - ✅ Arrays and matrices with 2D indexing
 - ✅ Control flow (if/else, while, for loops)
-- ✅ Operators (arithmetic, comparison, logical, bitwise, string)
+- ✅ Operators (arithmetic, comparison, logical, bitwise, unary, string)
 - ✅ Chained comparisons (Julia-style)
 - ✅ Ternary operator (`cond ? true_val : false_val`)
 - ✅ Bitwise operators (`&`, `|`, `^` for integers)
+- ✅ Unary operators (`!`, `not` for logical negation; `-` for arithmetic negation)
 - ✅ Built-in functions (printf, scanf, typeof, matrix, read_csv)
 - ✅ Runtime library (C) for matrix and string operations
 
 ### Next Up (v0.4):
 - [ ] String interpolation (`f"Value: {x}"`)
-- [ ] Logical negation (`!cond` or `not cond`)
 - [ ] Increment/decrement (`x++`, `--x`)
 
 ## Current Limitations (v0.3)

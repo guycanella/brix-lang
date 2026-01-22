@@ -41,6 +41,10 @@ pub enum Token {
     #[token("or")]
     Or,
 
+    #[token("!")]
+    #[token("not")]
+    Not,
+
     #[token("while")]
     While,
 
