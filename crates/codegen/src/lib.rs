@@ -4,7 +4,7 @@ use inkwell::module::{Linkage, Module};
 use inkwell::types::{BasicType, BasicTypeEnum};
 use inkwell::values::{BasicValue, BasicValueEnum, FloatValue, IntValue, PointerValue};
 use inkwell::{AddressSpace, FloatPredicate, IntPredicate};
-use parser::ast::{BinaryOp, Expr, Literal, Program, Stmt};
+use parser::ast::{BinaryOp, Expr, Literal, Program, Stmt, UnaryOp};
 use std::collections::HashMap;
 
 // --- BRIX TYPE SYSTEM ---
@@ -684,6 +684,61 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     None
                 }
             },
+
+            Expr::Unary { op, expr } => {
+                let (val, val_type) = self.compile_expr(expr)?;
+
+                match op {
+                    UnaryOp::Not => {
+                        // Logical NOT: convert to bool, then invert
+                        let int_val = if val_type == BrixType::Float {
+                            // Convert float to int first for comparison
+                            self.builder
+                                .build_float_to_signed_int(
+                                    val.into_float_value(),
+                                    self.context.i64_type(),
+                                    "f2i",
+                                )
+                                .unwrap()
+                        } else {
+                            val.into_int_value()
+                        };
+
+                        let zero = self.context.i64_type().const_int(0, false);
+                        let is_zero = self
+                            .builder
+                            .build_int_compare(IntPredicate::EQ, int_val, zero, "is_zero")
+                            .unwrap();
+
+                        // Extend i1 to i64
+                        let result = self
+                            .builder
+                            .build_int_z_extend(is_zero, self.context.i64_type(), "not_result")
+                            .unwrap();
+
+                        Some((result.into(), BrixType::Int))
+                    }
+                    UnaryOp::Negate => {
+                        // Arithmetic negation
+                        if val_type == BrixType::Int {
+                            let neg = self
+                                .builder
+                                .build_int_neg(val.into_int_value(), "neg_int")
+                                .unwrap();
+                            Some((neg.into(), BrixType::Int))
+                        } else if val_type == BrixType::Float {
+                            let neg = self
+                                .builder
+                                .build_float_neg(val.into_float_value(), "neg_float")
+                                .unwrap();
+                            Some((neg.into(), BrixType::Float))
+                        } else {
+                            eprintln!("Error: Cannot negate type {:?}", val_type);
+                            None
+                        }
+                    }
+                }
+            }
 
             Expr::Binary { op, lhs, rhs } => {
                 if matches!(op, BinaryOp::LogicalAnd) || matches!(op, BinaryOp::LogicalOr) {

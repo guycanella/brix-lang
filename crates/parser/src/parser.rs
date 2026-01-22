@@ -1,4 +1,4 @@
-use crate::ast::{BinaryOp, Expr, Literal, Program, Stmt};
+use crate::ast::{BinaryOp, Expr, Literal, Program, Stmt, UnaryOp};
 use chumsky::prelude::*;
 use lexer::token::Token;
 
@@ -189,7 +189,18 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
                 None => func,
             });
 
-        let index_or_field = call
+        // Unary operators (!, not, -)
+        let unary = just(Token::Not)
+            .to(UnaryOp::Not)
+            .or(just(Token::Minus).to(UnaryOp::Negate))
+            .repeated()
+            .then(call.clone())
+            .foldr(|op, expr| Expr::Unary {
+                op,
+                expr: Box::new(expr),
+            });
+
+        let index_or_field = unary
             .clone()
             .then(
                 expr.clone()

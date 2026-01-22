@@ -244,7 +244,7 @@ var lista := Node { val: 10, next: Node { val: 20, next: nil } }
 
 ## 10. Status do Desenvolvimento (Atualizado - Jan 2026)
 
-### 📊 Progresso Geral: v0.3 → v0.4 (50% MVP Completo)
+### 📊 Progresso Geral: v0.3 → v0.4 (53% MVP Completo)
 
 ---
 
@@ -284,6 +284,7 @@ var lista := Node { val: 10, next: Node { val: 20, next: nil } }
 ### 4. Operadores
 
 - ✅ **Aritméticos:** `+`, `-`, `*`, `/`, `%`, `**` (potência)
+- ✅ **Unários:** `!`, `not` (negação lógica), `-` (negação aritmética)
 - ✅ **Comparação:** `<`, `<=`, `>`, `>=`, `==`, `!=`
 - ✅ **Chained Comparison:** `if 1 < x <= 10` (açúcar sintático → `1 < x && x <= 10`)
 - ✅ **Lógicos:** `&&`, `and`, `||`, `or` (com short-circuit evaluation)
@@ -332,13 +333,13 @@ var lista := Node { val: 10, next: Node { val: 20, next: nil } }
 - [ ] **Increment/Decrement:** `x++`, `x--`, `++x`, `--x`
 - [x] **Bitwise Operators:** `&`, `|`, `^` ✅ **IMPLEMENTADO**
 - [x] **Operador Ternário:** `cond ? true_val : false_val` ✅ **IMPLEMENTADO**
+- [x] **Negação Lógica:** `!condition` ou `not condition` ✅ **IMPLEMENTADO**
 - [ ] **Elvis Operator:** `val ?: default` (para null coalescing futuro)
 - [ ] **Operador de Potência para Floats:** Atualmente `**` só funciona para int
 
 **Açúcar Sintático:**
 
 - [ ] **String Interpolation:** `f"Valor: {x}"` ou `"Valor: ${x}"`
-- [ ] **Negação Lógica:** `!condition` ou `not condition`
 
 ---
 
@@ -538,7 +539,7 @@ var lista := Node { val: 10, next: Node { val: 20, next: nil } }
 v0.1 ████████████████████ 100% ✅ Lexer, Parser, Codegen básico
 v0.2 ████████████████████ 100% ✅ Tipos, Casting, Operadores
 v0.3 ████████████████████ 100% ✅ Matrizes, Loops, typeof()
-v0.4 ██████░░░░░░░░░░░░░░  30% 🚧 Bitwise + Ternário (2/7 features)
+v0.4 █████████░░░░░░░░░░░  45% 🚧 Bitwise + Ternário + Negação (3/7 features)
 v0.5 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Funções de usuário, return
 v0.6 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Slicing, broadcasting
 v0.7 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Structs, tipos customizados
@@ -672,26 +673,26 @@ users.filter { u ->
 2. **Sistema de tipos robusto:** 6 tipos primitivos com casting automático inteligente
 3. **Operadores matemáticos completos:** Incluindo potência, módulo, chained comparison
 4. **Operadores bitwise:** `&`, `|`, `^` (apenas para inteiros)
-5. **Operador ternário:** `cond ? true_val : false_val` com promoção automática de tipos
-6. **Controle de fluxo:** If/Else, While, For (range e iteração)
-7. **Matrizes e Arrays:** Com indexação 2D e field access
-8. **Strings:** Com concatenação, comparação e introspection
-9. **Runtime C:** Funções de matriz e string otimizadas
-10. **typeof():** Introspecção de tipos em compile-time
+5. **Operadores unários:** `!`, `not` (negação lógica), `-` (negação aritmética)
+6. **Operador ternário:** `cond ? true_val : false_val` com promoção automática de tipos
+7. **Controle de fluxo:** If/Else, While, For (range e iteração)
+8. **Matrizes e Arrays:** Com indexação 2D e field access
+9. **Strings:** Com concatenação, comparação e introspection
+10. **Runtime C:** Funções de matriz e string otimizadas
+11. **typeof():** Introspecção de tipos em compile-time
 
 ### 🎯 Próximos Passos Imediatos (v0.4):
 
 **Prioridade 1:**
 
-1. **Negação Lógica:** `!condition` ou `not condition`
-2. **String Interpolation:** `f"Valor: {x}"` via transformação do parser
-3. **Increment/Decrement:** `x++`, `--x`, etc
+1. **String Interpolation:** `f"Valor: {x}"` via transformação do parser
+2. **Increment/Decrement:** `x++`, `--x`, etc
 
 **Prioridade 2:**
 
-4. **Elvis Operator:** `val ?: default`
-5. **Operador de Potência para Floats:** Atualmente `**` só funciona para int
-6. **Testes de Integração:** Suite de testes automatizados para todas as features
+3. **Elvis Operator:** `val ?: default`
+4. **Operador de Potência para Floats:** Atualmente `**` só funciona para int
+5. **Testes de Integração:** Suite de testes automatizados para todas as features
 
 **Prioridade 3 (Semana 3):**
 
@@ -701,12 +702,12 @@ users.filter { u ->
 
 ### 📊 Estatísticas do Projeto:
 
-- **Linhas de Código (Rust):** ~2600 linhas
+- **Linhas de Código (Rust):** ~2700 linhas
 - **Linhas de Código (C Runtime):** ~125 linhas
-- **Arquivos de Teste (.bx):** 9 (types, for, logic, chain, string, arrays, csv, bitwise, ternary)
-- **Features Implementadas:** ~38
+- **Arquivos de Teste (.bx):** 10 (types, for, logic, chain, string, arrays, csv, bitwise, ternary, negation)
+- **Features Implementadas:** ~40
 - **Features Planejadas:** ~120+
-- **Progresso MVP:** 50%
+- **Progresso MVP:** 53%
 
 ---
 
