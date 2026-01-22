@@ -189,18 +189,7 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
                 None => func,
             });
 
-        // Unary operators (!, not, -)
-        let unary = just(Token::Not)
-            .to(UnaryOp::Not)
-            .or(just(Token::Minus).to(UnaryOp::Negate))
-            .repeated()
-            .then(call.clone())
-            .foldr(|op, expr| Expr::Unary {
-                op,
-                expr: Box::new(expr),
-            });
-
-        let index_or_field = unary
+        let index_or_field = call
             .clone()
             .then(
                 expr.clone()
@@ -232,12 +221,73 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
             })
             .boxed();
 
-        let power = index_or_field
+        // Postfix increment/decrement (x++, x--)
+        let postfix_inc_dec = index_or_field
+            .clone()
+            .then(
+                just(Token::PlusPlus)
+                    .to(true)
+                    .or(just(Token::MinusMinus).to(false))
+                    .or_not(),
+            )
+            .map(|(expr, maybe_op)| match maybe_op {
+                Some(is_increment) => {
+                    if is_increment {
+                        Expr::Increment {
+                            expr: Box::new(expr),
+                            is_prefix: false,
+                        }
+                    } else {
+                        Expr::Decrement {
+                            expr: Box::new(expr),
+                            is_prefix: false,
+                        }
+                    }
+                }
+                None => expr,
+            });
+
+        // Prefix increment/decrement and unary operators (++x, --x, !x, -x)
+        #[derive(Clone)]
+        enum PrefixOp {
+            Inc,
+            Dec,
+            Not,
+            Neg,
+        }
+
+        let unary = just(Token::PlusPlus)
+            .to(PrefixOp::Inc)
+            .or(just(Token::MinusMinus).to(PrefixOp::Dec))
+            .or(just(Token::Not).to(PrefixOp::Not))
+            .or(just(Token::Minus).to(PrefixOp::Neg))
+            .repeated()
+            .then(postfix_inc_dec.clone())
+            .foldr(|op, expr| match op {
+                PrefixOp::Inc => Expr::Increment {
+                    expr: Box::new(expr),
+                    is_prefix: true,
+                },
+                PrefixOp::Dec => Expr::Decrement {
+                    expr: Box::new(expr),
+                    is_prefix: true,
+                },
+                PrefixOp::Not => Expr::Unary {
+                    op: UnaryOp::Not,
+                    expr: Box::new(expr),
+                },
+                PrefixOp::Neg => Expr::Unary {
+                    op: UnaryOp::Negate,
+                    expr: Box::new(expr),
+                },
+            });
+
+        let power = unary
             .clone()
             .then(
                 just(Token::Pow)
                     .to(BinaryOp::Pow)
-                    .then(index_or_field)
+                    .then(unary)
                     .repeated(),
             )
             .foldl(|lhs, (op, rhs)| Expr::Binary {
