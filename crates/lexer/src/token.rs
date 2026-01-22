@@ -78,6 +78,10 @@ pub enum Token {
     #[regex(r#""([^"\\]|\\["\\bnfrt])*""#, |lex| lex.slice().to_string())]
     String(String),
 
+    // F-Strings (ex: f"Value: {x}")
+    #[regex(r#"f"([^"\\]|\\["\\bnfrt])*""#, |lex| lex.slice().to_string())]
+    FString(String),
+
     // --- Operators ---
     #[token(":=")]
     ColonEq, // Walrus operator (x := 10)

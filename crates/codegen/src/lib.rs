@@ -1345,6 +1345,96 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 }
             }
 
+            Expr::FString { parts } => {
+                use parser::ast::FStringPart;
+
+                if parts.is_empty() {
+                    // Empty f-string -> empty string
+                    let raw_str = self
+                        .builder
+                        .build_global_string_ptr("", "empty_fstr")
+                        .unwrap();
+                    let ptr_type = self.context.ptr_type(AddressSpace::default());
+                    let fn_type = ptr_type.fn_type(&[ptr_type.into()], false);
+                    let str_new_fn = self.module.get_function("str_new").unwrap_or_else(|| {
+                        self.module
+                            .add_function("str_new", fn_type, Some(Linkage::External))
+                    });
+                    let call = self
+                        .builder
+                        .build_call(
+                            str_new_fn,
+                            &[raw_str.as_pointer_value().into()],
+                            "empty_str",
+                        )
+                        .unwrap();
+                    return Some((call.try_as_basic_value().left().unwrap(), BrixType::String));
+                }
+
+                // Compile each part and convert to string
+                let mut string_parts = Vec::new();
+
+                for part in parts {
+                    let str_val = match part {
+                        FStringPart::Text(text) => {
+                            // Create string from text literal
+                            let raw_str = self
+                                .builder
+                                .build_global_string_ptr(text, "fstr_text")
+                                .unwrap();
+                            let ptr_type = self.context.ptr_type(AddressSpace::default());
+                            let fn_type = ptr_type.fn_type(&[ptr_type.into()], false);
+                            let str_new_fn =
+                                self.module.get_function("str_new").unwrap_or_else(|| {
+                                    self.module.add_function(
+                                        "str_new",
+                                        fn_type,
+                                        Some(Linkage::External),
+                                    )
+                                });
+                            let call = self
+                                .builder
+                                .build_call(
+                                    str_new_fn,
+                                    &[raw_str.as_pointer_value().into()],
+                                    "text_str",
+                                )
+                                .unwrap();
+                            call.try_as_basic_value().left().unwrap()
+                        }
+                        FStringPart::Expr(expr) => {
+                            // Compile expression and convert to string
+                            let (val, typ) = self.compile_expr(expr)?;
+                            self.value_to_string(val, &typ)?
+                        }
+                    };
+                    string_parts.push(str_val);
+                }
+
+                // Concatenate all parts
+                let mut result = string_parts[0];
+                for part in &string_parts[1..] {
+                    let ptr_type = self.context.ptr_type(AddressSpace::default());
+                    let fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+                    let str_concat_fn =
+                        self.module.get_function("str_concat").unwrap_or_else(|| {
+                            self.module
+                                .add_function("str_concat", fn_type, Some(Linkage::External))
+                        });
+                    let call = self
+                        .builder
+                        .build_call(
+                            str_concat_fn,
+                            &[result.into(), (*part).into()],
+                            "concat_fstr",
+                        )
+                        .unwrap();
+                    result = call.try_as_basic_value().left().unwrap();
+                }
+
+                Some((result, BrixType::String))
+            }
+
             _ => {
                 eprintln!("Expression not implemented in v0.3");
                 None
@@ -1379,6 +1469,120 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 Some((val, BrixType::String))
             }
         }
+    }
+
+    fn value_to_string(
+        &self,
+        val: BasicValueEnum<'ctx>,
+        typ: &BrixType,
+    ) -> Option<BasicValueEnum<'ctx>> {
+        match typ {
+            BrixType::String => Some(val), // Already a string
+
+            BrixType::Int => {
+                // Use sprintf to convert int to string
+                let sprintf_fn = self.get_sprintf();
+
+                // Allocate buffer for string (enough for i64: 20 chars + null)
+                let i8_type = self.context.i8_type();
+                let buffer_size = i8_type.const_int(32, false);
+                let buffer = self
+                    .builder
+                    .build_array_alloca(i8_type, buffer_size, "int_str_buf")
+                    .unwrap();
+
+                // Format string "%lld"
+                let fmt_str = self
+                    .builder
+                    .build_global_string_ptr("%lld", "fmt_int")
+                    .unwrap();
+
+                // Call sprintf
+                self.builder
+                    .build_call(
+                        sprintf_fn,
+                        &[buffer.into(), fmt_str.as_pointer_value().into(), val.into()],
+                        "sprintf_int",
+                    )
+                    .unwrap();
+
+                // Create BrixString from buffer
+                let ptr_type = self.context.ptr_type(AddressSpace::default());
+                let fn_type = ptr_type.fn_type(&[ptr_type.into()], false);
+                let str_new_fn = self.module.get_function("str_new").unwrap_or_else(|| {
+                    self.module
+                        .add_function("str_new", fn_type, Some(Linkage::External))
+                });
+
+                let call = self
+                    .builder
+                    .build_call(str_new_fn, &[buffer.into()], "int_to_str")
+                    .unwrap();
+                Some(call.try_as_basic_value().left().unwrap())
+            }
+
+            BrixType::Float => {
+                // Use sprintf to convert float to string
+                let sprintf_fn = self.get_sprintf();
+
+                // Allocate buffer for string (enough for f64: 32 chars + null)
+                let i8_type = self.context.i8_type();
+                let buffer_size = i8_type.const_int(64, false);
+                let buffer = self
+                    .builder
+                    .build_array_alloca(i8_type, buffer_size, "float_str_buf")
+                    .unwrap();
+
+                // Format string "%g" (compact float representation)
+                let fmt_str = self
+                    .builder
+                    .build_global_string_ptr("%g", "fmt_float")
+                    .unwrap();
+
+                // Call sprintf
+                self.builder
+                    .build_call(
+                        sprintf_fn,
+                        &[buffer.into(), fmt_str.as_pointer_value().into(), val.into()],
+                        "sprintf_float",
+                    )
+                    .unwrap();
+
+                // Create BrixString from buffer
+                let ptr_type = self.context.ptr_type(AddressSpace::default());
+                let fn_type = ptr_type.fn_type(&[ptr_type.into()], false);
+                let str_new_fn = self.module.get_function("str_new").unwrap_or_else(|| {
+                    self.module
+                        .add_function("str_new", fn_type, Some(Linkage::External))
+                });
+
+                let call = self
+                    .builder
+                    .build_call(str_new_fn, &[buffer.into()], "float_to_str")
+                    .unwrap();
+                Some(call.try_as_basic_value().left().unwrap())
+            }
+
+            _ => {
+                eprintln!("value_to_string not implemented for type: {:?}", typ);
+                None
+            }
+        }
+    }
+
+    fn get_sprintf(&self) -> inkwell::values::FunctionValue<'ctx> {
+        if let Some(func) = self.module.get_function("sprintf") {
+            return func;
+        }
+
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let i32_type = self.context.i32_type();
+
+        // int sprintf(char *str, const char *format, ...)
+        let fn_type = i32_type.fn_type(&[ptr_type.into(), ptr_type.into()], true); // variadic
+
+        self.module
+            .add_function("sprintf", fn_type, Some(Linkage::External))
     }
 
     fn compile_input_int(&self) -> Option<BasicValueEnum<'ctx>> {
@@ -1622,6 +1826,41 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     .ok()?
                     .as_basic_value_enum(),
             ),
+            BinaryOp::Pow => {
+                // Convert integers to float, call pow, convert back to int
+                let f64_type = self.context.f64_type();
+                let lhs_float = self
+                    .builder
+                    .build_signed_int_to_float(lhs, f64_type, "lhs_f")
+                    .ok()?;
+                let rhs_float = self
+                    .builder
+                    .build_signed_int_to_float(rhs, f64_type, "rhs_f")
+                    .ok()?;
+
+                // Get or declare llvm.pow.f64 intrinsic
+                let pow_fn = self.module.get_function("llvm.pow.f64").unwrap_or_else(|| {
+                    let fn_type = f64_type.fn_type(&[f64_type.into(), f64_type.into()], false);
+                    self.module.add_function("llvm.pow.f64", fn_type, None)
+                });
+
+                let result = self
+                    .builder
+                    .build_call(pow_fn, &[lhs_float.into(), rhs_float.into()], "pow_result")
+                    .ok()?
+                    .try_as_basic_value()
+                    .left()?
+                    .into_float_value();
+
+                // Convert back to int
+                let i64_type = self.context.i64_type();
+                let int_result = self
+                    .builder
+                    .build_float_to_signed_int(result, i64_type, "pow_int")
+                    .ok()?;
+
+                Some(int_result.as_basic_value_enum())
+            }
             _ => None,
         }
     }
@@ -1668,6 +1907,24 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     "Error: Bitwise operations (&, |, ^) are only supported on integers, not floats."
                 );
                 None
+            }
+            BinaryOp::Pow => {
+                let f64_type = self.context.f64_type();
+
+                // Get or declare llvm.pow.f64 intrinsic
+                let pow_fn = self.module.get_function("llvm.pow.f64").unwrap_or_else(|| {
+                    let fn_type = f64_type.fn_type(&[f64_type.into(), f64_type.into()], false);
+                    self.module.add_function("llvm.pow.f64", fn_type, None)
+                });
+
+                let result = self
+                    .builder
+                    .build_call(pow_fn, &[lhs.into(), rhs.into()], "pow_result")
+                    .ok()?
+                    .try_as_basic_value()
+                    .left()?;
+
+                Some(result)
             }
             _ => None,
         }

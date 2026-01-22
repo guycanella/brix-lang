@@ -1,4 +1,4 @@
-use crate::ast::{BinaryOp, Expr, Literal, Program, Stmt, UnaryOp};
+use crate::ast::{BinaryOp, Expr, FStringPart, Literal, Program, Stmt, UnaryOp};
 use chumsky::prelude::*;
 use lexer::token::Token;
 
@@ -8,6 +8,93 @@ pub fn parser() -> impl Parser<Token, Program, Error = Simple<Token>> {
     stmt.repeated()
         .map(|statements| Program { statements })
         .then_ignore(end())
+}
+
+fn parse_fstring_content(fstring: &str) -> Result<Vec<(bool, String)>, String> {
+    // Returns Vec of (is_expr, content)
+    // Remove f" prefix and trailing "
+    let content = fstring
+        .strip_prefix("f\"")
+        .and_then(|s| s.strip_suffix('"'))
+        .ok_or_else(|| "Invalid f-string format".to_string())?;
+
+    let mut parts = Vec::new();
+    let mut chars = content.chars().peekable();
+    let mut current_text = String::new();
+
+    while let Some(ch) = chars.next() {
+        if ch == '{' {
+            // Check for escaped brace {{
+            if chars.peek() == Some(&'{') {
+                chars.next();
+                current_text.push('{');
+                continue;
+            }
+
+            // Save accumulated text
+            if !current_text.is_empty() {
+                parts.push((false, current_text.clone()));
+                current_text.clear();
+            }
+
+            // Extract expression until matching }
+            let mut expr_str = String::new();
+            let mut brace_depth = 1;
+
+            while let Some(ch) = chars.next() {
+                if ch == '{' {
+                    brace_depth += 1;
+                    expr_str.push(ch);
+                } else if ch == '}' {
+                    brace_depth -= 1;
+                    if brace_depth == 0 {
+                        break;
+                    }
+                    expr_str.push(ch);
+                } else {
+                    expr_str.push(ch);
+                }
+            }
+
+            if brace_depth != 0 {
+                return Err("Unmatched braces in f-string".to_string());
+            }
+
+            // Store expression string (will be parsed later)
+            parts.push((true, expr_str));
+        } else if ch == '}' {
+            // Check for escaped brace }}
+            if chars.peek() == Some(&'}') {
+                chars.next();
+                current_text.push('}');
+                continue;
+            }
+            return Err("Unmatched closing brace in f-string".to_string());
+        } else if ch == '\\' {
+            // Handle escape sequences
+            if let Some(next_ch) = chars.next() {
+                match next_ch {
+                    'n' => current_text.push('\n'),
+                    't' => current_text.push('\t'),
+                    '\\' => current_text.push('\\'),
+                    '"' => current_text.push('"'),
+                    _ => {
+                        current_text.push('\\');
+                        current_text.push(next_ch);
+                    }
+                }
+            }
+        } else {
+            current_text.push(ch);
+        }
+    }
+
+    // Add remaining text
+    if !current_text.is_empty() {
+        parts.push((false, current_text));
+    }
+
+    Ok(parts)
 }
 
 fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
@@ -161,6 +248,40 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
             Token::Identifier(s) => Expr::Identifier(s),
         };
 
+        let expr_for_fstring = expr.clone();
+        let fstring = select! {
+            Token::FString(s) => s,
+        }
+        .try_map(move |fstr, span: std::ops::Range<usize>| {
+            let span_clone = span.clone();
+            let raw_parts: Vec<(bool, String)> =
+                parse_fstring_content(&fstr).map_err(|e| Simple::custom(span_clone, e))?;
+
+            let mut parts = Vec::new();
+
+            for (is_expr, content) in raw_parts {
+                if is_expr {
+                    // Parse the expression string
+                    let tokens: Vec<Token> = lexer::lex(&content);
+                    let parsed_expr = expr_for_fstring
+                        .clone()
+                        .then_ignore(end())
+                        .parse(tokens)
+                        .map_err(|_| {
+                            Simple::custom(
+                                span.clone(),
+                                format!("Failed to parse f-string expression: {}", content),
+                            )
+                        })?;
+                    parts.push(FStringPart::Expr(Box::new(parsed_expr)));
+                } else {
+                    parts.push(FStringPart::Text(content));
+                }
+            }
+
+            Ok::<Expr, Simple<Token>>(Expr::FString { parts })
+        });
+
         let array_literal = expr
             .clone()
             .separated_by(just(Token::Comma))
@@ -168,7 +289,7 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
             .delimited_by(just(Token::LBracket), just(Token::RBracket))
             .map(Expr::Array);
 
-        let atom = val.or(array_literal).or(expr
+        let atom = val.or(fstring).or(array_literal).or(expr
             .clone()
             .delimited_by(just(Token::LParen), just(Token::RParen)));
 
@@ -284,12 +405,7 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
 
         let power = unary
             .clone()
-            .then(
-                just(Token::Pow)
-                    .to(BinaryOp::Pow)
-                    .then(unary)
-                    .repeated(),
-            )
+            .then(just(Token::Pow).to(BinaryOp::Pow).then(unary).repeated())
             .foldl(|lhs, (op, rhs)| Expr::Binary {
                 op,
                 lhs: Box::new(lhs),

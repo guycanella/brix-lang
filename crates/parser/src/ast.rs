@@ -7,6 +7,12 @@ pub enum Literal {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum FStringPart {
+    Text(String),
+    Expr(Box<Expr>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum BinaryOp {
     Add,
     Sub,
@@ -64,6 +70,10 @@ pub enum Expr {
     Decrement {
         expr: Box<Expr>,
         is_prefix: bool,  // true = --x, false = x--
+    },
+
+    FString {
+        parts: Vec<FStringPart>,
     },
 
     Array(Vec<Expr>),

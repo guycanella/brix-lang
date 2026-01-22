@@ -166,6 +166,17 @@ var msg := s + " world"    // Concatenation
 if s == "test" { }         // Comparison
 ```
 
+### String Interpolation
+```brix
+var name := "Brix"
+var greeting := f"Hello, {name}!"       // Simple interpolation
+var x := 42
+var msg := f"Answer: {x}"               // Integer interpolation
+var pi := 3.14
+var circle := f"Pi = {pi}"              // Float interpolation
+var calc := f"5 * 2 = {5 * 2}"          // Expression interpolation
+```
+
 ### Built-in Functions
 - `printf(format, ...)`: Formatted output (C-style)
 - `scanf(format, ...)`: Formatted input
@@ -209,6 +220,17 @@ while i <= end {
 - Supports automatic type promotion (int → float when branches have different types)
 - Parser uses `logic_or` level for branches to avoid conflict with range's colon
 
+### String Interpolation Implementation
+- Syntax: `f"text {expr} more text"`
+- Token: `FString` in lexer with regex `r#"f"([^"\\]|\\["\\bnfrt])*""#`
+- AST: `FStringPart` enum with `Text(String)` and `Expr(Box<Expr>)`
+- Parser extracts expressions from `{}`, tokenizes and parses them recursively
+- Codegen converts each part to string using `value_to_string()`:
+  - Int/Float: Uses C `sprintf()` with format strings `%lld` / `%g`
+  - String: Returns as-is
+- All parts concatenated using runtime `str_concat()` function
+- Supports nested expressions, arithmetic, and function calls inside `{}`
+
 ## Common Patterns
 
 ### Adding a New Operator
@@ -241,6 +263,7 @@ Test files are `.bx` files in the root directory. Common test files include:
 - `ternary_test.bx`: Ternary operator (basic, nested, type mixing)
 - `negation_test.bx`: Logical negation (!, not) and unary minus
 - `increment_test.bx`: Increment/decrement (++, --, prefix/postfix)
+- `fstring_test.bx`: String interpolation (f"text {expr}")
 
 Run tests individually:
 ```bash
@@ -249,9 +272,9 @@ cargo run <test_file.bx>
 
 **Note:** The compiler generates intermediate files (`runtime.o`, `output.o`) and an executable `program` in the project root during compilation.
 
-## Project Status (v0.3 → v0.4 - Jan 2026)
+## Project Status (v0.4 - Jan 2026)
 
-### Progress: 57% MVP Complete
+### Progress: 60% MVP Complete
 
 **Completed:**
 - ✅ Compiler pipeline (Lexer → Parser → Codegen → Native binary)
@@ -259,18 +282,23 @@ cargo run <test_file.bx>
 - ✅ Arrays and matrices with 2D indexing
 - ✅ Control flow (if/else, while, for loops)
 - ✅ Operators (arithmetic, comparison, logical, bitwise, unary, inc/dec, string)
+- ✅ Power operator (`**` for int and float)
 - ✅ Chained comparisons (Julia-style)
 - ✅ Ternary operator (`cond ? true_val : false_val`)
 - ✅ Bitwise operators (`&`, `|`, `^` for integers)
 - ✅ Unary operators (`!`, `not` for logical negation; `-` for arithmetic negation)
 - ✅ Increment/Decrement (`++x`, `x++`, `--x`, `x--` - prefix and postfix)
+- ✅ String interpolation (`f"text {expr}"` with automatic type conversion)
 - ✅ Built-in functions (printf, scanf, typeof, matrix, read_csv)
 - ✅ Runtime library (C) for matrix and string operations
 
-### Next Up (v0.4):
-- [ ] String interpolation (`f"Value: {x}"`)
+### Next Up (v0.5):
+- [ ] Functions (definition, calls, return values)
+- [ ] Multiple return values (Go-style)
+- [ ] Pattern matching (`when` syntax)
+- [ ] List comprehensions
 
-## Current Limitations (v0.3)
+## Current Limitations (v0.4)
 
 - **No generics**: Only concrete types (int, float, string, matrix)
 - **Single-file compilation**: No imports or modules
