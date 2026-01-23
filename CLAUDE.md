@@ -178,11 +178,23 @@ var calc := f"5 * 2 = {5 * 2}"          // Expression interpolation
 ```
 
 ### Built-in Functions
+
+**Output:**
 - `printf(format, ...)`: Formatted output (C-style)
 - `print(expr)`: Print any value without newline (auto-converts to string)
 - `println(expr)`: Print any value with newline (auto-converts to string)
+
+**Input:**
 - `scanf(format, ...)`: Formatted input
+
+**Type Introspection:**
 - `typeof(expr)`: Returns type as string (e.g., "int", "float", "string")
+
+**Type Conversion:**
+- `int(x)`: Convert to int (truncates floats, parses strings)
+- `float(x)`: Convert to float (promotes ints, parses strings)
+- `string(x)`: Convert to string (works with all types)
+- `bool(x)`: Convert to boolean (0/0.0/empty string = false, rest = true)
 
 ## Important Implementation Details
 
@@ -244,6 +256,37 @@ while i <= end {
 - Supports all types: int, float, string, bool (auto-converted)
 - More user-friendly than printf for simple output
 
+### Type Conversion Functions Implementation
+Built-in functions for explicit type conversion between primitive types.
+
+**int(x):**
+- Int → returns same value
+- Float → `build_float_to_signed_int()` (truncates: 3.14 → 3)
+- String → calls C `atoi()` for parsing ("123" → 123)
+- Returns: i64
+
+**float(x):**
+- Float → returns same value
+- Int → `build_signed_int_to_float()` (promotes: 42 → 42.0)
+- String → calls C `atof()` for parsing ("3.14" → 3.14)
+- Returns: f64
+
+**string(x):**
+- String → returns same value
+- Int/Float → reuses `value_to_string()` with `sprintf()`
+- Bool → converts to "0" or "1"
+- Returns: BrixString
+
+**bool(x):**
+- Int → `x != 0` (0 = false, anything else = true)
+- Float → `x != 0.0`
+- String → `len > 0` (empty string = false, non-empty = true)
+- Returns: i64 (0 or 1)
+
+**Helper functions:**
+- `get_atoi()`: Declares C `int atoi(const char*)`
+- `get_atof()`: Declares C `double atof(const char*)`
+
 ## Common Patterns
 
 ### Adding a New Operator
@@ -278,6 +321,7 @@ Test files are `.bx` files in the root directory. Common test files include:
 - `increment_test.bx`: Increment/decrement (++, --, prefix/postfix)
 - `fstring_test.bx`: String interpolation (f"text {expr}")
 - `print_test.bx`: Print and println functions (auto-conversion)
+- `conversion_test.bx`: Type conversion functions (int, float, string, bool)
 
 Run tests individually:
 ```bash
