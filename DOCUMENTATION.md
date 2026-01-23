@@ -309,6 +309,8 @@ var lista := Node { val: 10, next: Node { val: 20, next: nil } }
 ### 6. Funções Built-in
 
 - ✅ **printf:** Saída formatada estilo C (`printf("x: %d", x)`)
+- ✅ **print:** Imprime qualquer valor sem newline, com conversão automática (`print(42)`, `print("text")`)
+- ✅ **println:** Imprime qualquer valor COM newline automático (`println(x)`)
 - ✅ **scanf/input:** Entrada tipada (`input("int")`, `input("float")`, `input("string")`)
 - ✅ **typeof:** Retorna tipo como string
 - ✅ **matrix:** Construtor de matriz vazia (`matrix(rows, cols)`)
@@ -336,7 +338,7 @@ var lista := Node { val: 10, next: Node { val: 20, next: nil } }
 - [x] **Operador Ternário:** `cond ? true_val : false_val` ✅ **IMPLEMENTADO**
 - [x] **Negação Lógica:** `!condition` ou `not condition` ✅ **IMPLEMENTADO**
 - [x] **Operador de Potência:** `**` para int e float (usa LLVM intrinsic `llvm.pow.f64`) ✅ **IMPLEMENTADO**
-- [ ] **Elvis Operator:** `val ?: default` (para null coalescing futuro - adiado para v0.7)
+- [ ] **Elvis Operator:** `val ?: default` (para null coalescing futuro - adiado para v0.8 com null safety)
 
 **Açúcar Sintático:**
 
@@ -362,7 +364,157 @@ var lista := Node { val: 10, next: Node { val: 20, next: nil } }
 
 ---
 
-### 📦 **v0.6 - Arrays Avançados e Slicing**
+### 🔢 **v0.6 - Sistema Numérico Avançado e Conversões de Tipo**
+
+**Motivação:** Brix é focado em cálculos numéricos para Engenharia de Dados e Física. Precisamos de suporte robusto para formatação numérica, conversões de tipo e números complexos.
+
+#### Format Specifiers em String Interpolation
+
+Atualmente, f-strings convertem valores automaticamente mas sem controle de formato. Precisamos de especificadores printf-style:
+
+**Sintaxe proposta:** `f"{expr:format}"`
+
+**Exemplos:**
+```brix
+var pi := 3.14159265
+var msg := f"Pi com 2 casas: {pi:.2f}"           // "Pi com 2 casas: 3.14"
+var precise := f"Pi preciso: {pi:.10f}"          // "Pi preciso: 3.1415926500"
+
+var num := 255
+var hex := f"Hex: {num:x}"                       // "Hex: ff"
+var oct := f"Octal: {num:o}"                     // "Octal: 377"
+
+var big := 1234567.89
+var sci := f"Científico: {big:.2e}"              // "Científico: 1.23e+06"
+```
+
+**Formatos suportados:**
+- `.Nf`: N casas decimais (float)
+- `.Ne`: Notação científica com N dígitos
+- `x`: Hexadecimal (lowercase)
+- `X`: Hexadecimal (uppercase)
+- `o`: Octal
+- `b`: Binário
+
+**Implementação:**
+- Modificar parser para detectar `:format` após expressões em `{}`
+- Estender `FStringPart::Expr` para incluir `Option<String>` com formato
+- No codegen, usar formato especificado no `sprintf()` em vez de formato fixo
+
+#### Funções de Conversão de Tipo
+
+Conversões explícitas entre tipos primitivos:
+
+```brix
+// Float para Int (truncamento)
+var x := 3.14
+var i := int(x)           // i = 3
+
+// Int para Float
+var n := 42
+var f := float(n)         // f = 42.0
+
+// String para Int/Float (parsing)
+var s := "123"
+var num := int(s)         // num = 123
+var decimal := float("3.14")  // decimal = 3.14
+
+// Qualquer tipo para String
+var msg := string(42)     // "42"
+var txt := string(3.14)   // "3.14"
+
+// Conversão para Boolean
+var b := bool(1)          // true
+var b2 := bool(0)         // false
+```
+
+**Funções:**
+- `int(x)`: Converte para i64 (trunca floats, parseia strings)
+- `float(x)`: Converte para f64
+- `string(x)`: Converte para string (similar a `sprintf`)
+- `bool(x)`: Converte para boolean (0/null = false, resto = true)
+
+**Implementação:**
+- Adicionar como built-in functions no codegen
+- Usar lógica similar a `typeof()` mas retornando valores convertidos
+- Para parsing de strings, usar funções C: `atoi()`, `atof()`
+
+#### Números Complexos (Julia-style)
+
+**Motivação:** Física, Engenharia Elétrica, Processamento de Sinais dependem de números complexos.
+
+**Sintaxe:**
+```brix
+// Literal complexo usando 'im' (imaginary unit)
+var z := 1 + 2im
+var w := 3.5 - 1.2im
+var pure_imag := 5im      // 0 + 5im
+
+// Funções built-in
+var r := real(z)          // 1.0 (parte real)
+var i := imag(z)          // 2.0 (parte imaginária)
+var conjugado := conj(z)  // 1 - 2im
+var magnitude := abs(z)   // 2.236... (sqrt(1^2 + 2^2))
+var mag2 := abs2(z)       // 5.0 (1^2 + 2^2, evita sqrt)
+var fase := angle(z)      // 1.107... radianos (atan2(2, 1))
+
+// Aritmética complexa
+var soma := z + w         // (4.5 + 0.8im)
+var produto := z * w      // Multiplicação complexa
+var divisao := z / w      // Divisão complexa
+var potencia := z ** 2    // Potência complexa
+```
+
+**Representação Interna:**
+```rust
+// No AST
+Literal::Complex { real: f64, imag: f64 }
+
+// No BrixType
+BrixType::Complex
+
+// Em LLVM: struct { f64 real, f64 imag }
+```
+
+**Funções matemáticas:**
+- `real(z)`: Retorna parte real como f64
+- `imag(z)`: Retorna parte imaginária como f64
+- `conj(z)`: Conjugado complexo (inverte sinal da parte imaginária)
+- `abs(z)`: Magnitude `sqrt(real^2 + imag^2)`
+- `abs2(z)`: Magnitude ao quadrado `real^2 + imag^2` (mais rápido, evita sqrt)
+- `angle(z)`: Fase em radianos `atan2(imag, real)`
+
+**Operadores:**
+- `+`, `-`: Soma/subtração (real com real, imag com imag)
+- `*`: Multiplicação: `(a+bi)(c+di) = (ac-bd) + (ad+bc)i`
+- `/`: Divisão complexa
+- `**`: Potência (forma polar: `r^n * e^(i*n*θ)`)
+
+**Implementação:**
+- Token `Im` para literal imaginário
+- Parser reconhece `Nim` como `Literal::Complex { real: 0, imag: N }`
+- Expressões `a + bim` parseadas como `Binary { Add, a, bim }`
+- Codegen:
+  - Struct LLVM com 2 campos f64
+  - Funções runtime em C para operações complexas
+  - Otimizações SIMD possíveis (2 floats = 1 operação vetorial)
+
+**Performance:**
+- Struct passa por valor (2x f64 = 16 bytes, cabe em registradores)
+- Operações podem usar SIMD (SSE/AVX: opera 2 floats simultaneamente)
+- `abs2()` evita sqrt custoso quando só precisa comparar magnitudes
+
+**Tarefas:**
+- [ ] Adicionar token `Im` no lexer
+- [ ] `Literal::Complex` no AST
+- [ ] `BrixType::Complex` no codegen
+- [ ] Funções runtime: `complex_add`, `complex_mul`, `complex_div`, `complex_pow`
+- [ ] Built-ins: `real()`, `imag()`, `conj()`, `abs()`, `abs2()`, `angle()`
+- [ ] Testes com operações complexas
+
+---
+
+### 📦 **v0.7 - Arrays Avançados e Slicing**
 
 **Slicing:**
 
@@ -386,7 +538,7 @@ var lista := Node { val: 10, next: Node { val: 20, next: nil } }
 
 ---
 
-### 🗂️ **v0.7 - Structs e Tipos Customizados**
+### 🗂️ **v0.8 - Structs e Tipos Customizados**
 
 **Structs Básicos:**
 
@@ -408,7 +560,9 @@ var lista := Node { val: 10, next: Node { val: 20, next: nil } }
 
 ---
 
-### 🎭 **v0.8 - Pattern Matching**
+### 🎭 **v0.9 - Pattern Matching e Programação Funcional**
+
+#### Pattern Matching
 
 **Substituir switch/case complexos:**
 
@@ -423,9 +577,7 @@ var lista := Node { val: 10, next: Node { val: 20, next: nil } }
 - [ ] **Guards (Condições):** `{ status: s } if s > 500 -> ...`
 - [ ] **Desestruturação:** Extrair campos de structs no match
 
----
-
-### 🔁 **v0.9 - Programação Funcional**
+#### Programação Funcional
 
 **Iteradores:**
 
@@ -542,10 +694,10 @@ v0.2 ████████████████████ 100% ✅ Tipos
 v0.3 ████████████████████ 100% ✅ Matrizes, Loops, typeof()
 v0.4 ████████████████████ 100% ✅ Operadores avançados, string interpolation
 v0.5 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Funções de usuário, return
-v0.6 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Slicing, broadcasting
-v0.7 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Structs, tipos customizados
-v0.8 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Pattern matching
-v0.9 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Programação funcional
+v0.6 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Sistema numérico, conversões, complexos
+v0.7 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Slicing, broadcasting
+v0.8 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Structs, tipos customizados
+v0.9 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Pattern matching, prog. funcional
 v1.0 ░░░░░░░░░░░░░░░░░░░░   0% 🎯 Standard Library completa
 ```
 
@@ -684,6 +836,7 @@ users.filter { u ->
 12. **Strings:** Com concatenação, comparação e introspection
 13. **Runtime C:** Funções de matriz e string otimizadas
 14. **typeof():** Introspecção de tipos em compile-time
+15. **print() e println():** Output simplificado com conversão automática de tipos
 
 ### 🎯 Próximos Passos Imediatos (v0.5):
 
@@ -701,10 +854,10 @@ users.filter { u ->
 
 ### 📊 Estatísticas do Projeto:
 
-- **Linhas de Código (Rust):** ~3200 linhas
+- **Linhas de Código (Rust):** ~3300 linhas
 - **Linhas de Código (C Runtime):** ~125 linhas
-- **Arquivos de Teste (.bx):** 12 (types, for, logic, chain, string, arrays, csv, bitwise, ternary, negation, increment, fstring)
-- **Features Implementadas:** ~45
+- **Arquivos de Teste (.bx):** 13 (types, for, logic, chain, string, arrays, csv, bitwise, ternary, negation, increment, fstring, print)
+- **Features Implementadas:** ~47
 - **Features Planejadas:** ~120+
 - **Progresso MVP:** 60%
 - **Versão Atual:** v0.4 (Operadores e Expressões Avançadas) ✅ COMPLETO

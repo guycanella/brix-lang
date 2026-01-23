@@ -319,6 +319,84 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     .unwrap();
             }
 
+            Stmt::Print { expr } => {
+                if let Some((val, brix_type)) = self.compile_expr(expr) {
+                    // Convert value to string
+                    let string_val = self.value_to_string(val, &brix_type);
+
+                    if let Some(str_val) = string_val {
+                        let printf_fn = self.get_printf();
+                        let fmt_str = self
+                            .builder
+                            .build_global_string_ptr("%s", "print_fmt")
+                            .unwrap();
+
+                        // Extract char* from BrixString
+                        let struct_ptr = str_val.into_pointer_value();
+                        let str_type = self.get_string_type();
+                        let data_ptr_ptr = self
+                            .builder
+                            .build_struct_gep(str_type, struct_ptr, 1, "str_data_ptr")
+                            .unwrap();
+                        let data_ptr = self
+                            .builder
+                            .build_load(
+                                self.context.ptr_type(AddressSpace::default()),
+                                data_ptr_ptr,
+                                "str_data",
+                            )
+                            .unwrap();
+
+                        self.builder
+                            .build_call(
+                                printf_fn,
+                                &[fmt_str.as_pointer_value().into(), data_ptr.into()],
+                                "call_print",
+                            )
+                            .unwrap();
+                    }
+                }
+            }
+
+            Stmt::Println { expr } => {
+                if let Some((val, brix_type)) = self.compile_expr(expr) {
+                    // Convert value to string
+                    let string_val = self.value_to_string(val, &brix_type);
+
+                    if let Some(str_val) = string_val {
+                        let printf_fn = self.get_printf();
+                        let fmt_str = self
+                            .builder
+                            .build_global_string_ptr("%s\n", "println_fmt")
+                            .unwrap();
+
+                        // Extract char* from BrixString
+                        let struct_ptr = str_val.into_pointer_value();
+                        let str_type = self.get_string_type();
+                        let data_ptr_ptr = self
+                            .builder
+                            .build_struct_gep(str_type, struct_ptr, 1, "str_data_ptr")
+                            .unwrap();
+                        let data_ptr = self
+                            .builder
+                            .build_load(
+                                self.context.ptr_type(AddressSpace::default()),
+                                data_ptr_ptr,
+                                "str_data",
+                            )
+                            .unwrap();
+
+                        self.builder
+                            .build_call(
+                                printf_fn,
+                                &[fmt_str.as_pointer_value().into(), data_ptr.into()],
+                                "call_println",
+                            )
+                            .unwrap();
+                    }
+                }
+            }
+
             Stmt::Expr(expr) => {
                 self.compile_expr(expr);
             }

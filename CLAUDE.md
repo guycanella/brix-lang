@@ -179,6 +179,8 @@ var calc := f"5 * 2 = {5 * 2}"          // Expression interpolation
 
 ### Built-in Functions
 - `printf(format, ...)`: Formatted output (C-style)
+- `print(expr)`: Print any value without newline (auto-converts to string)
+- `println(expr)`: Print any value with newline (auto-converts to string)
 - `scanf(format, ...)`: Formatted input
 - `typeof(expr)`: Returns type as string (e.g., "int", "float", "string")
 
@@ -231,6 +233,17 @@ while i <= end {
 - All parts concatenated using runtime `str_concat()` function
 - Supports nested expressions, arithmetic, and function calls inside `{}`
 
+### Print Functions Implementation
+- **print(expr)**: Prints any value without newline
+- **println(expr)**: Prints any value with automatic newline
+- AST: `Stmt::Print { expr }` and `Stmt::Println { expr }`
+- Codegen:
+  - Calls `value_to_string()` to convert any type to BrixString
+  - Extracts `char*` from BrixString struct (field index 1)
+  - Uses `printf("%s", ...)` for print, `printf("%s\n", ...)` for println
+- Supports all types: int, float, string, bool (auto-converted)
+- More user-friendly than printf for simple output
+
 ## Common Patterns
 
 ### Adding a New Operator
@@ -264,6 +277,7 @@ Test files are `.bx` files in the root directory. Common test files include:
 - `negation_test.bx`: Logical negation (!, not) and unary minus
 - `increment_test.bx`: Increment/decrement (++, --, prefix/postfix)
 - `fstring_test.bx`: String interpolation (f"text {expr}")
+- `print_test.bx`: Print and println functions (auto-conversion)
 
 Run tests individually:
 ```bash
@@ -297,6 +311,29 @@ cargo run <test_file.bx>
 - [ ] Multiple return values (Go-style)
 - [ ] Pattern matching (`when` syntax)
 - [ ] List comprehensions
+
+### Planned for v0.6+ (Numeric & Type System Enhancements):
+- [ ] **Format Specifiers in String Interpolation**: `f"{value:.6f}"`, `f"{num:x}"` (hexadecimal), `f"{val:.2e}"` (scientific notation)
+  - Extends current f-string syntax to support printf-style format specifiers after `:`
+  - Examples: `.2f` (2 decimal places), `.6f` (6 significant digits), `x` (hex), `o` (octal), `e` (scientific)
+
+- [ ] **Type Conversion Functions**: Explicit conversion between primitive types
+  - `float(x)`: Convert int/string to float
+  - `int(x)`: Convert float/string to int (truncation)
+  - `string(x)`: Convert any type to string
+  - `bool(x)`: Convert to boolean
+
+- [ ] **Complex Numbers** (Julia-style for physics/engineering calculations):
+  - Literal syntax: `z := 1 + 2im` (imaginary unit `im`)
+  - Built-in functions:
+    - `real(z)`: Extract real part
+    - `imag(z)`: Extract imaginary part
+    - `conj(z)`: Complex conjugate
+    - `abs(z)`: Magnitude (distance from origin)
+    - `abs2(z)`: Squared magnitude (avoids sqrt for performance)
+    - `angle(z)`: Phase angle in radians
+  - Arithmetic: Full support for `+`, `-`, `*`, `/`, `**` with complex numbers
+  - New type: `BrixType::Complex` (stored as struct with real/imag f64 fields)
 
 ## Current Limitations (v0.4)
 
