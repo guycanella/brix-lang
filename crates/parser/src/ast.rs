@@ -143,6 +143,14 @@ pub enum Stmt {
         args: Vec<Expr>,
     },
 
+    Print {
+        expr: Expr,
+    },
+
+    Println {
+        expr: Expr,
+    },
+
     Expr(Expr),
 }
 

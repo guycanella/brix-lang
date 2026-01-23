@@ -206,7 +206,7 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
                 iterable: i,
                 body: Box::new(b),
             });
-        let print_stmt = just(Token::Printf)
+        let printf_stmt = just(Token::Printf)
             .ignore_then(
                 select! { Token::String(s) => s }
                     .then(
@@ -224,13 +224,30 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
                     args: a.unwrap_or_default(),
                 }
             });
+
+        let print_stmt = just(Token::Print)
+            .ignore_then(
+                expr_parser()
+                    .delimited_by(just(Token::LParen), just(Token::RParen))
+            )
+            .map(|expr| Stmt::Print { expr });
+
+        let println_stmt = just(Token::Println)
+            .ignore_then(
+                expr_parser()
+                    .delimited_by(just(Token::LParen), just(Token::RParen))
+            )
+            .map(|expr| Stmt::Println { expr });
+
         let expr_stmt = expr_parser().map(Stmt::Expr);
 
         decl.or(assignment)
             .or(if_stmt)
             .or(while_stmt)
             .or(for_stmt)
+            .or(printf_stmt)
             .or(print_stmt)
+            .or(println_stmt)
             .or(block)
             .or(expr_stmt)
             .boxed()

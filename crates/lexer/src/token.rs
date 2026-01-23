@@ -60,6 +60,12 @@ pub enum Token {
     #[token("printf")]
     Printf,
 
+    #[token("print")]
+    Print,
+
+    #[token("println")]
+    Println,
+
     // --- Literals ---
 
     // Identifiers: variable names, functions (ex: "minha_variavel")
