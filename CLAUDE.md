@@ -95,18 +95,24 @@ The runtime is compiled to `runtime.o` and linked with each program automaticall
 
 ## Type System
 
-Brix has 6 core types (defined in `crates/codegen/src/lib.rs`):
+Brix has 7 core types (defined in `crates/codegen/src/lib.rs`):
 
 ```rust
 pub enum BrixType {
-    Int,      // i64
-    Float,    // f64
-    String,   // BrixString struct (in runtime.c)
-    Matrix,   // Matrix struct (in runtime.c)
-    FloatPtr, // f64* (internal pointer type)
-    Void,     // for functions with no return
+    Int,       // i64
+    Float,     // f64
+    String,    // BrixString struct (in runtime.c)
+    Matrix,    // Matrix struct (in runtime.c) - f64* data
+    IntMatrix, // IntMatrix struct (in runtime.c) - i64* data
+    FloatPtr,  // f64* (internal pointer type)
+    Void,      // for functions with no return
 }
 ```
+
+**Type Selection for Arrays/Matrices:**
+- Literal `[1, 2, 3]` → `IntMatrix` (all integers)
+- Literal `[1.0, 2.0]` or `[1, 2.5]` → `Matrix` (floats or mixed, with int→float promotion)
+- Constructors: `zeros()` → `Matrix`, `izeros()` → `IntMatrix`
 
 **Note:** `bool` is implemented as `i1` in LLVM and auto-extends to `i64` when stored as variables.
 
@@ -171,6 +177,100 @@ Loops are Julia-style with inclusive ranges.
 var nums := [1, 2, 3, 4, 5]
 var x := nums[0]           // Index access
 ```
+
+## Arrays and Matrices: Design Decisions (Jan 2026)
+
+### Type Inference for Array Literals
+
+The compiler analyzes literal elements to decide the most efficient memory allocation:
+
+- **IntMatrix**: Created when all elements are integers
+- **Matrix (Float)**: Created when all are floats OR mixed types (automatic int→float promotion)
+
+```brix
+// Creates IntMatrix (i64*)
+var arr_int := [1, 2, 3]
+var mat_int := [[1, 2], [3, 4]]
+
+// Creates Matrix (f64*)
+var arr_float := [1.0, 2.0, 3.0]
+var arr_mixed := [1, 2, 3.5]  // Promotes ints to float
+```
+
+### Empty Initialization (Static Allocation)
+
+C#/Go-inspired syntax for allocating zeroed memory without manual filling:
+
+```brix
+// Allocates array of 5 integers (initialized to 0)
+var buffer: int[5]
+
+// Allocates 2x3 float matrix (initialized to 0.0)
+var grid: float[2][3]
+```
+
+### Special Constructors
+
+For semantic clarity between Engineering (Floats) and Discrete Math (Ints):
+
+```brix
+// Float matrices (f64) - default for engineering/math
+var m1 := zeros(5)        // 1D array of 5 floats
+var m2 := zeros(3, 4)     // 3x4 float matrix
+
+// Integer matrices (i64) - for discrete data/indices
+var i1 := izeros(5)       // 1D array of 5 ints
+var i2 := izeros(3, 4)    // 3x4 int matrix
+```
+
+### Mutability and Safety
+
+The keyword defines heap memory behavior:
+
+**`var` (Mutable)**: Allows element rewriting
+
+```brix
+var m := [1, 2, 3]
+m[0] = 99  // Valid
+```
+
+**`const` (Deep Immutability)**: Compiler blocks any store instructions to indices
+
+```brix
+const PI_VEC := [3.14, 6.28]
+PI_VEC[0] = 1.0  // ❌ Compile Error: Cannot mutate const variable
+```
+
+### Internal Representation
+
+To maintain "Fortran-level" performance, we use specialized C structures (not generic `void*` arrays):
+
+**Runtime structures (runtime.c):**
+
+```c
+// For Engineering and Mathematics (Default)
+typedef struct {
+    long rows;
+    long cols;
+    double* data;  // 8 bytes (f64)
+} Matrix;
+
+// For Images, Indices, and Discrete Data
+typedef struct {
+    long rows;
+    long cols;
+    long* data;    // 8 bytes (i64)
+} IntMatrix;
+
+// Future (v0.8+): For Text Data
+typedef struct {
+    long rows;
+    long cols;
+    char** data;   // Array of pointers
+} StringMatrix;
+```
+
+**Key Design Principle**: Matrices and arrays store homogeneous, contiguous data for CPU performance. JSON/heterogeneous data will use a separate `JsonValue` type (tagged union) for web interoperability, kept separate from mathematical structures.
 
 ### Strings
 

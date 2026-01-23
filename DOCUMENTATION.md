@@ -89,6 +89,111 @@ doubled := nums * 2  // [20, 40, 60, 80, 100]
 mask := data > 25         // [false, false, true, true]
 ```
 
+### Decisões de Design: Arrays e Matrizes (23/01/2026)
+
+#### 1. Tipagem e Inferência de Literais
+
+O compilador analisa elementos literais para decidir a alocação de memória mais eficiente:
+
+- **IntMatrix (i64*)**: Criado quando todos os elementos são inteiros
+- **Matrix (f64*)**: Criado quando todos são floats OU há mistura (promoção automática int→float)
+
+```brix
+// Cria IntMatrix (i64*)
+var arr_int := [1, 2, 3]
+var mat_int := [[1, 2], [3, 4]]
+
+// Cria Matrix (f64*)
+var arr_float := [1.0, 2.0, 3.0]
+var arr_misto := [1, 2, 3.5]  // Promove ints para float
+```
+
+#### 2. Inicialização Vazia (Alocação Estática)
+
+Sintaxe inspirada em C#/Go para alocar memória zerada sem preencher manualmente:
+
+```brix
+// Aloca array de 5 inteiros (inicializado com 0)
+var buffer: int[5]
+
+// Aloca matriz 2x3 de floats (inicializado com 0.0)
+var grid: float[2][3]
+```
+
+#### 3. Construtores Especiais
+
+Para clareza semântica entre Engenharia (Floats) e Matemática Discreta (Ints):
+
+```brix
+// Matrizes Float (f64) - padrão para engenharia/matemática
+var m1 := zeros(5)        // Array 1D de 5 floats
+var m2 := zeros(3, 4)     // Matriz 3x4 de floats
+
+// Matrizes Int (i64) - para dados discretos/índices
+var i1 := izeros(5)       // Array 1D de 5 ints
+var i2 := izeros(3, 4)    // Matriz 3x4 de ints
+```
+
+#### 4. Mutabilidade e Segurança
+
+A palavra-chave define o comportamento da memória alocada na Heap:
+
+**`var` (Mutável)**: Permite reescrita de elementos
+
+```brix
+var m := [1, 2, 3]
+m[0] = 99  // Válido
+```
+
+**`const` (Imutabilidade Profunda)**: O compilador bloqueia qualquer tentativa de escrita em índices (Store Instruction)
+
+```brix
+const PI_VEC := [3.14, 6.28]
+PI_VEC[0] = 1.0  // ❌ Erro de Compilação: Cannot mutate const variable
+```
+
+#### 5. Representação Interna
+
+Para manter a performance de "Fortran", não usamos arrays genéricos (`void*`). Utilizamos estruturas C especializadas:
+
+**Estruturas no `runtime.c`:**
+
+```c
+// Para Engenharia e Matemática (Padrão)
+typedef struct {
+    long rows;
+    long cols;
+    double* data;  // 8 bytes (f64)
+} Matrix;
+
+// Para Imagens, Índices e Dados Discretos
+typedef struct {
+    long rows;
+    long cols;
+    long* data;    // 8 bytes (i64)
+} IntMatrix;
+
+// Futuro (v0.8+): Para Textos
+typedef struct {
+    long rows;
+    long cols;
+    char** data;   // Array de ponteiros
+} StringMatrix;
+```
+
+#### 6. Estratégia para Web e JSON
+
+Matrizes e JSON são entidades distintas no Brix:
+
+- **Matriz/Array**: Dados homogêneos e contíguos na memória (Performance CPU)
+- **JSON**: Dados heterogêneos em estrutura de árvore
+
+Não forçaremos JSON dentro de `Matrix`. Será criado um tipo `JsonValue` (Tagged Union) específico para interoperabilidade Web, tratado separadamente das estruturas matemáticas.
+
+**Princípio de Design**: Arrays e matrizes armazenam dados homogêneos e contíguos para máxima performance. JSON/dados heterogêneos usarão tipos separados.
+
+---
+
 ### Biblioteca Padrão Nativa (Estruturas de Dados)
 
 Estruturas de dados essenciais vêm "na caixa", implementadas sobre Arrays para máxima performance (Cache Locality).
@@ -260,7 +365,7 @@ var lista := Node { val: 10, next: Node { val: 20, next: nil } }
 
 ### 2. Sistema de Tipos
 
-- ✅ **Tipos Primitivos:** `int` (i64), `float` (f64), `bool` (i1→i64), `string` (struct), `matrix` (struct), `void`
+- ✅ **Tipos Primitivos:** `int` (i64), `float` (f64), `bool` (i1→i64), `string` (struct), `matrix` (struct f64*), `intmatrix` (struct i64*), `void`
 - ✅ **Inferência de Tipos:** `var x := 10` detecta automaticamente o tipo
 - ✅ **Tipagem Explícita:** `var x: float = 10`
 - ✅ **Casting Automático:**
@@ -268,10 +373,13 @@ var lista := Node { val: 10, next: Node { val: 20, next: nil } }
   - `var y: float = 50` → promove para 50.0 (int→float)
   - Promoção automática em operações mistas (int + float → float)
 - ✅ **Introspecção:** `typeof(x)` retorna string do tipo em compile-time
+- ✅ **Inferência para Arrays/Matrizes (v0.6+):**
+  - `[1, 2, 3]` → IntMatrix (todos inteiros)
+  - `[1.0, 2.0]` ou `[1, 2.5]` → Matrix (floats ou mistos com promoção)
 
 ### 3. Estruturas de Dados
 
-- ✅ **Arrays Literais:** `var v := [10, 20, 30]` (implementado como Matrix 1xN)
+- ✅ **Arrays Literais:** `var v := [10, 20, 30]` (IntMatrix para ints, Matrix para floats/mistos)
 - ✅ **Matrizes Dinâmicas:** `var m := matrix(3, 4)` (alocação heap via Runtime C)
 - ✅ **Indexação:**
   - Linear: `v[0]`
@@ -473,6 +581,13 @@ println(f"{pi:g}")     // 3.14159 (compact)
 - Parser detecta `:format` em expressões f-string
 - Codegen mapeia formatos para sprintf printf-style
 - Arquivo de teste `format_test.bx` validado
+
+**📋 Decisões de Design Adicionadas (23/01/2026):**
+- **IntMatrix vs Matrix**: Inferência automática baseada em literais
+- **Inicialização estática**: `int[5]`, `float[2][3]`
+- **Construtores**: `zeros()` → Matrix, `izeros()` → IntMatrix
+- **Mutabilidade profunda**: `const` bloqueia modificação de elementos
+- **Separação JSON**: Arrays homogêneos ≠ JSON heterogêneo
 
 ---
 
@@ -1007,7 +1122,7 @@ users.filter { u ->
 ### ✅ O que já temos (v0.6 COMPLETO):
 
 1. **Compilador funcional completo:** Lexer → Parser → Codegen → Binário nativo
-2. **Sistema de tipos robusto:** 6 tipos primitivos com casting automático inteligente
+2. **Sistema de tipos robusto:** 7 tipos primitivos (int, float, string, matrix, intmatrix, floatptr, void) com casting automático inteligente
 3. **Operadores matemáticos completos:** `+`, `-`, `*`, `/`, `%`, `**` (potência para int e float)
 4. **Operadores bitwise:** `&`, `|`, `^` (apenas para inteiros)
 5. **Operadores unários:** `!`, `not` (negação lógica), `-` (negação aritmética)
