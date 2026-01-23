@@ -359,6 +359,85 @@ Built-in functions for explicit type conversion between primitive types.
 - `get_atoi()`: Declares C `int atoi(const char*)`
 - `get_atof()`: Declares C `double atof(const char*)`
 
+### Import System and Standard Library (Planned - v0.7+)
+
+**Architecture Design:**
+
+The import system will provide zero-overhead access to standard library functions by using direct C library bindings. This approach prioritizes performance and code reuse over reimplementation.
+
+**Import Statement Processing:**
+
+1. **Parser**: Recognizes `import math` or `import math as m`
+   - Token: `Token::Import`
+   - AST: `Stmt::Import { module: String, alias: Option<String> }`
+
+2. **Symbol Table**: Creates namespace for imported module
+   - Example: `import math` → adds `math.*` namespace
+   - Example: `import math as m` → adds `m.*` namespace
+
+3. **Codegen**: Generates LLVM external function declarations
+   ```rust
+   // For import math, generate:
+   let fn_type = f64_type.fn_type(&[f64_type.into()], false);
+   module.add_function("sin", fn_type, Some(Linkage::External));
+   ```
+
+4. **Linking**: System linker resolves symbols at link-time
+   ```bash
+   cc output.o runtime.o -lm -llapack -lblas -o program
+   ```
+
+**Performance Characteristics:**
+
+- **Compile-time only**: Import resolution has zero runtime cost
+- **Direct calls**: `math.sin(x)` compiles to `call @sin(double %x)` - identical to C
+- **LLVM optimization**: Can inline, vectorize, use CPU intrinsics (FSIN instruction)
+- **Dead code elimination**: Unused functions never linked into final binary
+
+**Runtime Bridge (runtime.c):**
+
+The runtime acts as a thin bridge to C libraries:
+
+```c
+// Mathematical functions - direct passthroughs
+#include <math.h>
+double brix_sin(double x) { return sin(x); }
+double brix_cos(double x) { return cos(x); }
+double brix_sqrt(double x) { return sqrt(x); }
+
+// Linear algebra - LAPACK bindings
+#include <lapacke.h>
+double brix_det(Matrix* A) {
+    // Use LAPACK's optimized LU decomposition
+    lapack_int ipiv[A->rows];
+    LAPACKE_dgetrf(LAPACK_ROW_MAJOR, A->rows, A->cols,
+                   A->data, A->cols, ipiv);
+    // ... compute determinant from diagonal
+}
+```
+
+**Standard Library Structure:**
+
+```
+stdlib/
+├── math/
+│   ├── basic.c      // sin, cos, sqrt (math.h wrappers)
+│   ├── linalg.c     // det, inv, eigvals (LAPACK wrappers)
+│   └── stats.c      // mean, median, std (custom or GSL)
+└── ...
+```
+
+**Why This Approach:**
+
+1. **Performance**: Leverages decades of hand-tuned assembly optimizations
+2. **Reliability**: Battle-tested code used by NumPy, MATLAB, Julia, R
+3. **Maintainability**: No need to maintain complex math implementations
+4. **Ecosystem compatibility**: Easy to link with existing C/Fortran libraries
+
+**Example Performance:**
+- Matrix determinant (1000×1000): ~50ms with LAPACK vs ~5s naive implementation (100× faster)
+- Trigonometric functions: CPU-native instructions (FSIN, FCOS) when possible
+
 ## Common Patterns
 
 ### Adding a New Operator
@@ -437,30 +516,115 @@ cargo run <test_file.bx>
 - [ ] Pattern matching (`when` syntax)
 - [ ] List comprehensions
 
-### Planned for v0.7 (Math Functions & Complex Numbers):
+### Planned for v0.7 (Import System & Math Library):
 
-- [ ] **Mathematical Functions**: `sin()`, `cos()`, `sqrt()`, `exp()`, `log()`, `floor()`, `ceil()`, `round()`, `min()`, `max()`, `sum()`, `mean()`, `median()`, `std()`
-  - Uses C math.h library
-  - Works with int and float types
-  - Statistical functions work with arrays
+#### **Import System**
 
-- [ ] **Complex Numbers** (Julia-style for physics/engineering calculations):
+Brix will support a module/import system for organizing code and accessing standard library functionality:
+
+```brix
+// Full namespace import
+import math
+var y := math.sin(3.14)
+var z := math.det(matrix)
+
+// Import with alias
+import math as m
+var y := m.sin(3.14)
+
+// Selective import (future)
+from math import sin, cos, sqrt
+var y := sin(3.14)
+```
+
+**Technical Architecture:**
+
+- **Zero-overhead design**: `import` is purely compile-time (namespace resolution)
+- **No runtime cost**: Direct function calls to C libraries (same performance as C)
+- **Module types**:
+  - Standard library modules (math, stats, linalg)
+  - User-defined modules (.bx files)
+
+#### **Math Library (`import math`)**
+
+Standard library for mathematical operations, implemented as direct bindings to battle-tested C libraries:
+
+**Basic Math Functions** (via C math.h):
+```brix
+import math
+math.sin(x), math.cos(x), math.tan(x)       // Trigonometry
+math.asin(x), math.acos(x), math.atan(x)    // Inverse trig
+math.exp(x), math.log(x), math.log10(x)     // Exponentials
+math.sqrt(x), math.pow(x, y)                 // Power functions
+math.floor(x), math.ceil(x), math.round(x)  // Rounding
+math.abs(x), math.min(a, b), math.max(a, b) // Utilities
+```
+
+**Linear Algebra** (via BLAS/LAPACK):
+```brix
+import math
+math.det(A)       // Determinant (LAPACK dgetrf)
+math.tr(A)        // Trace
+math.inv(A)       // Matrix inverse (LAPACK dgetri)
+math.eigvals(A)   // Eigenvalues (LAPACK dgeev)
+math.eigvecs(A)   // Eigenvectors
+```
+
+**Statistics** (custom implementations):
+```brix
+import math
+math.sum(arr)     // Sum of array elements
+math.mean(arr)    // Average
+math.median(arr)  // Median
+math.std(arr)     // Standard deviation
+math.var(arr)     // Variance
+```
+
+**Performance Characteristics:**
+
+- **Zero overhead**: Direct C function calls via LLVM external declarations
+- **Native performance**: Identical to calling C libraries directly
+- **Optimized implementations**:
+  - math.h: Hand-tuned assembly, CPU-specific (AVX, NEON)
+  - LAPACK: Decades of optimization, multi-threaded
+  - Example: Matrix determinant 1000x1000 → ~50ms (vs ~5s naive implementation)
+
+**Implementation Strategy:**
+
+1. **runtime.c acts as "bridge"**: Thin wrappers that call C libraries
+   ```c
+   // runtime.c
+   #include <math.h>
+   #include <lapacke.h>
+
+   double brix_sin(double x) { return sin(x); }  // Direct passthrough
+   double brix_det(Matrix* A) { /* LAPACK call */ }
+   ```
+
+2. **Codegen generates external declarations**:
+   ```rust
+   // When import math is seen, declare:
+   // declare double @sin(double) external
+   ```
+
+3. **Linker resolves at link-time**:
+   ```bash
+   cc output.o runtime.o -lm -llapack -lblas -o program
+   ```
+
+**Rationale**: Don't reinvent the wheel - leverage proven, optimized C implementations that power NumPy, MATLAB, Julia, and R.
+
+#### **Complex Numbers** (Future - v0.8+):
   - Literal syntax: `z := 1 + 2im` (imaginary unit `im`)
-  - Built-in functions:
-    - `real(z)`: Extract real part
-    - `imag(z)`: Extract imaginary part
-    - `conj(z)`: Complex conjugate
-    - `abs(z)`: Magnitude (distance from origin)
-    - `abs2(z)`: Squared magnitude (avoids sqrt for performance)
-    - `angle(z)`: Phase angle in radians
+  - Built-in functions: `real(z)`, `imag(z)`, `conj(z)`, `abs(z)`, `angle(z)`
   - Arithmetic: Full support for `+`, `-`, `*`, `/`, `**` with complex numbers
-  - Mathematical functions: `exp(z)`, `log(z)`, `sin(z)`, `cos(z)`, `sqrt(z)`
   - New type: `BrixType::Complex` (stored as struct with real/imag f64 fields)
 
-## Current Limitations (v0.4)
+## Current Limitations (v0.6)
 
 - **No generics**: Only concrete types (int, float, string, matrix)
-- **Single-file compilation**: No imports or modules
+- **Single-file compilation**: No imports or modules (planned for v0.7+)
+- **No standard library**: Math functions not yet available (planned for v0.7)
 - **No optimizations**: LLVM runs with `OptimizationLevel::None`
 - **No pattern matching**: `when` syntax not yet implemented
 - **No closures**: Functions are not first-class
@@ -483,10 +647,11 @@ cargo run <test_file.bx>
 
 ### Implementation Phases
 
-- v0.2: Multi-file support, imports, basic structs
-- v0.3: Pattern matching, closures, generics
-- v0.4: Concurrency primitives
-- v1.0: Full standard library with data structures (Stack, Queue, HashMap, Heap)
+- v0.7: Import system, math library (C bindings to math.h, BLAS/LAPACK)
+- v0.8: Multi-file support, user-defined modules, complex numbers
+- v0.9: Functions, pattern matching, closures
+- v1.0: Generics, concurrency primitives
+- v1.2: Full standard library with data structures (Stack, Queue, HashMap, Heap)
 
 ## Troubleshooting
 
