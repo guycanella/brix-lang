@@ -308,11 +308,22 @@ var lista := Node { val: 10, next: Node { val: 20, next: nil } }
 
 ### 6. Funções Built-in
 
+**Output:**
 - ✅ **printf:** Saída formatada estilo C (`printf("x: %d", x)`)
 - ✅ **print:** Imprime qualquer valor sem newline, com conversão automática (`print(42)`, `print("text")`)
 - ✅ **println:** Imprime qualquer valor COM newline automático (`println(x)`)
+
+**Input:**
 - ✅ **scanf/input:** Entrada tipada (`input("int")`, `input("float")`, `input("string")`)
-- ✅ **typeof:** Retorna tipo como string
+
+**Type System:**
+- ✅ **typeof:** Retorna tipo como string (`typeof(x)` → "int")
+- ✅ **int(x):** Converte para int - trunca floats, parseia strings (`int(3.14)` → 3, `int("42")` → 42)
+- ✅ **float(x):** Converte para float - promove ints, parseia strings (`float(10)` → 10.0, `float("3.14")` → 3.14)
+- ✅ **string(x):** Converte qualquer tipo para string (`string(42)` → "42")
+- ✅ **bool(x):** Converte para boolean - 0/0.0/string vazia = false (`bool(0)` → 0, `bool(42)` → 1)
+
+**Data Structures:**
 - ✅ **matrix:** Construtor de matriz vazia (`matrix(rows, cols)`)
 - ✅ **read_csv:** Lê arquivo CSV como matriz (via runtime C)
 
@@ -401,9 +412,9 @@ var sci := f"Científico: {big:.2e}"              // "Científico: 1.23e+06"
 - Estender `FStringPart::Expr` para incluir `Option<String>` com formato
 - No codegen, usar formato especificado no `sprintf()` em vez de formato fixo
 
-#### Funções de Conversão de Tipo
+#### Funções de Conversão de Tipo ✅ **IMPLEMENTADO**
 
-Conversões explícitas entre tipos primitivos:
+Conversões explícitas entre tipos primitivos já estão funcionando:
 
 ```brix
 // Float para Int (truncamento)
@@ -424,20 +435,17 @@ var msg := string(42)     // "42"
 var txt := string(3.14)   // "3.14"
 
 // Conversão para Boolean
-var b := bool(1)          // true
-var b2 := bool(0)         // false
+var b := bool(1)          // true (1)
+var b2 := bool(0)         // false (0)
+var b3 := bool("")        // false (string vazia)
+var b4 := bool("hello")   // true (string não vazia)
 ```
 
-**Funções:**
-- `int(x)`: Converte para i64 (trunca floats, parseia strings)
-- `float(x)`: Converte para f64
-- `string(x)`: Converte para string (similar a `sprintf`)
-- `bool(x)`: Converte para boolean (0/null = false, resto = true)
-
-**Implementação:**
-- Adicionar como built-in functions no codegen
-- Usar lógica similar a `typeof()` mas retornando valores convertidos
-- Para parsing de strings, usar funções C: `atoi()`, `atof()`
+**✅ Implementação concluída:**
+- Built-in functions no codegen
+- Usa lógica similar a `typeof()` mas retorna valores convertidos
+- Parsing de strings via funções C: `atoi()`, `atof()`
+- `string()` reutiliza `value_to_string()` com `sprintf()`
 
 #### Números Complexos (Julia-style)
 
@@ -837,30 +845,34 @@ users.filter { u ->
 13. **Runtime C:** Funções de matriz e string otimizadas
 14. **typeof():** Introspecção de tipos em compile-time
 15. **print() e println():** Output simplificado com conversão automática de tipos
+16. **Funções de conversão:** `int()`, `float()`, `string()`, `bool()` para conversão explícita entre tipos
 
-### 🎯 Próximos Passos Imediatos (v0.5):
+### 🎯 Próximos Passos Imediatos (v0.5 ou v0.6):
 
-**Prioridade 1 - Funções:**
-
+**Opção A - v0.5 (Funções de Usuário):**
 1. **Definição de funções:** `function nome(params) -> tipo { body }`
 2. **Chamadas de funções:** Com passagem de parâmetros
 3. **Return values:** Retorno de valores tipados
+4. **Múltiplos retornos:** Go-style `function divide(a, b) -> (float, error)`
 
-**Prioridade 2 - Qualidade:**
+**Opção B - v0.6 (Continuar Sistema Numérico):**
+1. **Format Specifiers em f-strings:** `f"{value:.6f}"`, `f"{num:x}"`
+2. **Números Complexos:** `z := 1 + 2im` com operações e funções Julia-style
 
-4. **Testes de Integração:** Suite de testes automatizados para todas as features
-5. **Mensagens de Erro Melhores:** Error reporting com Ariadne (já é dependência)
-6. **Otimizações LLVM:** Habilitar `-O2` e `-O3` via flag CLI
+**Prioridade 3 - Qualidade (qualquer versão):**
+3. **Testes de Integração:** Suite de testes automatizados para todas as features
+4. **Mensagens de Erro Melhores:** Error reporting com Ariadne (já é dependência)
+5. **Otimizações LLVM:** Habilitar `-O2` e `-O3` via flag CLI
 
 ### 📊 Estatísticas do Projeto:
 
-- **Linhas de Código (Rust):** ~3300 linhas
+- **Linhas de Código (Rust):** ~3600 linhas
 - **Linhas de Código (C Runtime):** ~125 linhas
-- **Arquivos de Teste (.bx):** 13 (types, for, logic, chain, string, arrays, csv, bitwise, ternary, negation, increment, fstring, print)
-- **Features Implementadas:** ~47
+- **Arquivos de Teste (.bx):** 14 (types, for, logic, chain, string, arrays, csv, bitwise, ternary, negation, increment, fstring, print, conversion)
+- **Features Implementadas:** ~51
 - **Features Planejadas:** ~120+
-- **Progresso MVP:** 60%
-- **Versão Atual:** v0.4 (Operadores e Expressões Avançadas) ✅ COMPLETO
+- **Progresso MVP:** 62%
+- **Versão Atual:** v0.4+ (Operadores Avançados + Type System) ✅ COMPLETO
 
 ---
 

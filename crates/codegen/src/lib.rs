@@ -1021,6 +1021,229 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         return self
                             .compile_expr(&Expr::Literal(Literal::String(type_str.to_string())));
                     }
+
+                    // Conversion functions
+                    if fn_name == "int" {
+                        if args.len() != 1 {
+                            eprintln!("Error: int() expects exactly 1 argument.");
+                            return None;
+                        }
+                        let (val, val_type) = self.compile_expr(&args[0])?;
+
+                        let result = match val_type {
+                            BrixType::Int => val, // Already int
+                            BrixType::Float => {
+                                // Float to int (truncate)
+                                self.builder
+                                    .build_float_to_signed_int(
+                                        val.into_float_value(),
+                                        self.context.i64_type(),
+                                        "float_to_int",
+                                    )
+                                    .unwrap()
+                                    .into()
+                            }
+                            BrixType::String => {
+                                // String to int using atoi()
+                                let atoi_fn = self.get_atoi();
+
+                                // Extract char* from BrixString
+                                let struct_ptr = val.into_pointer_value();
+                                let str_type = self.get_string_type();
+                                let data_ptr_ptr = self
+                                    .builder
+                                    .build_struct_gep(str_type, struct_ptr, 1, "str_data_ptr")
+                                    .unwrap();
+                                let data_ptr = self
+                                    .builder
+                                    .build_load(
+                                        self.context.ptr_type(AddressSpace::default()),
+                                        data_ptr_ptr,
+                                        "str_data",
+                                    )
+                                    .unwrap();
+
+                                let i32_result = self
+                                    .builder
+                                    .build_call(atoi_fn, &[data_ptr.into()], "atoi_result")
+                                    .unwrap()
+                                    .try_as_basic_value()
+                                    .left()
+                                    .unwrap();
+
+                                // Extend i32 to i64
+                                self.builder
+                                    .build_int_s_extend(
+                                        i32_result.into_int_value(),
+                                        self.context.i64_type(),
+                                        "int_extend",
+                                    )
+                                    .unwrap()
+                                    .into()
+                            }
+                            _ => {
+                                eprintln!("Error: Cannot convert {:?} to int", val_type);
+                                return None;
+                            }
+                        };
+
+                        return Some((result, BrixType::Int));
+                    }
+
+                    if fn_name == "float" {
+                        if args.len() != 1 {
+                            eprintln!("Error: float() expects exactly 1 argument.");
+                            return None;
+                        }
+                        let (val, val_type) = self.compile_expr(&args[0])?;
+
+                        let result = match val_type {
+                            BrixType::Float => val, // Already float
+                            BrixType::Int => {
+                                // Int to float
+                                self.builder
+                                    .build_signed_int_to_float(
+                                        val.into_int_value(),
+                                        self.context.f64_type(),
+                                        "int_to_float",
+                                    )
+                                    .unwrap()
+                                    .into()
+                            }
+                            BrixType::String => {
+                                // String to float using atof()
+                                let atof_fn = self.get_atof();
+
+                                // Extract char* from BrixString
+                                let struct_ptr = val.into_pointer_value();
+                                let str_type = self.get_string_type();
+                                let data_ptr_ptr = self
+                                    .builder
+                                    .build_struct_gep(str_type, struct_ptr, 1, "str_data_ptr")
+                                    .unwrap();
+                                let data_ptr = self
+                                    .builder
+                                    .build_load(
+                                        self.context.ptr_type(AddressSpace::default()),
+                                        data_ptr_ptr,
+                                        "str_data",
+                                    )
+                                    .unwrap();
+
+                                self.builder
+                                    .build_call(atof_fn, &[data_ptr.into()], "atof_result")
+                                    .unwrap()
+                                    .try_as_basic_value()
+                                    .left()
+                                    .unwrap()
+                            }
+                            _ => {
+                                eprintln!("Error: Cannot convert {:?} to float", val_type);
+                                return None;
+                            }
+                        };
+
+                        return Some((result, BrixType::Float));
+                    }
+
+                    if fn_name == "string" {
+                        if args.len() != 1 {
+                            eprintln!("Error: string() expects exactly 1 argument.");
+                            return None;
+                        }
+                        let (val, val_type) = self.compile_expr(&args[0])?;
+
+                        // Reuse value_to_string() which already handles all types
+                        let result = self.value_to_string(val, &val_type)?;
+                        return Some((result, BrixType::String));
+                    }
+
+                    if fn_name == "bool" {
+                        if args.len() != 1 {
+                            eprintln!("Error: bool() expects exactly 1 argument.");
+                            return None;
+                        }
+                        let (val, val_type) = self.compile_expr(&args[0])?;
+
+                        let result = match val_type {
+                            BrixType::Int => {
+                                // Int to bool: x != 0
+                                let zero = self.context.i64_type().const_int(0, false);
+                                let cmp = self
+                                    .builder
+                                    .build_int_compare(
+                                        inkwell::IntPredicate::NE,
+                                        val.into_int_value(),
+                                        zero,
+                                        "int_to_bool",
+                                    )
+                                    .unwrap();
+
+                                // Extend i1 to i64
+                                self.builder
+                                    .build_int_z_extend(cmp, self.context.i64_type(), "bool_extend")
+                                    .unwrap()
+                                    .into()
+                            }
+                            BrixType::Float => {
+                                // Float to bool: x != 0.0
+                                let zero = self.context.f64_type().const_float(0.0);
+                                let cmp = self
+                                    .builder
+                                    .build_float_compare(
+                                        inkwell::FloatPredicate::ONE,
+                                        val.into_float_value(),
+                                        zero,
+                                        "float_to_bool",
+                                    )
+                                    .unwrap();
+
+                                // Extend i1 to i64
+                                self.builder
+                                    .build_int_z_extend(cmp, self.context.i64_type(), "bool_extend")
+                                    .unwrap()
+                                    .into()
+                            }
+                            BrixType::String => {
+                                // String to bool: len > 0
+                                let struct_ptr = val.into_pointer_value();
+                                let str_type = self.get_string_type();
+                                let len_ptr = self
+                                    .builder
+                                    .build_struct_gep(str_type, struct_ptr, 0, "str_len_ptr")
+                                    .unwrap();
+                                let len_val = self
+                                    .builder
+                                    .build_load(self.context.i64_type(), len_ptr, "str_len")
+                                    .unwrap()
+                                    .into_int_value();
+
+                                let zero = self.context.i64_type().const_int(0, false);
+                                let cmp = self
+                                    .builder
+                                    .build_int_compare(
+                                        inkwell::IntPredicate::SGT,
+                                        len_val,
+                                        zero,
+                                        "str_to_bool",
+                                    )
+                                    .unwrap();
+
+                                // Extend i1 to i64
+                                self.builder
+                                    .build_int_z_extend(cmp, self.context.i64_type(), "bool_extend")
+                                    .unwrap()
+                                    .into()
+                            }
+                            _ => {
+                                eprintln!("Error: Cannot convert {:?} to bool", val_type);
+                                return None;
+                            }
+                        };
+
+                        return Some((result, BrixType::Int)); // bool is represented as int
+                    }
+
                     if fn_name == "input" {
                         return self.compile_input_call(args);
                     }
@@ -1661,6 +1884,34 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
         self.module
             .add_function("sprintf", fn_type, Some(Linkage::External))
+    }
+
+    fn get_atoi(&self) -> inkwell::values::FunctionValue<'ctx> {
+        if let Some(func) = self.module.get_function("atoi") {
+            return func;
+        }
+
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let i32_type = self.context.i32_type();
+
+        // int atoi(const char *str)
+        let fn_type = i32_type.fn_type(&[ptr_type.into()], false);
+
+        self.module.add_function("atoi", fn_type, Some(Linkage::External))
+    }
+
+    fn get_atof(&self) -> inkwell::values::FunctionValue<'ctx> {
+        if let Some(func) = self.module.get_function("atof") {
+            return func;
+        }
+
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let f64_type = self.context.f64_type();
+
+        // double atof(const char *str)
+        let fn_type = f64_type.fn_type(&[ptr_type.into()], false);
+
+        self.module.add_function("atof", fn_type, Some(Linkage::External))
     }
 
     fn compile_input_int(&self) -> Option<BasicValueEnum<'ctx>> {
