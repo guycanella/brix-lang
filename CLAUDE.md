@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Instructions for Claude Code
+
+**CRITICAL**: Do not stop tasks early due to context limits. Always complete the full task even if it requires significant context usage. Use context efficiently but prioritize task completion.
+
 ## Project Overview
 
 **Brix** is a compiled programming language designed for Data Engineering and Algorithms, combining Python-like syntax with Fortran-level performance. The language compiles to native binaries via LLVM.
@@ -15,11 +19,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Building and Running
 
 ### Compile and Execute a .bx File
+
 ```bash
 cargo run <file.bx>
 ```
 
 This single command:
+
 1. Lexes and parses the source file
 2. Generates LLVM IR
 3. Compiles `runtime.c` to `runtime.o`
@@ -27,12 +33,14 @@ This single command:
 5. Links with runtime and executes the binary
 
 Example:
+
 ```bash
 cargo run types.bx
 cargo run for_test.bx
 ```
 
 ### Build the Compiler Only
+
 ```bash
 cargo build          # Debug build
 cargo build --release # Release build
@@ -54,12 +62,12 @@ The project uses a Cargo workspace with three main crates:
    - Defines AST nodes: `Expr`, `Stmt`, `Literal`, `BinaryOp`, etc.
    - Located: `crates/parser/src/{ast.rs, parser.rs}`
    - Implements operator precedence (lowest to highest):
-     * Comparison/Logical (`<`, `<=`, `>`, `>=`, `==`, `!=`, `&&`, `||`)
-     * Bitwise (`&`, `|`, `^`)
-     * Additive (`+`, `-`)
-     * Multiplicative (`*`, `/`, `%`)
-     * Power (`**`)
-     * Atom (literals, identifiers, function calls, indexing)
+     - Comparison/Logical (`<`, `<=`, `>`, `>=`, `==`, `!=`, `&&`, `||`)
+     - Bitwise (`&`, `|`, `^`)
+     - Additive (`+`, `-`)
+     - Multiplicative (`*`, `/`, `%`)
+     - Power (`**`)
+     - Atom (literals, identifiers, function calls, indexing)
 
 3. **`crates/codegen`**: LLVM Code Generation
    - Uses `inkwell` (LLVM 18 bindings)
@@ -119,6 +127,7 @@ pub enum BrixType {
 ## Language Features Implemented
 
 ### Variables and Constants
+
 ```brix
 var x := 10           // Inference
 var y: float = 3.14   // Explicit type
@@ -126,6 +135,7 @@ const pi = 3.1415     // Immutable
 ```
 
 ### Operators
+
 - Arithmetic: `+`, `-`, `*`, `/`, `%`, `**` (power)
 - Unary: `!`, `not` (logical negation), `-` (arithmetic negation)
 - Increment/Decrement: `++x`, `x++`, `--x`, `x--` (prefix and postfix)
@@ -136,6 +146,7 @@ const pi = 3.1415     // Immutable
 - Ternary: `condition ? true_val : false_val` (supports type promotion int→float)
 
 ### Control Flow
+
 ```brix
 if condition {
     // code
@@ -145,6 +156,7 @@ if condition {
 ```
 
 ### Loops
+
 ```brix
 for i in 1:5 { }           // Range: 1 to 5 inclusive
 for i in 0:2:10 { }        // Step: 0, 2, 4, 6, 8, 10
@@ -154,12 +166,14 @@ for i in start:end { }     // Expressions allowed
 Loops are Julia-style with inclusive ranges.
 
 ### Arrays
+
 ```brix
 var nums := [1, 2, 3, 4, 5]
 var x := nums[0]           // Index access
 ```
 
 ### Strings
+
 ```brix
 var s := "hello"
 var msg := s + " world"    // Concatenation
@@ -167,6 +181,7 @@ if s == "test" { }         // Comparison
 ```
 
 ### String Interpolation
+
 ```brix
 var name := "Brix"
 var greeting := f"Hello, {name}!"       // Simple interpolation
@@ -177,20 +192,59 @@ var circle := f"Pi = {pi}"              // Float interpolation
 var calc := f"5 * 2 = {5 * 2}"          // Expression interpolation
 ```
 
+### Format Specifiers
+
+Format specifiers allow precise control over how values are converted to strings in f-strings:
+
+**Integer formats:**
+
+```brix
+var num := 255
+println(f"{num:x}")    // ff (hexadecimal lowercase)
+println(f"{num:X}")    // FF (hexadecimal uppercase)
+println(f"{num:o}")    // 377 (octal)
+println(f"{num:d}")    // 255 (decimal, default)
+```
+
+**Float formats:**
+
+```brix
+var pi := 3.14159265359
+println(f"{pi:.2f}")   // 3.14 (2 decimal places)
+println(f"{pi:.6f}")   // 3.141593 (6 decimal places)
+println(f"{pi:e}")     // 3.141593e+00 (scientific notation lowercase)
+println(f"{pi:E}")     // 3.141593E+00 (scientific notation uppercase)
+println(f"{pi:.2e}")   // 3.14e+00 (scientific with 2 decimals)
+println(f"{pi:g}")     // 3.14159 (compact format, default)
+println(f"{pi:G}")     // 3.14159 (compact format uppercase)
+```
+
+**Mixed formats:**
+
+```brix
+var x := 42
+var y := 3.14159
+println(f"x={x:x}, y={y:.2f}")  // x=2a, y=3.14
+```
+
 ### Built-in Functions
 
 **Output:**
+
 - `printf(format, ...)`: Formatted output (C-style)
 - `print(expr)`: Print any value without newline (auto-converts to string)
 - `println(expr)`: Print any value with newline (auto-converts to string)
 
 **Input:**
+
 - `scanf(format, ...)`: Formatted input
 
 **Type Introspection:**
+
 - `typeof(expr)`: Returns type as string (e.g., "int", "float", "string")
 
 **Type Conversion:**
+
 - `int(x)`: Convert to int (truncates floats, parses strings)
 - `float(x)`: Convert to float (promotes ints, parses strings)
 - `string(x)`: Convert to string (works with all types)
@@ -199,21 +253,27 @@ var calc := f"5 * 2 = {5 * 2}"          // Expression interpolation
 ## Important Implementation Details
 
 ### Symbol Table Management
+
 - Variables are stored in `HashMap<String, (PointerValue, BrixType)>`
 - Each variable is allocated on the stack via `alloca`
 - Values are loaded/stored using LLVM's `load`/`store` instructions
 
 ### Control Flow Implementation
+
 - If/else uses LLVM basic blocks: `then_block`, `else_block`, `merge_block`
 - Conditional branching via `build_conditional_branch()`
 - PHI nodes are NOT used; values are stored in alloca'd variables
 
 ### For Loop Lowering
+
 For loops desugar to while loops:
+
 ```brix
 for i in start:step:end { body }
 ```
+
 Becomes:
+
 ```brix
 var i := start
 while i <= end {
@@ -223,11 +283,13 @@ while i <= end {
 ```
 
 ### String Compilation
+
 - String literals create global constants
 - Runtime struct `BrixString` holds length and char pointer
 - Concatenation and comparison call C runtime functions
 
 ### Ternary Operator Implementation
+
 - Syntax: `condition ? then_expr : else_expr`
 - Uses LLVM basic blocks: `tern_then`, `tern_else`, `tern_merge`
 - PHI node in merge block unifies the two branch values
@@ -235,17 +297,21 @@ while i <= end {
 - Parser uses `logic_or` level for branches to avoid conflict with range's colon
 
 ### String Interpolation Implementation
-- Syntax: `f"text {expr} more text"`
+
+- Syntax: `f"text {expr} more text"` or `f"text {expr:format} more text"`
 - Token: `FString` in lexer with regex `r#"f"([^"\\]|\\["\\bnfrt])*""#`
-- AST: `FStringPart` enum with `Text(String)` and `Expr(Box<Expr>)`
-- Parser extracts expressions from `{}`, tokenizes and parses them recursively
-- Codegen converts each part to string using `value_to_string()`:
-  - Int/Float: Uses C `sprintf()` with format strings `%lld` / `%g`
+- AST: `FStringPart` enum with `Text(String)` and `Expr { expr: Box<Expr>, format: Option<String> }`
+- Parser extracts expressions from `{}`, detects format specifier after `:`, tokenizes and parses them recursively
+- Codegen converts each part to string using `value_to_string(val, type, format)`:
+  - Int: Uses C `sprintf()` with format strings (`%lld`, `%x`, `%X`, `%o`)
+  - Float: Uses C `sprintf()` with format strings (`%.Nf`, `%e`, `%E`, `%g`, `%G`)
   - String: Returns as-is
+- Format specifiers are mapped to printf-style formats in codegen
 - All parts concatenated using runtime `str_concat()` function
 - Supports nested expressions, arithmetic, and function calls inside `{}`
 
 ### Print Functions Implementation
+
 - **print(expr)**: Prints any value without newline
 - **println(expr)**: Prints any value with automatic newline
 - AST: `Stmt::Print { expr }` and `Stmt::Println { expr }`
@@ -257,49 +323,58 @@ while i <= end {
 - More user-friendly than printf for simple output
 
 ### Type Conversion Functions Implementation
+
 Built-in functions for explicit type conversion between primitive types.
 
 **int(x):**
+
 - Int → returns same value
 - Float → `build_float_to_signed_int()` (truncates: 3.14 → 3)
 - String → calls C `atoi()` for parsing ("123" → 123)
 - Returns: i64
 
 **float(x):**
+
 - Float → returns same value
 - Int → `build_signed_int_to_float()` (promotes: 42 → 42.0)
 - String → calls C `atof()` for parsing ("3.14" → 3.14)
 - Returns: f64
 
 **string(x):**
+
 - String → returns same value
 - Int/Float → reuses `value_to_string()` with `sprintf()`
 - Bool → converts to "0" or "1"
 - Returns: BrixString
 
 **bool(x):**
+
 - Int → `x != 0` (0 = false, anything else = true)
 - Float → `x != 0.0`
 - String → `len > 0` (empty string = false, non-empty = true)
 - Returns: i64 (0 or 1)
 
 **Helper functions:**
+
 - `get_atoi()`: Declares C `int atoi(const char*)`
 - `get_atof()`: Declares C `double atof(const char*)`
 
 ## Common Patterns
 
 ### Adding a New Operator
+
 1. Add token to `crates/lexer/src/token.rs`
 2. Add case to `crates/parser/src/parser.rs` in appropriate precedence level
 3. Handle in `compile_binary_op()` in `crates/codegen/src/lib.rs`
 
 ### Adding a New Built-in Function
+
 1. Declare external function in `Compiler::get_<function_name>()`
 2. Implement in `runtime.c`
 3. Recompile runtime.o during compilation
 
 ### Type System Changes
+
 1. Update `BrixType` enum
 2. Update type inference in `infer_type()`
 3. Update casting logic in `cast_value()`
@@ -308,6 +383,7 @@ Built-in functions for explicit type conversion between primitive types.
 ## Testing
 
 Test files are `.bx` files in the root directory. Common test files include:
+
 - `types.bx`: Type inference, explicit types, casting, typeof()
 - `for_test.bx`: Loop variants (range, step, nested)
 - `logic_test.bx`: Boolean operators
@@ -322,19 +398,22 @@ Test files are `.bx` files in the root directory. Common test files include:
 - `fstring_test.bx`: String interpolation (f"text {expr}")
 - `print_test.bx`: Print and println functions (auto-conversion)
 - `conversion_test.bx`: Type conversion functions (int, float, string, bool)
+- `format_test.bx`: Format specifiers (hex, octal, decimal, scientific, precision)
 
 Run tests individually:
+
 ```bash
 cargo run <test_file.bx>
 ```
 
 **Note:** The compiler generates intermediate files (`runtime.o`, `output.o`) and an executable `program` in the project root during compilation.
 
-## Project Status (v0.4 - Jan 2026)
+## Project Status (v0.6 - Jan 2026)
 
-### Progress: 60% MVP Complete
+### Progress: 65% MVP Complete
 
 **Completed:**
+
 - ✅ Compiler pipeline (Lexer → Parser → Codegen → Native binary)
 - ✅ 6 primitive types with automatic casting
 - ✅ Arrays and matrices with 2D indexing
@@ -347,25 +426,23 @@ cargo run <test_file.bx>
 - ✅ Unary operators (`!`, `not` for logical negation; `-` for arithmetic negation)
 - ✅ Increment/Decrement (`++x`, `x++`, `--x`, `x--` - prefix and postfix)
 - ✅ String interpolation (`f"text {expr}"` with automatic type conversion)
+- ✅ Format specifiers (`f"{value:.2f}"`, `f"{num:x}"` - hex, octal, scientific notation, precision)
 - ✅ Built-in functions (printf, scanf, typeof, matrix, read_csv)
 - ✅ Runtime library (C) for matrix and string operations
 
 ### Next Up (v0.5):
+
 - [ ] Functions (definition, calls, return values)
 - [ ] Multiple return values (Go-style)
 - [ ] Pattern matching (`when` syntax)
 - [ ] List comprehensions
 
-### Planned for v0.6+ (Numeric & Type System Enhancements):
-- [ ] **Format Specifiers in String Interpolation**: `f"{value:.6f}"`, `f"{num:x}"` (hexadecimal), `f"{val:.2e}"` (scientific notation)
-  - Extends current f-string syntax to support printf-style format specifiers after `:`
-  - Examples: `.2f` (2 decimal places), `.6f` (6 significant digits), `x` (hex), `o` (octal), `e` (scientific)
+### Planned for v0.7 (Math Functions & Complex Numbers):
 
-- [ ] **Type Conversion Functions**: Explicit conversion between primitive types
-  - `float(x)`: Convert int/string to float
-  - `int(x)`: Convert float/string to int (truncation)
-  - `string(x)`: Convert any type to string
-  - `bool(x)`: Convert to boolean
+- [ ] **Mathematical Functions**: `sin()`, `cos()`, `sqrt()`, `exp()`, `log()`, `floor()`, `ceil()`, `round()`, `min()`, `max()`, `sum()`, `mean()`, `median()`, `std()`
+  - Uses C math.h library
+  - Works with int and float types
+  - Statistical functions work with arrays
 
 - [ ] **Complex Numbers** (Julia-style for physics/engineering calculations):
   - Literal syntax: `z := 1 + 2im` (imaginary unit `im`)
@@ -377,6 +454,7 @@ cargo run <test_file.bx>
     - `abs2(z)`: Squared magnitude (avoids sqrt for performance)
     - `angle(z)`: Phase angle in radians
   - Arithmetic: Full support for `+`, `-`, `*`, `/`, `**` with complex numbers
+  - Mathematical functions: `exp(z)`, `log(z)`, `sin(z)`, `cos(z)`, `sqrt(z)`
   - New type: `BrixType::Complex` (stored as struct with real/imag f64 fields)
 
 ## Current Limitations (v0.4)
@@ -392,6 +470,7 @@ cargo run <test_file.bx>
 ## Future Roadmap (from DOCUMENTATION.md)
 
 ### Planned Features
+
 - Pattern matching (`when` syntax)
 - Multiple return values (Go-style)
 - Pipe operator (`|>`) for data pipelines
@@ -403,6 +482,7 @@ cargo run <test_file.bx>
 - Concurrency: `spawn`, `par for`, `par map`
 
 ### Implementation Phases
+
 - v0.2: Multi-file support, imports, basic structs
 - v0.3: Pattern matching, closures, generics
 - v0.4: Concurrency primitives
@@ -411,19 +491,23 @@ cargo run <test_file.bx>
 ## Troubleshooting
 
 ### Compilation Fails with "runtime.c not found"
+
 - Ensure `runtime.c` exists in the project root directory
 - The compiler looks for it in the current working directory
 
 ### LLVM Errors
+
 - The project requires LLVM 18 to be installed
 - On macOS: `brew install llvm@18`
 - Ensure `inkwell` feature `llvm18-0` matches your LLVM version
 
 ### "cc: command not found"
+
 - The compiler requires a C compiler (gcc/clang) to compile `runtime.c`
 - On macOS: Install Xcode Command Line Tools (`xcode-select --install`)
 - On Linux: Install `build-essential` (Debian/Ubuntu) or `gcc` (other distros)
 
 ### Parse Errors Show Only Debug Output
+
 - Error reporting with Ariadne is planned but not yet implemented
 - Current errors display using Rust's `Debug` format (`{:?}`)

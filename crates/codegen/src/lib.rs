@@ -322,7 +322,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             Stmt::Print { expr } => {
                 if let Some((val, brix_type)) = self.compile_expr(expr) {
                     // Convert value to string
-                    let string_val = self.value_to_string(val, &brix_type);
+                    let string_val = self.value_to_string(val, &brix_type, None);
 
                     if let Some(str_val) = string_val {
                         let printf_fn = self.get_printf();
@@ -361,7 +361,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             Stmt::Println { expr } => {
                 if let Some((val, brix_type)) = self.compile_expr(expr) {
                     // Convert value to string
-                    let string_val = self.value_to_string(val, &brix_type);
+                    let string_val = self.value_to_string(val, &brix_type, None);
 
                     if let Some(str_val) = string_val {
                         let printf_fn = self.get_printf();
@@ -1154,7 +1154,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         let (val, val_type) = self.compile_expr(&args[0])?;
 
                         // Reuse value_to_string() which already handles all types
-                        let result = self.value_to_string(val, &val_type)?;
+                        let result = self.value_to_string(val, &val_type, None)?;
                         return Some((result, BrixType::String));
                     }
 
@@ -1703,10 +1703,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                 .unwrap();
                             call.try_as_basic_value().left().unwrap()
                         }
-                        FStringPart::Expr(expr) => {
-                            // Compile expression and convert to string
+                        FStringPart::Expr { expr, format } => {
+                            // Compile expression and convert to string with optional format
                             let (val, typ) = self.compile_expr(expr)?;
-                            self.value_to_string(val, &typ)?
+                            self.value_to_string(val, &typ, format.as_deref())?
                         }
                     };
                     string_parts.push(str_val);
@@ -1776,6 +1776,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         &self,
         val: BasicValueEnum<'ctx>,
         typ: &BrixType,
+        format: Option<&str>,
     ) -> Option<BasicValueEnum<'ctx>> {
         match typ {
             BrixType::String => Some(val), // Already a string
@@ -1784,18 +1785,30 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 // Use sprintf to convert int to string
                 let sprintf_fn = self.get_sprintf();
 
-                // Allocate buffer for string (enough for i64: 20 chars + null)
+                // Allocate buffer for string (enough for i64: 32 chars + null)
                 let i8_type = self.context.i8_type();
-                let buffer_size = i8_type.const_int(32, false);
+                let buffer_size = i8_type.const_int(64, false);
                 let buffer = self
                     .builder
                     .build_array_alloca(i8_type, buffer_size, "int_str_buf")
                     .unwrap();
 
-                // Format string "%lld"
+                // Map format specifier to sprintf format
+                let fmt_string = if let Some(fmt) = format {
+                    match fmt {
+                        "x" => "%x".to_string(),       // hex lowercase
+                        "X" => "%X".to_string(),       // hex uppercase
+                        "o" => "%o".to_string(),       // octal
+                        "d" => "%lld".to_string(),     // decimal (default)
+                        _ => "%lld".to_string(),       // default for unknown
+                    }
+                } else {
+                    "%lld".to_string()                 // default: decimal
+                };
+
                 let fmt_str = self
                     .builder
-                    .build_global_string_ptr("%lld", "fmt_int")
+                    .build_global_string_ptr(&fmt_string, "fmt_int")
                     .unwrap();
 
                 // Call sprintf
@@ -1834,10 +1847,32 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     .build_array_alloca(i8_type, buffer_size, "float_str_buf")
                     .unwrap();
 
-                // Format string "%g" (compact float representation)
+                // Map format specifier to sprintf format
+                let fmt_string = if let Some(fmt) = format {
+                    // Check for .Nf format (e.g., .2f, .6f)
+                    if fmt.starts_with('.') && fmt.ends_with('f') {
+                        format!("%{}", fmt)  // .2f → %.2f
+                    } else if fmt.starts_with('.') && fmt.ends_with('e') {
+                        format!("%{}", fmt)  // .2e → %.2e
+                    } else if fmt.starts_with('.') && fmt.ends_with('E') {
+                        format!("%{}", fmt)  // .2E → %.2E
+                    } else {
+                        match fmt {
+                            "e" => "%e".to_string(),       // scientific notation lowercase
+                            "E" => "%E".to_string(),       // scientific notation uppercase
+                            "f" => "%f".to_string(),       // fixed-point
+                            "g" => "%g".to_string(),       // compact (default)
+                            "G" => "%G".to_string(),       // compact uppercase
+                            _ => "%g".to_string(),         // default for unknown
+                        }
+                    }
+                } else {
+                    "%g".to_string()                       // default: compact
+                };
+
                 let fmt_str = self
                     .builder
-                    .build_global_string_ptr("%g", "fmt_float")
+                    .build_global_string_ptr(&fmt_string, "fmt_float")
                     .unwrap();
 
                 // Call sprintf

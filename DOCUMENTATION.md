@@ -375,11 +375,11 @@ var lista := Node { val: 10, next: Node { val: 20, next: nil } }
 
 ---
 
-### 🔢 **v0.6 - Sistema Numérico Avançado e Conversões de Tipo**
+### 🎨 **v0.6 - Format Specifiers em String Interpolation** (Em Andamento)
 
-**Motivação:** Brix é focado em cálculos numéricos para Engenharia de Dados e Física. Precisamos de suporte robusto para formatação numérica, conversões de tipo e números complexos.
+**Motivação:** Complementar o sistema de output (print, println, f-strings) com controle fino de formatação numérica.
 
-#### Format Specifiers em String Interpolation
+#### Implementação
 
 Atualmente, f-strings convertem valores automaticamente mas sem controle de formato. Precisamos de especificadores printf-style:
 
@@ -447,9 +447,52 @@ var b4 := bool("hello")   // true (string não vazia)
 - Parsing de strings via funções C: `atoi()`, `atof()`
 - `string()` reutiliza `value_to_string()` com `sprintf()`
 
+---
+
+### 🧮 **v0.7 - Funções Matemáticas e Números Complexos**
+
+**Motivação:** Brix é voltado para Engenharia, Física e Ciência de Dados. Precisamos de funções matemáticas robustas e suporte a números complexos.
+
+#### Funções Matemáticas Básicas
+
+**Trigonométricas:**
+- [ ] `sin(x)`, `cos(x)`, `tan(x)`: Funções trigonométricas
+- [ ] `asin(x)`, `acos(x)`, `atan(x)`: Inversas trigonométricas
+- [ ] `atan2(y, x)`: Arco tangente de y/x (4 quadrantes)
+- [ ] `sinh(x)`, `cosh(x)`, `tanh(x)`: Hiperbólicas
+
+**Exponenciais e Logaritmos:**
+- [ ] `exp(x)`: e^x
+- [ ] `log(x)`: Logaritmo natural (base e)
+- [ ] `log10(x)`: Logaritmo base 10
+- [ ] `log2(x)`: Logaritmo base 2
+
+**Raízes e Potências:**
+- [ ] `sqrt(x)`: Raiz quadrada
+- [ ] `cbrt(x)`: Raiz cúbica
+- [ ] `pow(x, y)`: x elevado a y (alternativa ao operador `**`)
+
+**Arredondamento:**
+- [ ] `floor(x)`: Arredonda para baixo
+- [ ] `ceil(x)`: Arredonda para cima
+- [ ] `round(x)`: Arredonda para o inteiro mais próximo
+- [ ] `trunc(x)`: Trunca parte decimal
+
+**Valor Absoluto:**
+- [ ] `abs(x)`: Valor absoluto (funciona para int, float, complex)
+- [ ] `abs2(x)`: Quadrado do valor absoluto (otimizado para complex)
+
+**Estatística Básica:**
+- [ ] `min(a, b, ...)`: Mínimo de N valores
+- [ ] `max(a, b, ...)`: Máximo de N valores
+- [ ] `sum(array)`: Soma de elementos
+- [ ] `mean(array)`: Média aritmética
+- [ ] `median(array)`: Mediana
+- [ ] `std(array)`: Desvio padrão
+
 #### Números Complexos (Julia-style)
 
-**Motivação:** Física, Engenharia Elétrica, Processamento de Sinais dependem de números complexos.
+**Motivação:** Física, Engenharia Elétrica, Processamento de Sinais, Análise de Fourier.
 
 **Sintaxe:**
 ```brix
@@ -484,13 +527,19 @@ BrixType::Complex
 // Em LLVM: struct { f64 real, f64 imag }
 ```
 
-**Funções matemáticas:**
+**Funções específicas para complexos:**
 - `real(z)`: Retorna parte real como f64
 - `imag(z)`: Retorna parte imaginária como f64
 - `conj(z)`: Conjugado complexo (inverte sinal da parte imaginária)
 - `abs(z)`: Magnitude `sqrt(real^2 + imag^2)`
 - `abs2(z)`: Magnitude ao quadrado `real^2 + imag^2` (mais rápido, evita sqrt)
 - `angle(z)`: Fase em radianos `atan2(imag, real)`
+
+**Funções matemáticas com complexos:**
+- `exp(z)`: e^z (forma polar)
+- `log(z)`: Logaritmo complexo
+- `sin(z)`, `cos(z)`, `tan(z)`: Trigonométricas complexas
+- `sqrt(z)`: Raiz quadrada complexa
 
 **Operadores:**
 - `+`, `-`: Soma/subtração (real com real, imag com imag)
@@ -513,16 +562,18 @@ BrixType::Complex
 - `abs2()` evita sqrt custoso quando só precisa comparar magnitudes
 
 **Tarefas:**
+- [ ] Implementar funções matemáticas básicas (sin, cos, sqrt, etc.) usando C math.h
 - [ ] Adicionar token `Im` no lexer
 - [ ] `Literal::Complex` no AST
 - [ ] `BrixType::Complex` no codegen
 - [ ] Funções runtime: `complex_add`, `complex_mul`, `complex_div`, `complex_pow`
-- [ ] Built-ins: `real()`, `imag()`, `conj()`, `abs()`, `abs2()`, `angle()`
+- [ ] Built-ins complexos: `real()`, `imag()`, `conj()`, `abs()`, `abs2()`, `angle()`
+- [ ] Funções matemáticas complexas: `exp(z)`, `log(z)`, `sin(z)`, etc.
 - [ ] Testes com operações complexas
 
 ---
 
-### 📦 **v0.7 - Arrays Avançados e Slicing**
+### 📦 **v0.8 - Arrays Avançados e Slicing**
 
 **Slicing:**
 
@@ -546,7 +597,7 @@ BrixType::Complex
 
 ---
 
-### 🗂️ **v0.8 - Structs e Tipos Customizados**
+### 🗂️ **v0.9 - Structs e Tipos Customizados**
 
 **Structs Básicos:**
 
@@ -568,7 +619,7 @@ BrixType::Complex
 
 ---
 
-### 🎭 **v0.9 - Pattern Matching e Programação Funcional**
+### 🎭 **v0.10 - Pattern Matching e Programação Funcional**
 
 #### Pattern Matching
 
@@ -702,10 +753,11 @@ v0.2 ████████████████████ 100% ✅ Tipos
 v0.3 ████████████████████ 100% ✅ Matrizes, Loops, typeof()
 v0.4 ████████████████████ 100% ✅ Operadores avançados, string interpolation
 v0.5 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Funções de usuário, return
-v0.6 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Sistema numérico, conversões, complexos
-v0.7 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Slicing, broadcasting
-v0.8 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Structs, tipos customizados
-v0.9 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Pattern matching, prog. funcional
+v0.6 ░░░░░░░░░░░░░░░░░░░░   0% 🚧 Format specifiers em f-strings
+v0.7 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Funções matemáticas, números complexos
+v0.8 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Slicing, broadcasting
+v0.9 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Structs, tipos customizados
+v0.10 ░░░░░░░░░░░░░░░░░░░   0% 📋 Pattern matching, prog. funcional
 v1.0 ░░░░░░░░░░░░░░░░░░░░   0% 🎯 Standard Library completa
 ```
 

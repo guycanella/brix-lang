@@ -9,7 +9,10 @@ pub enum Literal {
 #[derive(Debug, Clone, PartialEq)]
 pub enum FStringPart {
     Text(String),
-    Expr(Box<Expr>),
+    Expr {
+        expr: Box<Expr>,
+        format: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
