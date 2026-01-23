@@ -10,8 +10,8 @@ pub fn parser() -> impl Parser<Token, Program, Error = Simple<Token>> {
         .then_ignore(end())
 }
 
-fn parse_fstring_content(fstring: &str) -> Result<Vec<(bool, String)>, String> {
-    // Returns Vec of (is_expr, content)
+fn parse_fstring_content(fstring: &str) -> Result<Vec<(bool, String, Option<String>)>, String> {
+    // Returns Vec of (is_expr, content, format)
     // Remove f" prefix and trailing "
     let content = fstring
         .strip_prefix("f\"")
@@ -33,7 +33,7 @@ fn parse_fstring_content(fstring: &str) -> Result<Vec<(bool, String)>, String> {
 
             // Save accumulated text
             if !current_text.is_empty() {
-                parts.push((false, current_text.clone()));
+                parts.push((false, current_text.clone(), None));
                 current_text.clear();
             }
 
@@ -60,8 +60,17 @@ fn parse_fstring_content(fstring: &str) -> Result<Vec<(bool, String)>, String> {
                 return Err("Unmatched braces in f-string".to_string());
             }
 
-            // Store expression string (will be parsed later)
-            parts.push((true, expr_str));
+            // Check for format specifier after ':'
+            let (expr_part, format_part) = if let Some(colon_pos) = expr_str.find(':') {
+                let expr = expr_str[..colon_pos].to_string();
+                let format = expr_str[colon_pos + 1..].to_string();
+                (expr, Some(format))
+            } else {
+                (expr_str, None)
+            };
+
+            // Store expression string with optional format (will be parsed later)
+            parts.push((true, expr_part, format_part));
         } else if ch == '}' {
             // Check for escaped brace }}
             if chars.peek() == Some(&'}') {
@@ -91,7 +100,7 @@ fn parse_fstring_content(fstring: &str) -> Result<Vec<(bool, String)>, String> {
 
     // Add remaining text
     if !current_text.is_empty() {
-        parts.push((false, current_text));
+        parts.push((false, current_text, None));
     }
 
     Ok(parts)
@@ -271,12 +280,12 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
         }
         .try_map(move |fstr, span: std::ops::Range<usize>| {
             let span_clone = span.clone();
-            let raw_parts: Vec<(bool, String)> =
+            let raw_parts: Vec<(bool, String, Option<String>)> =
                 parse_fstring_content(&fstr).map_err(|e| Simple::custom(span_clone, e))?;
 
             let mut parts = Vec::new();
 
-            for (is_expr, content) in raw_parts {
+            for (is_expr, content, format) in raw_parts {
                 if is_expr {
                     // Parse the expression string
                     let tokens: Vec<Token> = lexer::lex(&content);
@@ -290,7 +299,10 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
                                 format!("Failed to parse f-string expression: {}", content),
                             )
                         })?;
-                    parts.push(FStringPart::Expr(Box::new(parsed_expr)));
+                    parts.push(FStringPart::Expr {
+                        expr: Box::new(parsed_expr),
+                        format,
+                    });
                 } else {
                     parts.push(FStringPart::Text(content));
                 }
