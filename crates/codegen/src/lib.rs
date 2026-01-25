@@ -13,7 +13,8 @@ pub enum BrixType {
     Int,
     Float,
     String,
-    Matrix,
+    Matrix,    // Matrix of f64 (double*)
+    IntMatrix, // Matrix of i64 (long*)
     FloatPtr,
     Void,
 }
@@ -244,7 +245,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     let llvm_type: BasicTypeEnum = match val_type {
                         BrixType::Int => self.context.i64_type().into(),
                         BrixType::Float => self.context.f64_type().into(),
-                        BrixType::String | BrixType::Matrix | BrixType::FloatPtr => {
+                        BrixType::String | BrixType::Matrix | BrixType::IntMatrix | BrixType::FloatPtr => {
                             self.context.ptr_type(AddressSpace::default()).into()
                         }
                         _ => self.context.i64_type().into(),
@@ -738,7 +739,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
             Expr::Identifier(name) => match self.variables.get(name) {
                 Some((ptr, brix_type)) => match brix_type {
-                    BrixType::Matrix | BrixType::String | BrixType::FloatPtr => {
+                    BrixType::String | BrixType::FloatPtr => {
                         let val = self
                             .builder
                             .build_load(self.context.ptr_type(AddressSpace::default()), *ptr, name)
@@ -760,8 +761,24 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             .unwrap();
                         Some((val, BrixType::Float))
                     }
+                    BrixType::Matrix => {
+                        // Load the pointer to the matrix struct
+                        let val = self
+                            .builder
+                            .build_load(self.context.ptr_type(AddressSpace::default()), *ptr, name)
+                            .unwrap();
+                        Some((val, BrixType::Matrix))
+                    }
+                    BrixType::IntMatrix => {
+                        // Load the pointer to the intmatrix struct
+                        let val = self
+                            .builder
+                            .build_load(self.context.ptr_type(AddressSpace::default()), *ptr, name)
+                            .unwrap();
+                        Some((val, BrixType::IntMatrix))
+                    }
                     _ => {
-                        eprintln!("Erro: Tipo não suportado em identificador.");
+                        eprintln!("Error: Type not supported in identifier.");
                         None
                     }
                 },
@@ -1014,6 +1031,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             BrixType::Float => "float",
                             BrixType::String => "string",
                             BrixType::Matrix => "matrix",
+                            BrixType::IntMatrix => "intmatrix",
                             BrixType::FloatPtr => "float_ptr",
                             BrixType::Void => "void",
                         };
@@ -1324,15 +1342,22 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             Expr::Index { array, indices } => {
                 let (target_val, target_type) = self.compile_expr(array)?;
 
-                if target_type != BrixType::Matrix {
-                    eprintln!("Erro: Tentando indexar algo que não é matriz.");
+                // Support both Matrix (f64*) and IntMatrix (i64*)
+                if target_type != BrixType::Matrix && target_type != BrixType::IntMatrix {
+                    eprintln!("Error: Trying to index something that is not a matrix.");
                     return None;
                 }
 
+                let is_int_matrix = target_type == BrixType::IntMatrix;
                 let matrix_ptr = target_val.into_pointer_value();
-                let matrix_type = self.get_matrix_type();
+                let matrix_type = if is_int_matrix {
+                    self.get_intmatrix_type()
+                } else {
+                    self.get_matrix_type()
+                };
                 let i64_type = self.context.i64_type();
 
+                // Get cols (same for both Matrix and IntMatrix)
                 let cols_ptr = self
                     .builder
                     .build_struct_gep(matrix_type, matrix_ptr, 1, "cols")
@@ -1343,6 +1368,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     .unwrap()
                     .into_int_value();
 
+                // Get data pointer (field 2 for both)
                 let data_ptr_ptr = self
                     .builder
                     .build_struct_gep(matrix_type, matrix_ptr, 2, "data")
@@ -1357,6 +1383,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     .unwrap()
                     .into_pointer_value();
 
+                // Calculate offset (same logic for both)
                 let final_offset = if indices.len() == 1 {
                     let (idx0_val, _) = self.compile_expr(&indices[0])?;
                     idx0_val.into_int_value()
@@ -1376,96 +1403,168 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     return None;
                 };
 
+                // Load value with appropriate type
                 unsafe {
-                    let f64 = self.context.f64_type();
-                    let item_ptr = self
-                        .builder
-                        .build_gep(f64, data, &[final_offset], "item_ptr")
-                        .unwrap();
-                    let val = self.builder.build_load(f64, item_ptr, "val").unwrap();
-
-                    Some((val, BrixType::Float))
+                    if is_int_matrix {
+                        // IntMatrix: load i64
+                        let item_ptr = self
+                            .builder
+                            .build_gep(i64_type, data, &[final_offset], "item_ptr")
+                            .unwrap();
+                        let val = self.builder.build_load(i64_type, item_ptr, "val").unwrap();
+                        Some((val, BrixType::Int))
+                    } else {
+                        // Matrix: load f64
+                        let f64 = self.context.f64_type();
+                        let item_ptr = self
+                            .builder
+                            .build_gep(f64, data, &[final_offset], "item_ptr")
+                            .unwrap();
+                        let val = self.builder.build_load(f64, item_ptr, "val").unwrap();
+                        Some((val, BrixType::Float))
+                    }
                 }
             }
 
             Expr::Array(elements) => {
                 let n = elements.len() as u64;
-
                 let i64_type = self.context.i64_type();
-                let rows_val = i64_type.const_int(1, false);
-                let cols_val = i64_type.const_int(n, false);
 
-                let matrix_type = self.get_matrix_type();
-                let matrix_ptr = self.builder.build_alloca(matrix_type, "array_lit").unwrap();
+                // Step 1: Infer type by checking all elements
+                let mut all_int = true;
+                let mut compiled_elements = Vec::new();
 
-                let rows_ptr = self
-                    .builder
-                    .build_struct_gep(matrix_type, matrix_ptr, 0, "rows")
-                    .unwrap();
-                self.builder.build_store(rows_ptr, rows_val).unwrap();
-                let cols_ptr = self
-                    .builder
-                    .build_struct_gep(matrix_type, matrix_ptr, 1, "cols")
-                    .unwrap();
-                self.builder.build_store(cols_ptr, cols_val).unwrap();
-
-                let ptr_type = self.context.ptr_type(AddressSpace::default());
-                let fn_type = ptr_type.fn_type(&[i64_type.into(), i64_type.into()], false);
-                let matrix_new_fn = self.module.get_function("matrix_new").unwrap_or_else(|| {
-                    self.module
-                        .add_function("matrix_new", fn_type, Some(Linkage::External))
-                });
-
-                let call = self
-                    .builder
-                    .build_call(
-                        matrix_new_fn,
-                        &[rows_val.into(), cols_val.into()],
-                        "alloc_arr",
-                    )
-                    .unwrap();
-                let new_matrix_ptr = call
-                    .try_as_basic_value()
-                    .left()
-                    .unwrap()
-                    .into_pointer_value();
-
-                let data_ptr_ptr = self
-                    .builder
-                    .build_struct_gep(matrix_type, new_matrix_ptr, 2, "data_ptr")
-                    .unwrap();
-                let data_ptr = self
-                    .builder
-                    .build_load(ptr_type, data_ptr_ptr, "data_base")
-                    .unwrap()
-                    .into_pointer_value();
-
-                for (i, expr) in elements.iter().enumerate() {
+                for expr in elements {
                     let (val, val_type) = self.compile_expr(expr)?;
+                    compiled_elements.push((val, val_type.clone()));
 
-                    let float_val = if val_type == BrixType::Int {
-                        self.builder
-                            .build_signed_int_to_float(
-                                val.into_int_value(),
-                                self.context.f64_type(),
-                                "cast",
-                            )
-                            .unwrap()
-                    } else {
-                        val.into_float_value()
-                    };
-
-                    let index = i64_type.const_int(i as u64, false);
-                    unsafe {
-                        let elem_ptr = self
-                            .builder
-                            .build_gep(self.context.f64_type(), data_ptr, &[index], "elem_ptr")
-                            .unwrap();
-                        self.builder.build_store(elem_ptr, float_val).unwrap();
+                    if val_type != BrixType::Int {
+                        all_int = false;
                     }
                 }
 
-                Some((new_matrix_ptr.as_basic_value_enum(), BrixType::Matrix))
+                let rows_val = i64_type.const_int(1, false);
+                let cols_val = i64_type.const_int(n, false);
+
+                // Step 2: Create IntMatrix or Matrix based on inference
+                if all_int {
+                    // Create IntMatrix (i64*)
+                    let intmatrix_type = self.get_intmatrix_type();
+                    let ptr_type = self.context.ptr_type(AddressSpace::default());
+                    let fn_type = ptr_type.fn_type(&[i64_type.into(), i64_type.into()], false);
+
+                    let intmatrix_new_fn = self
+                        .module
+                        .get_function("intmatrix_new")
+                        .unwrap_or_else(|| {
+                            self.module.add_function(
+                                "intmatrix_new",
+                                fn_type,
+                                Some(Linkage::External),
+                            )
+                        });
+
+                    let call = self
+                        .builder
+                        .build_call(
+                            intmatrix_new_fn,
+                            &[rows_val.into(), cols_val.into()],
+                            "alloc_intarr",
+                        )
+                        .unwrap();
+                    let new_intmatrix_ptr = call
+                        .try_as_basic_value()
+                        .left()
+                        .unwrap()
+                        .into_pointer_value();
+
+                    let data_ptr_ptr = self
+                        .builder
+                        .build_struct_gep(intmatrix_type, new_intmatrix_ptr, 2, "data_ptr")
+                        .unwrap();
+                    let data_ptr = self
+                        .builder
+                        .build_load(ptr_type, data_ptr_ptr, "data_base")
+                        .unwrap()
+                        .into_pointer_value();
+
+                    // Store integer values
+                    for (i, (val, _)) in compiled_elements.iter().enumerate() {
+                        let index = i64_type.const_int(i as u64, false);
+                        unsafe {
+                            let elem_ptr = self
+                                .builder
+                                .build_gep(i64_type, data_ptr, &[index], "elem_ptr")
+                                .unwrap();
+                            self.builder
+                                .build_store(elem_ptr, val.into_int_value())
+                                .unwrap();
+                        }
+                    }
+
+                    Some((new_intmatrix_ptr.as_basic_value_enum(), BrixType::IntMatrix))
+                } else {
+                    // Create Matrix (f64*) with int→float promotion
+                    let matrix_type = self.get_matrix_type();
+                    let ptr_type = self.context.ptr_type(AddressSpace::default());
+                    let fn_type = ptr_type.fn_type(&[i64_type.into(), i64_type.into()], false);
+
+                    let matrix_new_fn =
+                        self.module.get_function("matrix_new").unwrap_or_else(|| {
+                            self.module
+                                .add_function("matrix_new", fn_type, Some(Linkage::External))
+                        });
+
+                    let call = self
+                        .builder
+                        .build_call(
+                            matrix_new_fn,
+                            &[rows_val.into(), cols_val.into()],
+                            "alloc_arr",
+                        )
+                        .unwrap();
+                    let new_matrix_ptr = call
+                        .try_as_basic_value()
+                        .left()
+                        .unwrap()
+                        .into_pointer_value();
+
+                    let data_ptr_ptr = self
+                        .builder
+                        .build_struct_gep(matrix_type, new_matrix_ptr, 2, "data_ptr")
+                        .unwrap();
+                    let data_ptr = self
+                        .builder
+                        .build_load(ptr_type, data_ptr_ptr, "data_base")
+                        .unwrap()
+                        .into_pointer_value();
+
+                    // Store with int→float conversion
+                    for (i, (val, val_type)) in compiled_elements.iter().enumerate() {
+                        let float_val = if *val_type == BrixType::Int {
+                            self.builder
+                                .build_signed_int_to_float(
+                                    val.into_int_value(),
+                                    self.context.f64_type(),
+                                    "cast",
+                                )
+                                .unwrap()
+                        } else {
+                            val.into_float_value()
+                        };
+
+                        let index = i64_type.const_int(i as u64, false);
+                        unsafe {
+                            let elem_ptr = self
+                                .builder
+                                .build_gep(self.context.f64_type(), data_ptr, &[index], "elem_ptr")
+                                .unwrap();
+                            self.builder.build_store(elem_ptr, float_val).unwrap();
+                        }
+                    }
+
+                    Some((new_matrix_ptr.as_basic_value_enum(), BrixType::Matrix))
+                }
             }
 
             Expr::Range { .. } => {
@@ -1796,14 +1895,14 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 // Map format specifier to sprintf format
                 let fmt_string = if let Some(fmt) = format {
                     match fmt {
-                        "x" => "%x".to_string(),       // hex lowercase
-                        "X" => "%X".to_string(),       // hex uppercase
-                        "o" => "%o".to_string(),       // octal
-                        "d" => "%lld".to_string(),     // decimal (default)
-                        _ => "%lld".to_string(),       // default for unknown
+                        "x" => "%x".to_string(),   // hex lowercase
+                        "X" => "%X".to_string(),   // hex uppercase
+                        "o" => "%o".to_string(),   // octal
+                        "d" => "%lld".to_string(), // decimal (default)
+                        _ => "%lld".to_string(),   // default for unknown
                     }
                 } else {
-                    "%lld".to_string()                 // default: decimal
+                    "%lld".to_string() // default: decimal
                 };
 
                 let fmt_str = self
@@ -1851,23 +1950,23 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let fmt_string = if let Some(fmt) = format {
                     // Check for .Nf format (e.g., .2f, .6f)
                     if fmt.starts_with('.') && fmt.ends_with('f') {
-                        format!("%{}", fmt)  // .2f → %.2f
+                        format!("%{}", fmt) // .2f → %.2f
                     } else if fmt.starts_with('.') && fmt.ends_with('e') {
-                        format!("%{}", fmt)  // .2e → %.2e
+                        format!("%{}", fmt) // .2e → %.2e
                     } else if fmt.starts_with('.') && fmt.ends_with('E') {
-                        format!("%{}", fmt)  // .2E → %.2E
+                        format!("%{}", fmt) // .2E → %.2E
                     } else {
                         match fmt {
-                            "e" => "%e".to_string(),       // scientific notation lowercase
-                            "E" => "%E".to_string(),       // scientific notation uppercase
-                            "f" => "%f".to_string(),       // fixed-point
-                            "g" => "%g".to_string(),       // compact (default)
-                            "G" => "%G".to_string(),       // compact uppercase
-                            _ => "%g".to_string(),         // default for unknown
+                            "e" => "%e".to_string(), // scientific notation lowercase
+                            "E" => "%E".to_string(), // scientific notation uppercase
+                            "f" => "%f".to_string(), // fixed-point
+                            "g" => "%g".to_string(), // compact (default)
+                            "G" => "%G".to_string(), // compact uppercase
+                            _ => "%g".to_string(),   // default for unknown
                         }
                     }
                 } else {
-                    "%g".to_string()                       // default: compact
+                    "%g".to_string() // default: compact
                 };
 
                 let fmt_str = self
@@ -1932,7 +2031,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         // int atoi(const char *str)
         let fn_type = i32_type.fn_type(&[ptr_type.into()], false);
 
-        self.module.add_function("atoi", fn_type, Some(Linkage::External))
+        self.module
+            .add_function("atoi", fn_type, Some(Linkage::External))
     }
 
     fn get_atof(&self) -> inkwell::values::FunctionValue<'ctx> {
@@ -1946,7 +2046,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         // double atof(const char *str)
         let fn_type = f64_type.fn_type(&[ptr_type.into()], false);
 
-        self.module.add_function("atof", fn_type, Some(Linkage::External))
+        self.module
+            .add_function("atof", fn_type, Some(Linkage::External))
     }
 
     fn compile_input_int(&self) -> Option<BasicValueEnum<'ctx>> {
@@ -2085,6 +2186,14 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     }
 
     fn get_matrix_type(&self) -> inkwell::types::StructType<'ctx> {
+        let i64_type = self.context.i64_type();
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        self.context
+            .struct_type(&[i64_type.into(), i64_type.into(), ptr_type.into()], false)
+    }
+
+    fn get_intmatrix_type(&self) -> inkwell::types::StructType<'ctx> {
+        // Same structure as Matrix: { rows: i64, cols: i64, data: i64* }
         let i64_type = self.context.i64_type();
         let ptr_type = self.context.ptr_type(AddressSpace::default());
         self.context
