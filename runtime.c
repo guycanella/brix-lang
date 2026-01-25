@@ -69,6 +69,24 @@ Matrix *read_csv(char *filename) {
 }
 
 // ==========================================
+// SECTION 1.5: INTMATRIX (v0.6)
+// ==========================================
+
+typedef struct {
+  long rows;
+  long cols;
+  long *data;  // i64* instead of double*
+} IntMatrix;
+
+IntMatrix *intmatrix_new(long rows, long cols) {
+  IntMatrix *m = (IntMatrix *)malloc(sizeof(IntMatrix));
+  m->rows = rows;
+  m->cols = cols;
+  m->data = (long *)calloc(rows * cols, sizeof(long));  // calloc zeros memory
+  return m;
+}
+
+// ==========================================
 // SECTION 2: STRINGS (v0.4)
 // ==========================================
 
