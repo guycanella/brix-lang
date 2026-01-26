@@ -197,19 +197,19 @@ var arr_float := [1.0, 2.0, 3.0]
 var arr_mixed := [1, 2, 3.5]  // Promotes ints to float
 ```
 
-### Empty Initialization (Static Allocation)
+### Array Constructors
 
-C#/Go-inspired syntax for allocating zeroed memory without manual filling:
+Brix provides multiple ways to create arrays and matrices, each with specific use cases:
+
+#### 1. Array Literals (Type Inference)
 
 ```brix
-// Allocates array of 5 integers (initialized to 0)
-var buffer: int[5]
-
-// Allocates 2x3 float matrix (initialized to 0.0)
-var grid: float[2][3]
+var nums := [1, 2, 3, 4, 5]    // IntMatrix (all ints)
+var vals := [1, 2.5, 3.7]      // Matrix (mixed → float promotion)
+var x := nums[0]               // Index access
 ```
 
-### Special Constructors
+#### 2. zeros() and izeros() Functions
 
 For semantic clarity between Engineering (Floats) and Discrete Math (Ints):
 
@@ -222,6 +222,22 @@ var m2 := zeros(3, 4)     // 3x4 float matrix
 var i1 := izeros(5)       // 1D array of 5 ints
 var i2 := izeros(3, 4)    // 3x4 int matrix
 ```
+
+#### 3. Static Initialization Syntax (v0.6)
+
+Concise syntax for allocating zeroed memory:
+
+```brix
+// Allocates array of 5 integers (initialized to 0)
+var buffer := int[5]
+
+// Allocates 2x3 float matrix (initialized to 0.0)
+var grid := float[2, 3]
+
+// Equivalent to izeros(5) and zeros(2, 3)
+```
+
+This is syntactic sugar that compiles to the same efficient calloc-based allocation as zeros()/izeros().
 
 ### Mutability and Safety
 
@@ -578,6 +594,9 @@ Test files are `.bx` files in the root directory. Common test files include:
 - `print_test.bx`: Print and println functions (auto-conversion)
 - `conversion_test.bx`: Type conversion functions (int, float, string, bool)
 - `format_test.bx`: Format specifiers (hex, octal, decimal, scientific, precision)
+- `zeros_test.bx`: zeros() and izeros() constructors (v0.6)
+- `static_init_test.bx`: Static initialization syntax int[n], float[r,c] (v0.6)
+- `array_constructors_test.bx`: Comprehensive test of all array constructor methods (v0.6)
 
 Run tests individually:
 
@@ -589,13 +608,19 @@ cargo run <test_file.bx>
 
 ## Project Status (v0.6 - Jan 2026)
 
-### Progress: 65% MVP Complete
+### Progress: 70% MVP Complete
 
 **Completed:**
 
 - ✅ Compiler pipeline (Lexer → Parser → Codegen → Native binary)
-- ✅ 6 primitive types with automatic casting
+- ✅ 7 primitive types with automatic casting (Int, Float, String, Matrix, IntMatrix, FloatPtr, Void)
 - ✅ Arrays and matrices with 2D indexing
+- ✅ **IntMatrix type system** (v0.6):
+  - Array literal type inference (all ints → IntMatrix, mixed → Matrix with promotion)
+  - `zeros(n)` / `zeros(r,c)` - Float matrix constructors
+  - `izeros(n)` / `izeros(r,c)` - Integer matrix constructors
+  - Static initialization syntax: `int[5]`, `float[2,3]`
+  - Full indexing and assignment support for both Matrix and IntMatrix
 - ✅ Control flow (if/else, while, for loops)
 - ✅ Operators (arithmetic, comparison, logical, bitwise, unary, inc/dec, string)
 - ✅ Power operator (`**` for int and float)
@@ -606,8 +631,9 @@ cargo run <test_file.bx>
 - ✅ Increment/Decrement (`++x`, `x++`, `--x`, `x--` - prefix and postfix)
 - ✅ String interpolation (`f"text {expr}"` with automatic type conversion)
 - ✅ Format specifiers (`f"{value:.2f}"`, `f"{num:x}"` - hex, octal, scientific notation, precision)
-- ✅ Built-in functions (printf, scanf, typeof, matrix, read_csv)
-- ✅ Runtime library (C) for matrix and string operations
+- ✅ Built-in functions (printf, scanf, typeof, matrix, read_csv, print, println)
+- ✅ Type conversion functions (int(), float(), string(), bool())
+- ✅ Runtime library (C) for matrix, intmatrix, and string operations
 
 ### Next Up (v0.5):
 

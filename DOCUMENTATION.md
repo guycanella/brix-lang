@@ -108,19 +108,18 @@ var arr_float := [1.0, 2.0, 3.0]
 var arr_misto := [1, 2, 3.5]  // Promove ints para float
 ```
 
-#### 2. Inicialização Vazia (Alocação Estática)
+#### 2. Construtores de Arrays
 
-Sintaxe inspirada em C#/Go para alocar memória zerada sem preencher manualmente:
+Brix oferece múltiplas formas de criar arrays e matrizes:
+
+##### a) Literais de Array (Inferência Automática)
 
 ```brix
-// Aloca array de 5 inteiros (inicializado com 0)
-var buffer: int[5]
-
-// Aloca matriz 2x3 de floats (inicializado com 0.0)
-var grid: float[2][3]
+var nums := [1, 2, 3, 4, 5]    // IntMatrix (todos ints)
+var vals := [1, 2.5, 3.7]      // Matrix (mixed → promoção float)
 ```
 
-#### 3. Construtores Especiais
+##### b) Funções zeros() e izeros()
 
 Para clareza semântica entre Engenharia (Floats) e Matemática Discreta (Ints):
 
@@ -133,6 +132,23 @@ var m2 := zeros(3, 4)     // Matriz 3x4 de floats
 var i1 := izeros(5)       // Array 1D de 5 ints
 var i2 := izeros(3, 4)    // Matriz 3x4 de ints
 ```
+
+##### c) Inicialização Estática (v0.6 - Implementado)
+
+Sintaxe concisa para alocar memória zerada:
+
+```brix
+// Aloca array de 5 inteiros (inicializado com 0)
+var buffer := int[5]
+
+// Aloca matriz 2x3 de floats (inicializado com 0.0)
+var grid := float[2, 3]
+
+// Equivalente a izeros(5) e zeros(2, 3)
+// Compila para a mesma alocação eficiente com calloc
+```
+
+**Nota:** Esta sintaxe é açúcar sintático que compila diretamente para zeros()/izeros(), mantendo a mesma performance.
 
 #### 4. Mutabilidade e Segurança
 
@@ -349,7 +365,7 @@ var lista := Node { val: 10, next: Node { val: 20, next: nil } }
 
 ## 10. Status do Desenvolvimento (Atualizado - Jan 2026)
 
-### 📊 Progresso Geral: v0.6 Completo (65% MVP Completo)
+### 📊 Progresso Geral: v0.6 Completo (70% MVP Completo)
 
 ---
 
@@ -483,11 +499,61 @@ var lista := Node { val: 10, next: Node { val: 20, next: nil } }
 
 ---
 
-### 🎨 **v0.6 - Format Specifiers em String Interpolation** ✅ **COMPLETO**
+### 🎨 **v0.6 - IntMatrix Type System & Format Specifiers** ✅ **COMPLETO**
 
-**Motivação:** Complementar o sistema de output (print, println, f-strings) com controle fino de formatação numérica.
+**Motivação:** Adicionar suporte nativo para arrays de inteiros com type inference e complementar o sistema de output com format specifiers.
 
-#### Implementação
+#### IntMatrix Type System ✅ **IMPLEMENTADO (25/01/2026)**
+
+Sistema completo de arrays tipados com inferência automática e múltiplos construtores:
+
+**1. Type Inference Automático:**
+```brix
+var int_arr := [1, 2, 3]        // IntMatrix (todos ints)
+var float_arr := [1.0, 2.0]     // Matrix (todos floats)
+var mixed := [1, 2.5, 3]        // Matrix (misturado → promoção int→float)
+```
+
+**2. Construtores zeros() e izeros():**
+```brix
+var m1 := zeros(5)         // Matrix 1D de 5 floats
+var m2 := zeros(3, 4)      // Matrix 3×4 de floats
+var i1 := izeros(5)        // IntMatrix 1D de 5 ints
+var i2 := izeros(3, 4)     // IntMatrix 3×4 de ints
+```
+
+**3. Static Initialization Syntax:**
+```brix
+var buffer := int[5]       // IntMatrix de 5 elementos (zerado)
+var grid := float[2, 3]    // Matrix 2×3 de floats (zerada)
+// Syntactic sugar para izeros() e zeros()
+```
+
+**4. Indexing e Assignment:**
+```brix
+var arr := int[10]
+arr[0] = 42                // Assignment funciona
+var val := arr[0]          // Indexing retorna Int
+
+var mat := float[3, 3]
+mat[1][2] = 3.14           // 2D assignment
+```
+
+**✅ Implementação Completa:**
+- `BrixType::IntMatrix` adicionado ao enum de tipos
+- Runtime `IntMatrix` struct em runtime.c (i64* data)
+- Funções `intmatrix_new()` e `matrix_new()` com calloc
+- Type inference completo em array literals
+- Parser para sintaxe `int[n]` e `float[r,c]`
+- Indexing e assignment para IntMatrix e Matrix
+- typeof() retorna "intmatrix"
+
+**Testes validados:**
+- `zeros_test.bx` - zeros() e izeros()
+- `static_init_test.bx` - int[n], float[r,c]
+- `array_constructors_test.bx` - teste abrangente
+
+#### Format Specifiers ✅ **IMPLEMENTADO**
 
 Atualmente, f-strings convertem valores automaticamente mas sem controle de formato. Precisamos de especificadores printf-style:
 
@@ -993,7 +1059,7 @@ v0.2 ████████████████████ 100% ✅ Tipos
 v0.3 ████████████████████ 100% ✅ Matrizes, Loops, typeof()
 v0.4 ████████████████████ 100% ✅ Operadores avançados, string interpolation
 v0.5 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Funções de usuário, return
-v0.6 ████████████████████ 100% ✅ Format specifiers em f-strings
+v0.6 ████████████████████ 100% ✅ IntMatrix type system, format specifiers
 v0.7 ░░░░░░░░░░░░░░░░░░░░   0% 🎯 Import system, math library (C bindings)
 v0.8 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Complex numbers, multi-file support
 v0.9 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Functions, structs, pattern matching
@@ -1198,7 +1264,7 @@ math.sum(arr), math.mean(arr), math.median(arr), math.std(arr)
 - **Arquivos de Teste (.bx):** 15 (types, for, logic, chain, string, arrays, csv, bitwise, ternary, negation, increment, fstring, print, conversion, format)
 - **Features Implementadas:** ~55 (v0.6 completo)
 - **Features Planejadas:** ~120+
-- **Versão Atual:** v0.6 (65% MVP)
+- **Versão Atual:** v0.6 (70% MVP)
 - **Progresso MVP:** 62%
 - **Versão Atual:** v0.4+ (Operadores Avançados + Type System) ✅ COMPLETO
 

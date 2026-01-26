@@ -105,11 +105,11 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             .build_return(Some(&i64_type.const_int(0, false)));
     }
 
-    fn compile_lvalue_addr(&self, expr: &Expr) -> Option<PointerValue<'ctx>> {
+    fn compile_lvalue_addr(&self, expr: &Expr) -> Option<(PointerValue<'ctx>, BrixType)> {
         match expr {
             Expr::Identifier(name) => {
-                if let Some((ptr, _)) = self.variables.get(name) {
-                    Some(*ptr)
+                if let Some((ptr, var_type)) = self.variables.get(name) {
+                    Some((*ptr, var_type.clone()))
                 } else {
                     eprintln!("Error: Variable '{}' not found for assignment.", name);
                     None
@@ -119,12 +119,18 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             Expr::Index { array, indices } => {
                 let (target_val, target_type) = self.compile_expr(array)?;
 
-                if target_type != BrixType::Matrix {
+                // Support both Matrix and IntMatrix for lvalue assignment
+                if target_type != BrixType::Matrix && target_type != BrixType::IntMatrix {
                     return None;
                 }
 
+                let is_int_matrix = target_type == BrixType::IntMatrix;
                 let matrix_ptr = target_val.into_pointer_value();
-                let matrix_type = self.get_matrix_type();
+                let matrix_type = if is_int_matrix {
+                    self.get_intmatrix_type()
+                } else {
+                    self.get_matrix_type()
+                };
                 let i64_type = self.context.i64_type();
 
                 let cols_ptr = self
@@ -169,12 +175,22 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 };
 
                 unsafe {
-                    let f64 = self.context.f64_type();
-                    let item_ptr = self
-                        .builder
-                        .build_gep(f64, data, &[final_offset], "addr_ptr")
-                        .unwrap();
-                    Some(item_ptr)
+                    if is_int_matrix {
+                        // IntMatrix: GEP with i64 type, returns Int element
+                        let item_ptr = self
+                            .builder
+                            .build_gep(i64_type, data, &[final_offset], "addr_ptr")
+                            .unwrap();
+                        Some((item_ptr, BrixType::Int))
+                    } else {
+                        // Matrix: GEP with f64 type, returns Float element
+                        let f64 = self.context.f64_type();
+                        let item_ptr = self
+                            .builder
+                            .build_gep(f64, data, &[final_offset], "addr_ptr")
+                            .unwrap();
+                        Some((item_ptr, BrixType::Float))
+                    }
                 }
             }
 
@@ -259,9 +275,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             }
 
             Stmt::Assignment { target, value } => {
-                if let Some(target_ptr) = self.compile_lvalue_addr(target) {
+                if let Some((target_ptr, target_type)) = self.compile_lvalue_addr(target) {
                     if let Some((val, val_type)) = self.compile_expr(value) {
-                        let final_val = if val_type == BrixType::Int {
+                        // Only cast Int→Float if the target expects Float
+                        let final_val = if target_type == BrixType::Float && val_type == BrixType::Int {
                             self.builder
                                 .build_signed_int_to_float(
                                     val.into_int_value(),
@@ -1273,6 +1290,14 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         let ptr = self.compile_read_csv(args)?;
                         return Some((ptr, BrixType::Matrix));
                     }
+                    if fn_name == "zeros" {
+                        let val = self.compile_zeros(args)?;
+                        return Some((val, BrixType::Matrix));
+                    }
+                    if fn_name == "izeros" {
+                        let val = self.compile_izeros(args)?;
+                        return Some((val, BrixType::IntMatrix));
+                    }
                 }
                 eprintln!("Error: Unknown function: {:?}", func);
                 None
@@ -1574,6 +1599,24 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 None
             }
 
+            Expr::StaticInit {
+                element_type,
+                dimensions,
+            } => {
+                // Static initialization: int[5], float[2,3]
+                // This is syntactic sugar for zeros() and izeros()
+                if element_type == "int" {
+                    let val = self.compile_izeros(dimensions)?;
+                    Some((val, BrixType::IntMatrix))
+                } else if element_type == "float" {
+                    let val = self.compile_zeros(dimensions)?;
+                    Some((val, BrixType::Matrix))
+                } else {
+                    eprintln!("Error: StaticInit only supports 'int' and 'float' types.");
+                    None
+                }
+            }
+
             Expr::Ternary {
                 condition,
                 then_expr,
@@ -1685,7 +1728,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
             Expr::Increment { expr, is_prefix } => {
                 // Get the address of the l-value
-                let var_ptr = self.compile_lvalue_addr(expr)?;
+                let (var_ptr, _) = self.compile_lvalue_addr(expr)?;
 
                 // Load current value
                 let current_val = self
@@ -1716,7 +1759,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
             Expr::Decrement { expr, is_prefix } => {
                 // Get the address of the l-value
-                let var_ptr = self.compile_lvalue_addr(expr)?;
+                let (var_ptr, _) = self.compile_lvalue_addr(expr)?;
 
                 // Load current value
                 let current_val = self
@@ -2231,6 +2274,72 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 &[rows_val.into(), cols_val.into()],
                 "alloc_matrix",
             )
+            .unwrap();
+
+        Some(call.try_as_basic_value().left().unwrap())
+    }
+
+    fn compile_zeros(&self, args: &[Expr]) -> Option<BasicValueEnum<'ctx>> {
+        // zeros(n) → 1D array of n floats
+        // zeros(r, c) → 2D matrix of r×c floats
+        let i64_type = self.context.i64_type();
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let fn_type = ptr_type.fn_type(&[i64_type.into(), i64_type.into()], false);
+
+        let matrix_new_fn = self.module.get_function("matrix_new").unwrap_or_else(|| {
+            self.module.add_function("matrix_new", fn_type, Some(Linkage::External))
+        });
+
+        let (rows_val, cols_val) = if args.len() == 1 {
+            // 1D: zeros(n) → matrix(1, n)
+            let (n_val, _) = self.compile_expr(&args[0])?;
+            (i64_type.const_int(1, false), n_val.into_int_value())
+        } else if args.len() == 2 {
+            // 2D: zeros(r, c) → matrix(r, c)
+            let (r_val, _) = self.compile_expr(&args[0])?;
+            let (c_val, _) = self.compile_expr(&args[1])?;
+            (r_val.into_int_value(), c_val.into_int_value())
+        } else {
+            eprintln!("Error: zeros() expects 1 or 2 arguments.");
+            return None;
+        };
+
+        let call = self
+            .builder
+            .build_call(matrix_new_fn, &[rows_val.into(), cols_val.into()], "zeros_matrix")
+            .unwrap();
+
+        Some(call.try_as_basic_value().left().unwrap())
+    }
+
+    fn compile_izeros(&self, args: &[Expr]) -> Option<BasicValueEnum<'ctx>> {
+        // izeros(n) → 1D array of n integers
+        // izeros(r, c) → 2D matrix of r×c integers
+        let i64_type = self.context.i64_type();
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let fn_type = ptr_type.fn_type(&[i64_type.into(), i64_type.into()], false);
+
+        let intmatrix_new_fn = self.module.get_function("intmatrix_new").unwrap_or_else(|| {
+            self.module.add_function("intmatrix_new", fn_type, Some(Linkage::External))
+        });
+
+        let (rows_val, cols_val) = if args.len() == 1 {
+            // 1D: izeros(n) → intmatrix(1, n)
+            let (n_val, _) = self.compile_expr(&args[0])?;
+            (i64_type.const_int(1, false), n_val.into_int_value())
+        } else if args.len() == 2 {
+            // 2D: izeros(r, c) → intmatrix(r, c)
+            let (r_val, _) = self.compile_expr(&args[0])?;
+            let (c_val, _) = self.compile_expr(&args[1])?;
+            (r_val.into_int_value(), c_val.into_int_value())
+        } else {
+            eprintln!("Error: izeros() expects 1 or 2 arguments.");
+            return None;
+        };
+
+        let call = self
+            .builder
+            .build_call(intmatrix_new_fn, &[rows_val.into(), cols_val.into()], "izeros_intmatrix")
             .unwrap();
 
         Some(call.try_as_basic_value().left().unwrap())

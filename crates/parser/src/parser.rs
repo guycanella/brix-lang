@@ -322,8 +322,23 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
             .clone()
             .delimited_by(just(Token::LParen), just(Token::RParen)));
 
-        let call = atom
-            .clone()
+        // Static initialization: int[5], float[2,3]
+        // Must be tried BEFORE atom to avoid "int"/"float" being parsed as identifiers
+        let static_init = select! { Token::Identifier(s) if s == "int" || s == "float" => s }
+            .then(
+                expr.clone()
+                    .separated_by(just(Token::Comma))
+                    .at_least(1)
+                    .at_most(2)
+                    .delimited_by(just(Token::LBracket), just(Token::RBracket))
+            )
+            .map(|(element_type, dimensions)| Expr::StaticInit {
+                element_type,
+                dimensions,
+            });
+
+        let call = static_init
+            .or(atom.clone())
             .then(
                 expr.clone()
                     .separated_by(just(Token::Comma))
