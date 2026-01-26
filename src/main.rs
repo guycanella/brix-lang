@@ -105,6 +105,7 @@ fn main() {
     let link_output = Command::new("cc")
         .arg("output.o")
         .arg("runtime.o")
+        .arg("-lm")  // Link math library
         .arg("-o")
         .arg(exe_name)
         .output()

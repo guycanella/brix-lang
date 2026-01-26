@@ -365,7 +365,7 @@ var lista := Node { val: 10, next: Node { val: 20, next: nil } }
 
 ## 10. Status do Desenvolvimento (Atualizado - Jan 2026)
 
-### 📊 Progresso Geral: v0.6 Completo (70% MVP Completo)
+### 📊 Progresso Geral: v0.7 Completo (80% MVP Completo)
 
 ---
 
@@ -1134,9 +1134,9 @@ v0.3 ████████████████████ 100% ✅ Matri
 v0.4 ████████████████████ 100% ✅ Operadores avançados, string interpolation
 v0.5 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Funções de usuário, return
 v0.6 ████████████████████ 100% ✅ IntMatrix type system, format specifiers
-v0.7 ░░░░░░░░░░░░░░░░░░░░   0% 🎯 Import system, math library (C bindings)
-v0.8 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Complex numbers, multi-file support
-v0.9 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Functions, structs, pattern matching
+v0.7 ████████████████████ 100% ✅ Import system, math library (36 functions)
+v0.8 ░░░░░░░░░░░░░░░░░░░░   0% 🎯 User functions, multi-file support
+v0.9 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Complex numbers, structs, pattern matching
 v1.0 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Standard Library completa
 ```
 
@@ -1259,7 +1259,7 @@ users.filter { u ->
 
 ## 14. Sumário de Progresso e Próximos Passos
 
-### ✅ O que já temos (v0.6 COMPLETO):
+### ✅ O que já temos (v0.7 COMPLETO):
 
 1. **Compilador funcional completo:** Lexer → Parser → Codegen → Binário nativo
 2. **Sistema de tipos robusto:** 7 tipos primitivos (int, float, string, matrix, intmatrix, floatptr, void) com casting automático inteligente
@@ -1278,8 +1278,10 @@ users.filter { u ->
 15. **typeof():** Introspecção de tipos em compile-time
 16. **print() e println():** Output simplificado com conversão automática de tipos
 17. **Funções de conversão:** `int()`, `float()`, `string()`, `bool()` para conversão explícita entre tipos
+18. **Import system:** `import math`, `import math as m` ✅ **NOVO v0.7**
+19. **Math library:** 36 funções matemáticas (trig, stats, linalg) + 6 constantes ✅ **NOVO v0.7**
 
-### 🎯 Próximo Passo: v0.7 - Sistema de Imports e Biblioteca Matemática
+### 🎯 Próximo Passo: v0.8 - User Functions
 
 **Decisão Arquitetural Aprovada:**
 
@@ -1333,13 +1335,13 @@ math.sum(arr), math.mean(arr), math.median(arr), math.std(arr)
 
 ### 📊 Estatísticas do Projeto:
 
-- **Linhas de Código (Rust):** ~3700 linhas
-- **Linhas de Código (C Runtime):** ~125 linhas
-- **Arquivos de Teste (.bx):** 15 (types, for, logic, chain, string, arrays, csv, bitwise, ternary, negation, increment, fstring, print, conversion, format)
-- **Features Implementadas:** ~55 (v0.6 completo)
+- **Linhas de Código (Rust):** ~4000 linhas
+- **Linhas de Código (C Runtime):** ~400 linhas
+- **Arquivos de Teste (.bx):** 20 (core features + math library tests)
+- **Features Implementadas:** ~60 (v0.7 completo)
 - **Features Planejadas:** ~120+
-- **Versão Atual:** v0.6 (70% MVP)
-- **Progresso MVP:** 62%
+- **Versão Atual:** v0.7 (80% MVP)
+- **Progresso MVP:** 80%
 - **Versão Atual:** v0.4+ (Operadores Avançados + Type System) ✅ COMPLETO
 
 ---

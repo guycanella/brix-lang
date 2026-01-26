@@ -146,6 +146,11 @@ pub enum Stmt {
         body: Box<Stmt>,
     },
 
+    Import {
+        module: String,
+        alias: Option<String>,
+    },
+
     Printf {
         format: String,
         args: Vec<Expr>,
