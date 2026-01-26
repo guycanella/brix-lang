@@ -659,7 +659,27 @@ println(f"{pi:g}")     // 3.14159 (compact)
 
 ### 🧮 **v0.7 - Sistema de Imports e Biblioteca Matemática**
 
+**Status:** 🎯 PRÓXIMO PASSO - Planejamento completo, pronto para implementação (26/01/2026)
+
 **Motivação:** Brix é voltado para Engenharia, Física e Ciência de Dados. Precisamos de um sistema de módulos limpo e funções matemáticas performáticas que não reinventem a roda.
+
+**📋 Decisões Finais (25/01/2026):**
+
+**Implementar em v0.7:**
+- ✅ Import com namespace: `import math`
+- ✅ Import com alias: `import math as m`
+- ✅ 21 funções math.h (trig, exp, log, round, utils)
+- ✅ 5 funções estatísticas (sum, mean, median, std, var)
+- ✅ 3 funções álgebra linear (det, inv, tr)
+- ✅ 6 constantes matemáticas (pi, e, tau, phi, sqrt2, ln2)
+- ✅ Total: 29 funções + 6 constantes = 35 itens no namespace math
+
+**Adiado para versões futuras:**
+- ⏳ `eigvals(A)` / `eigvecs(A)` → v0.8+ (requer tipo BrixType::Complex para autovalores complexos)
+- ⏳ Constantes físicas (c_light, h_planck, G_grav, etc.) → v0.8+ (quando tivermos sistema de unidades)
+- ⏳ Selective imports: `from math import sin, cos` → v0.7.1+
+
+---
 
 #### Decisão Arquitetural: Zero-Overhead C Bindings
 
@@ -769,18 +789,23 @@ stdlib/math/
 └── stats.c       // mean, median, std, variance
 ```
 
-#### Funções Matemáticas Disponíveis
+#### Funções Matemáticas (v0.7)
 
-**Trigonométricas (via math.h):**
+**Trigonométricas (7 funções via math.h):**
 ```brix
 import math
 math.sin(x), math.cos(x), math.tan(x)       // Funções trigonométricas
 math.asin(x), math.acos(x), math.atan(x)    // Inversas trigonométricas
 math.atan2(y, x)                             // Arco tangente de y/x (4 quadrantes)
+```
+
+**Hiperbólicas (3 funções via math.h):**
+```brix
+import math
 math.sinh(x), math.cosh(x), math.tanh(x)    // Hiperbólicas
 ```
 
-**Exponenciais e Logaritmos (via math.h):**
+**Exponenciais e Logaritmos (4 funções via math.h):**
 ```brix
 import math
 math.exp(x)      // e^x
@@ -789,51 +814,44 @@ math.log10(x)    // Logaritmo base 10
 math.log2(x)     // Logaritmo base 2
 ```
 
-**Raízes e Potências (via math.h):**
+**Raízes (2 funções via math.h):**
 ```brix
 import math
 math.sqrt(x)     // Raiz quadrada
 math.cbrt(x)     // Raiz cúbica
-math.pow(x, y)   // x elevado a y (alternativa ao operador **)
+// Nota: pow(x, y) NÃO será implementado - use operador ** já existente
 ```
 
-**Arredondamento (via math.h):**
+**Arredondamento (3 funções via math.h):**
 ```brix
 import math
 math.floor(x)    // Arredonda para baixo
 math.ceil(x)     // Arredonda para cima
 math.round(x)    // Arredonda para o inteiro mais próximo
-math.trunc(x)    // Trunca parte decimal
 ```
 
-**Valor Absoluto (via math.h):**
+**Utilidades (5 funções via math.h):**
 ```brix
 import math
-math.abs(x)      // Valor absoluto (int ou float)
-math.fabs(x)     // Valor absoluto float (equivalente)
+math.abs(x)       // Valor absoluto (int ou float)
+math.fmod(x, y)   // Módulo float (diferente de %)
+math.hypot(x, y)  // sqrt(x² + y²) otimizado
+math.min(a, b)    // Mínimo de dois valores
+math.max(a, b)    // Máximo de dois valores
 ```
 
-**Álgebra Linear (via BLAS/LAPACK):**
+**Constantes Matemáticas (6 constantes):**
 ```brix
 import math
-
-// Operações de matriz
-math.det(A)       // Determinante (LAPACK dgetrf + diagonal product)
-math.tr(A)        // Traço (soma da diagonal)
-math.inv(A)       // Inversa de matriz (LAPACK dgetri)
-math.transpose(A) // Transposta
-
-// Autovalores e autovetores
-math.eigvals(A)   // Autovalores (LAPACK dgeev)
-math.eigvecs(A)   // Autovetores (LAPACK dgeev)
-
-// Decomposições
-math.lu(A)        // Decomposição LU
-math.qr(A)        // Decomposição QR
-math.svd(A)       // Singular Value Decomposition
+math.pi     // 3.14159265358979323846...
+math.e      // 2.71828182845904523536...
+math.tau    // 6.28318530717958647692... (2π)
+math.phi    // 1.61803398874989484820... (golden ratio)
+math.sqrt2  // 1.41421356237309504880...
+math.ln2    // 0.69314718055994530942...
 ```
 
-**Estatística (implementação custom ou GSL):**
+**Estatística (5 funções - implementação custom):**
 ```brix
 import math
 math.sum(arr)     // Soma de elementos
@@ -841,9 +859,65 @@ math.mean(arr)    // Média aritmética
 math.median(arr)  // Mediana
 math.std(arr)     // Desvio padrão
 math.var(arr)     // Variância
-math.min(a, b, ...)  // Mínimo de N valores
-math.max(a, b, ...)  // Máximo de N valores
 ```
+
+**Álgebra Linear (3 funções via LAPACK):**
+```brix
+import math
+math.det(A)       // Determinante (via LAPACK dgetrf)
+math.inv(A)       // Inversa de matriz (via LAPACK dgetri)
+math.tr(A)        // Transposta (implementação custom em C)
+```
+
+**Total v0.7: 29 funções + 6 constantes = 35 itens**
+
+---
+
+#### ⏳ Adiado para v0.8+ (Requer Complex Number Support)
+
+As seguintes funções foram **ADIADAS** porque autovalores podem ser números complexos:
+
+```brix
+// ADIADO - Requer BrixType::Complex
+math.eigvals(A)   // Autovalores (LAPACK dgeev retorna complex)
+math.eigvecs(A)   // Autovetores (muito complexo + retorna struct)
+
+// ADIADO - Decomposições avançadas
+math.lu(A)        // Decomposição LU
+math.qr(A)        // Decomposição QR
+math.svd(A)       // Singular Value Decomposition
+```
+
+**Motivo do adiamento:**
+- LAPACK `dgeev` retorna autovalores em formato `wr[] + wi[]i` (real + imaginário)
+- Matrizes comuns (ex: rotação) têm autovalores complexos puros
+- Precisamos de `BrixType::Complex` implementado antes
+- Planejado para v0.8 junto com suporte a números complexos
+
+---
+
+#### ⏳ Adiado para Futuro (Constantes Físicas)
+
+Constantes físicas foram **ADIADAS** até termos sistema de unidades de medida:
+
+```brix
+// ADIADO - Aguardando sistema de unidades dimensional
+math.c_light      // Velocidade da luz (299792458 m/s)
+math.h_planck     // Constante de Planck (6.62607015e-34 J⋅s)
+math.G_grav       // Constante gravitacional (6.67430e-11 m³/(kg⋅s²))
+math.k_boltzmann  // Constante de Boltzmann (1.380649e-23 J/K)
+math.e_charge     // Carga elementar (1.602176634e-19 C)
+math.g_earth      // Aceleração gravitacional Terra (9.80665 m/s²)
+// ... outras constantes físicas
+```
+
+**Motivo do adiamento:**
+- Constantes físicas têm unidades (m/s, J⋅s, etc.)
+- Seria confuso ter valores sem unidades explícitas
+- Aguardando implementação de sistema de unidades dimensionais (v0.9+)
+- Quando tivermos: `var c: float<m/s> = physics.c_light`
+
+---
 
 #### Números Complexos (Planejado para v0.8+)
 

@@ -635,14 +635,37 @@ cargo run <test_file.bx>
 - ✅ Type conversion functions (int(), float(), string(), bool())
 - ✅ Runtime library (C) for matrix, intmatrix, and string operations
 
-### Next Up (v0.5):
+### 🎯 **PRÓXIMO PASSO: v0.7 - Import System + Math Library**
+
+**Status:** Planejamento completo, pronto para implementação
+
+**Decisões tomadas (25/01/2026):**
+- ✅ Import com namespace: `import math`
+- ✅ Import com alias: `import math as m`
+- ✅ 21 funções math.h (trig, exp, log, round, utils)
+- ✅ 5 funções estatísticas (sum, mean, median, std, var)
+- ✅ 3 funções álgebra linear (det, inv, tr)
+- ✅ 6 constantes matemáticas (pi, e, tau, phi, sqrt2, ln2)
+- ✅ Linking com `-lm -llapack -lblas`
+- ✅ Auto-conversão Int→Float em funções math
+
+**Adiado para versões futuras:**
+- ⏳ `eigvals/eigvecs` → v0.8+ (requer tipo Complex)
+- ⏳ Constantes físicas (c, h, G, etc.) → v0.8+ (quando tivermos sistema de unidades)
+- ⏳ Selective imports (`from math import sin, cos`) → v0.7.1+
+
+**Total a implementar:** 29 funções + 6 constantes = 35 itens no namespace `math.*`
+
+---
+
+### Planned for v0.5 (Functions):
 
 - [ ] Functions (definition, calls, return values)
 - [ ] Multiple return values (Go-style)
 - [ ] Pattern matching (`when` syntax)
 - [ ] List comprehensions
 
-### Planned for v0.7 (Import System & Math Library):
+### Planned for v0.7 (Import System & Math Library) - DETALHAMENTO:
 
 #### **Import System**
 
@@ -675,28 +698,31 @@ var y := sin(3.14)
 
 Standard library for mathematical operations, implemented as direct bindings to battle-tested C libraries:
 
-**Basic Math Functions** (via C math.h):
+**Basic Math Functions (21 funções via C math.h):**
 ```brix
 import math
-math.sin(x), math.cos(x), math.tan(x)       // Trigonometry
-math.asin(x), math.acos(x), math.atan(x)    // Inverse trig
-math.exp(x), math.log(x), math.log10(x)     // Exponentials
-math.sqrt(x), math.pow(x, y)                 // Power functions
-math.floor(x), math.ceil(x), math.round(x)  // Rounding
-math.abs(x), math.min(a, b), math.max(a, b) // Utilities
+
+// Trigonometry
+math.sin(x), math.cos(x), math.tan(x)
+math.asin(x), math.acos(x), math.atan(x), math.atan2(y, x)
+
+// Hyperbolic
+math.sinh(x), math.cosh(x), math.tanh(x)
+
+// Exponentials & Logarithms
+math.exp(x), math.log(x), math.log10(x), math.log2(x)
+
+// Roots
+math.sqrt(x), math.cbrt(x)
+
+// Rounding
+math.floor(x), math.ceil(x), math.round(x)
+
+// Utilities
+math.abs(x), math.fmod(x, y), math.hypot(x, y), math.min(a, b), math.max(a, b)
 ```
 
-**Linear Algebra** (via BLAS/LAPACK):
-```brix
-import math
-math.det(A)       // Determinant (LAPACK dgetrf)
-math.tr(A)        // Trace
-math.inv(A)       // Matrix inverse (LAPACK dgetri)
-math.eigvals(A)   // Eigenvalues (LAPACK dgeev)
-math.eigvecs(A)   // Eigenvectors
-```
-
-**Statistics** (custom implementations):
+**Statistics (5 funções - custom implementations):**
 ```brix
 import math
 math.sum(arr)     // Sum of array elements
@@ -704,6 +730,38 @@ math.mean(arr)    // Average
 math.median(arr)  // Median
 math.std(arr)     // Standard deviation
 math.var(arr)     // Variance
+```
+
+**Linear Algebra (3 funções via LAPACK):**
+```brix
+import math
+math.det(A)       // Determinant (via LAPACK dgetrf)
+math.inv(A)       // Matrix inverse (via LAPACK dgetri)
+math.tr(A)        // Transpose (custom implementation)
+```
+
+**Mathematical Constants (6 constantes):**
+```brix
+import math
+math.pi     // 3.14159265358979323846...
+math.e      // 2.71828182845904523536...
+math.tau    // 6.28318530717958647692... (2π)
+math.phi    // 1.61803398874989484820... (golden ratio)
+math.sqrt2  // 1.41421356237309504880...
+math.ln2    // 0.69314718055994530942...
+```
+
+**⏳ Adiado para v0.8+ (requer tipo Complex):**
+```brix
+// Estas funções retornam valores complexos e precisam de BrixType::Complex
+math.eigvals(A)   // Eigenvalues - ADIADO
+math.eigvecs(A)   // Eigenvectors - ADIADO
+```
+
+**⏳ Adiado para futuro (constantes físicas):**
+```brix
+// Constantes físicas serão adicionadas quando tivermos sistema de unidades
+math.c_light, math.h_planck, math.G_grav, etc. - ADIADO
 ```
 
 **Performance Characteristics:**
