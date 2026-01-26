@@ -394,3 +394,72 @@ Matrix *brix_inv(Matrix *m) {
   free(aug);
   return result;
 }
+
+// ==========================================
+// SECTION 7: ZIP FUNCTIONS (v0.9)
+// ==========================================
+
+// zip for IntMatrix x IntMatrix → IntMatrix(min_len, 2)
+IntMatrix *brix_zip_ii(IntMatrix *arr1, IntMatrix *arr2) {
+  // Arrays 1D são armazenados como (1, n), então use cols se rows==1
+  long len1 = (arr1->rows == 1) ? arr1->cols : arr1->rows;
+  long len2 = (arr2->rows == 1) ? arr2->cols : arr2->rows;
+  long min_len = len1 < len2 ? len1 : len2;
+
+  IntMatrix *result = intmatrix_new(min_len, 2);
+
+  for (long i = 0; i < min_len; i++) {
+    result->data[i * 2 + 0] = arr1->data[i];  // First element
+    result->data[i * 2 + 1] = arr2->data[i];  // Second element
+  }
+
+  return result;
+}
+
+// zip for IntMatrix x Matrix → Matrix(min_len, 2)
+Matrix *brix_zip_if(IntMatrix *arr1, Matrix *arr2) {
+  long len1 = (arr1->rows == 1) ? arr1->cols : arr1->rows;
+  long len2 = (arr2->rows == 1) ? arr2->cols : arr2->rows;
+  long min_len = len1 < len2 ? len1 : len2;
+
+  Matrix *result = matrix_new(min_len, 2);
+
+  for (long i = 0; i < min_len; i++) {
+    result->data[i * 2 + 0] = (double)arr1->data[i];  // Convert int to double
+    result->data[i * 2 + 1] = arr2->data[i];
+  }
+
+  return result;
+}
+
+// zip for Matrix x IntMatrix → Matrix(min_len, 2)
+Matrix *brix_zip_fi(Matrix *arr1, IntMatrix *arr2) {
+  long len1 = (arr1->rows == 1) ? arr1->cols : arr1->rows;
+  long len2 = (arr2->rows == 1) ? arr2->cols : arr2->rows;
+  long min_len = len1 < len2 ? len1 : len2;
+
+  Matrix *result = matrix_new(min_len, 2);
+
+  for (long i = 0; i < min_len; i++) {
+    result->data[i * 2 + 0] = arr1->data[i];
+    result->data[i * 2 + 1] = (double)arr2->data[i];  // Convert int to double
+  }
+
+  return result;
+}
+
+// zip for Matrix x Matrix → Matrix(min_len, 2)
+Matrix *brix_zip_ff(Matrix *arr1, Matrix *arr2) {
+  long len1 = (arr1->rows == 1) ? arr1->cols : arr1->rows;
+  long len2 = (arr2->rows == 1) ? arr2->cols : arr2->rows;
+  long min_len = len1 < len2 ? len1 : len2;
+
+  Matrix *result = matrix_new(min_len, 2);
+
+  for (long i = 0; i < min_len; i++) {
+    result->data[i * 2 + 0] = arr1->data[i];
+    result->data[i * 2 + 1] = arr2->data[i];
+  }
+
+  return result;
+}

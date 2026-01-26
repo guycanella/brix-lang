@@ -107,10 +107,22 @@ pub enum Expr {
         step: Option<Box<Expr>>,
     },
 
+    ListComprehension {
+        expr: Box<Expr>,                    // Expression to evaluate
+        generators: Vec<ComprehensionGen>,  // for clauses
+    },
+
     StaticInit {
         element_type: String,  // "int" or "float"
         dimensions: Vec<Expr>, // [n] for 1D, [r, c] for 2D
     },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ComprehensionGen {
+    pub var_names: Vec<String>,  // Variables (supports destructuring)
+    pub iterable: Box<Expr>,     // What to iterate over
+    pub conditions: Vec<Expr>,   // if clauses (multiple allowed)
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -147,7 +159,7 @@ pub enum Stmt {
     },
 
     For {
-        var_name: String,
+        var_names: Vec<String>,  // Support multiple variables: for x, y in ...
         iterable: Expr,
         body: Box<Stmt>,
     },

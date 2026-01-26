@@ -224,12 +224,16 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
                 body: Box::new(b),
             });
         let for_stmt = just(Token::For)
-            .ignore_then(select! { Token::Identifier(n) => n })
+            .ignore_then(
+                select! { Token::Identifier(n) => n }
+                    .separated_by(just(Token::Comma))
+                    .at_least(1)
+            )
             .then_ignore(just(Token::In))
             .then(expr_parser())
             .then(block.clone())
-            .map(|((n, i), b)| Stmt::For {
-                var_name: n,
+            .map(|((names, i), b)| Stmt::For {
+                var_names: names,
                 iterable: i,
                 body: Box::new(b),
             });
@@ -405,6 +409,41 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
             Ok::<Expr, Simple<Token>>(Expr::FString { parts })
         });
 
+        // List comprehension: [expr for var in iterable if cond]
+        let list_comp = just(Token::LBracket)
+            .ignore_then(expr.clone())
+            .then(
+                // Generator: for var1, var2 in iterable if cond1 if cond2
+                just(Token::For)
+                    .ignore_then(
+                        select! { Token::Identifier(n) => n }
+                            .separated_by(just(Token::Comma))
+                            .at_least(1)
+                    )
+                    .then_ignore(just(Token::In))
+                    .then(expr.clone())
+                    .then(
+                        just(Token::If)
+                            .ignore_then(expr.clone())
+                            .repeated()
+                    )
+                    .map(|((var_names, iterable), conditions)| {
+                        use crate::ast::ComprehensionGen;
+                        ComprehensionGen {
+                            var_names,
+                            iterable: Box::new(iterable),
+                            conditions,
+                        }
+                    })
+                    .repeated()
+                    .at_least(1)
+            )
+            .then_ignore(just(Token::RBracket))
+            .map(|(expr, generators)| Expr::ListComprehension {
+                expr: Box::new(expr),
+                generators,
+            });
+
         let array_literal = expr
             .clone()
             .separated_by(just(Token::Comma))
@@ -412,7 +451,7 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
             .delimited_by(just(Token::LBracket), just(Token::RBracket))
             .map(Expr::Array);
 
-        let atom = val.or(fstring).or(array_literal).or(expr
+        let atom = val.or(fstring).or(list_comp).or(array_literal).or(expr
             .clone()
             .delimited_by(just(Token::LParen), just(Token::RParen)));
 
