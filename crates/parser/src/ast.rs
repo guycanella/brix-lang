@@ -122,6 +122,12 @@ pub enum Stmt {
         is_const: bool,
     },
 
+    DestructuringDecl {
+        names: Vec<String>,  // Variable names to destructure into
+        value: Expr,         // Expression that returns a tuple
+        is_const: bool,      // var or const
+    },
+
     Assignment {
         target: Expr,
         value: Expr,
@@ -162,6 +168,17 @@ pub enum Stmt {
 
     Println {
         expr: Expr,
+    },
+
+    FunctionDef {
+        name: String,
+        params: Vec<(String, String, Option<Expr>)>,  // (param_name, type, default_value)
+        return_type: Option<Vec<String>>,  // None = void, Some(vec!["int"]) = single, Some(vec!["int", "float"]) = multiple
+        body: Box<Stmt>,
+    },
+
+    Return {
+        values: Vec<Expr>,  // Empty for void, 1+ for returns
     },
 
     Expr(Expr),

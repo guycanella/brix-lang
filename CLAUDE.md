@@ -106,6 +106,7 @@ pub enum BrixType {
     IntMatrix, // IntMatrix struct (in runtime.c) - i64* data
     FloatPtr,  // f64* (internal pointer type)
     Void,      // for functions with no return
+    Tuple(Vec<BrixType>),  // Multiple return values (LLVM struct)
 }
 ```
 
@@ -177,6 +178,92 @@ Loops are Julia-style with inclusive ranges.
 var nums := [1, 2, 3, 4, 5]
 var x := nums[0]           // Index access
 ```
+
+### Functions (v0.8 - Jan 2026)
+
+Brix supports user-defined functions with single and multiple return values, destructuring, and default parameters.
+
+#### Basic Function Definition
+
+```brix
+function add(a: int, b: int) -> int {
+    return a + b
+}
+
+var result := add(5, 3)  // 8
+```
+
+#### Void Functions
+
+Functions without a return type are void and don't need explicit return statements:
+
+```brix
+function greet(name: string) {
+    println(f"Hello, {name}!")
+}
+
+greet("Alice")  // Prints: Hello, Alice!
+```
+
+#### Multiple Return Values
+
+Functions can return multiple values as tuples:
+
+```brix
+function calculations(a: int, b: int) -> (int, int, int) {
+    return (a + b, a - b, a * b)
+}
+
+// Access via indexing
+var result := calculations(10, 5)
+println(f"sum = {result[0]}")       // 15
+println(f"diff = {result[1]}")      // 5
+println(f"product = {result[2]}")   // 50
+```
+
+#### Destructuring
+
+Destructure multiple return values into separate variables using `{}`:
+
+```brix
+var { sum, diff, product } := calculations(10, 5)
+println(f"sum = {sum}")       // 15
+println(f"diff = {diff}")     // 5
+println(f"product = {product}") // 50
+
+// Ignore values with _
+var { quotient, _ } := divmod(17, 5)  // Ignore remainder
+```
+
+#### Default Parameter Values
+
+Parameters can have default values, allowing calls with fewer arguments:
+
+```brix
+function power(base: float, exp: float = 2.0) -> float {
+    return base ** exp
+}
+
+println(f"power(5.0) = {power(5.0)}")           // 25 (uses default exp=2.0)
+println(f"power(5.0, 3.0) = {power(5.0, 3.0)}") // 125
+
+function greet(name: string, greeting: string = "Hello") {
+    println(f"{greeting}, {name}!")
+}
+
+greet("Alice")          // Hello, Alice!
+greet("Bob", "Hi")     // Hi, Bob!
+```
+
+**Design decisions:**
+- Keyword: `function` (not `fn`)
+- Return type: Required for non-void functions
+- Single return: Parentheses optional in return statement (`return x` or `return (x)`)
+- Multiple returns: Parentheses required (`return (a, b, c)`)
+- Tuple access: Array-style indexing (`result[0]`, `result[1]`)
+- Destructuring: Uses `{}` with `:=` operator
+- Ignore values: Use `_` in destructuring
+- Default values: Evaluated at call site, filled in order from left to right
 
 ## Arrays and Matrices: Design Decisions (Jan 2026)
 
@@ -606,6 +693,14 @@ Test files are `.bx` files in the root directory. Common test files include:
 - `stats_linalg_test.bx`: Statistics and linear algebra functions
 - `eye_test.bx`: Identity matrix creation and verification
 
+**Functions (v0.8):**
+- `function_test.bx`: Basic function definition and calls
+- `void_test.bx`: Void functions without return values
+- `multiple_return_test.bx`: Multiple return values with tuple indexing
+- `destructuring_test.bx`: Destructuring tuples into variables
+- `destructuring_ignore_test.bx`: Destructuring with `_` to ignore values
+- `default_values_test.bx`: Default parameter values
+
 Run tests individually:
 
 ```bash
@@ -614,9 +709,9 @@ cargo run <test_file.bx>
 
 **Note:** The compiler generates intermediate files (`runtime.o`, `output.o`) and an executable `program` in the project root during compilation.
 
-## Project Status (v0.7 - Jan 2026)
+## Project Status (v0.8 - Jan 2026)
 
-### Progress: 80% MVP Complete
+### Progress: 85% MVP Complete
 
 **Completed:**
 
@@ -644,6 +739,12 @@ cargo run <test_file.bx>
 - ✅ Runtime library (C) for matrix, intmatrix, and string operations
 - ✅ **Import system** (`import math`, `import math as m`)
 - ✅ **Math library** (36 functions + constants - see below)
+- ✅ **User-defined functions** (v0.8):
+  - Function definitions with `function` keyword
+  - Single and multiple return values (tuples)
+  - Destructuring with `{}`
+  - Default parameter values
+  - Void functions
 
 ### ✅ **v0.7 - Import System + Math Library (COMPLETO - 26/01/2026)**
 
@@ -717,20 +818,71 @@ var z := m.cos(0.0)                // 1.0
 
 ---
 
-### 🎯 **PRÓXIMO PASSO: v0.8 - Functions**
+### ✅ **v0.8 - User-Defined Functions (COMPLETO - 26/01/2026)**
 
-- [ ] Functions (definition, calls, return values)
-- [ ] Multiple return values (Go-style)
-- [ ] Pattern matching (`when` syntax)
-- [ ] List comprehensions
+**Funcionalidades implementadas:**
+
+1. **Definição de funções básicas:**
+   - Keyword `function` para definir funções
+   - Parâmetros tipados obrigatórios
+   - Tipo de retorno obrigatório (exceto void)
+   - Exemplo: `function add(a: int, b: int) -> int { return a + b }`
+
+2. **Funções void:**
+   - Funções sem tipo de retorno
+   - Return statement opcional
+   - Exemplo: `function greet(name: string) { println(f"Hello, {name}!") }`
+
+3. **Múltiplos retornos (tuples):**
+   - Retornar múltiplos valores como tupla
+   - Sintaxe: `-> (int, int, int)`
+   - Return com parênteses: `return (a, b, c)`
+   - Acesso por índice: `result[0]`, `result[1]`, `result[2]`
+   - Exemplo: `function calculations(a: int, b: int) -> (int, int, int)`
+
+4. **Destructuring:**
+   - Desempacotamento de tuplas em variáveis separadas
+   - Sintaxe: `var { a, b, c } := func()`
+   - Suporta `_` para ignorar valores
+   - Exemplo: `var { sum, _, product } := calculations(10, 5)`
+
+5. **Default parameter values:**
+   - Parâmetros com valores padrão
+   - Sintaxe: `param: type = default_value`
+   - Avaliados no call site
+   - Exemplo: `function power(base: float, exp: float = 2.0) -> float`
+   - Chamada: `power(5.0)` usa exp=2.0, `power(5.0, 3.0)` usa exp=3.0
+
+**Implementação técnica:**
+- AST: `FunctionDef`, `Return`, `DestructuringDecl`
+- Tuples implementadas como LLVM structs
+- Function registry com metadata de parâmetros
+- Default values expandidos no call site durante compilação
+- Suporte completo a type inference para tuples
+
+**Testes:**
+- `function_test.bx` - Funções básicas ✅
+- `void_test.bx` - Funções void ✅
+- `multiple_return_test.bx` - Múltiplos retornos ✅
+- `destructuring_test.bx` - Destructuring básico ✅
+- `destructuring_ignore_test.bx` - Destructuring com `_` ✅
+- `default_values_test.bx` - Default parameters ✅
 
 ---
 
-## Current Limitations (v0.7)
+### 🎯 **PRÓXIMO PASSO: v0.9 - Pattern Matching & Advanced Features**
 
-- **No generics**: Only concrete types (int, float, string, matrix)
-- **Single-file compilation**: Multi-file imports not yet implemented (user modules coming in v0.8+)
-- **No user-defined functions**: Function definitions coming in v0.8
+- [ ] Pattern matching (`when` syntax)
+- [ ] List comprehensions
+- [ ] Closures and lambda functions
+- [ ] First-class functions
+
+---
+
+## Current Limitations (v0.8)
+
+- **No generics**: Only concrete types (int, float, string, matrix, tuple)
+- **Single-file compilation**: Multi-file imports not yet implemented (user modules coming in v0.9+)
 - **No optimizations**: LLVM runs with `OptimizationLevel::None`
 - **No pattern matching**: `when` syntax not yet implemented
 - **No closures**: Functions are not first-class
@@ -753,9 +905,10 @@ var z := m.cos(0.0)                // 1.0
 
 ### Implementation Phases
 
+- ✅ v0.6: IntMatrix type, zeros/izeros, static initialization
 - ✅ v0.7: Import system, math library (36 functions + constants)
-- v0.8: Functions (definition, calls, return values), user-defined modules
-- v0.9: Pattern matching, closures, complex numbers
+- ✅ v0.8: User-defined functions (single/multiple returns, destructuring, default values)
+- v0.9: Pattern matching, closures, complex numbers, user-defined modules
 - v1.0: Generics, concurrency primitives
 - v1.2: Full standard library with data structures (Stack, Queue, HashMap, Heap)
 

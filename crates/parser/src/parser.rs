@@ -131,6 +131,24 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
                 },
             );
 
+        // Destructuring declaration: var { a, b, c } := expr
+        let destructuring_decl = just(Token::Var)
+            .to(false)
+            .or(just(Token::Const).to(true))
+            .then(
+                select! { Token::Identifier(name) => name }
+                    .separated_by(just(Token::Comma))
+                    .allow_trailing()
+                    .delimited_by(just(Token::LBrace), just(Token::RBrace))
+            )
+            .then_ignore(just(Token::ColonEq))
+            .then(expr_parser())
+            .map(|((is_const, names), value)| Stmt::DestructuringDecl {
+                names,
+                value,
+                is_const,
+            });
+
         let lvalue = select! { Token::Identifier(name) => Expr::Identifier(name) }
             .then(
                 expr_parser()
@@ -258,9 +276,72 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
             )
             .map(|expr| Stmt::Println { expr });
 
+        // Function definition
+        let function_def = just(Token::Function)
+            .ignore_then(select! { Token::Identifier(name) => name })
+            .then(
+                // Parameters: (name: type, name: type = default)
+                select! { Token::Identifier(param_name) => param_name }
+                    .then_ignore(just(Token::Colon))
+                    .then(select! { Token::Identifier(param_type) => param_type })
+                    .then(
+                        just(Token::Eq)
+                            .ignore_then(expr_parser())
+                            .or_not()
+                    )
+                    .map(|((name, ty), default)| (name, ty, default))
+                    .separated_by(just(Token::Comma))
+                    .allow_trailing()
+                    .delimited_by(just(Token::LParen), just(Token::RParen))
+            )
+            .then(
+                // Return type: -> type or -> (type1, type2)
+                just(Token::Arrow)
+                    .ignore_then(
+                        select! { Token::Identifier(t) => vec![t] }
+                            .or(
+                                select! { Token::Identifier(t) => t }
+                                    .separated_by(just(Token::Comma))
+                                    .at_least(1)
+                                    .delimited_by(just(Token::LParen), just(Token::RParen))
+                            )
+                    )
+                    .or_not()  // Optional for void functions
+            )
+            .then(block.clone())
+            .map(|(((name, params), return_type), body)| Stmt::FunctionDef {
+                name,
+                params,
+                return_type,
+                body: Box::new(body),
+            });
+
+        // Return statement
+        // Supports: return, return x, return (x), return (x, y, z)
+        let return_stmt = just(Token::Return)
+            .ignore_then(
+                // Try parenthesized tuple first: (expr, expr, ...)
+                expr_parser()
+                    .separated_by(just(Token::Comma))
+                    .allow_trailing()
+                    .delimited_by(just(Token::LParen), just(Token::RParen))
+                // Or bare comma-separated expressions: expr, expr, ...
+                .or(
+                    expr_parser()
+                        .separated_by(just(Token::Comma))
+                        .allow_trailing()
+                )
+                .or_not()
+            )
+            .map(|values| Stmt::Return {
+                values: values.unwrap_or_default(),
+            });
+
         let expr_stmt = expr_parser().map(Stmt::Expr);
 
-        decl.or(assignment)
+        destructuring_decl
+            .or(decl)
+            .or(assignment)
             .or(if_stmt)
             .or(while_stmt)
             .or(for_stmt)
@@ -268,6 +349,8 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
             .or(printf_stmt)
             .or(print_stmt)
             .or(println_stmt)
+            .or(function_def)
+            .or(return_stmt)
             .or(block)
             .or(expr_stmt)
             .boxed()
