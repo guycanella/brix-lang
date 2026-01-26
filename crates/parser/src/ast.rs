@@ -106,6 +106,11 @@ pub enum Expr {
         end: Box<Expr>,
         step: Option<Box<Expr>>,
     },
+
+    StaticInit {
+        element_type: String,  // "int" or "float"
+        dimensions: Vec<Expr>, // [n] for 1D, [r, c] for 2D
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
