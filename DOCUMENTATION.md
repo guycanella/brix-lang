@@ -264,11 +264,109 @@ for i, val := range numbers { ... }
 
 ## 5. Funções e Tratamento de Erro
 
-### Retornos Múltiplos (Influência: Go)
+### ✅ User-Defined Functions (v0.8 - Implementado - 26/01/2026)
 
-Funções podem retornar múltiplos valores, facilitando o padrão "resultado, erro".
+Brix suporta funções definidas pelo usuário com sintaxe clara e funcionalidades modernas.
 
+#### Funções Básicas
+
+```brix
+function add(a: int, b: int) -> int {
+    return a + b
+}
+
+var result := add(5, 3)  // 8
 ```
+
+**Características:**
+- Keyword: `function` (não `fn`)
+- Parâmetros tipados obrigatórios
+- Tipo de retorno obrigatório para funções não-void
+
+#### Funções Void
+
+Funções sem retorno não precisam de tipo de retorno explícito:
+
+```brix
+function greet(name: string) {
+    println(f"Hello, {name}!")
+}
+
+greet("Alice")  // Hello, Alice!
+```
+
+#### Retornos Múltiplos (Implementado)
+
+Funções podem retornar múltiplos valores como tuples:
+
+```brix
+function calculations(a: int, b: int) -> (int, int, int) {
+    return (a + b, a - b, a * b)
+}
+
+// Acesso via indexing
+var result := calculations(10, 5)
+println(f"sum = {result[0]}")       // 15
+println(f"diff = {result[1]}")      // 5
+println(f"product = {result[2]}")   // 50
+```
+
+**Sintaxe:**
+- Tipo de retorno: `-> (type1, type2, type3)`
+- Return statement: `return (value1, value2, value3)` (parênteses obrigatórios)
+- Acesso: Array-style indexing `result[0]`, `result[1]`, etc.
+
+#### Destructuring
+
+Desempacotar múltiplos retornos em variáveis separadas:
+
+```brix
+var { sum, diff, product } := calculations(10, 5)
+println(f"sum = {sum}")       // 15
+println(f"diff = {diff}")     // 5
+println(f"product = {product}") // 50
+
+// Ignorar valores com _
+var { quotient, _ } := divmod(17, 5)  // Ignora remainder
+```
+
+**Sintaxe:**
+- Destructuring: `var { name1, name2, name3 } := func()`
+- Ignorar valores: Use `_` na posição desejada
+- Número de variáveis deve corresponder ao número de retornos (exceto `_`)
+
+#### Default Parameter Values
+
+Parâmetros podem ter valores padrão:
+
+```brix
+function power(base: float, exp: float = 2.0) -> float {
+    return base ** exp
+}
+
+println(power(5.0))          // 25.0 (usa exp=2.0 padrão)
+println(power(5.0, 3.0))     // 125.0 (sobrescreve exp)
+
+function greet(name: string, greeting: string = "Hello") {
+    println(f"{greeting}, {name}!")
+}
+
+greet("Alice")          // Hello, Alice!
+greet("Bob", "Hi")     // Hi, Bob!
+```
+
+**Características:**
+- Sintaxe: `param: type = default_value`
+- Default values são avaliados no call site
+- Parâmetros com defaults preenchidos da esquerda para direita
+- Erro de compilação se faltarem parâmetros obrigatórios
+
+### Tratamento de Erro (Planejado - v0.9+)
+
+Sistema de erro inspirado em Go será implementado em versões futuras:
+
+```brix
+// Planejado para v0.9+
 function divide(a: f64, b: f64) -> (f64, error) {
     if b == 0.0 {
         return 0.0, error("Divisão por zero")
@@ -276,7 +374,6 @@ function divide(a: f64, b: f64) -> (f64, error) {
     return a / b, nil
 }
 
-// Uso
 res, err := divide(10.0, 2.0)
 ```
 
@@ -365,7 +462,7 @@ var lista := Node { val: 10, next: Node { val: 20, next: nil } }
 
 ## 10. Status do Desenvolvimento (Atualizado - Jan 2026)
 
-### 📊 Progresso Geral: v0.7 Completo (80% MVP Completo)
+### 📊 Progresso Geral: v0.8 Completo (85% MVP Completo)
 
 ---
 
@@ -381,7 +478,7 @@ var lista := Node { val: 10, next: Node { val: 20, next: nil } }
 
 ### 2. Sistema de Tipos
 
-- ✅ **Tipos Primitivos:** `int` (i64), `float` (f64), `bool` (i1→i64), `string` (struct), `matrix` (struct f64*), `intmatrix` (struct i64*), `void`
+- ✅ **Tipos Primitivos:** `int` (i64), `float` (f64), `bool` (i1→i64), `string` (struct), `matrix` (struct f64*), `intmatrix` (struct i64*), `void`, `tuple` (struct - múltiplos retornos)
 - ✅ **Inferência de Tipos:** `var x := 10` detecta automaticamente o tipo
 - ✅ **Tipagem Explícita:** `var x: float = 10`
 - ✅ **Casting Automático:**
@@ -432,6 +529,8 @@ var lista := Node { val: 10, next: Node { val: 20, next: nil } }
 
 ### 6. Funções Built-in
 
+**Nota:** Para funções definidas pelo usuário, veja seção "## 5. Funções e Tratamento de Erro" ✅ v0.8
+
 **Output:**
 - ✅ **printf:** Saída formatada estilo C (`printf("x: %d", x)`)
 - ✅ **print:** Imprime qualquer valor sem newline, com conversão automática (`print(42)`, `print("text")`)
@@ -481,21 +580,71 @@ var lista := Node { val: 10, next: Node { val: 20, next: nil } }
 
 ---
 
-### 🔧 **v0.5 - Funções de Usuário**
+### ✅ **v0.8 - User-Defined Functions** ✅ **COMPLETO (26/01/2026)**
+
+Sistema completo de funções com múltiplos retornos, destructuring e default values.
 
 **Core:**
 
-- [ ] **Declaração de Funções:** `function soma(a: int, b: int) -> int { return a + b }`
-- [ ] **Chamada de Funções:** `var resultado := soma(10, 20)`
-- [ ] **Return Statement:** `return valor`
-- [ ] **Funções Void:** Funções sem retorno
-- [ ] **Escopo Local:** Variáveis dentro de funções (shadow variables externas)
+- [x] **Declaração de Funções:** `function add(a: int, b: int) -> int { return a + b }` ✅ **IMPLEMENTADO**
+- [x] **Chamada de Funções:** `var result := add(10, 20)` ✅ **IMPLEMENTADO**
+- [x] **Return Statement:** `return value` ✅ **IMPLEMENTADO**
+- [x] **Funções Void:** Funções sem retorno `function greet(name: string) { println(...) }` ✅ **IMPLEMENTADO**
+- [x] **Escopo Local:** Variáveis dentro de funções com symbol table save/restore ✅ **IMPLEMENTADO**
 
-**Avançado (v0.5.1):**
+**Avançado:**
 
-- [ ] **Retornos Múltiplos (Go Style):** `function divide(a, b) -> (float, error)`
-- [ ] **Argumentos Opcionais:** `function greet(name: string = "World")`
+- [x] **Retornos Múltiplos (Tuples):** `function calc(a, b) -> (int, int, int)` ✅ **IMPLEMENTADO**
+- [x] **Tuple Indexing:** Acesso via `result[0]`, `result[1]`, `result[2]` ✅ **IMPLEMENTADO**
+- [x] **Destructuring:** `var { sum, diff, product } := calc(10, 5)` ✅ **IMPLEMENTADO**
+- [x] **Ignore Values:** `var { quotient, _ } := divmod(17, 5)` ✅ **IMPLEMENTADO**
+- [x] **Default Parameters:** `function power(base: float, exp: float = 2.0) -> float` ✅ **IMPLEMENTADO**
+
+**Implementação Técnica:**
+- AST: `FunctionDef`, `Return`, `DestructuringDecl`
+- Tuples como LLVM structs para múltiplos retornos
+- Function registry com metadata de parâmetros
+- Default values expandidos no call site
+- Type inference completo para tuples
+
+**Testes:**
+```brix
+// Teste básico
+function add(a: int, b: int) -> int { return a + b }
+println(add(5, 3))  // 8
+
+// Múltiplos retornos
+function calculations(a: int, b: int) -> (int, int, int) {
+    return (a + b, a - b, a * b)
+}
+var result := calculations(10, 5)
+println(result[0])  // 15
+
+// Destructuring
+var { sum, diff, product } := calculations(10, 5)
+println(sum)  // 15
+
+// Default values
+function power(base: float, exp: float = 2.0) -> float {
+    return base ** exp
+}
+println(power(5.0))      // 25.0 (usa default)
+println(power(5.0, 3.0)) // 125.0
+```
+
+**Arquivos de Teste:**
+- `function_test.bx` - Funções básicas ✅
+- `void_test.bx` - Funções void ✅
+- `multiple_return_test.bx` - Múltiplos retornos ✅
+- `destructuring_test.bx` - Destructuring básico ✅
+- `destructuring_ignore_test.bx` - Destructuring com `_` ✅
+- `default_values_test.bx` - Default parameters ✅
+
+**Futuro (v0.9+):**
+- [ ] **Error Type:** `function divide(a, b) -> (float, error)` (requer null safety)
 - [ ] **Funções Variádicas:** `function sum(nums: ...int)`
+- [ ] **Closures:** `var fn := (x: int) -> int { return x * 2 }`
+- [ ] **First-class functions:** Passar funções como parâmetros
 
 ---
 
@@ -1316,17 +1465,19 @@ math.sum(arr), math.mean(arr), math.median(arr), math.std(arr)
 3. Codegen: LLVM external declarations
 4. Runtime: Thin wrappers em runtime.c chamando math.h/LAPACK
 
-### Alternativas Futuras (v0.8+):
+### Próximas Features (v0.9+):
 
-**v0.8 - Números Complexos:**
-- Sintaxe: `z := 1 + 2im`
-- Funções: `math.real(z)`, `math.imag(z)`, `math.conj(z)`, `math.abs(z)`
-- Implementação usando C complex.h
+**v0.9 - Pattern Matching & Advanced Features:**
+- Pattern matching: `when value { ... }`
+- List comprehensions: `[x * 2 for x in nums if x > 0]`
+- Closures: `var fn := (x: int) -> int { return x * 2 }`
+- First-class functions: Passar funções como parâmetros
+- Números Complexos: `z := 1 + 2im`
 
-**v0.9 - Funções de Usuário:**
-- Definição: `fn nome(params) -> tipo { body }`
-- Return values, múltiplos retornos Go-style
-- Closures, recursão
+**v1.0 - Generics & Concurrency:**
+- Generics: `function map<T, U>(arr: [T], fn: T -> U) -> [U]`
+- Concurrency: `spawn`, `par for`, `par map`
+- Channels para comunicação entre threads
 
 **Qualidade (qualquer versão):**
 - Testes de integração automatizados
@@ -1335,14 +1486,14 @@ math.sum(arr), math.mean(arr), math.median(arr), math.std(arr)
 
 ### 📊 Estatísticas do Projeto:
 
-- **Linhas de Código (Rust):** ~4000 linhas
-- **Linhas de Código (C Runtime):** ~400 linhas
-- **Arquivos de Teste (.bx):** 20 (core features + math library tests)
-- **Features Implementadas:** ~60 (v0.7 completo)
+- **Linhas de Código (Rust):** ~4500 linhas (compiler core)
+- **Linhas de Código (C Runtime):** ~500 linhas (math + matrix ops)
+- **Arquivos de Teste (.bx):** 26 (core + math + functions)
+- **Features Implementadas:** ~70+ (v0.8 completo)
 - **Features Planejadas:** ~120+
-- **Versão Atual:** v0.7 (80% MVP)
-- **Progresso MVP:** 80%
-- **Versão Atual:** v0.4+ (Operadores Avançados + Type System) ✅ COMPLETO
+- **Versão Atual:** v0.8 (Functions)
+- **Progresso MVP:** 85%
+- **Última Atualização:** 26/01/2026
 
 ---
 

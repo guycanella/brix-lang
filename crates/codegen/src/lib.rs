@@ -17,6 +17,7 @@ pub enum BrixType {
     IntMatrix, // Matrix of i64 (long*)
     FloatPtr,
     Void,
+    Tuple(Vec<BrixType>), // Multiple returns (stored as struct)
 }
 
 pub struct Compiler<'a, 'ctx> {
@@ -24,6 +25,9 @@ pub struct Compiler<'a, 'ctx> {
     pub builder: &'a Builder<'ctx>,
     pub module: &'a Module<'ctx>,
     pub variables: HashMap<String, (PointerValue<'ctx>, BrixType)>,
+    pub functions: HashMap<String, (inkwell::values::FunctionValue<'ctx>, Option<Vec<BrixType>>)>, // (function, return_types)
+    pub function_params: HashMap<String, Vec<(String, BrixType, Option<Expr>)>>, // (param_name, type, default_value)
+    pub current_function: Option<inkwell::values::FunctionValue<'ctx>>, // Track current function being compiled
 }
 
 impl<'a, 'ctx> Compiler<'a, 'ctx> {
@@ -37,6 +41,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             builder,
             module,
             variables: HashMap::new(),
+            functions: HashMap::new(),
+            function_params: HashMap::new(),
+            current_function: None,
         }
     }
 
@@ -230,6 +237,130 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         }
     }
 
+    // --- HELPER: Convert string type to BrixType ---
+    fn string_to_brix_type(&self, type_str: &str) -> BrixType {
+        match type_str {
+            "int" => BrixType::Int,
+            "float" => BrixType::Float,
+            "string" => BrixType::String,
+            "void" => BrixType::Void,
+            _ => {
+                eprintln!("Warning: Unknown type '{}', defaulting to Int", type_str);
+                BrixType::Int
+            }
+        }
+    }
+
+    // --- HELPER: Convert BrixType to LLVM type ---
+    fn brix_type_to_llvm(&self, brix_type: &BrixType) -> BasicTypeEnum<'ctx> {
+        match brix_type {
+            BrixType::Int => self.context.i64_type().into(),
+            BrixType::Float => self.context.f64_type().into(),
+            BrixType::String | BrixType::Matrix | BrixType::IntMatrix | BrixType::FloatPtr => {
+                self.context.ptr_type(AddressSpace::default()).into()
+            }
+            BrixType::Void => self.context.i64_type().into(), // Placeholder (shouldn't be used)
+            BrixType::Tuple(types) => {
+                // Create struct type for tuple
+                let field_types: Vec<BasicTypeEnum> = types
+                    .iter()
+                    .map(|t| self.brix_type_to_llvm(t))
+                    .collect();
+                self.context.struct_type(&field_types, false).into()
+            }
+        }
+    }
+
+    // --- FUNCTION DEFINITION ---
+    fn compile_function_def(
+        &mut self,
+        name: &str,
+        params: &[(String, String, Option<Expr>)],
+        return_type: &Option<Vec<String>>,
+        body: &Stmt,
+        _parent_function: inkwell::values::FunctionValue<'ctx>,
+    ) {
+        // 1. Parse return type
+        let ret_types: Vec<BrixType> = match return_type {
+            None => vec![], // void
+            Some(types) => types.iter().map(|t| self.string_to_brix_type(t)).collect(),
+        };
+
+        // 2. Create LLVM function type
+        let param_types: Vec<BasicTypeEnum> = params
+            .iter()
+            .map(|(_, t, _)| self.brix_type_to_llvm(&self.string_to_brix_type(t)))
+            .collect();
+
+        let fn_type = if ret_types.is_empty() {
+            // Void function
+            self.context.void_type().fn_type(&param_types.iter().map(|t| (*t).into()).collect::<Vec<_>>(), false)
+        } else if ret_types.len() == 1 {
+            // Single return
+            let ret_llvm = self.brix_type_to_llvm(&ret_types[0]);
+            ret_llvm.fn_type(&param_types.iter().map(|t| (*t).into()).collect::<Vec<_>>(), false)
+        } else {
+            // Multiple returns - create struct type
+            let tuple_type = BrixType::Tuple(ret_types.clone());
+            let ret_llvm = self.brix_type_to_llvm(&tuple_type);
+            ret_llvm.fn_type(&param_types.iter().map(|t| (*t).into()).collect::<Vec<_>>(), false)
+        };
+
+        // 3. Create the function
+        let llvm_function = self.module.add_function(name, fn_type, None);
+
+        // 4. Store function in registry
+        self.functions.insert(name.to_string(), (llvm_function, Some(ret_types.clone())));
+
+        // 4.5. Store parameter metadata (including default values)
+        let param_metadata: Vec<(String, BrixType, Option<Expr>)> = params
+            .iter()
+            .map(|(name, ty, default)| (name.clone(), self.string_to_brix_type(ty), default.clone()))
+            .collect();
+        self.function_params.insert(name.to_string(), param_metadata);
+
+        // 5. Create entry block
+        let entry_block = self.context.append_basic_block(llvm_function, "entry");
+        self.builder.position_at_end(entry_block);
+
+        // 6. Save current state and set current function
+        let saved_vars = self.variables.clone();
+        self.current_function = Some(llvm_function);
+
+        // 7. Create allocas for parameters and store them
+        for (i, (param_name, param_type_str, _default)) in params.iter().enumerate() {
+            let param_value = llvm_function.get_nth_param(i as u32).unwrap();
+            let param_type = self.string_to_brix_type(param_type_str);
+            let llvm_type = self.brix_type_to_llvm(&param_type);
+
+            let alloca = self.create_entry_block_alloca(llvm_type, param_name);
+            self.builder.build_store(alloca, param_value).unwrap();
+            self.variables.insert(param_name.clone(), (alloca, param_type));
+        }
+
+        // 8. Compile function body
+        self.compile_stmt(body, llvm_function);
+
+        // 9. Add implicit return for void functions if missing
+        if ret_types.is_empty() {
+            // Check if last instruction is already a return
+            if let Some(block) = self.builder.get_insert_block() {
+                if block.get_terminator().is_none() {
+                    self.builder.build_return(None).unwrap();
+                }
+            }
+        }
+
+        // 10. Restore state
+        self.variables = saved_vars;
+        self.current_function = Some(_parent_function);
+
+        // 11. Position builder back at the end of parent function
+        if let Some(block) = _parent_function.get_last_basic_block() {
+            self.builder.position_at_end(block);
+        }
+    }
+
     // --- MAIN COMPILATION ---
 
     pub fn compile_program(&mut self, program: &Program) {
@@ -239,6 +370,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         let basic_block = self.context.append_basic_block(function, "entry");
 
         self.builder.position_at_end(basic_block);
+        self.current_function = Some(function);
 
         for stmt in &program.statements {
             self.compile_stmt(stmt, function);
@@ -418,6 +550,56 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     self.builder.build_store(alloca, final_val).unwrap();
 
                     self.variables.insert(name.clone(), (alloca, val_type));
+                }
+            }
+
+            Stmt::DestructuringDecl {
+                names,
+                value,
+                is_const: _,
+            } => {
+                // Compile the expression that returns a tuple
+                if let Some((tuple_val, tuple_type)) = self.compile_expr(value) {
+                    // Ensure it's a tuple type
+                    if let BrixType::Tuple(field_types) = tuple_type {
+                        // Check that the number of names matches the tuple size
+                        if names.len() != field_types.len() {
+                            eprintln!(
+                                "Error: Destructuring mismatch - expected {} values, got {}",
+                                names.len(),
+                                field_types.len()
+                            );
+                            return;
+                        }
+
+                        // Extract each field and assign to a variable
+                        for (i, (name, field_type)) in names.iter().zip(field_types.iter()).enumerate() {
+                            // Skip if name is "_" (ignore value)
+                            if name == "_" {
+                                continue;
+                            }
+
+                            // Extract the field from the struct
+                            let extracted = self
+                                .builder
+                                .build_extract_value(
+                                    tuple_val.into_struct_value(),
+                                    i as u32,
+                                    &format!("extract_{}", name),
+                                )
+                                .unwrap();
+
+                            // Allocate and store the variable
+                            let llvm_type = self.brix_type_to_llvm(field_type);
+                            let alloca = self.builder.build_alloca(llvm_type, name).unwrap();
+                            self.builder.build_store(alloca, extracted).unwrap();
+
+                            // Register in symbol table
+                            self.variables.insert(name.clone(), (alloca, field_type.clone()));
+                        }
+                    } else {
+                        eprintln!("Error: Destructuring requires a tuple, got {:?}", tuple_type);
+                    }
                 }
             }
 
@@ -869,6 +1051,51 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     self.register_math_functions(prefix);
                 }
             }
+
+            Stmt::FunctionDef { name, params, return_type, body } => {
+                self.compile_function_def(name, params, return_type, body, function);
+            }
+
+            Stmt::Return { values } => {
+                if values.is_empty() {
+                    // Void return
+                    self.builder.build_return(None).unwrap();
+                } else if values.len() == 1 {
+                    // Single return
+                    if let Some((val, _)) = self.compile_expr(&values[0]) {
+                        self.builder.build_return(Some(&val)).unwrap();
+                    }
+                } else {
+                    // Multiple returns - create struct
+                    let mut compiled_values = Vec::new();
+                    let mut value_types = Vec::new();
+
+                    for val_expr in values {
+                        if let Some((val, val_type)) = self.compile_expr(val_expr) {
+                            compiled_values.push(val);
+                            value_types.push(val_type);
+                        }
+                    }
+
+                    // Create struct type
+                    let tuple_type = BrixType::Tuple(value_types);
+                    let struct_llvm_type = self.brix_type_to_llvm(&tuple_type);
+
+                    // Create an undef struct value
+                    let struct_type = struct_llvm_type.into_struct_type();
+                    let mut struct_val = struct_type.get_undef();
+
+                    // Insert each value into the struct
+                    for (i, val) in compiled_values.iter().enumerate() {
+                        struct_val = self.builder
+                            .build_insert_value(struct_val, *val, i as u32, "insert")
+                            .unwrap()
+                            .into_struct_value();
+                    }
+
+                    self.builder.build_return(Some(&struct_val)).unwrap();
+                }
+            }
         }
     }
 
@@ -949,6 +1176,15 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             .build_load(self.context.ptr_type(AddressSpace::default()), *ptr, name)
                             .unwrap();
                         Some((val, BrixType::IntMatrix))
+                    }
+                    BrixType::Tuple(types) => {
+                        // Load the tuple struct
+                        let struct_type = self.brix_type_to_llvm(&BrixType::Tuple(types.clone()));
+                        let val = self
+                            .builder
+                            .build_load(struct_type, *ptr, name)
+                            .unwrap();
+                        Some((val, BrixType::Tuple(types.clone())))
                     }
                     _ => {
                         eprintln!("Error: Type not supported in identifier.");
@@ -1270,6 +1506,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             BrixType::IntMatrix => "intmatrix",
                             BrixType::FloatPtr => "float_ptr",
                             BrixType::Void => "void",
+                            BrixType::Tuple(_) => "tuple",
                         };
 
                         return self
@@ -1518,6 +1755,76 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         return Some((val, BrixType::IntMatrix));
                     }
                 }
+
+                // Check if it's a user-defined function
+                if let Expr::Identifier(fn_name) = func.as_ref() {
+                    if let Some((user_fn, ret_types_opt)) = self.functions.get(fn_name) {
+                        // Get parameter metadata to check for defaults
+                        let param_metadata = self.function_params.get(fn_name).cloned();
+
+                        // Compile provided arguments
+                        let mut llvm_args = Vec::new();
+                        for arg in args {
+                            if let Some((arg_val, _)) = self.compile_expr(arg) {
+                                llvm_args.push(arg_val.into());
+                            }
+                        }
+
+                        // Check if we need to add default arguments
+                        if let Some(params) = param_metadata {
+                            let num_provided = args.len();
+                            let num_required = params.len();
+
+                            if num_provided < num_required {
+                                // Fill in default values for missing parameters
+                                for i in num_provided..num_required {
+                                    let (_param_name, _param_type, default_opt) = &params[i];
+
+                                    if let Some(default_expr) = default_opt {
+                                        // Compile the default value expression
+                                        if let Some((default_val, _)) = self.compile_expr(default_expr) {
+                                            llvm_args.push(default_val.into());
+                                        } else {
+                                            eprintln!("Error: Failed to compile default value for parameter {}", i);
+                                            return None;
+                                        }
+                                    } else {
+                                        eprintln!("Error: Missing required parameter {} for function {}", i, fn_name);
+                                        return None;
+                                    }
+                                }
+                            } else if num_provided > num_required {
+                                eprintln!("Error: Too many arguments for function {} (expected {}, got {})",
+                                    fn_name, num_required, num_provided);
+                                return None;
+                            }
+                        }
+
+                        // Call the user function
+                        let call_result = self
+                            .builder
+                            .build_call(*user_fn, &llvm_args, "call")
+                            .unwrap();
+
+                        // Determine return type
+                        if let Some(ret_types) = ret_types_opt {
+                            if ret_types.is_empty() {
+                                // Void function
+                                return None;
+                            } else if ret_types.len() == 1 {
+                                // Single return
+                                let result = call_result.try_as_basic_value().left().unwrap();
+                                return Some((result, ret_types[0].clone()));
+                            } else {
+                                // Multiple returns - return struct as Tuple type
+                                let result = call_result.try_as_basic_value().left().unwrap();
+                                let tuple_type = BrixType::Tuple(ret_types.clone());
+                                return Some((result, tuple_type));
+                            }
+                        }
+                    }
+                }
+
                 eprintln!("Error: Unknown function: {:?}", func);
                 None
             }
@@ -1599,9 +1906,37 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             Expr::Index { array, indices } => {
                 let (target_val, target_type) = self.compile_expr(array)?;
 
+                // Check if indexing a tuple
+                if let BrixType::Tuple(types) = &target_type {
+                    // Tuple indexing: result[0], result[1], etc.
+                    if indices.len() != 1 {
+                        eprintln!("Error: Tuple indexing requires exactly one index");
+                        return None;
+                    }
+
+                    // Extract index (must be a constant integer)
+                    if let Expr::Literal(Literal::Int(idx)) = &indices[0] {
+                        let idx_u32 = *idx as u32;
+                        if idx_u32 >= types.len() as u32 {
+                            eprintln!("Error: Tuple index {} out of bounds (max: {})", idx, types.len() - 1);
+                            return None;
+                        }
+
+                        // Extract value from struct
+                        let extracted = self.builder
+                            .build_extract_value(target_val.into_struct_value(), idx_u32, "extract")
+                            .unwrap();
+
+                        return Some((extracted, types[idx_u32 as usize].clone()));
+                    } else {
+                        eprintln!("Error: Tuple index must be a constant integer");
+                        return None;
+                    }
+                }
+
                 // Support both Matrix (f64*) and IntMatrix (i64*)
                 if target_type != BrixType::Matrix && target_type != BrixType::IntMatrix {
-                    eprintln!("Error: Trying to index something that is not a matrix.");
+                    eprintln!("Error: Trying to index something that is not a matrix or tuple.");
                     return None;
                 }
 
