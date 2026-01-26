@@ -86,6 +86,150 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             .add_function("scanf", fn_type, Some(Linkage::External))
     }
 
+    // --- MATH LIBRARY FUNCTIONS ---
+
+    fn declare_math_function_f64_f64(&self, name: &str) -> inkwell::values::FunctionValue<'ctx> {
+        if let Some(fn_val) = self.module.get_function(name) {
+            return fn_val;
+        }
+        let f64_type = self.context.f64_type();
+        let fn_type = f64_type.fn_type(&[f64_type.into()], false);
+        self.module
+            .add_function(name, fn_type, Some(Linkage::External))
+    }
+
+    fn declare_math_function_f64_f64_f64(
+        &self,
+        name: &str,
+    ) -> inkwell::values::FunctionValue<'ctx> {
+        if let Some(fn_val) = self.module.get_function(name) {
+            return fn_val;
+        }
+        let f64_type = self.context.f64_type();
+        let fn_type = f64_type.fn_type(&[f64_type.into(), f64_type.into()], false);
+        self.module
+            .add_function(name, fn_type, Some(Linkage::External))
+    }
+
+    // Statistics functions: f64 function(Matrix*)
+    fn declare_stats_function(&self, name: &str) -> inkwell::values::FunctionValue<'ctx> {
+        if let Some(fn_val) = self.module.get_function(name) {
+            return fn_val;
+        }
+        let f64_type = self.context.f64_type();
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let fn_type = f64_type.fn_type(&[ptr_type.into()], false);
+        self.module
+            .add_function(name, fn_type, Some(Linkage::External))
+    }
+
+    // Linear algebra functions: Matrix* function(Matrix*)
+    fn declare_linalg_function(&self, name: &str) -> inkwell::values::FunctionValue<'ctx> {
+        if let Some(fn_val) = self.module.get_function(name) {
+            return fn_val;
+        }
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let fn_type = ptr_type.fn_type(&[ptr_type.into()], false);
+        self.module
+            .add_function(name, fn_type, Some(Linkage::External))
+    }
+
+    // Matrix constructor: Matrix* function(i64) - for eye(n)
+    fn declare_matrix_constructor(&self, name: &str) -> inkwell::values::FunctionValue<'ctx> {
+        if let Some(fn_val) = self.module.get_function(name) {
+            return fn_val;
+        }
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let i64_type = self.context.i64_type();
+        let fn_type = ptr_type.fn_type(&[i64_type.into()], false);
+        self.module
+            .add_function(name, fn_type, Some(Linkage::External))
+    }
+
+    fn register_math_functions(&mut self, prefix: &str) {
+        // Trigonometric functions (7)
+        self.declare_math_function_f64_f64("sin");
+        self.declare_math_function_f64_f64("cos");
+        self.declare_math_function_f64_f64("tan");
+        self.declare_math_function_f64_f64("asin");
+        self.declare_math_function_f64_f64("acos");
+        self.declare_math_function_f64_f64("atan");
+        self.declare_math_function_f64_f64_f64("atan2");
+
+        // Hyperbolic functions (3)
+        self.declare_math_function_f64_f64("sinh");
+        self.declare_math_function_f64_f64("cosh");
+        self.declare_math_function_f64_f64("tanh");
+
+        // Exponential and logarithmic functions (4)
+        self.declare_math_function_f64_f64("exp");
+        self.declare_math_function_f64_f64("log");
+        self.declare_math_function_f64_f64("log10");
+        self.declare_math_function_f64_f64("log2");
+
+        // Root functions (2)
+        self.declare_math_function_f64_f64("sqrt");
+        self.declare_math_function_f64_f64("cbrt");
+
+        // Rounding functions (3)
+        self.declare_math_function_f64_f64("floor");
+        self.declare_math_function_f64_f64("ceil");
+        self.declare_math_function_f64_f64("round");
+
+        // Utility functions (5)
+        self.declare_math_function_f64_f64("fabs"); // abs for float
+        self.declare_math_function_f64_f64_f64("fmod");
+        self.declare_math_function_f64_f64_f64("hypot");
+        self.declare_math_function_f64_f64_f64("fmin"); // min
+        self.declare_math_function_f64_f64_f64("fmax"); // max
+
+        // Statistics functions (5)
+        self.declare_stats_function("brix_sum");
+        self.declare_stats_function("brix_mean");
+        self.declare_stats_function("brix_median");
+        self.declare_stats_function("brix_std");
+        self.declare_stats_function("brix_variance");
+
+        // Linear algebra functions (4)
+        self.declare_stats_function("brix_det"); // det returns f64
+        self.declare_linalg_function("brix_tr"); // tr returns Matrix*
+        self.declare_linalg_function("brix_inv"); // inv returns Matrix*
+        self.declare_matrix_constructor("brix_eye"); // eye(n) returns Matrix*
+
+        // Register math constants as variables
+        self.register_math_constants(prefix);
+    }
+
+    fn register_math_constants(&mut self, prefix: &str) {
+        let f64_type = self.context.f64_type();
+
+        // Mathematical constants with high precision
+        let constants = [
+            ("pi", 3.14159265358979323846),
+            ("e", 2.71828182845904523536),
+            ("tau", 6.28318530717958647692),
+            ("phi", 1.61803398874989484820),
+            ("sqrt2", 1.41421356237309504880),
+            ("ln2", 0.69314718055994530942),
+        ];
+
+        for (name, value) in constants.iter() {
+            let const_name = format!("{}.{}", prefix, name);
+            let const_val = f64_type.const_float(*value);
+
+            // Allocate as global constant
+            let global =
+                self.module
+                    .add_global(f64_type, Some(AddressSpace::default()), &const_name);
+            global.set_initializer(&const_val);
+            global.set_constant(true);
+
+            // Store in variables map as FloatPtr (pointer to constant)
+            self.variables
+                .insert(const_name, (global.as_pointer_value(), BrixType::Float));
+        }
+    }
+
     // --- MAIN COMPILATION ---
 
     pub fn compile_program(&mut self, program: &Program) {
@@ -261,7 +405,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     let llvm_type: BasicTypeEnum = match val_type {
                         BrixType::Int => self.context.i64_type().into(),
                         BrixType::Float => self.context.f64_type().into(),
-                        BrixType::String | BrixType::Matrix | BrixType::IntMatrix | BrixType::FloatPtr => {
+                        BrixType::String
+                        | BrixType::Matrix
+                        | BrixType::IntMatrix
+                        | BrixType::FloatPtr => {
                             self.context.ptr_type(AddressSpace::default()).into()
                         }
                         _ => self.context.i64_type().into(),
@@ -278,18 +425,19 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 if let Some((target_ptr, target_type)) = self.compile_lvalue_addr(target) {
                     if let Some((val, val_type)) = self.compile_expr(value) {
                         // Only cast Int→Float if the target expects Float
-                        let final_val = if target_type == BrixType::Float && val_type == BrixType::Int {
-                            self.builder
-                                .build_signed_int_to_float(
-                                    val.into_int_value(),
-                                    self.context.f64_type(),
-                                    "cast",
-                                )
-                                .unwrap()
-                                .into()
-                        } else {
-                            val
-                        };
+                        let final_val =
+                            if target_type == BrixType::Float && val_type == BrixType::Int {
+                                self.builder
+                                    .build_signed_int_to_float(
+                                        val.into_int_value(),
+                                        self.context.f64_type(),
+                                        "cast",
+                                    )
+                                    .unwrap()
+                                    .into()
+                            } else {
+                                val
+                            };
 
                         self.builder.build_store(target_ptr, final_val).unwrap();
                     }
@@ -713,6 +861,14 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     }
                 }
             }
+
+            Stmt::Import { module, alias } => {
+                // Register math functions when importing math module
+                if module == "math" {
+                    let prefix = alias.as_ref().unwrap_or(module);
+                    self.register_math_functions(prefix);
+                }
+            }
         }
     }
 
@@ -1035,6 +1191,69 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             }
 
             Expr::Call { func, args } => {
+                // Handle math.function() calls (e.g., math.sin, math.cos, math.sum, etc.)
+                if let Expr::FieldAccess { target, field } = func.as_ref() {
+                    if let Expr::Identifier(_module_name) = target.as_ref() {
+                        // Check if this is a math module function
+                        let fn_name = field.as_str();
+
+                        // Check for brix_ prefixed functions (stats/linalg)
+                        let brix_fn_name = format!("brix_{}", fn_name);
+                        let lookup_name = if self.module.get_function(&brix_fn_name).is_some() {
+                            &brix_fn_name
+                        } else {
+                            fn_name
+                        };
+
+                        if let Some(llvm_fn) = self.module.get_function(lookup_name) {
+                            // Compile arguments
+                            let mut llvm_args = Vec::new();
+                            for arg in args {
+                                let (arg_val, arg_type) = self.compile_expr(arg)?;
+
+                                // For stats/linalg functions, pass Matrix* directly
+                                if arg_type == BrixType::Matrix || arg_type == BrixType::IntMatrix {
+                                    llvm_args.push(arg_val.into());
+                                } else {
+                                    // Auto-convert Int to Float for regular math functions
+                                    let final_val = if arg_type == BrixType::Int {
+                                        self.builder
+                                            .build_signed_int_to_float(
+                                                arg_val.into_int_value(),
+                                                self.context.f64_type(),
+                                                "int_to_float_arg",
+                                            )
+                                            .unwrap()
+                                            .into()
+                                    } else {
+                                        arg_val
+                                    };
+
+                                    llvm_args.push(final_val.into());
+                                }
+                            }
+
+                            // Call the function
+                            let result = self
+                                .builder
+                                .build_call(llvm_fn, &llvm_args, "math_call")
+                                .unwrap()
+                                .try_as_basic_value()
+                                .left()
+                                .unwrap();
+
+                            // Determine return type based on function name
+                            let return_type = if fn_name == "tr" || fn_name == "inv" || fn_name == "eye" {
+                                BrixType::Matrix
+                            } else {
+                                BrixType::Float
+                            };
+
+                            return Some((result, return_type));
+                        }
+                    }
+                }
+
                 if let Expr::Identifier(fn_name) = func.as_ref() {
                     if fn_name == "typeof" {
                         if args.len() != 1 {
@@ -1304,6 +1523,19 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             }
 
             Expr::FieldAccess { target, field } => {
+                // Check if this is a module constant access (e.g., math.pi)
+                if let Expr::Identifier(module_name) = target.as_ref() {
+                    let const_name = format!("{}.{}", module_name, field);
+                    if let Some((ptr, brix_type)) = self.variables.get(&const_name) {
+                        // Load the constant value
+                        let loaded_val = self
+                            .builder
+                            .build_load(self.context.f64_type(), *ptr, &const_name)
+                            .unwrap();
+                        return Some((loaded_val, brix_type.clone()));
+                    }
+                }
+
                 let (target_val, target_type) = self.compile_expr(target)?;
 
                 if target_type == BrixType::String {
@@ -2287,7 +2519,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         let fn_type = ptr_type.fn_type(&[i64_type.into(), i64_type.into()], false);
 
         let matrix_new_fn = self.module.get_function("matrix_new").unwrap_or_else(|| {
-            self.module.add_function("matrix_new", fn_type, Some(Linkage::External))
+            self.module
+                .add_function("matrix_new", fn_type, Some(Linkage::External))
         });
 
         let (rows_val, cols_val) = if args.len() == 1 {
@@ -2306,7 +2539,11 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
         let call = self
             .builder
-            .build_call(matrix_new_fn, &[rows_val.into(), cols_val.into()], "zeros_matrix")
+            .build_call(
+                matrix_new_fn,
+                &[rows_val.into(), cols_val.into()],
+                "zeros_matrix",
+            )
             .unwrap();
 
         Some(call.try_as_basic_value().left().unwrap())
@@ -2319,9 +2556,13 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         let ptr_type = self.context.ptr_type(AddressSpace::default());
         let fn_type = ptr_type.fn_type(&[i64_type.into(), i64_type.into()], false);
 
-        let intmatrix_new_fn = self.module.get_function("intmatrix_new").unwrap_or_else(|| {
-            self.module.add_function("intmatrix_new", fn_type, Some(Linkage::External))
-        });
+        let intmatrix_new_fn = self
+            .module
+            .get_function("intmatrix_new")
+            .unwrap_or_else(|| {
+                self.module
+                    .add_function("intmatrix_new", fn_type, Some(Linkage::External))
+            });
 
         let (rows_val, cols_val) = if args.len() == 1 {
             // 1D: izeros(n) → intmatrix(1, n)
@@ -2339,7 +2580,11 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
         let call = self
             .builder
-            .build_call(intmatrix_new_fn, &[rows_val.into(), cols_val.into()], "izeros_intmatrix")
+            .build_call(
+                intmatrix_new_fn,
+                &[rows_val.into(), cols_val.into()],
+                "izeros_intmatrix",
+            )
             .unwrap();
 
         Some(call.try_as_basic_value().left().unwrap())

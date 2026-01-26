@@ -54,6 +54,12 @@ pub enum Token {
     #[token("in")]
     In,
 
+    #[token("import")]
+    Import,
+
+    #[token("as")]
+    As,
+
     #[token("match")]
     Match, // Pattern Matching (switch substitute)
 

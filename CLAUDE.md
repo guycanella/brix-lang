@@ -579,6 +579,7 @@ stdlib/
 
 Test files are `.bx` files in the root directory. Common test files include:
 
+**Core Language Features:**
 - `types.bx`: Type inference, explicit types, casting, typeof()
 - `for_test.bx`: Loop variants (range, step, nested)
 - `logic_test.bx`: Boolean operators
@@ -598,6 +599,13 @@ Test files are `.bx` files in the root directory. Common test files include:
 - `static_init_test.bx`: Static initialization syntax int[n], float[r,c] (v0.6)
 - `array_constructors_test.bx`: Comprehensive test of all array constructor methods (v0.6)
 
+**Math Library (v0.7):**
+- `math_test.bx`: All 21 math.h functions + 6 constants
+- `math_alias_test.bx`: Import with alias (import math as m)
+- `physics_test.bx`: Physics simulation (projectile motion)
+- `stats_linalg_test.bx`: Statistics and linear algebra functions
+- `eye_test.bx`: Identity matrix creation and verification
+
 Run tests individually:
 
 ```bash
@@ -606,9 +614,9 @@ cargo run <test_file.bx>
 
 **Note:** The compiler generates intermediate files (`runtime.o`, `output.o`) and an executable `program` in the project root during compilation.
 
-## Project Status (v0.6 - Jan 2026)
+## Project Status (v0.7 - Jan 2026)
 
-### Progress: 70% MVP Complete
+### Progress: 80% MVP Complete
 
 **Completed:**
 
@@ -634,181 +642,95 @@ cargo run <test_file.bx>
 - ✅ Built-in functions (printf, scanf, typeof, matrix, read_csv, print, println)
 - ✅ Type conversion functions (int(), float(), string(), bool())
 - ✅ Runtime library (C) for matrix, intmatrix, and string operations
+- ✅ **Import system** (`import math`, `import math as m`)
+- ✅ **Math library** (36 functions + constants - see below)
 
-### 🎯 **PRÓXIMO PASSO: v0.7 - Import System + Math Library**
+### ✅ **v0.7 - Import System + Math Library (COMPLETO - 26/01/2026)**
 
-**Status:** Planejamento completo, pronto para implementação
-
-**Decisões tomadas (25/01/2026):**
-- ✅ Import com namespace: `import math`
-- ✅ Import com alias: `import math as m`
-- ✅ 21 funções math.h (trig, exp, log, round, utils)
-- ✅ 5 funções estatísticas (sum, mean, median, std, var)
-- ✅ 3 funções álgebra linear (det, inv, tr)
-- ✅ 6 constantes matemáticas (pi, e, tau, phi, sqrt2, ln2)
-- ✅ Linking com `-lm -llapack -lblas`
+**Sistema de Imports:**
+- ✅ `import math` - Import com namespace
+- ✅ `import math as m` - Import com alias
+- ✅ Suporte a `module.function(args)` e `module.constant`
+- ✅ Flat symbol table com prefixos
 - ✅ Auto-conversão Int→Float em funções math
+
+**Math Library - 36 itens implementados:**
+
+**21 Funções math.h** (via LLVM external declarations):
+- Trigonometria (7): `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`
+- Hiperbólicas (3): `sinh`, `cosh`, `tanh`
+- Exp/Log (4): `exp`, `log`, `log10`, `log2`
+- Raízes (2): `sqrt`, `cbrt`
+- Arredondamento (3): `floor`, `ceil`, `round`
+- Utilidades (5): `fabs`, `fmod`, `hypot`, `fmin`, `fmax`
+
+**6 Constantes Matemáticas:**
+- `math.pi`, `math.e`, `math.tau`, `math.phi`, `math.sqrt2`, `math.ln2`
+
+**5 Funções Estatísticas** (runtime.c):
+- `math.sum(arr)` - Soma de elementos
+- `math.mean(arr)` - Média aritmética
+- `math.median(arr)` - Mediana
+- `math.std(arr)` - Desvio padrão
+- `math.variance(arr)` - Variância
+
+**4 Funções Álgebra Linear** (runtime.c):
+- `math.det(M)` - Determinante (Gaussian elimination)
+- `math.inv(M)` - Inversa de matriz (Gauss-Jordan)
+- `math.tr(M)` - Transposta
+- `math.eye(n)` - Matriz identidade n×n
+
+**Exemplos de uso:**
+```brix
+import math
+
+// Funções básicas
+var x := math.sin(math.pi / 2.0)  // 1.0
+var y := math.sqrt(16)             // 4.0 (auto-converte int→float)
+
+// Estatísticas
+var data := [1.0, 2.0, 3.0, 4.0, 5.0]
+var avg := math.mean(data)         // 3.0
+var sd := math.std(data)           // 1.414...
+
+// Álgebra linear
+var I := math.eye(3)               // Matriz identidade 3×3
+var det := math.det(matrix)        // Determinante
+var inv := math.inv(matrix)        // Inversa
+
+// Com alias
+import math as m
+var z := m.cos(0.0)                // 1.0
+```
+
+**Arquivos de teste:**
+- `math_test.bx` - 21 funções + 6 constantes
+- `math_alias_test.bx` - Import com alias
+- `physics_test.bx` - Simulação de física (projétil)
+- `stats_linalg_test.bx` - Estatísticas e álgebra linear
+- `eye_test.bx` - Matriz identidade
 
 **Adiado para versões futuras:**
 - ⏳ `eigvals/eigvecs` → v0.8+ (requer tipo Complex)
-- ⏳ Constantes físicas (c, h, G, etc.) → v0.8+ (quando tivermos sistema de unidades)
-- ⏳ Selective imports (`from math import sin, cos`) → v0.7.1+
-
-**Total a implementar:** 29 funções + 6 constantes = 35 itens no namespace `math.*`
+- ⏳ Constantes físicas → v0.8+ (quando tivermos sistema de unidades)
+- ⏳ Selective imports (`from math import sin`) → v0.7.1+
 
 ---
 
-### Planned for v0.5 (Functions):
+### 🎯 **PRÓXIMO PASSO: v0.8 - Functions**
 
 - [ ] Functions (definition, calls, return values)
 - [ ] Multiple return values (Go-style)
 - [ ] Pattern matching (`when` syntax)
 - [ ] List comprehensions
 
-### Planned for v0.7 (Import System & Math Library) - DETALHAMENTO:
+---
 
-#### **Import System**
-
-Brix will support a module/import system for organizing code and accessing standard library functionality:
-
-```brix
-// Full namespace import
-import math
-var y := math.sin(3.14)
-var z := math.det(matrix)
-
-// Import with alias
-import math as m
-var y := m.sin(3.14)
-
-// Selective import (future)
-from math import sin, cos, sqrt
-var y := sin(3.14)
-```
-
-**Technical Architecture:**
-
-- **Zero-overhead design**: `import` is purely compile-time (namespace resolution)
-- **No runtime cost**: Direct function calls to C libraries (same performance as C)
-- **Module types**:
-  - Standard library modules (math, stats, linalg)
-  - User-defined modules (.bx files)
-
-#### **Math Library (`import math`)**
-
-Standard library for mathematical operations, implemented as direct bindings to battle-tested C libraries:
-
-**Basic Math Functions (21 funções via C math.h):**
-```brix
-import math
-
-// Trigonometry
-math.sin(x), math.cos(x), math.tan(x)
-math.asin(x), math.acos(x), math.atan(x), math.atan2(y, x)
-
-// Hyperbolic
-math.sinh(x), math.cosh(x), math.tanh(x)
-
-// Exponentials & Logarithms
-math.exp(x), math.log(x), math.log10(x), math.log2(x)
-
-// Roots
-math.sqrt(x), math.cbrt(x)
-
-// Rounding
-math.floor(x), math.ceil(x), math.round(x)
-
-// Utilities
-math.abs(x), math.fmod(x, y), math.hypot(x, y), math.min(a, b), math.max(a, b)
-```
-
-**Statistics (5 funções - custom implementations):**
-```brix
-import math
-math.sum(arr)     // Sum of array elements
-math.mean(arr)    // Average
-math.median(arr)  // Median
-math.std(arr)     // Standard deviation
-math.var(arr)     // Variance
-```
-
-**Linear Algebra (3 funções via LAPACK):**
-```brix
-import math
-math.det(A)       // Determinant (via LAPACK dgetrf)
-math.inv(A)       // Matrix inverse (via LAPACK dgetri)
-math.tr(A)        // Transpose (custom implementation)
-```
-
-**Mathematical Constants (6 constantes):**
-```brix
-import math
-math.pi     // 3.14159265358979323846...
-math.e      // 2.71828182845904523536...
-math.tau    // 6.28318530717958647692... (2π)
-math.phi    // 1.61803398874989484820... (golden ratio)
-math.sqrt2  // 1.41421356237309504880...
-math.ln2    // 0.69314718055994530942...
-```
-
-**⏳ Adiado para v0.8+ (requer tipo Complex):**
-```brix
-// Estas funções retornam valores complexos e precisam de BrixType::Complex
-math.eigvals(A)   // Eigenvalues - ADIADO
-math.eigvecs(A)   // Eigenvectors - ADIADO
-```
-
-**⏳ Adiado para futuro (constantes físicas):**
-```brix
-// Constantes físicas serão adicionadas quando tivermos sistema de unidades
-math.c_light, math.h_planck, math.G_grav, etc. - ADIADO
-```
-
-**Performance Characteristics:**
-
-- **Zero overhead**: Direct C function calls via LLVM external declarations
-- **Native performance**: Identical to calling C libraries directly
-- **Optimized implementations**:
-  - math.h: Hand-tuned assembly, CPU-specific (AVX, NEON)
-  - LAPACK: Decades of optimization, multi-threaded
-  - Example: Matrix determinant 1000x1000 → ~50ms (vs ~5s naive implementation)
-
-**Implementation Strategy:**
-
-1. **runtime.c acts as "bridge"**: Thin wrappers that call C libraries
-   ```c
-   // runtime.c
-   #include <math.h>
-   #include <lapacke.h>
-
-   double brix_sin(double x) { return sin(x); }  // Direct passthrough
-   double brix_det(Matrix* A) { /* LAPACK call */ }
-   ```
-
-2. **Codegen generates external declarations**:
-   ```rust
-   // When import math is seen, declare:
-   // declare double @sin(double) external
-   ```
-
-3. **Linker resolves at link-time**:
-   ```bash
-   cc output.o runtime.o -lm -llapack -lblas -o program
-   ```
-
-**Rationale**: Don't reinvent the wheel - leverage proven, optimized C implementations that power NumPy, MATLAB, Julia, and R.
-
-#### **Complex Numbers** (Future - v0.8+):
-  - Literal syntax: `z := 1 + 2im` (imaginary unit `im`)
-  - Built-in functions: `real(z)`, `imag(z)`, `conj(z)`, `abs(z)`, `angle(z)`
-  - Arithmetic: Full support for `+`, `-`, `*`, `/`, `**` with complex numbers
-  - New type: `BrixType::Complex` (stored as struct with real/imag f64 fields)
-
-## Current Limitations (v0.6)
+## Current Limitations (v0.7)
 
 - **No generics**: Only concrete types (int, float, string, matrix)
-- **Single-file compilation**: No imports or modules (planned for v0.7+)
-- **No standard library**: Math functions not yet available (planned for v0.7)
+- **Single-file compilation**: Multi-file imports not yet implemented (user modules coming in v0.8+)
+- **No user-defined functions**: Function definitions coming in v0.8
 - **No optimizations**: LLVM runs with `OptimizationLevel::None`
 - **No pattern matching**: `when` syntax not yet implemented
 - **No closures**: Functions are not first-class
@@ -831,9 +753,9 @@ math.c_light, math.h_planck, math.G_grav, etc. - ADIADO
 
 ### Implementation Phases
 
-- v0.7: Import system, math library (C bindings to math.h, BLAS/LAPACK)
-- v0.8: Multi-file support, user-defined modules, complex numbers
-- v0.9: Functions, pattern matching, closures
+- ✅ v0.7: Import system, math library (36 functions + constants)
+- v0.8: Functions (definition, calls, return values), user-defined modules
+- v0.9: Pattern matching, closures, complex numbers
 - v1.0: Generics, concurrency primitives
 - v1.2: Full standard library with data structures (Stack, Queue, HashMap, Heap)
 

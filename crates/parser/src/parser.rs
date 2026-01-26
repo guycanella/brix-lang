@@ -215,6 +215,16 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
                 iterable: i,
                 body: Box::new(b),
             });
+
+        let import_stmt = just(Token::Import)
+            .ignore_then(select! { Token::Identifier(module) => module })
+            .then(
+                just(Token::As)
+                    .ignore_then(select! { Token::Identifier(alias) => alias })
+                    .or_not()
+            )
+            .map(|(module, alias)| Stmt::Import { module, alias });
+
         let printf_stmt = just(Token::Printf)
             .ignore_then(
                 select! { Token::String(s) => s }
@@ -254,6 +264,7 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
             .or(if_stmt)
             .or(while_stmt)
             .or(for_stmt)
+            .or(import_stmt)
             .or(printf_stmt)
             .or(print_stmt)
             .or(println_stmt)
@@ -337,25 +348,11 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
                 dimensions,
             });
 
-        let call = static_init
+        // IMPORTANT: index_or_field must come BEFORE call
+        // so that math.sin(x) parses as Call { FieldAccess { math, sin }, [x] }
+        // instead of FieldAccess { math, sin } with orphaned (x)
+        let index_or_field = static_init
             .or(atom.clone())
-            .then(
-                expr.clone()
-                    .separated_by(just(Token::Comma))
-                    .allow_trailing()
-                    .delimited_by(just(Token::LParen), just(Token::RParen))
-                    .or_not(),
-            )
-            .map(|(func, maybe_args)| match maybe_args {
-                Some(args) => Expr::Call {
-                    func: Box::new(func),
-                    args,
-                },
-                None => func,
-            });
-
-        let index_or_field = call
-            .clone()
             .then(
                 expr.clone()
                     .delimited_by(just(Token::LBracket), just(Token::RBracket))
@@ -386,8 +383,25 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
             })
             .boxed();
 
+        let call = index_or_field
+            .clone()
+            .then(
+                expr.clone()
+                    .separated_by(just(Token::Comma))
+                    .allow_trailing()
+                    .delimited_by(just(Token::LParen), just(Token::RParen))
+                    .or_not(),
+            )
+            .map(|(func, maybe_args)| match maybe_args {
+                Some(args) => Expr::Call {
+                    func: Box::new(func),
+                    args,
+                },
+                None => func,
+            });
+
         // Postfix increment/decrement (x++, x--)
-        let postfix_inc_dec = index_or_field
+        let postfix_inc_dec = call
             .clone()
             .then(
                 just(Token::PlusPlus)
