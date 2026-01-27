@@ -1,4 +1,4 @@
-use crate::ast::{BinaryOp, Expr, FStringPart, Literal, Program, Stmt, UnaryOp};
+use crate::ast::{BinaryOp, Expr, FStringPart, Literal, MatchArm, Pattern, Program, Stmt, UnaryOp};
 use chumsky::prelude::*;
 use lexer::token::Token;
 
@@ -409,6 +409,75 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
             Ok::<Expr, Simple<Token>>(Expr::FString { parts })
         });
 
+        // Pattern parser
+        let pattern = recursive(|_pat| {
+            // Literal patterns: 42, 3.14, "text", true, false
+            let literal_pattern = select! {
+                Token::Int(n) => Pattern::Literal(Literal::Int(n)),
+                Token::Float(s) => Pattern::Literal(Literal::Float(s.parse().unwrap())),
+                Token::String(s) => Pattern::Literal(Literal::String(s.trim_matches('"').to_string())),
+                Token::True => Pattern::Literal(Literal::Bool(true)),
+                Token::False => Pattern::Literal(Literal::Bool(false)),
+            };
+
+            // Wildcard pattern: _
+            let wildcard_pattern = select! {
+                Token::Identifier(s) if s == "_" => Pattern::Wildcard,
+            };
+
+            // Binding pattern: any identifier except "_"
+            let binding_pattern = select! {
+                Token::Identifier(s) if s != "_" => Pattern::Binding(s),
+            };
+
+            // Base pattern (literal, wildcard, or binding)
+            let base_pattern = literal_pattern
+                .or(wildcard_pattern)
+                .or(binding_pattern);
+
+            // Or pattern: pattern | pattern | pattern
+            base_pattern
+                .clone()
+                .separated_by(just(Token::Pipe))
+                .at_least(1)
+                .map(|patterns| {
+                    if patterns.len() == 1 {
+                        patterns.into_iter().next().unwrap()
+                    } else {
+                        Pattern::Or(patterns)
+                    }
+                })
+        });
+
+        // Match arm: pattern [if guard] -> expr
+        let match_arm = pattern
+            .then(
+                just(Token::If)
+                    .ignore_then(expr.clone())
+                    .or_not()
+            )
+            .then_ignore(just(Token::Arrow))
+            .then(expr.clone())
+            .map(|((pattern, guard), body)| MatchArm {
+                pattern,
+                guard: guard.map(Box::new),
+                body: Box::new(body),
+            });
+
+        // Match expression: match value { arms }
+        let match_expr = just(Token::Match)
+            .ignore_then(expr.clone())
+            .then(
+                match_arm
+                    .repeated()
+                    .at_least(1)
+                    .delimited_by(just(Token::LBrace), just(Token::RBrace))
+            )
+            .map(|(value, arms)| Expr::Match {
+                value: Box::new(value),
+                arms,
+            });
+
         // List comprehension: [expr for var in iterable if cond]
         let list_comp = just(Token::LBracket)
             .ignore_then(expr.clone())
@@ -451,9 +520,14 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
             .delimited_by(just(Token::LBracket), just(Token::RBracket))
             .map(Expr::Array);
 
-        let atom = val.or(fstring).or(list_comp).or(array_literal).or(expr
-            .clone()
-            .delimited_by(just(Token::LParen), just(Token::RParen)));
+        let atom = val
+            .or(fstring)
+            .or(match_expr)
+            .or(list_comp)
+            .or(array_literal)
+            .or(expr
+                .clone()
+                .delimited_by(just(Token::LParen), just(Token::RParen)));
 
         // Static initialization: int[5], float[2,3]
         // Must be tried BEFORE atom to avoid "int"/"float" being parsed as identifiers
