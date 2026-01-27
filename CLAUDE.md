@@ -95,7 +95,7 @@ The runtime is compiled to `runtime.o` and linked with each program automaticall
 
 ## Type System
 
-Brix has 7 core types (defined in `crates/codegen/src/lib.rs`):
+Brix has 9 core types (defined in `crates/codegen/src/lib.rs`):
 
 ```rust
 pub enum BrixType {
@@ -107,6 +107,8 @@ pub enum BrixType {
     FloatPtr,  // f64* (internal pointer type)
     Void,      // for functions with no return
     Tuple(Vec<BrixType>),  // Multiple return values (LLVM struct)
+    Complex,   // Complex struct (in runtime.c) - double real, double imag
+    ComplexMatrix, // ComplexMatrix struct (in runtime.c) - Complex* data
 }
 ```
 
@@ -430,7 +432,20 @@ typedef struct {
     long* data;    // 8 bytes (i64)
 } IntMatrix;
 
-// Future (v0.8+): For Text Data
+// For Complex Numbers (v1.0+)
+typedef struct {
+    double real;
+    double imag;
+} Complex;
+
+// For Complex Matrices (eigenvalues/eigenvectors)
+typedef struct {
+    long rows;
+    long cols;
+    Complex* data;  // Array of Complex structs
+} ComplexMatrix;
+
+// Future (v1.1+): For Text Data
 typedef struct {
     long rows;
     long cols;
@@ -800,6 +815,11 @@ Test files are `.bx` files in the root directory. Common test files include:
 - `match_typeof_test.bx`: Match on typeof(value)
 - `match_types_test.bx`: Type coercion (int→float promotion)
 
+**Complex Numbers & LAPACK (v1.0):**
+- `eigvals_simple_test.bx`: Eigenvalues of identity matrix
+- `eigvals_rotation_test.bx`: Complex eigenvalues (rotation, symmetric, diagonal matrices)
+- `eigvecs_test.bx`: Eigenvectors (5 different scenarios)
+
 Run tests individually:
 
 ```bash
@@ -815,7 +835,7 @@ cargo run <test_file.bx>
 **Completed:**
 
 - ✅ Compiler pipeline (Lexer → Parser → Codegen → Native binary)
-- ✅ 7 primitive types with automatic casting (Int, Float, String, Matrix, IntMatrix, FloatPtr, Void)
+- ✅ 9 primitive types with automatic casting (Int, Float, String, Matrix, IntMatrix, FloatPtr, Void, Complex, ComplexMatrix)
 - ✅ Arrays and matrices with 2D indexing
 - ✅ **IntMatrix type system** (v0.6):
   - Array literal type inference (all ints → IntMatrix, mixed → Matrix with promotion)
@@ -837,7 +857,12 @@ cargo run <test_file.bx>
 - ✅ Type conversion functions (int(), float(), string(), bool())
 - ✅ Runtime library (C) for matrix, intmatrix, and string operations
 - ✅ **Import system** (`import math`, `import math as m`)
-- ✅ **Math library** (36 functions + constants - see below)
+- ✅ **Math library** (38 functions + constants - see below)
+- ✅ **Complex Numbers** (v1.0):
+  - Complex struct with real and imag fields
+  - ComplexMatrix for eigenvalue/eigenvector results
+  - 2D matrix printing: `[[a+bi, c+di], [e+fi, g+hi]]`
+  - LAPACK integration for linear algebra
 - ✅ **User-defined functions** (v0.8):
   - Function definitions with `function` keyword
   - Single and multiple return values (tuples)
@@ -880,7 +905,7 @@ cargo run <test_file.bx>
 - ✅ Flat symbol table com prefixos
 - ✅ Auto-conversão Int→Float em funções math
 
-**Math Library - 36 itens implementados:**
+**Math Library - 38 itens implementados:**
 
 **21 Funções math.h** (via LLVM external declarations):
 - Trigonometria (7): `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`
@@ -900,11 +925,13 @@ cargo run <test_file.bx>
 - `math.std(arr)` - Desvio padrão
 - `math.variance(arr)` - Variância
 
-**4 Funções Álgebra Linear** (runtime.c):
+**6 Funções Álgebra Linear** (runtime.c + LAPACK):
 - `math.det(M)` - Determinante (Gaussian elimination)
 - `math.inv(M)` - Inversa de matriz (Gauss-Jordan)
 - `math.tr(M)` - Transposta
 - `math.eye(n)` - Matriz identidade n×n
+- `math.eigvals(A)` - Autovalores (LAPACK dgeev, retorna ComplexMatrix)
+- `math.eigvecs(A)` - Autovetores (LAPACK dgeev, retorna ComplexMatrix)
 
 **Exemplos de uso:**
 ```brix
@@ -935,10 +962,12 @@ var z := m.cos(0.0)                // 1.0
 - `physics_test.bx` - Simulação de física (projétil)
 - `stats_linalg_test.bx` - Estatísticas e álgebra linear
 - `eye_test.bx` - Matriz identidade
+- `eigvals_simple_test.bx` - Autovalores de matriz identidade
+- `eigvals_rotation_test.bx` - Autovalores complexos (rotação, simétrica, diagonal)
+- `eigvecs_test.bx` - Autovetores (5 cenários diferentes)
 
 **Adiado para versões futuras:**
-- ⏳ `eigvals/eigvecs` → v0.8+ (requer tipo Complex)
-- ⏳ Constantes físicas → v0.8+ (quando tivermos sistema de unidades)
+- ⏳ Constantes físicas → v1.1+ (quando tivermos sistema de unidades)
 - ⏳ Selective imports (`from math import sin`) → v0.7.1+
 
 ---
@@ -1205,26 +1234,122 @@ match typeof(value) {
 
 ---
 
-### 🎯 **PRÓXIMO PASSO: v1.0 - Advanced Features**
+### 🎯 **v1.0 - Advanced Features** ✅ **70% COMPLETO**
 
-- [x] Pattern matching (`match` syntax) ✅ **COMPLETO**
-- [ ] Closures and lambda functions
-- [ ] First-class functions
-- [ ] Complex numbers
-- [ ] User-defined modules
+- [x] Pattern matching (`match` syntax) ✅ **COMPLETO (27/01/2026)**
+- [x] Complex numbers & ComplexMatrix ✅ **COMPLETO (27/01/2026)**
+- [x] LAPACK integration (eigvals/eigvecs) ✅ **COMPLETO (27/01/2026)**
+- [ ] Closures and lambda functions ⏸️
+- [ ] First-class functions ⏸️
+- [ ] User-defined modules ⏸️
 
 ---
 
-## Current Limitations (v1.0 em progresso)
+### ✅ **v1.0 - Complex Numbers & LAPACK** ✅ **COMPLETO (27/01/2026)**
 
-- **No generics**: Only concrete types (int, float, string, matrix, tuple)
-- **Single-file compilation**: Multi-file imports not yet implemented (user modules coming in v1.0+)
+Sistema completo de números complexos e integração LAPACK para álgebra linear avançada.
+
+**Tipos Implementados:**
+
+1. **Complex (struct):**
+   - Campos: `double real`, `double imag`
+   - Usado internamente para cálculos
+
+2. **ComplexMatrix (struct):**
+   - Campos: `long rows`, `long cols`, `Complex* data`
+   - Retorno de `eigvals()` e `eigvecs()`
+
+**Funções LAPACK:**
+
+- **math.eigvals(A):** Calcula autovalores de matriz
+  - Input: Matrix (f64)
+  - Output: ComplexMatrix (n×1 vector)
+  - Usa LAPACK dgeev
+  - Exemplo: `var eigenvalues := math.eigvals(matrix)`
+
+- **math.eigvecs(A):** Calcula autovetores de matriz
+  - Input: Matrix (f64)
+  - Output: ComplexMatrix (n×n matrix)
+  - Autovetores nas colunas
+  - Usa LAPACK dgeev
+  - Exemplo: `var eigenvectors := math.eigvecs(matrix)`
+
+**Implementação Técnica:**
+
+1. **Runtime (runtime.c):**
+   - Structs Complex e ComplexMatrix
+   - Funções `brix_eigvals()` e `brix_eigvecs()`
+   - Conversão row-major → column-major para LAPACK
+   - Work array queries (two-pass LAPACK)
+   - Handling de complex conjugate pairs
+
+2. **Codegen:**
+   - `BrixType::Complex` e `BrixType::ComplexMatrix`
+   - `declare_eigen_function()` helper
+   - Return type detection para eigvals/eigvecs
+   - ComplexMatrix loading support
+   - **CRITICAL FIX:** eye() passa i64 direto sem conversão int→float
+
+3. **String Formatting (2D Matrix Printing):**
+   - ComplexMatrix imprime como `[[elem1, elem2], [elem3, elem4]]`
+   - Usa modulo arithmetic para detectar row boundaries
+   - Adiciona `[` no início de cada row
+   - Adiciona `]` no fim de cada row
+   - Adiciona `, ` entre rows
+   - Formato: `println(f"eigvecs = {eigvecs}")` → `[[1+0i, 0+0i], [0+0i, 1+0i]]`
+
+**Exemplos:**
+
+```brix
+import math
+
+// Identity matrix (autovalores reais)
+var I := math.eye(3)
+var eig_I := math.eigvals(I)
+println(f"Eigenvalues: {eig_I}")  // [1+0i, 1+0i, 1+0i]
+
+// Rotation matrix (autovalores complexos)
+var R := zeros(2, 2)
+R[0][1] = -1.0
+R[1][0] = 1.0
+var eig_R := math.eigvals(R)
+println(f"Eigenvalues: {eig_R}")  // [0+1i, 0-1i]
+
+// Eigenvectors
+var vecs := math.eigvecs(I)
+println(f"Eigenvectors: {vecs}")  // [[1+0i, 0+0i], [0+0i, 1+0i]]
+```
+
+**LAPACK Integration:**
+- Links com `-llapack -lblas` em main.rs
+- Usa `dgeev_` (double precision general eigenvalue)
+- Column-major format conversion
+- Complex eigenvector pair handling
+
+**Testes:**
+- `eigvals_simple_test.bx` - Matriz identidade ✅
+- `eigvals_rotation_test.bx` - Autovalores complexos (rotação, simétrica, diagonal) ✅
+- `eigvecs_test.bx` - Autovetores (5 cenários) ✅
+
+**Design Decisions:**
+- Autovalores sempre retornam ComplexMatrix (mesmo quando reais)
+- Autovetores como colunas da matriz (convenção matemática padrão)
+- Erro exit(1) para matrizes não-quadradas (futuro: Go-style (error, value) tuples)
+- 2D printing para legibilidade (nested array format)
+
+---
+
+## Current Limitations (v1.0 70% completo)
+
+- **No generics**: Only concrete types (int, float, string, matrix, complex, tuple)
+- **Single-file compilation**: Multi-file imports not yet implemented (user modules coming in v1.1+)
 - **No optimizations**: LLVM runs with `OptimizationLevel::None`
-- **No closures**: Functions are not first-class
-- **No structs**: User-defined types not implemented
-- **Basic error handling**: Parse errors shown via debug output
+- **No closures**: Functions are not first-class (v1.1+ planned)
+- **No structs**: User-defined types not implemented (v1.1+ planned)
+- **Basic error handling**: Parse errors shown via debug output; LAPACK errors use exit(1) instead of Go-style (error, value) tuples
 - **List comprehensions type inference**: Currently only returns Matrix (Float), IntMatrix support coming soon
 - **Pattern matching destructuring**: Only scalar patterns supported (no struct/tuple/array destructuring yet)
+- **Complex arithmetic**: Complex numbers exist but no +, -, *, / operators yet (only via LAPACK eigvals/eigvecs)
 
 ## Future Roadmap (from DOCUMENTATION.md)
 
@@ -1243,12 +1368,13 @@ match typeof(value) {
 ### Implementation Phases
 
 - ✅ v0.6: IntMatrix type, zeros/izeros, static initialization
-- ✅ v0.7: Import system, math library (36 functions + constants)
+- ✅ v0.7: Import system, math library (38 functions + constants)
 - ✅ v0.8: User-defined functions (single/multiple returns, destructuring, default values)
 - ✅ v0.9: List comprehensions, zip(), destructuring in for loops, array printing
-- 🚧 v1.0: Pattern matching ✅, closures ⏸️, complex numbers ⏸️, user-defined modules ⏸️ (60% complete)
-- v1.1: Generics, concurrency primitives
-- v1.2: Full standard library with data structures (Stack, Queue, HashMap, Heap)
+- 🚧 v1.0: Pattern matching ✅, complex numbers ✅, LAPACK integration ✅, closures ⏸️, user-defined modules ⏸️ (70% complete)
+- v1.1: Complex arithmetic operators, closures, first-class functions, user-defined modules
+- v1.2: Generics, concurrency primitives
+- v1.3: Full standard library with data structures (Stack, Queue, HashMap, Heap)
 
 ## Troubleshooting
 
