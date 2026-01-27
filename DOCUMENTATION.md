@@ -462,7 +462,7 @@ var lista := Node { val: 10, next: Node { val: 20, next: nil } }
 
 ## 10. Status do Desenvolvimento (Atualizado - Jan 2026)
 
-### 📊 Progresso Geral: v0.8 Completo (85% MVP Completo)
+### 📊 Progresso Geral: v0.9 Completo (90% MVP Completo)
 
 ---
 
@@ -526,6 +526,10 @@ var lista := Node { val: 10, next: Node { val: 20, next: nil } }
 - ✅ **For Loop - Iteração de Matriz:**
   - `for val in lista` (detecta tipo automaticamente)
   - Itera sobre arrays/matrizes linearmente
+- ✅ **For Loop - Destructuring (v0.9):**
+  - `for x, y in zip(a, b)` (múltiplas variáveis)
+  - Itera sobre linhas quando há múltiplas variáveis
+  - Funciona com Matrix e IntMatrix
 
 ### 6. Funções Built-in
 
@@ -549,6 +553,7 @@ var lista := Node { val: 10, next: Node { val: 20, next: nil } }
 **Data Structures:**
 - ✅ **matrix:** Construtor de matriz vazia (`matrix(rows, cols)`)
 - ✅ **read_csv:** Lê arquivo CSV como matriz (via runtime C)
+- ✅ **zip (v0.9):** Combina dois arrays em pares (`zip([1,2,3], [4,5,6])` → Matrix 3×2 com linhas [1,4], [2,5], [3,6])
 
 ### 7. Memória e Performance
 
@@ -640,11 +645,100 @@ println(power(5.0, 3.0)) // 125.0
 - `destructuring_ignore_test.bx` - Destructuring com `_` ✅
 - `default_values_test.bx` - Default parameters ✅
 
-**Futuro (v0.9+):**
+**Futuro (v1.0+):**
 - [ ] **Error Type:** `function divide(a, b) -> (float, error)` (requer null safety)
 - [ ] **Funções Variádicas:** `function sum(nums: ...int)`
 - [ ] **Closures:** `var fn := (x: int) -> int { return x * 2 }`
 - [ ] **First-class functions:** Passar funções como parâmetros
+
+---
+
+### ✅ **v0.9 - List Comprehensions & zip()** ✅ **COMPLETO (27/01/2026)**
+
+Sistema completo de list comprehensions estilo Python com nested loops, múltiplas condições e destructuring.
+
+**Core Features:**
+
+- [x] **zip() Built-in Function:** Combina dois arrays em pares ✅ **IMPLEMENTADO**
+  - 4 variantes type-safe: `brix_zip_ii`, `brix_zip_if`, `brix_zip_fi`, `brix_zip_ff`
+  - Retorna Matrix(n, 2) ou IntMatrix(n, 2)
+  - Usa comprimento mínimo quando arrays diferem
+  - Exemplo: `zip([1,2,3], [10,20,30])` → Matrix com linhas [1,10], [2,20], [3,30]
+
+- [x] **Destructuring em for loops:** Múltiplas variáveis ✅ **IMPLEMENTADO**
+  - Sintaxe: `for x, y in zip(a, b) { ... }`
+  - Itera sobre linhas quando há múltiplas variáveis
+  - Suporta Matrix e IntMatrix
+
+- [x] **List Comprehensions:** Sintaxe completa ✅ **IMPLEMENTADO**
+  - Básica: `[x * 2 for x in nums]`
+  - Com condição: `[x for x in nums if x > 10]`
+  - Múltiplas condições (AND): `[x for x in nums if c1 if c2]`
+  - Nested loops: `[x * y for x in a for y in b]`
+  - Com destructuring: `[x + y for x, y in zip(a, b)]`
+  - Loop order: esquerda→direita = outer→inner (Python-style)
+
+- [x] **Array Printing em f-strings:** Matrix/IntMatrix em strings ✅ **IMPLEMENTADO**
+  - `println(f"nums = {nums}")` → `nums = [1, 2, 3, 4, 5]`
+  - Funciona com `print()`, `println()`, e f-strings
+
+**Implementação Técnica:**
+- AST: `ListComprehension`, `ComprehensionGen` structs
+- Parser: sintaxe completa com generators aninhados
+- Codegen:
+  - `compile_list_comprehension()`: orquestra compilação
+  - `generate_comp_loop()`: gera loops recursivamente
+  - LLVM basic blocks para controle de fluxo
+  - Short-circuit evaluation para condições
+- Alocação híbrida: pré-aloca max size, preenche conforme condições, redimensiona ao final
+- Runtime: 4 funções zip em `runtime.c`
+- `value_to_string()`: estendido para Matrix/IntMatrix
+
+**Testes e Exemplos:**
+
+```brix
+// 1. Básico
+var nums := [1.0, 2.0, 3.0, 4.0, 5.0]
+var doubled := [x * 2.0 for x in nums]  // [2, 4, 6, 8, 10]
+
+// 2. Com condição
+var evens := [x for x in nums if int(x) % 2 == 0]  // [2, 4]
+
+// 3. Múltiplas condições
+var filtered := [x for x in nums if x > 2.0 if x < 5.0]  // [3, 4]
+
+// 4. Nested loops (produto cartesiano)
+var a := [1.0, 2.0]
+var b := [10.0, 20.0]
+var products := [x * y for x in a for y in b]  // [10, 20, 20, 40]
+
+// 5. Com zip e destructuring
+var sums := [x + y for x, y in zip(a, b)]  // [11, 22]
+
+// 6. Nested loops com condição
+var pairs := [x + y for x in a for y in b if x + y > 15.0]  // [21, 22]
+
+// 7. Array printing
+println(f"nums = {nums}")  // Output: nums = [1, 2, 3, 4, 5]
+```
+
+**Arquivos de Teste:**
+- `zip_test.bx` - zip() function ✅
+- `destructuring_for_test.bx` - Destructuring em for loops ✅
+- `list_comp_simple_test.bx` - Comprehension básica ✅
+- `list_comp_cond_test.bx` - Com condição ✅
+- `list_comp_advanced_test.bx` - Nested + múltiplas condições ✅
+- `list_comp_zip_test.bx` - Zip + destructuring ✅
+- `list_comp_test.bx` - Teste completo (4 cenários) ✅
+
+**Limitações Atuais:**
+- Type inference: sempre retorna Matrix (Float) - IntMatrix support planejado
+- Sem suporte a matrix comprehension 2D ainda: `[[i+j for j in 1:n] for i in 1:m]`
+
+**Futuro (v1.0+):**
+- [ ] **IntMatrix type inference:** Retornar IntMatrix quando expr é int
+- [ ] **Matrix Comprehension 2D:** Gerar matrizes 2D diretamente
+- [ ] **Generator expressions:** Lazy evaluation com `(x for x in nums)`
 
 ---
 
@@ -1176,9 +1270,11 @@ var produto := z * w
 
 **List Comprehension:**
 
-- [ ] **Básico:** `[x * 2 for x in nums]`
-- [ ] **Com Filtro:** `[x for x in nums if x > 10]`
-- [ ] **Matrix Comprehension:** `[[i + j for j in 1:n] for i in 1:m]`
+- [x] **Básico:** `[x * 2 for x in nums]` ✅ **v0.9 IMPLEMENTADO**
+- [x] **Com Filtro:** `[x for x in nums if x > 10]` ✅ **v0.9 IMPLEMENTADO**
+- [x] **Nested Loops:** `[x * y for x in a for y in b]` ✅ **v0.9 IMPLEMENTADO**
+- [x] **Com Destructuring:** `[x + y for x, y in zip(a, b)]` ✅ **v0.9 IMPLEMENTADO**
+- [ ] **Matrix Comprehension 2D:** `[[i + j for j in 1:n] for i in 1:m]`
 
 **Pipeline Operator (`|>`):**
 
