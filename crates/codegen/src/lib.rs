@@ -156,6 +156,18 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             .add_function(name, fn_type, Some(Linkage::External))
     }
 
+    // Eigenvalue functions: ComplexMatrix* function(Matrix*)
+    fn declare_eigen_function(&self, name: &str) -> inkwell::values::FunctionValue<'ctx> {
+        if let Some(fn_val) = self.module.get_function(name) {
+            return fn_val;
+        }
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        // ComplexMatrix* function(Matrix* A)
+        let fn_type = ptr_type.fn_type(&[ptr_type.into()], false);
+        self.module
+            .add_function(name, fn_type, Some(Linkage::External))
+    }
+
     fn register_math_functions(&mut self, prefix: &str) {
         // Trigonometric functions (7)
         self.declare_math_function_f64_f64("sin");
@@ -200,11 +212,13 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         self.declare_stats_function("brix_std");
         self.declare_stats_function("brix_variance");
 
-        // Linear algebra functions (4)
+        // Linear algebra functions (6)
         self.declare_stats_function("brix_det"); // det returns f64
         self.declare_linalg_function("brix_tr"); // tr returns Matrix*
         self.declare_linalg_function("brix_inv"); // inv returns Matrix*
         self.declare_matrix_constructor("brix_eye"); // eye(n) returns Matrix*
+        self.declare_eigen_function("brix_eigvals"); // eigvals returns ComplexMatrix*
+        self.declare_eigen_function("brix_eigvecs"); // eigvecs returns ComplexMatrix*
 
         // Register math constants as variables
         self.register_math_constants(prefix);
@@ -554,6 +568,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         BrixType::String
                         | BrixType::Matrix
                         | BrixType::IntMatrix
+                        | BrixType::ComplexMatrix
                         | BrixType::FloatPtr => {
                             self.context.ptr_type(AddressSpace::default()).into()
                         }
@@ -1487,6 +1502,14 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             .unwrap();
                         Some((val, BrixType::IntMatrix))
                     }
+                    BrixType::ComplexMatrix => {
+                        // Load the pointer to the complexmatrix struct
+                        let val = self
+                            .builder
+                            .build_load(self.context.ptr_type(AddressSpace::default()), *ptr, name)
+                            .unwrap();
+                        Some((val, BrixType::ComplexMatrix))
+                    }
                     BrixType::Tuple(types) => {
                         // Load the tuple struct
                         let struct_type = self.brix_type_to_llvm(&BrixType::Tuple(types.clone()));
@@ -1972,6 +1995,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                 // For stats/linalg functions, pass Matrix* directly
                                 if arg_type == BrixType::Matrix || arg_type == BrixType::IntMatrix {
                                     llvm_args.push(arg_val.into());
+                                } else if fn_name == "eye" {
+                                    // eye(n) expects i64, don't convert to float
+                                    llvm_args.push(arg_val.into());
                                 } else {
                                     // Auto-convert Int to Float for regular math functions
                                     let final_val = if arg_type == BrixType::Int {
@@ -2003,6 +2029,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             // Determine return type based on function name
                             let return_type = if fn_name == "tr" || fn_name == "inv" || fn_name == "eye" {
                                 BrixType::Matrix
+                            } else if fn_name == "eigvals" || fn_name == "eigvecs" {
+                                BrixType::ComplexMatrix
                             } else {
                                 BrixType::Float
                             };
@@ -3632,6 +3660,220 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     .unwrap();
 
                 Some(brix_string)
+            }
+
+            BrixType::ComplexMatrix => {
+                // Convert ComplexMatrix to string format: [3+4i, 1-2i, 5+0i]
+                let matrix_ptr = val.into_pointer_value();
+                let ptr_type = self.context.ptr_type(AddressSpace::default());
+                let i64_type = self.context.i64_type();
+
+                // Get ComplexMatrix struct type (rows, cols, Complex* data)
+                let complexmatrix_type = self.context.struct_type(&[
+                    i64_type.into(),
+                    i64_type.into(),
+                    ptr_type.into(),
+                ], false);
+
+                // Load dimensions
+                let (rows, cols) = {
+                    let rows_ptr = self.builder.build_struct_gep(complexmatrix_type, matrix_ptr, 0, "rows_ptr").unwrap();
+                    let rows = self.builder.build_load(i64_type, rows_ptr, "rows").unwrap().into_int_value();
+
+                    let cols_ptr = self.builder.build_struct_gep(complexmatrix_type, matrix_ptr, 1, "cols_ptr").unwrap();
+                    let cols = self.builder.build_load(i64_type, cols_ptr, "cols").unwrap().into_int_value();
+
+                    (rows, cols)
+                };
+
+                // Load data pointer (Complex*)
+                let data_ptr = {
+                    let data_ptr_ptr = self.builder.build_struct_gep(complexmatrix_type, matrix_ptr, 2, "data_ptr_ptr").unwrap();
+                    self.builder.build_load(ptr_type, data_ptr_ptr, "data_ptr")
+                        .unwrap().into_pointer_value()
+                };
+
+                // Create initial string "["
+                let str_new_fn = if let Some(func) = self.module.get_function("str_new") {
+                    func
+                } else {
+                    let fn_type = ptr_type.fn_type(&[ptr_type.into()], false);
+                    self.module.add_function("str_new", fn_type, Some(Linkage::External))
+                };
+
+                let open_bracket = self.builder.build_global_string_ptr("[", "open_bracket").unwrap();
+                let result_alloca = self.create_entry_block_alloca(ptr_type.into(), "cmatrix_str");
+                let initial_str = self.builder.build_call(str_new_fn, &[open_bracket.as_pointer_value().into()], "init_str")
+                    .unwrap().try_as_basic_value().left().unwrap();
+                self.builder.build_store(result_alloca, initial_str).unwrap();
+
+                // Calculate total length
+                let total_len = self.builder.build_int_mul(rows, cols, "total_len").unwrap();
+
+                // Get complex_to_string function
+                let f64_type = self.context.f64_type();
+                let complex_type = self.context.struct_type(&[f64_type.into(), f64_type.into()], false);
+                let complex_to_string_fn = if let Some(func) = self.module.get_function("complex_to_string") {
+                    func
+                } else {
+                    let fn_type = ptr_type.fn_type(&[complex_type.into()], false);
+                    self.module.add_function("complex_to_string", fn_type, Some(Linkage::External))
+                };
+
+                // Get str_concat function
+                let str_concat_fn = if let Some(func) = self.module.get_function("str_concat") {
+                    func
+                } else {
+                    let fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+                    self.module.add_function("str_concat", fn_type, Some(Linkage::External))
+                };
+
+                // Loop through elements
+                let parent_fn = self.builder.get_insert_block().unwrap().get_parent().unwrap();
+                let loop_cond = self.context.append_basic_block(parent_fn, "cmatrix_str_cond");
+                let loop_body = self.context.append_basic_block(parent_fn, "cmatrix_str_body");
+                let loop_after = self.context.append_basic_block(parent_fn, "cmatrix_str_after");
+
+                let idx_alloca = self.create_entry_block_alloca(i64_type.into(), "cmatrix_idx");
+                self.builder.build_store(idx_alloca, i64_type.const_int(0, false)).unwrap();
+                self.builder.build_unconditional_branch(loop_cond).unwrap();
+
+                // Condition: idx < total_len
+                self.builder.position_at_end(loop_cond);
+                let idx = self.builder.build_load(i64_type, idx_alloca, "idx").unwrap().into_int_value();
+                let cond = self.builder.build_int_compare(IntPredicate::SLT, idx, total_len, "cond").unwrap();
+                self.builder.build_conditional_branch(cond, loop_body, loop_after).unwrap();
+
+                // Body: append element
+                self.builder.position_at_end(loop_body);
+
+                // Check if we're at the start of a new row (idx % cols == 0)
+                let col_pos = self.builder.build_int_unsigned_rem(idx, cols, "col_pos").unwrap();
+                let is_row_start = self.builder.build_int_compare(
+                    IntPredicate::EQ,
+                    col_pos,
+                    i64_type.const_int(0, false),
+                    "is_row_start"
+                ).unwrap();
+
+                // If start of row, add "["
+                let after_row_start_bb = self.context.append_basic_block(parent_fn, "after_row_start");
+                let add_row_start_bb = self.context.append_basic_block(parent_fn, "add_row_start");
+                self.builder.build_conditional_branch(is_row_start, add_row_start_bb, after_row_start_bb).unwrap();
+
+                self.builder.position_at_end(add_row_start_bb);
+                let current_with_row_bracket = self.builder.build_load(ptr_type, result_alloca, "current_str_2").unwrap();
+                let row_open = self.builder.build_global_string_ptr("[", "row_open").unwrap();
+                let row_open_brix = self.builder.build_call(str_new_fn, &[row_open.as_pointer_value().into()], "row_open_brix")
+                    .unwrap().try_as_basic_value().left().unwrap();
+                let with_row_open = self.builder.build_call(str_concat_fn, &[current_with_row_bracket.into(), row_open_brix.into()], "with_row_open")
+                    .unwrap().try_as_basic_value().left().unwrap();
+                self.builder.build_store(result_alloca, with_row_open).unwrap();
+                self.builder.build_unconditional_branch(after_row_start_bb).unwrap();
+
+                self.builder.position_at_end(after_row_start_bb);
+                let current_str = self.builder.build_load(ptr_type, result_alloca, "current_str_3").unwrap();
+
+                // Load Complex element (struct with 2 f64s)
+                let complex_elem = unsafe {
+                    let elem_ptr = self.builder.build_gep(complex_type, data_ptr, &[idx], "elem_ptr").unwrap();
+                    self.builder.build_load(complex_type, elem_ptr, "complex_elem").unwrap()
+                };
+
+                // Convert Complex to C string
+                let c_str = self.builder
+                    .build_call(complex_to_string_fn, &[complex_elem.into()], "complex_c_str")
+                    .unwrap()
+                    .try_as_basic_value()
+                    .left()
+                    .unwrap()
+                    .into_pointer_value();
+
+                // Convert C string to BrixString
+                let elem_str = self.builder
+                    .build_call(str_new_fn, &[c_str.into()], "elem_brix_str")
+                    .unwrap()
+                    .try_as_basic_value()
+                    .left()
+                    .unwrap();
+
+                // Concatenate element
+                let concatenated = self.builder.build_call(str_concat_fn, &[current_str.into(), elem_str.into()], "concat")
+                    .unwrap().try_as_basic_value().left().unwrap();
+                self.builder.build_store(result_alloca, concatenated).unwrap();
+
+                // Determine what to add after element: ", " or "]" or "], "
+                let next_idx = self.builder.build_int_add(idx, i64_type.const_int(1, false), "next_idx").unwrap();
+                let is_last_elem = self.builder.build_int_compare(IntPredicate::EQ, next_idx, total_len, "is_last_elem").unwrap();
+
+                // Check if we're at end of row (next_idx % cols == 0)
+                let next_col_pos = self.builder.build_int_unsigned_rem(next_idx, cols, "next_col_pos").unwrap();
+                let is_row_end = self.builder.build_int_compare(
+                    IntPredicate::EQ,
+                    next_col_pos,
+                    i64_type.const_int(0, false),
+                    "is_row_end"
+                ).unwrap();
+
+                let add_separator_bb = self.context.append_basic_block(parent_fn, "add_separator");
+                let continue_bb = self.context.append_basic_block(parent_fn, "continue_loop");
+
+                // Skip separator if it's the very last element
+                self.builder.build_conditional_branch(is_last_elem, continue_bb, add_separator_bb).unwrap();
+
+                // Add separator ("]" or "], " or ", ")
+                self.builder.position_at_end(add_separator_bb);
+
+                let row_end_bb = self.context.append_basic_block(parent_fn, "row_end");
+                let elem_comma_bb = self.context.append_basic_block(parent_fn, "elem_comma");
+                self.builder.build_conditional_branch(is_row_end, row_end_bb, elem_comma_bb).unwrap();
+
+                // End of row: add "]" and maybe ", "
+                self.builder.position_at_end(row_end_bb);
+                let current_for_row_end = self.builder.build_load(ptr_type, result_alloca, "current_for_row_end").unwrap();
+                let row_close = self.builder.build_global_string_ptr("]", "row_close").unwrap();
+                let row_close_brix = self.builder.build_call(str_new_fn, &[row_close.as_pointer_value().into()], "row_close_brix")
+                    .unwrap().try_as_basic_value().left().unwrap();
+                let with_row_close = self.builder.build_call(str_concat_fn, &[current_for_row_end.into(), row_close_brix.into()], "with_row_close")
+                    .unwrap().try_as_basic_value().left().unwrap();
+                self.builder.build_store(result_alloca, with_row_close).unwrap();
+
+                // Add ", " between rows if not last row
+                let current_after_bracket = self.builder.build_load(ptr_type, result_alloca, "current_after_bracket").unwrap();
+                let comma_str = self.builder.build_global_string_ptr(", ", "comma").unwrap();
+                let comma_brix = self.builder.build_call(str_new_fn, &[comma_str.as_pointer_value().into()], "comma_brix")
+                    .unwrap().try_as_basic_value().left().unwrap();
+                let with_comma = self.builder.build_call(str_concat_fn, &[current_after_bracket.into(), comma_brix.into()], "with_comma")
+                    .unwrap().try_as_basic_value().left().unwrap();
+                self.builder.build_store(result_alloca, with_comma).unwrap();
+                self.builder.build_unconditional_branch(continue_bb).unwrap();
+
+                // Not end of row: just add ", "
+                self.builder.position_at_end(elem_comma_bb);
+                let current_for_comma = self.builder.build_load(ptr_type, result_alloca, "current_for_comma").unwrap();
+                let elem_comma = self.builder.build_global_string_ptr(", ", "elem_comma").unwrap();
+                let elem_comma_brix = self.builder.build_call(str_new_fn, &[elem_comma.as_pointer_value().into()], "elem_comma_brix")
+                    .unwrap().try_as_basic_value().left().unwrap();
+                let with_elem_comma = self.builder.build_call(str_concat_fn, &[current_for_comma.into(), elem_comma_brix.into()], "with_elem_comma")
+                    .unwrap().try_as_basic_value().left().unwrap();
+                self.builder.build_store(result_alloca, with_elem_comma).unwrap();
+                self.builder.build_unconditional_branch(continue_bb).unwrap();
+
+                // Continue: increment and loop
+                self.builder.position_at_end(continue_bb);
+                self.builder.build_store(idx_alloca, next_idx).unwrap();
+                self.builder.build_unconditional_branch(loop_cond).unwrap();
+
+                // After loop: append "]"
+                self.builder.position_at_end(loop_after);
+                let final_result = self.builder.build_load(ptr_type, result_alloca, "final_result").unwrap();
+                let close_bracket = self.builder.build_global_string_ptr("]", "close_bracket").unwrap();
+                let close_brix = self.builder.build_call(str_new_fn, &[close_bracket.as_pointer_value().into()], "close_brix")
+                    .unwrap().try_as_basic_value().left().unwrap();
+                let final_str = self.builder.build_call(str_concat_fn, &[final_result.into(), close_brix.into()], "final_str")
+                    .unwrap().try_as_basic_value().left().unwrap();
+
+                Some(final_str)
             }
 
             _ => {

@@ -285,6 +285,194 @@ IntMatrix *intmatrix_new(long rows, long cols) {
 }
 
 // ==========================================
+// SECTION 1.6: COMPLEXMATRIX (v1.0)
+// ==========================================
+
+typedef struct {
+  long rows;
+  long cols;
+  Complex *data;  // Array of Complex structs
+} ComplexMatrix;
+
+ComplexMatrix *complexmatrix_new(long rows, long cols) {
+  ComplexMatrix *m = (ComplexMatrix *)malloc(sizeof(ComplexMatrix));
+  m->rows = rows;
+  m->cols = cols;
+  m->data = (Complex *)calloc(rows * cols, sizeof(Complex));  // calloc zeros memory
+  return m;
+}
+
+// ==========================================
+// SECTION 1.7: LINEAR ALGEBRA - LAPACK (v1.0)
+// ==========================================
+
+// Helper: Convert Matrix to column-major format for LAPACK
+void matrix_to_colmajor(Matrix *m, double *output) {
+  for (long j = 0; j < m->cols; j++) {
+    for (long i = 0; i < m->rows; i++) {
+      output[j * m->rows + i] = m->data[i * m->cols + j];
+    }
+  }
+}
+
+// LAPACK eigenvalue computation wrapper
+// Returns ComplexMatrix with shape (n, 1) containing eigenvalues
+ComplexMatrix *brix_eigvals(Matrix *A) {
+  if (A->rows != A->cols) {
+    fprintf(stderr, "Error: eigvals() requires square matrix\n");
+    exit(1);
+  }
+
+  long n = A->rows;
+
+  // Convert to column-major format (LAPACK requirement)
+  double *a = (double *)malloc(n * n * sizeof(double));
+  matrix_to_colmajor(A, a);
+
+  // Allocate output arrays
+  double *wr = (double *)malloc(n * sizeof(double));  // Real parts
+  double *wi = (double *)malloc(n * sizeof(double));  // Imaginary parts
+
+  // Dummy arrays for eigenvectors (not computed)
+  double vl_dummy = 0;
+  double vr_dummy = 0;
+
+  // Call LAPACK dgeev
+  // Parameters: jobvl, jobvr, n, a, lda, wr, wi, vl, ldvl, vr, ldvr
+  int info;
+  char jobvl = 'N';  // Don't compute left eigenvectors
+  char jobvr = 'N';  // Don't compute right eigenvectors
+  int n_int = (int)n;
+
+  // External LAPACK declaration
+  extern void dgeev_(char *jobvl, char *jobvr, int *n, double *a, int *lda,
+                     double *wr, double *wi, double *vl, int *ldvl,
+                     double *vr, int *ldvr, double *work, int *lwork, int *info);
+
+  // Query optimal work array size
+  double work_query;
+  int lwork = -1;
+  dgeev_(&jobvl, &jobvr, &n_int, a, &n_int, wr, wi, &vl_dummy, &n_int,
+         &vr_dummy, &n_int, &work_query, &lwork, &info);
+
+  lwork = (int)work_query;
+  double *work = (double *)malloc(lwork * sizeof(double));
+
+  // Compute eigenvalues
+  dgeev_(&jobvl, &jobvr, &n_int, a, &n_int, wr, wi, &vl_dummy, &n_int,
+         &vr_dummy, &n_int, work, &lwork, &info);
+
+  if (info != 0) {
+    fprintf(stderr, "Error: LAPACK dgeev failed with info=%d\n", info);
+    exit(1);
+  }
+
+  // Create ComplexMatrix result (n x 1)
+  ComplexMatrix *result = complexmatrix_new(n, 1);
+  for (long i = 0; i < n; i++) {
+    result->data[i].real = wr[i];
+    result->data[i].imag = wi[i];
+  }
+
+  // Cleanup
+  free(a);
+  free(wr);
+  free(wi);
+  free(work);
+
+  return result;
+}
+
+// LAPACK eigenvector computation wrapper
+// Returns ComplexMatrix with shape (n, n) containing eigenvectors as columns
+ComplexMatrix *brix_eigvecs(Matrix *A) {
+  if (A->rows != A->cols) {
+    fprintf(stderr, "Error: eigvecs() requires square matrix\n");
+    exit(1);
+  }
+
+  long n = A->rows;
+
+  // Convert to column-major format
+  double *a = (double *)malloc(n * n * sizeof(double));
+  matrix_to_colmajor(A, a);
+
+  // Allocate output arrays
+  double *wr = (double *)malloc(n * sizeof(double));  // Real parts of eigenvalues
+  double *wi = (double *)malloc(n * sizeof(double));  // Imaginary parts of eigenvalues
+  double *vr = (double *)malloc(n * n * sizeof(double));  // Right eigenvectors
+
+  // Dummy for left eigenvectors
+  double vl_dummy = 0;
+
+  // Call LAPACK dgeev
+  int info;
+  char jobvl = 'N';  // Don't compute left eigenvectors
+  char jobvr = 'V';  // Compute right eigenvectors
+  int n_int = (int)n;
+
+  extern void dgeev_(char *jobvl, char *jobvr, int *n, double *a, int *lda,
+                     double *wr, double *wi, double *vl, int *ldvl,
+                     double *vr, int *ldvr, double *work, int *lwork, int *info);
+
+  // Query optimal work array size
+  double work_query;
+  int lwork = -1;
+  dgeev_(&jobvl, &jobvr, &n_int, a, &n_int, wr, wi, &vl_dummy, &n_int,
+         vr, &n_int, &work_query, &lwork, &info);
+
+  lwork = (int)work_query;
+  double *work = (double *)malloc(lwork * sizeof(double));
+
+  // Compute eigenvectors
+  dgeev_(&jobvl, &jobvr, &n_int, a, &n_int, wr, wi, &vl_dummy, &n_int,
+         vr, &n_int, work, &lwork, &info);
+
+  if (info != 0) {
+    fprintf(stderr, "Error: LAPACK dgeev failed with info=%d\n", info);
+    exit(1);
+  }
+
+  // Create ComplexMatrix result (n x n)
+  // LAPACK stores eigenvectors in columns
+  ComplexMatrix *result = complexmatrix_new(n, n);
+
+  long col = 0;
+  while (col < n) {
+    if (wi[col] == 0.0) {
+      // Real eigenvalue - eigenvector is real
+      for (long row = 0; row < n; row++) {
+        result->data[row * n + col].real = vr[col * n + row];
+        result->data[row * n + col].imag = 0.0;
+      }
+      col++;
+    } else {
+      // Complex conjugate pair of eigenvalues
+      // LAPACK stores: v[col] = real part, v[col+1] = imaginary part
+      for (long row = 0; row < n; row++) {
+        // First eigenvector: real + i*imag
+        result->data[row * n + col].real = vr[col * n + row];
+        result->data[row * n + col].imag = vr[(col + 1) * n + row];
+
+        // Second eigenvector: real - i*imag (complex conjugate)
+        result->data[row * n + (col + 1)].real = vr[col * n + row];
+        result->data[row * n + (col + 1)].imag = -vr[(col + 1) * n + row];
+      }
+      col += 2;
+    }
+  }
+
+  // Cleanup
+  free(a);
+  free(wr);
+  free(wi);
+  free(vr);
+  free(work);
+
+  return result;
+}
+
+// ==========================================
 // SECTION 2: STRINGS (v0.4)
 // ==========================================
 
