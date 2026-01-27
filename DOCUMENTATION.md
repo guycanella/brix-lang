@@ -236,18 +236,81 @@ Estruturas de dados essenciais vêm "na caixa", implementadas sobre Arrays para 
 
 ## 4. Controle de Fluxo
 
-### Pattern Matching (Influência: Elixir/Rust)
+### ✅ Pattern Matching (v1.0 - Implementado - 27/01/2026)
 
-Substitui `switch/case` complexos. Permite desestruturação.
+Pattern matching em Brix substitui `switch/case` complexos com uma sintaxe poderosa e segura.
 
-```
-when response {
-    { status: 200, body: b } -> print("Sucesso: " + b),
-    { status: 404 }          -> print("Não encontrado"),
-    { status: s } if s > 500 -> print("Erro de servidor"),
-    _                        -> print("Erro desconhecido")
+**Sintaxe:**
+```brix
+match value {
+    pattern -> expression
+    pattern if guard -> expression
+    pattern1 | pattern2 -> expression
+    _ -> expression
 }
 ```
+
+**Patterns Suportados (v1.0):**
+
+- **Literais**: `42`, `3.14`, `"text"`, `true`, `false`
+- **Wildcard**: `_` (matches anything, ignora valor)
+- **Binding**: `x` (captura valor e vincula a variável)
+- **Or-patterns**: `1 | 2 | 3` (match em qualquer um dos valores)
+- **Guards**: `x if x > 10` (condições adicionais)
+
+**Exemplos:**
+
+```brix
+// Match básico com literais
+var result := match x {
+    1 -> "one"
+    2 -> "two"
+    3 -> "three"
+    _ -> "other"
+}
+
+// Match com guards (condições)
+var category := match age {
+    x if x < 18 -> "child"
+    x if x < 60 -> "adult"
+    _ -> "senior"
+}
+
+// Or-patterns (múltiplos valores)
+var day_type := match day {
+    1 | 2 | 3 | 4 | 5 -> "weekday"
+    6 | 7 -> "weekend"
+    _ -> "invalid"
+}
+
+// Type coercion automática (int→float)
+var num := match x {
+    1 -> 10      // int
+    2 -> 20.5    // float (promove arm 1 para float)
+    _ -> 0.0
+}  // num: float
+
+// Match em typeof()
+match typeof(value) {
+    "int" -> println("integer")
+    "float" -> println("float")
+    "string" -> println("string")
+    _ -> println("other")
+}
+```
+
+**Características:**
+
+- **Match como expressão**: Retorna valor que pode ser atribuído
+- **Type checking**: Todos os arms devem retornar tipos compatíveis
+- **Type coercion**: Promoção automática int→float quando necessário
+- **Exhaustiveness warning**: Warning (não bloqueia) quando falta wildcard
+- **Guards**: Binding disponível dentro do guard
+
+**Futuro (v1.1+):**
+- Destructuring patterns: `{ x: x, y: y }`, `(a, b, c)`, `[first, second, ...]`
+- Range patterns: `1..10`
+- Exhaustiveness checking obrigatório
 
 ### Loops (Híbrido C/Go/Java)
 
@@ -1242,24 +1305,62 @@ var produto := z * w
 
 ---
 
-### 🎭 **v0.10 - Pattern Matching e Programação Funcional**
+### 🎭 **v1.0 - Pattern Matching** ✅ **COMPLETO (27/01/2026)**
 
-#### Pattern Matching
+#### Pattern Matching Fase 1 (Scalar Patterns) ✅
 
 **Substituir switch/case complexos:**
 
-- [ ] **Match Básico:**
+- [x] **Match Básico (literais):**
   ```brix
-  when response {
-      { status: 200 } -> print("OK"),
-      { status: 404 } -> print("Not Found"),
-      _ -> print("Other")
+  match x {
+      1 -> "one"
+      2 -> "two"
+      _ -> "other"
   }
   ```
-- [ ] **Guards (Condições):** `{ status: s } if s > 500 -> ...`
-- [ ] **Desestruturação:** Extrair campos de structs no match
+- [x] **Wildcard:** `_` (matches anything)
+- [x] **Binding:** `x` (captura valor)
+- [x] **Or-patterns:** `1 | 2 | 3`
+- [x] **Guards (Condições):** `x if x > 10 -> ...`
+- [x] **Type coercion:** int→float automático
+- [x] **Match em typeof():** `match typeof(value) { "int" -> ... }`
+- [x] **Exhaustiveness warning**
 
-#### Programação Funcional
+#### Pattern Matching Fase 2 (Destructuring) - v1.1+
+
+- [ ] **Struct patterns:** `{ status: 200, body: b } -> ...`
+- [ ] **Tuple patterns:** `(a, b, c) -> ...`
+- [ ] **Array patterns:** `[first, second, ...rest] -> ...`
+- [ ] **Range patterns:** `1..10 -> ...`
+- [ ] **Exhaustiveness checking obrigatório**
+
+---
+
+### 🧩 **v1.0 - Closures e Funções Avançadas** (PRÓXIMO)
+
+#### Closures e Lambda Functions
+
+- [ ] **Closures básicas:** `var double := (x) -> x * 2`
+- [ ] **Capture de variáveis:** Acesso a variáveis do escopo externo
+- [ ] **First-class functions:** Passar funções como argumentos
+- [ ] **Higher-order functions:** Funções que retornam funções
+
+#### Complex Numbers
+
+- [ ] **Tipo nativo Complex:** `var z := 3.0 + 4.0im`
+- [ ] **Operadores aritméticos:** `+`, `-`, `*`, `/`
+- [ ] **Funções math:** `abs()`, `angle()`, `conjugate()`
+
+#### User-Defined Modules
+
+- [ ] **Sintaxe de módulo:** `module mymod { ... }`
+- [ ] **Export/import:** `export function foo()`, `import mymod`
+- [ ] **Multi-file compilation**
+
+---
+
+### 🔧 **v1.1 - Programação Funcional Avançada**
 
 **Iteradores:**
 
@@ -1268,7 +1369,7 @@ var produto := z * w
 - [ ] **reduce:** `nums.reduce(0, (acc, x) -> acc + x)`
 - [ ] **Lazy Evaluation:** Não processar até consumir resultado
 
-**List Comprehension:**
+**List Comprehension Avançada:**
 
 - [x] **Básico:** `[x * 2 for x in nums]` ✅ **v0.9 IMPLEMENTADO**
 - [x] **Com Filtro:** `[x for x in nums if x > 10]` ✅ **v0.9 IMPLEMENTADO**
@@ -1285,7 +1386,7 @@ var produto := z * w
 
 ---
 
-### 📚 **v1.0 - Standard Library (Stdlib)**
+### 📚 **v1.2 - Standard Library (Stdlib)**
 
 **Estruturas de Dados Nativas:**
 
@@ -1313,7 +1414,7 @@ var produto := z * w
 
 ---
 
-### 🚀 **v1.1 - Concorrência e Paralelismo**
+### 🚀 **v1.3 - Concorrência e Paralelismo**
 
 **Paralelismo de Dados:**
 

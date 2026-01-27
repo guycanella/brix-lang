@@ -793,6 +793,13 @@ Test files are `.bx` files in the root directory. Common test files include:
 - `list_comp_zip_test.bx`: List comprehension with zip and destructuring
 - `list_comp_test.bx`: Comprehensive test (all 4 scenarios)
 
+**Pattern Matching (v1.0):**
+- `match_basic_test.bx`: Literal patterns (int, float, string, bool) and wildcard
+- `match_guard_test.bx`: Guards with if conditions
+- `match_or_test.bx`: Or-patterns (multiple values with |)
+- `match_typeof_test.bx`: Match on typeof(value)
+- `match_types_test.bx`: Type coercion (int→float promotion)
+
 Run tests individually:
 
 ```bash
@@ -801,9 +808,9 @@ cargo run <test_file.bx>
 
 **Note:** The compiler generates intermediate files (`runtime.o`, `output.o`) and an executable `program` in the project root during compilation.
 
-## Project Status (v0.9 - Jan 2026)
+## Project Status (v1.0 em progresso - Jan 2026)
 
-### Progress: 90% MVP Complete
+### Progress: 92% MVP Complete
 
 **Completed:**
 
@@ -853,6 +860,16 @@ cargo run <test_file.bx>
 - ✅ **Array printing in f-strings** (v0.9):
   - `println(f"nums = {nums}")` → `nums = [1, 2, 3, 4, 5]`
   - Works for Matrix and IntMatrix
+- ✅ **Pattern Matching** (v1.0):
+  - Match expressions: `match value { pattern -> expr }`
+  - Literal patterns: int, float, string, bool
+  - Wildcard: `_`
+  - Binding: `x` (captures value)
+  - Or-patterns: `1 | 2 | 3`
+  - Guards: `x if x > 10`
+  - Type coercion: int→float automatic promotion
+  - Exhaustiveness warning
+  - Match on typeof(): `match typeof(value) { "int" -> ... }`
 
 ### ✅ **v0.7 - Import System + Math Library (COMPLETO - 26/01/2026)**
 
@@ -1082,9 +1099,115 @@ var z := m.cos(0.0)                // 1.0
 
 ---
 
-### 🎯 **PRÓXIMO PASSO: v1.0 - Pattern Matching & Advanced Features**
+### ✅ **v1.0 - Pattern Matching** ✅ **COMPLETO (27/01/2026)**
 
-- [ ] Pattern matching (`when` syntax)
+Sistema completo de pattern matching com guards, or-patterns, e type coercion.
+
+**Sintaxe:**
+```brix
+match value {
+    pattern -> expression
+    pattern if guard -> expression
+    pattern1 | pattern2 -> expression
+    _ -> expression
+}
+```
+
+**Features Implementadas:**
+
+1. **Match como Expressão:**
+   - Retorna valor: `var result := match x { ... }`
+   - Todos os arms devem retornar tipos compatíveis
+   - Type coercion automática (int→float)
+
+2. **Patterns Suportados:**
+   - **Literais**: `42`, `3.14`, `"text"`, `true`, `false`
+   - **Wildcard**: `_` (matches anything)
+   - **Binding**: `x` (captures value and binds to variable)
+   - **Or-patterns**: `1 | 2 | 3` (matches any of the values)
+
+3. **Guards:**
+   - Condições com `if`: `x if x > 10`
+   - Binding disponível no guard
+   - Exemplo: `n if n > 0 && n < 100`
+
+4. **Type Checking:**
+   - Todos os arms devem retornar tipos compatíveis
+   - Promoção automática int→float quando necessário
+   - Erro de compilação para tipos incompatíveis (string + int)
+
+5. **Exhaustiveness Warning:**
+   - Warning (não bloqueia) quando falta wildcard
+   - Sugere adicionar `_ -> ...`
+
+6. **Match em typeof():**
+   - Pattern matching em tipos: `match typeof(value) { "int" -> ... }`
+
+**Exemplos:**
+
+```brix
+// Básico
+var result := match x {
+    1 -> "one"
+    2 -> "two"
+    3 -> "three"
+    _ -> "other"
+}
+
+// Com guards
+var category := match age {
+    x if x < 18 -> "child"
+    x if x < 60 -> "adult"
+    _ -> "senior"
+}
+
+// Or-patterns
+var day_type := match day {
+    1 | 2 | 3 | 4 | 5 -> "weekday"
+    6 | 7 -> "weekend"
+    _ -> "invalid"
+}
+
+// Type coercion (int→float)
+var num := match x {
+    1 -> 10      // int
+    2 -> 20.5    // float (promotes arm 1 to float)
+    _ -> 0.0
+}  // num: float
+
+// Match em typeof()
+match typeof(value) {
+    "int" -> println("integer")
+    "float" -> println("float")
+    "string" -> println("string")
+    _ -> println("other")
+}
+```
+
+**Implementação Técnica:**
+- AST: `Pattern` enum, `MatchArm` struct
+- Parser: suporta sintaxe completa com guards e or-patterns
+- Codegen: usa LLVM basic blocks + PHI nodes
+- Type checking com promoção automática
+- Binding de variáveis antes de guards
+
+**Testes:**
+- `match_basic_test.bx` - Literais e wildcard ✅
+- `match_guard_test.bx` - Guards com if conditions ✅
+- `match_or_test.bx` - Or-patterns ✅
+- `match_typeof_test.bx` - Match em typeof() ✅
+- `match_types_test.bx` - Type coercion ✅
+
+**Futuro (v1.1+):**
+- [ ] **Destructuring patterns**: `{ x: x, y: y }`, `(a, b, c)`, `[first, second, ...]`
+- [ ] **Range patterns**: `1..10`, `'a'..'z'`
+- [ ] **Exhaustiveness checking obrigatório**
+
+---
+
+### 🎯 **PRÓXIMO PASSO: v1.0 - Advanced Features**
+
+- [x] Pattern matching (`match` syntax) ✅ **COMPLETO**
 - [ ] Closures and lambda functions
 - [ ] First-class functions
 - [ ] Complex numbers
@@ -1092,16 +1215,16 @@ var z := m.cos(0.0)                // 1.0
 
 ---
 
-## Current Limitations (v0.9)
+## Current Limitations (v1.0 em progresso)
 
 - **No generics**: Only concrete types (int, float, string, matrix, tuple)
 - **Single-file compilation**: Multi-file imports not yet implemented (user modules coming in v1.0+)
 - **No optimizations**: LLVM runs with `OptimizationLevel::None`
-- **No pattern matching**: `when` syntax not yet implemented
 - **No closures**: Functions are not first-class
 - **No structs**: User-defined types not implemented
 - **Basic error handling**: Parse errors shown via debug output
 - **List comprehensions type inference**: Currently only returns Matrix (Float), IntMatrix support coming soon
+- **Pattern matching destructuring**: Only scalar patterns supported (no struct/tuple/array destructuring yet)
 
 ## Future Roadmap (from DOCUMENTATION.md)
 
@@ -1123,7 +1246,7 @@ var z := m.cos(0.0)                // 1.0
 - ✅ v0.7: Import system, math library (36 functions + constants)
 - ✅ v0.8: User-defined functions (single/multiple returns, destructuring, default values)
 - ✅ v0.9: List comprehensions, zip(), destructuring in for loops, array printing
-- v1.0: Pattern matching, closures, complex numbers, user-defined modules
+- 🚧 v1.0: Pattern matching ✅, closures ⏸️, complex numbers ⏸️, user-defined modules ⏸️ (60% complete)
 - v1.1: Generics, concurrency primitives
 - v1.2: Full standard library with data structures (Stack, Queue, HashMap, Heap)
 
