@@ -42,6 +42,22 @@ pub enum UnaryOp {
     Negate,
 }
 
+// Pattern Matching support
+#[derive(Debug, Clone, PartialEq)]
+pub enum Pattern {
+    Literal(Literal),           // 42, 3.14, "text", true
+    Binding(String),            // x (captures value and binds to variable)
+    Wildcard,                   // _ (matches anything, doesn't bind)
+    Or(Vec<Pattern>),           // 1 | 2 | 3 (matches any of the patterns)
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct MatchArm {
+    pub pattern: Pattern,
+    pub guard: Option<Box<Expr>>,  // Optional 'if' guard condition
+    pub body: Box<Expr>,           // Expression to execute if pattern matches
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Literal(Literal),
@@ -98,7 +114,7 @@ pub enum Expr {
 
     Match {
         value: Box<Expr>,
-        cases: Vec<(Expr, Expr)>,
+        arms: Vec<MatchArm>,
     },
 
     Range {

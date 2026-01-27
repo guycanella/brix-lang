@@ -2582,6 +2582,161 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 Some((phi.as_basic_value(), result_type))
             }
 
+            Expr::Match { value, arms } => {
+                use parser::ast::Pattern;
+
+                // Compile the match value once
+                let (match_val, match_type) = self.compile_expr(value)?;
+
+                // Check for exhaustiveness (warning only)
+                let has_wildcard = arms.iter().any(|arm| matches!(arm.pattern, Pattern::Wildcard));
+                if !has_wildcard {
+                    eprintln!("⚠️  Warning: Non-exhaustive match expression");
+                    eprintln!("    Consider adding: _ -> ...");
+                }
+
+                // Get parent function
+                let parent_fn = self
+                    .builder
+                    .get_insert_block()
+                    .unwrap()
+                    .get_parent()
+                    .unwrap();
+
+                // Create ALL basic blocks first
+                let merge_bb = self.context.append_basic_block(parent_fn, "match_merge");
+                let mut arm_test_bbs = Vec::new();
+                let mut arm_body_bbs = Vec::new();
+
+                for i in 0..arms.len() {
+                    arm_test_bbs.push(self.context.append_basic_block(parent_fn, &format!("match_arm_{}_test", i)));
+                    arm_body_bbs.push(self.context.append_basic_block(parent_fn, &format!("match_arm_{}_body", i)));
+                }
+
+                // Jump to first arm's test
+                self.builder.build_unconditional_branch(arm_test_bbs[0]).unwrap();
+
+                // Store results from each arm for PHI node
+                let mut phi_incoming: Vec<(BasicValueEnum, inkwell::basic_block::BasicBlock)> = Vec::new();
+                let mut result_type: Option<BrixType> = None;
+
+                // Process each arm
+                for (i, arm) in arms.iter().enumerate() {
+                    // Position at test block
+                    self.builder.position_at_end(arm_test_bbs[i]);
+
+                    // If pattern is binding, create the variable BEFORE evaluating guard
+                    let _binding_name = if let Pattern::Binding(name) = &arm.pattern {
+                        let llvm_type = self.brix_type_to_llvm(&match_type);
+                        let ptr = self.builder.build_alloca(llvm_type, name).unwrap();
+                        self.builder.build_store(ptr, match_val).unwrap();
+                        self.variables.insert(name.clone(), (ptr, match_type.clone()));
+                        Some(name.clone())
+                    } else {
+                        None
+                    };
+
+                    // Check if pattern matches
+                    let pattern_matches = self.compile_pattern_match(&arm.pattern, match_val, &match_type)?;
+
+                    // If guard exists, evaluate it (binding is already available)
+                    let final_condition = if let Some(guard_expr) = &arm.guard {
+                        let (guard_val, _) = self.compile_expr(guard_expr)?;
+                        let guard_int = guard_val.into_int_value();
+                        let zero = self.context.i64_type().const_int(0, false);
+                        let guard_bool = self
+                            .builder
+                            .build_int_compare(inkwell::IntPredicate::NE, guard_int, zero, "guard_bool")
+                            .unwrap();
+
+                        // pattern_matches AND guard
+                        self.builder
+                            .build_and(pattern_matches, guard_bool, "pattern_and_guard")
+                            .unwrap()
+                    } else {
+                        pattern_matches
+                    };
+
+                    // Determine next block if this arm doesn't match
+                    let next_bb = if i < arms.len() - 1 {
+                        arm_test_bbs[i + 1]
+                    } else {
+                        merge_bb  // Last arm: if doesn't match, go to merge (undefined behavior, but warning was issued)
+                    };
+
+                    // Branch: if pattern matches (and guard passes), execute body; otherwise try next arm
+                    self.builder
+                        .build_conditional_branch(final_condition, arm_body_bbs[i], next_bb)
+                        .unwrap();
+
+                    // Compile arm body
+                    self.builder.position_at_end(arm_body_bbs[i]);
+
+                    // Binding was already created above if needed
+
+                    let (body_val, body_type) = self.compile_expr(&arm.body)?;
+
+                    // Type checking: ensure all arms return compatible types
+                    if let Some(ref expected_type) = result_type {
+                        // Check compatibility
+                        if !self.are_types_compatible(expected_type, &body_type) {
+                            eprintln!("Error: Match arms return incompatible types");
+                            eprintln!("  Expected: {:?}, Got: {:?}", expected_type, body_type);
+                            return None;
+                        }
+
+                        // Update result type to promoted type if needed
+                        if *expected_type == BrixType::Int && body_type == BrixType::Float {
+                            result_type = Some(BrixType::Float);
+                        }
+                    } else {
+                        result_type = Some(body_type.clone());
+                    }
+
+                    // Type coercion for PHI node
+                    let coerced_val = if result_type.as_ref().unwrap() == &BrixType::Float && body_type == BrixType::Int {
+                        self.builder
+                            .build_signed_int_to_float(
+                                body_val.into_int_value(),
+                                self.context.f64_type(),
+                                &format!("arm_{}_cast", i),
+                            )
+                            .unwrap()
+                            .into()
+                    } else {
+                        body_val
+                    };
+
+                    let current_bb = self.builder.get_insert_block().unwrap();
+                    phi_incoming.push((coerced_val, current_bb));
+
+                    // Jump to merge block
+                    self.builder.build_unconditional_branch(merge_bb).unwrap();
+                }
+
+                // Position at merge block and create PHI node
+                self.builder.position_at_end(merge_bb);
+
+                let final_type = result_type.unwrap();
+                let phi_type = match final_type {
+                    BrixType::Int => self.context.i64_type().as_basic_type_enum(),
+                    BrixType::Float => self.context.f64_type().as_basic_type_enum(),
+                    BrixType::String | BrixType::Matrix | BrixType::IntMatrix | BrixType::FloatPtr => self
+                        .context
+                        .ptr_type(AddressSpace::default())
+                        .as_basic_type_enum(),
+                    _ => self.context.i64_type().as_basic_type_enum(),
+                };
+
+                let phi = self.builder.build_phi(phi_type, "match_result").unwrap();
+
+                for (val, bb) in phi_incoming {
+                    phi.add_incoming(&[(&val, bb)]);
+                }
+
+                Some((phi.as_basic_value(), final_type))
+            }
+
             Expr::Increment { expr, is_prefix } => {
                 // Get the address of the l-value
                 let (var_ptr, _) = self.compile_lvalue_addr(expr)?;
@@ -2734,8 +2889,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 Some((result, BrixType::String))
             }
 
+            #[allow(unreachable_patterns)]
             _ => {
-                eprintln!("Expression not implemented in v0.3");
+                eprintln!("Expression not implemented");
                 None
             }
         }
@@ -4237,5 +4393,159 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 None
             }
         }
+    }
+
+    /// Compile pattern matching: returns i1 (bool) indicating if pattern matches
+    fn compile_pattern_match(
+        &mut self,
+        pattern: &parser::ast::Pattern,
+        value: BasicValueEnum<'ctx>,
+        value_type: &BrixType,
+    ) -> Option<inkwell::values::IntValue<'ctx>> {
+        use parser::ast::Pattern;
+
+        match pattern {
+            Pattern::Literal(lit) => {
+                // Compare value with literal
+                match (lit, value_type) {
+                    (parser::ast::Literal::Int(n), BrixType::Int) => {
+                        let literal_val = self.context.i64_type().const_int(*n as u64, false);
+                        let cmp = self
+                            .builder
+                            .build_int_compare(
+                                inkwell::IntPredicate::EQ,
+                                value.into_int_value(),
+                                literal_val,
+                                "pat_int_cmp",
+                            )
+                            .unwrap();
+                        Some(cmp)
+                    }
+                    (parser::ast::Literal::Float(f), BrixType::Float) => {
+                        let literal_val = self.context.f64_type().const_float(*f);
+                        let cmp = self
+                            .builder
+                            .build_float_compare(
+                                inkwell::FloatPredicate::OEQ,
+                                value.into_float_value(),
+                                literal_val,
+                                "pat_float_cmp",
+                            )
+                            .unwrap();
+                        Some(cmp)
+                    }
+                    (parser::ast::Literal::Bool(b), BrixType::Int) => {
+                        // bool is stored as i64
+                        let literal_val = self.context.i64_type().const_int(*b as u64, false);
+                        let cmp = self
+                            .builder
+                            .build_int_compare(
+                                inkwell::IntPredicate::EQ,
+                                value.into_int_value(),
+                                literal_val,
+                                "pat_bool_cmp",
+                            )
+                            .unwrap();
+                        Some(cmp)
+                    }
+                    (parser::ast::Literal::String(s), BrixType::String) => {
+                        // String comparison via runtime str_eq
+                        let ptr_type = self.context.ptr_type(AddressSpace::default());
+                        let fn_type = self
+                            .context
+                            .bool_type()
+                            .fn_type(&[ptr_type.into(), ptr_type.into()], false);
+
+                        let str_eq_fn = self.module.get_function("str_eq").unwrap_or_else(|| {
+                            self.module
+                                .add_function("str_eq", fn_type, Some(Linkage::External))
+                        });
+
+                        // Create literal string
+                        let raw_str = self.builder.build_global_string_ptr(s, "pat_str").unwrap();
+                        let str_new_fn_type = ptr_type.fn_type(&[ptr_type.into()], false);
+                        let str_new_fn = self.module.get_function("str_new").unwrap_or_else(|| {
+                            self.module
+                                .add_function("str_new", str_new_fn_type, Some(Linkage::External))
+                        });
+
+                        let literal_str = self
+                            .builder
+                            .build_call(
+                                str_new_fn,
+                                &[raw_str.as_pointer_value().into()],
+                                "pat_lit_str",
+                            )
+                            .unwrap()
+                            .try_as_basic_value()
+                            .left()
+                            .unwrap();
+
+                        // Compare strings
+                        let result = self
+                            .builder
+                            .build_call(
+                                str_eq_fn,
+                                &[value.into(), literal_str.into()],
+                                "pat_str_cmp",
+                            )
+                            .unwrap()
+                            .try_as_basic_value()
+                            .left()
+                            .unwrap()
+                            .into_int_value();
+
+                        Some(result)
+                    }
+                    _ => {
+                        eprintln!(
+                            "Error: Pattern literal type {:?} doesn't match value type {:?}",
+                            lit, value_type
+                        );
+                        None
+                    }
+                }
+            }
+
+            Pattern::Wildcard => {
+                // Wildcard always matches
+                Some(self.context.bool_type().const_int(1, false))
+            }
+
+            Pattern::Binding(_) => {
+                // Binding always matches (variable name is bound in caller)
+                Some(self.context.bool_type().const_int(1, false))
+            }
+
+            Pattern::Or(patterns) => {
+                // Or pattern: match any of the sub-patterns
+                let mut result = self.context.bool_type().const_int(0, false);
+
+                for pat in patterns {
+                    let pat_match = self.compile_pattern_match(pat, value, value_type)?;
+                    result = self.builder.build_or(result, pat_match, "or_pat").unwrap();
+                }
+
+                Some(result)
+            }
+        }
+    }
+
+    /// Check if two types are compatible for match arms
+    fn are_types_compatible(&self, type1: &BrixType, type2: &BrixType) -> bool {
+        // Same type is always compatible
+        if type1 == type2 {
+            return true;
+        }
+
+        // Int and Float are compatible (can promote int to float)
+        if (*type1 == BrixType::Int && *type2 == BrixType::Float)
+            || (*type1 == BrixType::Float && *type2 == BrixType::Int)
+        {
+            return true;
+        }
+
+        // All other combinations are incompatible
+        false
     }
 }
