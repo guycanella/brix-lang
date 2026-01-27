@@ -172,12 +172,77 @@ for i in start:end { }     // Expressions allowed
 
 Loops are Julia-style with inclusive ranges.
 
+#### Destructuring in for loops (v0.9)
+
+```brix
+var a := [1, 2, 3]
+var b := [10, 20, 30]
+
+for x, y in zip(a, b) {
+    println(f"x={x}, y={y}, sum={x + y}")
+}
+// Output: x=1, y=10, sum=11
+//         x=2, y=20, sum=22
+//         x=3, y=30, sum=33
+```
+
 ### Arrays
 
 ```brix
 var nums := [1, 2, 3, 4, 5]
 var x := nums[0]           // Index access
 ```
+
+### List Comprehensions (v0.9 - Jan 2026)
+
+Python-style list comprehensions with full support for nested loops, multiple conditions, and destructuring.
+
+#### Basic Syntax
+
+```brix
+var nums := [1.0, 2.0, 3.0, 4.0, 5.0]
+var doubled := [x * 2.0 for x in nums]  // [2, 4, 6, 8, 10]
+```
+
+#### With Conditions
+
+```brix
+var evens := [x for x in nums if int(x) % 2 == 0]  // [2, 4]
+```
+
+#### Multiple Conditions (AND logic)
+
+```brix
+var filtered := [x for x in nums if x > 2.0 if x < 5.0]  // [3, 4]
+```
+
+#### Nested Loops
+
+```brix
+var a := [1.0, 2.0]
+var b := [10.0, 20.0]
+var products := [x * y for x in a for y in b]  // [10, 20, 20, 40]
+```
+
+#### With Destructuring
+
+```brix
+var a := [1.0, 2.0, 3.0]
+var b := [10.0, 20.0, 30.0]
+var sums := [x + y for x, y in zip(a, b)]  // [11, 22, 33]
+```
+
+#### Complex Example
+
+```brix
+var pairs := [x + y for x in a for y in b if x + y > 15.0]  // Nested + condition
+```
+
+**Design decisions:**
+- Loop order: left-to-right = outer-to-inner (Python-style)
+- Multiple conditions use AND logic: `if c1 if c2` → `if c1 && c2`
+- Always returns Matrix (Float) currently (IntMatrix support planned)
+- Hybrid allocation: pre-allocates max size, then resizes to actual size
 
 ### Functions (v0.8 - Jan 2026)
 
@@ -395,6 +460,16 @@ var circle := f"Pi = {pi}"              // Float interpolation
 var calc := f"5 * 2 = {5 * 2}"          // Expression interpolation
 ```
 
+**Arrays in f-strings (v0.9):**
+
+```brix
+var nums := [1, 2, 3, 4, 5]
+println(f"nums = {nums}")               // Output: nums = [1, 2, 3, 4, 5]
+
+var data := [1.5, 2.7, 3.9]
+println(f"data = {data}")               // Output: data = [1.5, 2.7, 3.9]
+```
+
 ### Format Specifiers
 
 Format specifiers allow precise control over how values are converted to strings in f-strings:
@@ -450,8 +525,16 @@ println(f"x={x:x}, y={y:.2f}")  // x=2a, y=3.14
 
 - `int(x)`: Convert to int (truncates floats, parses strings)
 - `float(x)`: Convert to float (promotes ints, parses strings)
-- `string(x)`: Convert to string (works with all types)
+- `string(x)`: Convert to string (works with all types, including Matrix/IntMatrix)
 - `bool(x)`: Convert to boolean (0/0.0/empty string = false, rest = true)
+
+**Array Operations:**
+
+- `zip(arr1, arr2)`: Combine two arrays into pairs
+  - Returns Matrix(n, 2) or IntMatrix(n, 2) depending on input types
+  - Uses minimum length if arrays differ in size
+  - Example: `zip([1,2,3], [4,5,6])` → Matrix with rows [1,4], [2,5], [3,6]
+  - Type variants: ii (IntMatrix), if (Matrix), fi (Matrix), ff (Matrix)
 
 ## Important Implementation Details
 
@@ -701,6 +784,15 @@ Test files are `.bx` files in the root directory. Common test files include:
 - `destructuring_ignore_test.bx`: Destructuring with `_` to ignore values
 - `default_values_test.bx`: Default parameter values
 
+**List Comprehensions (v0.9):**
+- `zip_test.bx`: zip() function with type variants
+- `destructuring_for_test.bx`: Destructuring in for loops
+- `list_comp_simple_test.bx`: Basic list comprehension
+- `list_comp_cond_test.bx`: List comprehension with conditions
+- `list_comp_advanced_test.bx`: Nested loops and multiple conditions
+- `list_comp_zip_test.bx`: List comprehension with zip and destructuring
+- `list_comp_test.bx`: Comprehensive test (all 4 scenarios)
+
 Run tests individually:
 
 ```bash
@@ -709,9 +801,9 @@ cargo run <test_file.bx>
 
 **Note:** The compiler generates intermediate files (`runtime.o`, `output.o`) and an executable `program` in the project root during compilation.
 
-## Project Status (v0.8 - Jan 2026)
+## Project Status (v0.9 - Jan 2026)
 
-### Progress: 85% MVP Complete
+### Progress: 90% MVP Complete
 
 **Completed:**
 
@@ -745,6 +837,22 @@ cargo run <test_file.bx>
   - Destructuring with `{}`
   - Default parameter values
   - Void functions
+- ✅ **List Comprehensions** (v0.9):
+  - Full Python-style syntax: `[expr for var in iterable if cond]`
+  - Multiple conditions (AND logic): `[x for x in arr if c1 if c2]`
+  - Nested loops: `[x * y for x in a for y in b]`
+  - Destructuring support: `[x + y for x, y in zip(a, b)]`
+  - Hybrid allocation (pre-allocate max size, then resize)
+- ✅ **zip() function** (v0.9):
+  - Combines multiple arrays into pairs
+  - Returns Matrix(n, 2) or IntMatrix(n, 2)
+  - Type-aware: 4 variants (ii, if, fi, ff)
+- ✅ **Destructuring in for loops** (v0.9):
+  - Syntax: `for x, y in zip(arr1, arr2)`
+  - Works with Matrix and IntMatrix
+- ✅ **Array printing in f-strings** (v0.9):
+  - `println(f"nums = {nums}")` → `nums = [1, 2, 3, 4, 5]`
+  - Works for Matrix and IntMatrix
 
 ### ✅ **v0.7 - Import System + Math Library (COMPLETO - 26/01/2026)**
 
@@ -870,46 +978,153 @@ var z := m.cos(0.0)                // 1.0
 
 ---
 
-### 🎯 **PRÓXIMO PASSO: v0.9 - Pattern Matching & Advanced Features**
+### ✅ **v0.9 - List Comprehensions & zip() (COMPLETO - 27/01/2026)**
 
-- [ ] Pattern matching (`when` syntax)
-- [ ] List comprehensions
-- [ ] Closures and lambda functions
-- [ ] First-class functions
+**Funcionalidades implementadas:**
+
+1. **zip() Built-in Function:**
+   - Combina dois arrays em pares: `zip([1,2,3], [4,5,6])` → Matrix 3×2 com cada linha sendo um par
+   - 4 variantes para type safety:
+     - `brix_zip_ii`: IntMatrix × IntMatrix → IntMatrix
+     - `brix_zip_if`: IntMatrix × Matrix → Matrix
+     - `brix_zip_fi`: Matrix × IntMatrix → Matrix
+     - `brix_zip_ff`: Matrix × Matrix → Matrix
+   - Usa comprimento mínimo quando arrays têm tamanhos diferentes
+   - Exemplo:
+     ```brix
+     var a := [1, 2, 3]
+     var b := [10, 20, 30]
+     var pairs := zip(a, b)  // [[1,10], [2,20], [3,30]]
+     ```
+
+2. **Destructuring em for loops:**
+   - Suporte a múltiplas variáveis em loops
+   - Sintaxe: `for x, y in iterable { ... }`
+   - Funciona com zip(): `for x, y in zip(a, b) { ... }`
+   - Suporta Matrix e IntMatrix
+   - Itera sobre linhas quando há múltiplas variáveis
+   - Exemplo:
+     ```brix
+     var a := [1, 2, 3]
+     var b := [10, 20, 30]
+     for x, y in zip(a, b) {
+         println(f"x={x}, y={y}, sum={x + y}")
+     }
+     // Output: x=1, y=10, sum=11
+     //         x=2, y=20, sum=22
+     //         x=3, y=30, sum=33
+     ```
+
+3. **List Comprehensions (sintaxe completa):**
+   - Python-style syntax com todas as features:
+     - Básica: `[expr for var in iterable]`
+     - Com condição: `[expr for var in iterable if condition]`
+     - Múltiplas condições (AND): `[x for x in arr if c1 if c2]`
+     - Nested loops: `[expr for x in a for y in b]`
+     - Com destructuring: `[x + y for x, y in zip(a, b)]`
+   - Ordem de loops: esquerda-para-direita = outer-to-inner (estilo Python)
+   - Alocação híbrida para performance:
+     1. Pré-aloca array com tamanho máximo (produto de todos iterables)
+     2. Preenche array conforme avalia condições
+     3. Redimensiona para tamanho final
+   - Suporta Matrix e IntMatrix como iterables
+   - Type inference: sempre retorna Matrix (Float) por ora
+   - Exemplos:
+     ```brix
+     // Básico
+     var nums := [1.0, 2.0, 3.0, 4.0, 5.0]
+     var doubled := [x * 2.0 for x in nums]  // [2, 4, 6, 8, 10]
+
+     // Com condição
+     var evens := [x for x in nums if int(x) % 2 == 0]  // [2, 4]
+
+     // Múltiplas condições
+     var filtered := [x for x in nums if x > 2.0 if x < 5.0]  // [3, 4]
+
+     // Nested loops (produto cartesiano)
+     var a := [1.0, 2.0]
+     var b := [10.0, 20.0]
+     var products := [x * y for x in a for y in b]  // [10, 20, 20, 40]
+
+     // Com destructuring
+     var sums := [x + y for x, y in zip(a, b)]  // [11, 22]
+     ```
+
+4. **Array printing em f-strings:**
+   - Suporte para imprimir Matrix/IntMatrix em f-strings
+   - Formato: `[elemento1, elemento2, ...]`
+   - Funciona com `print()`, `println()`, e f-strings
+   - Exemplo:
+     ```brix
+     var nums := [1, 2, 3, 4, 5]
+     println(f"nums = {nums}")  // Output: nums = [1, 2, 3, 4, 5]
+     ```
+
+**Implementação técnica:**
+- AST: `ListComprehension`, `ComprehensionGen` structs
+- Parser: suporta sintaxe completa com generators aninhados
+- Codegen:
+  - `compile_list_comprehension()`: orquestra a compilação
+  - `generate_comp_loop()`: gera loops aninhados recursivamente
+  - Usa LLVM basic blocks para controle de fluxo
+  - Implementa short-circuit evaluation para condições
+- Runtime: 4 funções zip em `runtime.c`
+- value_to_string: estendido para Matrix/IntMatrix (loop com concatenação)
+
+**Testes:**
+- `zip_test.bx` - zip() function ✅
+- `destructuring_for_test.bx` - Destructuring em for loops ✅
+- `list_comp_simple_test.bx` - Comprehension básica ✅
+- `list_comp_cond_test.bx` - Com condição ✅
+- `list_comp_advanced_test.bx` - Nested loops + múltiplas condições ✅
+- `list_comp_zip_test.bx` - Zip + destructuring ✅
+- `list_comp_test.bx` - Teste completo (4 cenários) ✅
 
 ---
 
-## Current Limitations (v0.8)
+### 🎯 **PRÓXIMO PASSO: v1.0 - Pattern Matching & Advanced Features**
+
+- [ ] Pattern matching (`when` syntax)
+- [ ] Closures and lambda functions
+- [ ] First-class functions
+- [ ] Complex numbers
+- [ ] User-defined modules
+
+---
+
+## Current Limitations (v0.9)
 
 - **No generics**: Only concrete types (int, float, string, matrix, tuple)
-- **Single-file compilation**: Multi-file imports not yet implemented (user modules coming in v0.9+)
+- **Single-file compilation**: Multi-file imports not yet implemented (user modules coming in v1.0+)
 - **No optimizations**: LLVM runs with `OptimizationLevel::None`
 - **No pattern matching**: `when` syntax not yet implemented
 - **No closures**: Functions are not first-class
 - **No structs**: User-defined types not implemented
 - **Basic error handling**: Parse errors shown via debug output
+- **List comprehensions type inference**: Currently only returns Matrix (Float), IntMatrix support coming soon
 
 ## Future Roadmap (from DOCUMENTATION.md)
 
 ### Planned Features
 
 - Pattern matching (`when` syntax)
-- Multiple return values (Go-style)
 - Pipe operator (`|>`) for data pipelines
-- List comprehensions
 - SQL and JSON as native types
 - Extension methods
 - Null safety with `?` operator
 - Dimensional units (`f64<m>`, `f64<s>`)
 - Concurrency: `spawn`, `par for`, `par map`
+- Closures and lambda functions
+- First-class functions
 
 ### Implementation Phases
 
 - ✅ v0.6: IntMatrix type, zeros/izeros, static initialization
 - ✅ v0.7: Import system, math library (36 functions + constants)
 - ✅ v0.8: User-defined functions (single/multiple returns, destructuring, default values)
-- v0.9: Pattern matching, closures, complex numbers, user-defined modules
-- v1.0: Generics, concurrency primitives
+- ✅ v0.9: List comprehensions, zip(), destructuring in for loops, array printing
+- v1.0: Pattern matching, closures, complex numbers, user-defined modules
+- v1.1: Generics, concurrency primitives
 - v1.2: Full standard library with data structures (Stack, Queue, HashMap, Heap)
 
 ## Troubleshooting
