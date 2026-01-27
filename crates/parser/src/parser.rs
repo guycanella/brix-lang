@@ -369,6 +369,12 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
             Token::String(s) => Expr::Literal(Literal::String(s.trim_matches('"').to_string())),
             Token::True => Expr::Literal(Literal::Bool(true)),
             Token::False => Expr::Literal(Literal::Bool(false)),
+            Token::ImaginaryLiteral(s) => {
+                // Parse imaginary literal: "4.0i" or "2i"
+                let imag_str = s.trim_end_matches('i');
+                let imag_val: f64 = imag_str.parse().unwrap();
+                Expr::Literal(Literal::Complex(0.0, imag_val))
+            },
             Token::Identifier(s) => Expr::Identifier(s),
         };
 

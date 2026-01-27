@@ -15,6 +15,9 @@ pub enum BrixType {
     String,
     Matrix,    // Matrix of f64 (double*)
     IntMatrix, // Matrix of i64 (long*)
+    Complex,   // Complex number (struct { f64 real, f64 imag })
+    ComplexArray,  // Array of Complex (1D)
+    ComplexMatrix, // Matrix of Complex (2D)
     FloatPtr,
     Void,
     Tuple(Vec<BrixType>), // Multiple returns (stored as struct)
@@ -257,6 +260,17 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             BrixType::Int => self.context.i64_type().into(),
             BrixType::Float => self.context.f64_type().into(),
             BrixType::String | BrixType::Matrix | BrixType::IntMatrix | BrixType::FloatPtr => {
+                self.context.ptr_type(AddressSpace::default()).into()
+            }
+            BrixType::Complex => {
+                // Complex number: struct { f64 real, f64 imag }
+                let f64_type = self.context.f64_type();
+                self.context
+                    .struct_type(&[f64_type.into(), f64_type.into()], false)
+                    .into()
+            }
+            BrixType::ComplexArray | BrixType::ComplexMatrix => {
+                // Pointer to runtime struct
                 self.context.ptr_type(AddressSpace::default()).into()
             }
             BrixType::Void => self.context.i64_type().into(), // Placeholder (shouldn't be used)
@@ -534,7 +548,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     }
 
                     // --- ALLOCATION ---
-                    let llvm_type: BasicTypeEnum = match val_type {
+                    let llvm_type: BasicTypeEnum = match &val_type {
                         BrixType::Int => self.context.i64_type().into(),
                         BrixType::Float => self.context.f64_type().into(),
                         BrixType::String
@@ -543,7 +557,18 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         | BrixType::FloatPtr => {
                             self.context.ptr_type(AddressSpace::default()).into()
                         }
-                        _ => self.context.i64_type().into(),
+                        BrixType::Complex => {
+                            // Allocate space for complex struct { f64, f64 }
+                            self.brix_type_to_llvm(&BrixType::Complex)
+                        }
+                        BrixType::Tuple(types) => {
+                            // Allocate space for tuple struct
+                            self.brix_type_to_llvm(&BrixType::Tuple(types.clone()))
+                        }
+                        _ => {
+                            eprintln!("Warning: Unknown type for allocation, using i64");
+                            self.context.i64_type().into()
+                        }
                     };
 
                     let alloca = self.create_entry_block_alloca(llvm_type, name);
@@ -1409,6 +1434,17 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         .unwrap();
                     Some((int_val.into(), BrixType::Int))
                 }
+                Literal::Complex(real, imag) => {
+                    // Create complex number as struct { f64, f64 }
+                    let f64_type = self.context.f64_type();
+                    let real_val = f64_type.const_float(*real);
+                    let imag_val = f64_type.const_float(*imag);
+
+                    let complex_type = self.context.struct_type(&[f64_type.into(), f64_type.into()], false);
+                    let complex_val = complex_type.const_named_struct(&[real_val.into(), imag_val.into()]);
+
+                    Some((complex_val.into(), BrixType::Complex))
+                }
             },
 
             Expr::Identifier(name) => match self.variables.get(name) {
@@ -1459,6 +1495,15 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             .build_load(struct_type, *ptr, name)
                             .unwrap();
                         Some((val, BrixType::Tuple(types.clone())))
+                    }
+                    BrixType::Complex => {
+                        // Load the complex struct { f64 real, f64 imag }
+                        let complex_type = self.brix_type_to_llvm(&BrixType::Complex);
+                        let val = self
+                            .builder
+                            .build_load(complex_type, *ptr, name)
+                            .unwrap();
+                        Some((val, BrixType::Complex))
                     }
                     _ => {
                         eprintln!("Error: Type not supported in identifier.");
@@ -1598,6 +1643,209 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
                 let (lhs_val, lhs_type) = self.compile_expr(lhs)?;
                 let (rhs_val, rhs_type) = self.compile_expr(rhs)?;
+
+                // --- COMPLEX PATTERN DETECTION: 3.0 + 4.0i ---
+                // Detect pattern: Float/Int +/- Complex(0, imag) → Complex(real, imag)
+                if (lhs_type == BrixType::Float || lhs_type == BrixType::Int)
+                    && rhs_type == BrixType::Complex
+                    && (matches!(op, BinaryOp::Add) || matches!(op, BinaryOp::Sub)) {
+
+                    // Extract imaginary part from rhs
+                    let rhs_struct = rhs_val.into_struct_value();
+                    let rhs_real = self.builder.build_extract_value(rhs_struct, 0, "rhs_real").unwrap().into_float_value();
+                    let rhs_imag = self.builder.build_extract_value(rhs_struct, 1, "rhs_imag").unwrap().into_float_value();
+
+                    // Check if rhs is pure imaginary (real part ≈ 0)
+                    let zero = self.context.f64_type().const_float(0.0);
+                    let _is_pure_imag = self.builder
+                        .build_float_compare(FloatPredicate::OEQ, rhs_real, zero, "is_pure_imag")
+                        .unwrap();
+
+                    // If pure imaginary, create complex from lhs + rhs_imag
+                    // For now, assume it's always pure imaginary (parser creates Complex(0, imag) for "4.0i")
+
+                    // Convert lhs to f64 if needed
+                    let lhs_float = if lhs_type == BrixType::Int {
+                        self.builder
+                            .build_signed_int_to_float(lhs_val.into_int_value(), self.context.f64_type(), "lhs_to_float")
+                            .unwrap()
+                    } else {
+                        lhs_val.into_float_value()
+                    };
+
+                    // Create complex: (lhs_float, ±rhs_imag)
+                    let final_imag = if matches!(op, BinaryOp::Sub) {
+                        self.builder.build_float_neg(rhs_imag, "neg_imag").unwrap()
+                    } else {
+                        rhs_imag
+                    };
+
+                    let complex_type = self.context.struct_type(&[
+                        self.context.f64_type().into(),
+                        self.context.f64_type().into()
+                    ], false);
+
+                    let complex_val = self.builder.build_insert_value(
+                        complex_type.get_undef(),
+                        lhs_float,
+                        0,
+                        "complex_real"
+                    ).unwrap();
+
+                    let complex_val = self.builder.build_insert_value(
+                        complex_val,
+                        final_imag,
+                        1,
+                        "complex_full"
+                    ).unwrap();
+
+                    return Some((complex_val.into_struct_value().into(), BrixType::Complex));
+                }
+
+                // --- COMPLEX ARITHMETIC ---
+                // If either operand is complex, promote and use complex arithmetic
+                if lhs_type == BrixType::Complex || rhs_type == BrixType::Complex {
+                    // Special handling for power operator - use optimized variants
+                    if *op == BinaryOp::Pow && lhs_type == BrixType::Complex {
+                        let base_complex = lhs_val.into_struct_value();
+                        let complex_type = self.brix_type_to_llvm(&BrixType::Complex);
+
+                        let result = if rhs_type == BrixType::Int {
+                            // Use complex_powi for integer exponent
+                            let fn_type = complex_type.fn_type(&[
+                                complex_type.into(),
+                                self.context.i64_type().into()
+                            ], false);
+                            let func = self.module.get_function("complex_powi").unwrap_or_else(|| {
+                                self.module.add_function("complex_powi", fn_type, Some(Linkage::External))
+                            });
+                            self.builder
+                                .build_call(func, &[base_complex.into(), rhs_val.into()], "complex_powi")
+                                .unwrap()
+                                .try_as_basic_value()
+                                .left()
+                                .unwrap()
+                        } else if rhs_type == BrixType::Float {
+                            // Use complex_powf for float exponent
+                            let fn_type = complex_type.fn_type(&[
+                                complex_type.into(),
+                                self.context.f64_type().into()
+                            ], false);
+                            let func = self.module.get_function("complex_powf").unwrap_or_else(|| {
+                                self.module.add_function("complex_powf", fn_type, Some(Linkage::External))
+                            });
+                            self.builder
+                                .build_call(func, &[base_complex.into(), rhs_val.into()], "complex_powf")
+                                .unwrap()
+                                .try_as_basic_value()
+                                .left()
+                                .unwrap()
+                        } else {
+                            // Use complex_pow for complex exponent
+                            let exp_complex = rhs_val.into_struct_value();
+                            let fn_type = complex_type.fn_type(&[
+                                complex_type.into(),
+                                complex_type.into()
+                            ], false);
+                            let func = self.module.get_function("complex_pow").unwrap_or_else(|| {
+                                self.module.add_function("complex_pow", fn_type, Some(Linkage::External))
+                            });
+                            self.builder
+                                .build_call(func, &[base_complex.into(), exp_complex.into()], "complex_pow")
+                                .unwrap()
+                                .try_as_basic_value()
+                                .left()
+                                .unwrap()
+                        };
+
+                        return Some((result, BrixType::Complex));
+                    }
+
+                    // For other operators, promote non-complex to complex
+                    let lhs_complex = if lhs_type == BrixType::Complex {
+                        lhs_val.into_struct_value()
+                    } else {
+                        let real_val = if lhs_type == BrixType::Int {
+                            self.builder
+                                .build_signed_int_to_float(lhs_val.into_int_value(), self.context.f64_type(), "int_to_float")
+                                .unwrap()
+                        } else {
+                            lhs_val.into_float_value()
+                        };
+                        let zero = self.context.f64_type().const_float(0.0);
+                        let complex_type = self.context.struct_type(&[
+                            self.context.f64_type().into(),
+                            self.context.f64_type().into()
+                        ], false);
+                        self.builder.build_insert_value(
+                            self.builder.build_insert_value(
+                                complex_type.get_undef(),
+                                real_val,
+                                0,
+                                "real"
+                            ).unwrap(),
+                            zero,
+                            1,
+                            "imag"
+                        ).unwrap().into_struct_value()
+                    };
+
+                    let rhs_complex = if rhs_type == BrixType::Complex {
+                        rhs_val.into_struct_value()
+                    } else {
+                        let real_val = if rhs_type == BrixType::Int {
+                            self.builder
+                                .build_signed_int_to_float(rhs_val.into_int_value(), self.context.f64_type(), "int_to_float")
+                                .unwrap()
+                        } else {
+                            rhs_val.into_float_value()
+                        };
+                        let zero = self.context.f64_type().const_float(0.0);
+                        let complex_type = self.context.struct_type(&[
+                            self.context.f64_type().into(),
+                            self.context.f64_type().into()
+                        ], false);
+                        self.builder.build_insert_value(
+                            self.builder.build_insert_value(
+                                complex_type.get_undef(),
+                                real_val,
+                                0,
+                                "real"
+                            ).unwrap(),
+                            zero,
+                            1,
+                            "imag"
+                        ).unwrap().into_struct_value()
+                    };
+
+                    // Call appropriate complex function
+                    let fn_name = match op {
+                        BinaryOp::Add => "complex_add",
+                        BinaryOp::Sub => "complex_sub",
+                        BinaryOp::Mul => "complex_mul",
+                        BinaryOp::Div => "complex_div",
+                        BinaryOp::Pow => "complex_pow",  // Fallback (shouldn't reach here for pow)
+                        _ => {
+                            eprintln!("Error: Operator {:?} not supported for complex numbers", op);
+                            return None;
+                        }
+                    };
+
+                    let complex_type = self.brix_type_to_llvm(&BrixType::Complex);
+                    let fn_type = complex_type.fn_type(&[complex_type.into(), complex_type.into()], false);
+                    let func = self.module.get_function(fn_name).unwrap_or_else(|| {
+                        self.module.add_function(fn_name, fn_type, Some(Linkage::External))
+                    });
+
+                    let result = self.builder
+                        .build_call(func, &[lhs_complex.into(), rhs_complex.into()], "complex_op")
+                        .unwrap()
+                        .try_as_basic_value()
+                        .left()
+                        .unwrap();
+
+                    return Some((result, BrixType::Complex));
+                }
 
                 // --- Strings ---
                 if lhs_type == BrixType::String && rhs_type == BrixType::String {
@@ -1778,6 +2026,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             BrixType::String => "string",
                             BrixType::Matrix => "matrix",
                             BrixType::IntMatrix => "intmatrix",
+                            BrixType::Complex => "complex",
+                            BrixType::ComplexArray => "complexarray",
+                            BrixType::ComplexMatrix => "complexmatrix",
                             BrixType::FloatPtr => "float_ptr",
                             BrixType::Void => "void",
                             BrixType::Tuple(_) => "tuple",
@@ -2007,6 +2258,161 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         };
 
                         return Some((result, BrixType::Int)); // bool is represented as int
+                    }
+
+                    // === COMPLEX NUMBER FUNCTIONS ===
+
+                    // complex(re, im) - constructor
+                    if fn_name == "complex" {
+                        if args.len() != 2 {
+                            eprintln!("Error: complex() expects exactly 2 arguments (real, imag).");
+                            return None;
+                        }
+
+                        let (re_val, re_type) = self.compile_expr(&args[0])?;
+                        let (im_val, im_type) = self.compile_expr(&args[1])?;
+
+                        // Convert to float if needed
+                        let re_float = if re_type == BrixType::Int {
+                            self.builder
+                                .build_signed_int_to_float(re_val.into_int_value(), self.context.f64_type(), "re_to_float")
+                                .unwrap()
+                        } else {
+                            re_val.into_float_value()
+                        };
+
+                        let im_float = if im_type == BrixType::Int {
+                            self.builder
+                                .build_signed_int_to_float(im_val.into_int_value(), self.context.f64_type(), "im_to_float")
+                                .unwrap()
+                        } else {
+                            im_val.into_float_value()
+                        };
+
+                        // Create complex struct
+                        let complex_type = self.context.struct_type(&[
+                            self.context.f64_type().into(),
+                            self.context.f64_type().into()
+                        ], false);
+
+                        let complex_val = self.builder.build_insert_value(
+                            self.builder.build_insert_value(
+                                complex_type.get_undef(),
+                                re_float,
+                                0,
+                                "real"
+                            ).unwrap(),
+                            im_float,
+                            1,
+                            "imag"
+                        ).unwrap();
+
+                        return Some((complex_val.into_struct_value().into(), BrixType::Complex));
+                    }
+
+                    // real(z) - extract real part
+                    if fn_name == "real" {
+                        if args.len() != 1 {
+                            eprintln!("Error: real() expects exactly 1 argument.");
+                            return None;
+                        }
+
+                        let (val, val_type) = self.compile_expr(&args[0])?;
+                        if val_type != BrixType::Complex {
+                            eprintln!("Error: real() expects a complex number.");
+                            return None;
+                        }
+
+                        let real_part = self.builder
+                            .build_extract_value(val.into_struct_value(), 0, "real_part")
+                            .unwrap()
+                            .into_float_value();
+
+                        return Some((real_part.into(), BrixType::Float));
+                    }
+
+                    // imag(z) - extract imaginary part
+                    if fn_name == "imag" {
+                        if args.len() != 1 {
+                            eprintln!("Error: imag() expects exactly 1 argument.");
+                            return None;
+                        }
+
+                        let (val, val_type) = self.compile_expr(&args[0])?;
+                        if val_type != BrixType::Complex {
+                            eprintln!("Error: imag() expects a complex number.");
+                            return None;
+                        }
+
+                        let imag_part = self.builder
+                            .build_extract_value(val.into_struct_value(), 1, "imag_part")
+                            .unwrap()
+                            .into_float_value();
+
+                        return Some((imag_part.into(), BrixType::Float));
+                    }
+
+                    // Single-argument complex functions that return complex
+                    let complex_to_complex_fns = ["conj", "exp", "log", "sqrt", "csin", "ccos", "ctan", "csinh", "ccosh", "ctanh"];
+                    if complex_to_complex_fns.contains(&fn_name.as_str()) {
+                        if args.len() != 1 {
+                            eprintln!("Error: {}() expects exactly 1 argument.", fn_name);
+                            return None;
+                        }
+
+                        let (val, val_type) = self.compile_expr(&args[0])?;
+                        if val_type != BrixType::Complex {
+                            eprintln!("Error: {}() expects a complex number.", fn_name);
+                            return None;
+                        }
+
+                        let runtime_fn_name = format!("complex_{}", fn_name);
+                        let complex_type = self.brix_type_to_llvm(&BrixType::Complex);
+                        let fn_type = complex_type.fn_type(&[complex_type.into()], false);
+                        let func = self.module.get_function(&runtime_fn_name).unwrap_or_else(|| {
+                            self.module.add_function(&runtime_fn_name, fn_type, Some(Linkage::External))
+                        });
+
+                        let result = self.builder
+                            .build_call(func, &[val.into()], &format!("{}_result", fn_name))
+                            .unwrap()
+                            .try_as_basic_value()
+                            .left()
+                            .unwrap();
+
+                        return Some((result, BrixType::Complex));
+                    }
+
+                    // Single-argument complex functions that return float
+                    let complex_to_float_fns = ["abs", "abs2", "angle"];
+                    if complex_to_float_fns.contains(&fn_name.as_str()) {
+                        if args.len() != 1 {
+                            eprintln!("Error: {}() expects exactly 1 argument.", fn_name);
+                            return None;
+                        }
+
+                        let (val, val_type) = self.compile_expr(&args[0])?;
+                        if val_type != BrixType::Complex {
+                            eprintln!("Error: {}() expects a complex number.", fn_name);
+                            return None;
+                        }
+
+                        let runtime_fn_name = format!("complex_{}", fn_name);
+                        let complex_type = self.brix_type_to_llvm(&BrixType::Complex);
+                        let f64_type = self.context.f64_type();
+                        let fn_type = f64_type.fn_type(&[complex_type.into()], false);
+                        let func = self.module.get_function(&runtime_fn_name).unwrap_or_else(|| {
+                            self.module.add_function(&runtime_fn_name, fn_type, Some(Linkage::External))
+                        });
+
+                        let result = self.builder
+                            .build_call(func, &[val.into()], &format!("{}_result", fn_name))
+                            .unwrap()
+                            .try_as_basic_value()
+                            .left()
+                            .unwrap();
+
+                        return Some((result, BrixType::Float));
                     }
 
                     if fn_name == "input" {
@@ -3184,6 +3590,48 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     .unwrap().try_as_basic_value().left().unwrap();
 
                 Some(final_str)
+            }
+
+            BrixType::Complex => {
+                // Call runtime complex_to_string function
+                let ptr_type = self.context.ptr_type(AddressSpace::default());
+
+                // Declare complex_to_string if not already declared
+                let complex_to_string_fn = if let Some(func) = self.module.get_function("complex_to_string") {
+                    func
+                } else {
+                    let f64_type = self.context.f64_type();
+                    let complex_type = self.context.struct_type(&[f64_type.into(), f64_type.into()], false);
+                    // char* complex_to_string(Complex z)
+                    let fn_type = ptr_type.fn_type(&[complex_type.into()], false);
+                    self.module.add_function("complex_to_string", fn_type, Some(Linkage::External))
+                };
+
+                // Call complex_to_string
+                let c_str = self.builder
+                    .build_call(complex_to_string_fn, &[val.into()], "complex_c_str")
+                    .unwrap()
+                    .try_as_basic_value()
+                    .left()
+                    .unwrap()
+                    .into_pointer_value();
+
+                // Convert C string to BrixString
+                let str_new_fn = if let Some(func) = self.module.get_function("str_new") {
+                    func
+                } else {
+                    let fn_type = ptr_type.fn_type(&[ptr_type.into()], false);
+                    self.module.add_function("str_new", fn_type, Some(Linkage::External))
+                };
+
+                let brix_string = self.builder
+                    .build_call(str_new_fn, &[c_str.into()], "complex_brix_str")
+                    .unwrap()
+                    .try_as_basic_value()
+                    .left()
+                    .unwrap();
+
+                Some(brix_string)
             }
 
             _ => {
