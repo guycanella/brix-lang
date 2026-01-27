@@ -1,6 +1,204 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
+
+// ==========================================
+// SECTION 0: COMPLEX NUMBERS (v1.0)
+// ==========================================
+
+typedef struct {
+    double real;
+    double imag;
+} Complex;
+
+// === Constructors ===
+
+Complex complex_new(double real, double imag) {
+    return (Complex){ real, imag };
+}
+
+// === Operators ===
+
+Complex complex_add(Complex z1, Complex z2) {
+    return (Complex){ z1.real + z2.real, z1.imag + z2.imag };
+}
+
+Complex complex_sub(Complex z1, Complex z2) {
+    return (Complex){ z1.real - z2.real, z1.imag - z2.imag };
+}
+
+Complex complex_mul(Complex z1, Complex z2) {
+    double real = z1.real * z2.real - z1.imag * z2.imag;
+    double imag = z1.real * z2.imag + z1.imag * z2.real;
+    return (Complex){ real, imag };
+}
+
+Complex complex_div(Complex z1, Complex z2) {
+    double denom = z2.real * z2.real + z2.imag * z2.imag;
+    if (denom == 0.0) {
+        fprintf(stderr, "Error: Division by zero (complex)\n");
+        exit(1);
+    }
+    double real = (z1.real * z2.real + z1.imag * z2.imag) / denom;
+    double imag = (z1.imag * z2.real - z1.real * z2.imag) / denom;
+    return (Complex){ real, imag };
+}
+
+// === Power Functions ===
+
+Complex complex_powi(Complex z, int n) {
+    if (n == 0) return (Complex){ 1.0, 0.0 };
+    if (n == 1) return z;
+    if (n < 0) {
+        Complex pos_pow = complex_powi(z, -n);
+        return complex_div((Complex){1.0, 0.0}, pos_pow);
+    }
+
+    // Binary exponentiation
+    Complex result = { 1.0, 0.0 };
+    Complex base = z;
+
+    while (n > 0) {
+        if (n % 2 == 1) {
+            result = complex_mul(result, base);
+        }
+        base = complex_mul(base, base);
+        n /= 2;
+    }
+
+    return result;
+}
+
+double complex_abs(Complex z);  // Forward declaration
+
+Complex complex_powf(Complex z, double exp) {
+    double r = complex_abs(z);
+    double theta = atan2(z.imag, z.real);
+
+    double new_r = pow(r, exp);
+    double new_theta = theta * exp;
+
+    return (Complex){
+        new_r * cos(new_theta),
+        new_r * sin(new_theta)
+    };
+}
+
+Complex complex_exp(Complex z);  // Forward declaration
+Complex complex_log(Complex z);  // Forward declaration
+
+Complex complex_pow(Complex base, Complex exp) {
+    // z1^z2 = exp(z2 * log(z1))
+    Complex log_base = complex_log(base);
+    Complex product = complex_mul(exp, log_base);
+    return complex_exp(product);
+}
+
+// === Basic Properties ===
+
+double complex_real(Complex z) {
+    return z.real;
+}
+
+double complex_imag(Complex z) {
+    return z.imag;
+}
+
+Complex complex_conj(Complex z) {
+    return (Complex){ z.real, -z.imag };
+}
+
+double complex_abs(Complex z) {
+    return sqrt(z.real * z.real + z.imag * z.imag);
+}
+
+double complex_abs2(Complex z) {
+    return z.real * z.real + z.imag * z.imag;
+}
+
+double complex_angle(Complex z) {
+    return atan2(z.imag, z.real);
+}
+
+// === Transcendental Functions ===
+
+Complex complex_exp(Complex z) {
+    double exp_real = exp(z.real);
+    return (Complex){
+        exp_real * cos(z.imag),
+        exp_real * sin(z.imag)
+    };
+}
+
+Complex complex_log(Complex z) {
+    return (Complex){
+        log(complex_abs(z)),
+        complex_angle(z)
+    };
+}
+
+Complex complex_sqrt(Complex z) {
+    double r = complex_abs(z);
+    double theta = complex_angle(z);
+    double sqrt_r = sqrt(r);
+    return (Complex){
+        sqrt_r * cos(theta / 2.0),
+        sqrt_r * sin(theta / 2.0)
+    };
+}
+
+// === Trigonometric Functions ===
+
+Complex complex_csin(Complex z) {
+    return (Complex){
+        sin(z.real) * cosh(z.imag),
+        cos(z.real) * sinh(z.imag)
+    };
+}
+
+Complex complex_ccos(Complex z) {
+    return (Complex){
+        cos(z.real) * cosh(z.imag),
+        -sin(z.real) * sinh(z.imag)
+    };
+}
+
+Complex complex_ctan(Complex z) {
+    return complex_div(complex_csin(z), complex_ccos(z));
+}
+
+// === Hyperbolic Functions ===
+
+Complex complex_csinh(Complex z) {
+    return (Complex){
+        sinh(z.real) * cos(z.imag),
+        cosh(z.real) * sin(z.imag)
+    };
+}
+
+Complex complex_ccosh(Complex z) {
+    return (Complex){
+        cosh(z.real) * cos(z.imag),
+        sinh(z.real) * sin(z.imag)
+    };
+}
+
+Complex complex_ctanh(Complex z) {
+    return complex_div(complex_csinh(z), complex_ccosh(z));
+}
+
+// === Utility Functions ===
+
+char* complex_to_string(Complex z) {
+    char* buffer = malloc(100);
+    if (z.imag >= 0) {
+        snprintf(buffer, 100, "%.6g+%.6gi", z.real, z.imag);
+    } else {
+        snprintf(buffer, 100, "%.6g%.6gi", z.real, z.imag);  // minus sign included in imag
+    }
+    return buffer;
+}
 
 // ==========================================
 // SECTION 1: MATRIX (v0.3)

@@ -94,6 +94,11 @@ pub enum Token {
     #[regex(r#"f"([^"\\]|\\["\\bnfrt])*""#, |lex| lex.slice().to_string())]
     FString(String),
 
+    // Imaginary literals (ex: 2i, 3.14i, 0.5i)
+    // IMPORTANT: Must come BEFORE Int/Float to match correctly
+    #[regex(r"[0-9]+\.[0-9]+i|[0-9]+i", |lex| lex.slice().to_string())]
+    ImaginaryLiteral(String),
+
     // --- Operators ---
     #[token(":=")]
     ColonEq, // Walrus operator (x := 10)
