@@ -189,7 +189,20 @@ typedef struct {
     long* data;    // 8 bytes (i64)
 } IntMatrix;
 
-// Futuro (v0.8+): Para Textos
+// Para Números Complexos (v1.0+)
+typedef struct {
+    double real;
+    double imag;
+} Complex;
+
+// Para Matrizes Complexas (autovalores/autovetores)
+typedef struct {
+    long rows;
+    long cols;
+    Complex* data;  // Array de Complex structs
+} ComplexMatrix;
+
+// Futuro (v1.1+): Para Textos
 typedef struct {
     long rows;
     long cols;
@@ -236,7 +249,9 @@ Estruturas de dados essenciais vêm "na caixa", implementadas sobre Arrays para 
 
 ## 4. Controle de Fluxo
 
-### ✅ Pattern Matching (v1.0 - Implementado - 27/01/2026)
+### ✅ Pattern Matching & Complex Numbers (v1.0 - Implementado - 27/01/2026)
+
+#### Pattern Matching
 
 Pattern matching em Brix substitui `switch/case` complexos com uma sintaxe poderosa e segura.
 
@@ -311,6 +326,79 @@ match typeof(value) {
 - Destructuring patterns: `{ x: x, y: y }`, `(a, b, c)`, `[first, second, ...]`
 - Range patterns: `1..10`
 - Exhaustiveness checking obrigatório
+
+---
+
+#### Complex Numbers & LAPACK Integration
+
+Sistema completo de números complexos e integração LAPACK para álgebra linear avançada.
+
+**Tipos Implementados:**
+
+1. **Complex (struct):**
+   ```c
+   typedef struct {
+       double real;
+       double imag;
+   } Complex;
+   ```
+   - Usado internamente para cálculos
+   - Acessível via LAPACK eigenvalue functions
+
+2. **ComplexMatrix (struct):**
+   ```c
+   typedef struct {
+       long rows;
+       long cols;
+       Complex* data;
+   } ComplexMatrix;
+   ```
+   - Retorno de `math.eigvals()` e `math.eigvecs()`
+   - Printing 2D: `[[a+bi, c+di], [e+fi, g+hi]]`
+
+**Funções LAPACK:**
+
+```brix
+import math
+
+// Autovalores (eigenvalues)
+var A := zeros(2, 2)
+A[0][1] = -1.0
+A[1][0] = 1.0
+var eigenvalues := math.eigvals(A)
+println(f"Eigenvalues: {eigenvalues}")  // [[0+1i], [0-1i]]
+
+// Autovetores (eigenvectors)
+var I := math.eye(3)
+var eigenvectors := math.eigvecs(I)
+println(f"Eigenvectors: {eigenvectors}")  // [[1+0i, 0+0i, 0+0i], ...]
+```
+
+**Implementação Técnica:**
+
+- **LAPACK dgeev:** Double precision general eigenvalue solver
+- **Column-major conversion:** Converte row-major (Brix) → column-major (Fortran/LAPACK)
+- **Work array queries:** Two-pass LAPACK (query optimal size, then compute)
+- **Complex conjugate pairs:** LAPACK armazena eigenvectors complexos como pares conjugados
+- **2D Matrix Printing:** Usa modulo arithmetic para detectar row boundaries e formatar como `[[row1], [row2]]`
+
+**Características:**
+
+- ✅ Autovalores sempre retornam ComplexMatrix (mesmo quando reais)
+- ✅ Autovetores nas colunas da matriz (convenção matemática)
+- ✅ Links com `-llapack -lblas`
+- ✅ Formato 2D para legibilidade visual
+- ⚠️ Erro handling: exit(1) para matrizes não-quadradas (futuro: Go-style (error, value) tuples)
+
+**Testes:**
+- `eigvals_simple_test.bx` - Identity matrix ✅
+- `eigvals_rotation_test.bx` - Complex eigenvalues ✅
+- `eigvecs_test.bx` - 5 diferentes cenários ✅
+
+**Limitações Atuais:**
+- Complex arithmetic operators (+, -, *, /) não implementados ainda
+- Complex numbers só acessíveis via eigvals/eigvecs
+- Planned for v1.1: Full complex number support with operators
 
 ### Loops (Híbrido C/Go/Java)
 
@@ -1167,38 +1255,34 @@ math.std(arr)     // Desvio padrão
 math.var(arr)     // Variância
 ```
 
-**Álgebra Linear (3 funções via LAPACK):**
+**Álgebra Linear (5 funções - runtime.c + LAPACK):**
 ```brix
 import math
-math.det(A)       // Determinante (via LAPACK dgetrf)
-math.inv(A)       // Inversa de matriz (via LAPACK dgetri)
-math.tr(A)        // Transposta (implementação custom em C)
+math.det(A)       // Determinante (Gaussian elimination)
+math.inv(A)       // Inversa de matriz (Gauss-Jordan)
+math.tr(A)        // Transposta (implementação custom)
+math.eigvals(A)   // Autovalores (LAPACK dgeev, retorna ComplexMatrix) ✅ v1.0
+math.eigvecs(A)   // Autovetores (LAPACK dgeev, retorna ComplexMatrix) ✅ v1.0
 ```
 
-**Total v0.7: 29 funções + 6 constantes = 35 itens**
+**Total v0.7+: 31 funções + 6 constantes = 37 itens**
 
 ---
 
-#### ⏳ Adiado para v0.8+ (Requer Complex Number Support)
-
-As seguintes funções foram **ADIADAS** porque autovalores podem ser números complexos:
+#### ⏳ Adiado para v1.1+ (Decomposições Avançadas)
 
 ```brix
-// ADIADO - Requer BrixType::Complex
-math.eigvals(A)   // Autovalores (LAPACK dgeev retorna complex)
-math.eigvecs(A)   // Autovetores (muito complexo + retorna struct)
-
-// ADIADO - Decomposições avançadas
+// ADIADO - Decomposições matriciais avançadas
 math.lu(A)        // Decomposição LU
 math.qr(A)        // Decomposição QR
 math.svd(A)       // Singular Value Decomposition
+math.cholesky(A)  // Decomposição de Cholesky
 ```
 
 **Motivo do adiamento:**
-- LAPACK `dgeev` retorna autovalores em formato `wr[] + wi[]i` (real + imaginário)
-- Matrizes comuns (ex: rotação) têm autovalores complexos puros
-- Precisamos de `BrixType::Complex` implementado antes
-- Planejado para v0.8 junto com suporte a números complexos
+- Requer retorno de múltiplas matrizes (tuples complexos)
+- QR retorna (Q, R), SVD retorna (U, Sigma, V)
+- Planejado para v1.1+ após melhorias em tuple handling
 
 ---
 
@@ -1225,37 +1309,55 @@ math.g_earth      // Aceleração gravitacional Terra (9.80665 m/s²)
 
 ---
 
-#### Números Complexos (Planejado para v0.8+)
+#### ✅ Números Complexos (v1.0 - PARCIALMENTE IMPLEMENTADO)
 
-**Motivação:** Física, Engenharia Elétrica, Processamento de Sinais, Análise de Fourier.
+**Status:** Complex struct e ComplexMatrix implementados. Operadores aritméticos planejados para v1.1+.
 
-**Sintaxe proposta:**
+**Implementado em v1.0:**
+```brix
+import math
+
+// Autovalores retornam ComplexMatrix
+var A := zeros(2, 2)
+A[0][1] = -1.0
+A[1][0] = 1.0
+var eigenvalues := math.eigvals(A)   // ComplexMatrix
+var eigenvectors := math.eigvecs(A)  // ComplexMatrix
+
+// Printing automático em formato 2D
+println(f"Eigenvalues: {eigenvalues}")  // [[0+1i], [0-1i]]
+println(f"Eigenvectors: {eigenvectors}") // [[a+bi, c+di], [e+fi, g+hi]]
+```
+
+**Planejado para v1.1+:**
 ```brix
 // Literal complexo usando 'im' (imaginary unit)
-var z := 1 + 2im
+var z := 1.0 + 2.0im
 var w := 3.5 - 1.2im
 
-// Funções via import math
-import math
+// Operadores aritméticos
+var soma := z + w          // Adição
+var produto := z * w       // Multiplicação
+var divisao := z / w       // Divisão
+
+// Funções complexas via math
 var r := math.real(z)      // Parte real
 var i := math.imag(z)      // Parte imaginária
 var conj := math.conj(z)   // Conjugado
 var mag := math.abs(z)     // Magnitude
 var phase := math.angle(z) // Fase
-
-// Aritmética nativa
-var soma := z + w          // Operadores suportam complex
-var produto := z * w
 ```
 
-**Decisão de Implementação:**
-- Tipo nativo `BrixType::Complex` com struct LLVM { f64 real, f64 imag }
-- Operadores aritméticos suportam complex numbers
-- Funções complexas disponíveis via `import math`
-- Implementação usando C complex.h (C99) quando disponível
-- Performance: SIMD-friendly (2 floats = 16 bytes, cabe em registradores)
+**Implementação Atual (v1.0):**
+- ✅ Tipo `BrixType::Complex` e `BrixType::ComplexMatrix`
+- ✅ Struct LLVM { f64 real, f64 imag }
+- ✅ LAPACK integration (eigvals/eigvecs)
+- ✅ 2D matrix printing
+- ⏸️ Operadores aritméticos (+, -, *, /)
+- ⏸️ Literais complexos (1+2im syntax)
+- ⏸️ Funções complexas (real, imag, conj, abs, angle)
 
-**Prioridade:** Após sistema de imports estar consolidado (v0.8+)
+**Performance:** SIMD-friendly (2 floats = 16 bytes, cabe em registradores)
 
 ---
 
@@ -1337,7 +1439,39 @@ var produto := z * w
 
 ---
 
-### 🧩 **v1.0 - Closures e Funções Avançadas** (PRÓXIMO)
+### 🎯 **v1.0 - Advanced Features** ✅ **70% COMPLETO (27/01/2026)**
+
+**Status Geral:**
+- [x] Pattern matching (`match` syntax) ✅ **COMPLETO**
+- [x] Complex numbers (Complex, ComplexMatrix) ✅ **COMPLETO**
+- [x] LAPACK integration (eigvals, eigvecs) ✅ **COMPLETO**
+- [ ] Closures and lambda functions ⏸️ **Adiado para v1.1**
+- [ ] First-class functions ⏸️ **Adiado para v1.1**
+- [ ] User-defined modules ⏸️ **Adiado para v1.1**
+
+**O que foi implementado em v1.0:**
+
+1. **Pattern Matching Completo:**
+   - Scalar patterns (literais, wildcard, binding)
+   - Or-patterns (`1 | 2 | 3`)
+   - Guards (`x if x > 10`)
+   - Type coercion automática
+   - Match em typeof()
+   - Exhaustiveness warning
+
+2. **Complex Numbers & LAPACK:**
+   - Tipos Complex e ComplexMatrix
+   - Funções `math.eigvals()` e `math.eigvecs()`
+   - LAPACK dgeev integration
+   - 2D matrix printing para ComplexMatrix
+   - Column-major conversion
+   - Work array queries
+
+**Próximo:** v1.1 - Complex arithmetic operators, closures, modules
+
+---
+
+### 🧩 **v1.1 - Closures e Funções Avançadas** (PRÓXIMO)
 
 #### Closures e Lambda Functions
 
@@ -1478,12 +1612,15 @@ v0.1 ████████████████████ 100% ✅ Lexer
 v0.2 ████████████████████ 100% ✅ Tipos, Casting, Operadores
 v0.3 ████████████████████ 100% ✅ Matrizes, Loops, typeof()
 v0.4 ████████████████████ 100% ✅ Operadores avançados, string interpolation
-v0.5 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Funções de usuário, return
-v0.6 ████████████████████ 100% ✅ IntMatrix type system, format specifiers
-v0.7 ████████████████████ 100% ✅ Import system, math library (36 functions)
-v0.8 ░░░░░░░░░░░░░░░░░░░░   0% 🎯 User functions, multi-file support
-v0.9 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Complex numbers, structs, pattern matching
-v1.0 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Standard Library completa
+v0.5 ████████████████████ 100% ✅ Format specifiers
+v0.6 ████████████████████ 100% ✅ IntMatrix type system
+v0.7 ████████████████████ 100% ✅ Import system, math library (38 functions)
+v0.8 ████████████████████ 100% ✅ User-defined functions, multiple returns
+v0.9 ████████████████████ 100% ✅ List comprehensions, zip(), destructuring
+v1.0 ██████████████░░░░░░  70% 🚧 Pattern matching ✅, Complex ✅, LAPACK ✅
+v1.1 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Complex ops, closures, modules
+v1.2 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Generics, concurrency
+v1.3 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Standard Library completa
 ```
 
 **Legenda:**
@@ -1662,16 +1799,17 @@ math.sum(arr), math.mean(arr), math.median(arr), math.std(arr)
 3. Codegen: LLVM external declarations
 4. Runtime: Thin wrappers em runtime.c chamando math.h/LAPACK
 
-### Próximas Features (v0.9+):
+### Próximas Features (v1.1+):
 
-**v0.9 - Pattern Matching & Advanced Features:**
-- Pattern matching: `when value { ... }`
-- List comprehensions: `[x * 2 for x in nums if x > 0]`
+**v1.1 - Complex Arithmetic & Closures:**
+- Complex arithmetic operators: `z + w`, `z * w`, `z / w`
+- Complex literals: `var z := 1.0 + 2.0im`
+- Complex functions: `real()`, `imag()`, `conj()`, `abs()`, `angle()`
 - Closures: `var fn := (x: int) -> int { return x * 2 }`
 - First-class functions: Passar funções como parâmetros
-- Números Complexos: `z := 1 + 2im`
+- User-defined modules
 
-**v1.0 - Generics & Concurrency:**
+**v1.2 - Generics & Concurrency:**
 - Generics: `function map<T, U>(arr: [T], fn: T -> U) -> [U]`
 - Concurrency: `spawn`, `par for`, `par map`
 - Channels para comunicação entre threads
@@ -1683,14 +1821,14 @@ math.sum(arr), math.mean(arr), math.median(arr), math.std(arr)
 
 ### 📊 Estatísticas do Projeto:
 
-- **Linhas de Código (Rust):** ~4500 linhas (compiler core)
-- **Linhas de Código (C Runtime):** ~500 linhas (math + matrix ops)
-- **Arquivos de Teste (.bx):** 26 (core + math + functions)
-- **Features Implementadas:** ~70+ (v0.8 completo)
-- **Features Planejadas:** ~120+
-- **Versão Atual:** v0.8 (Functions)
-- **Progresso MVP:** 85%
-- **Última Atualização:** 26/01/2026
+- **Linhas de Código (Rust):** ~5000 linhas (compiler core)
+- **Linhas de Código (C Runtime):** ~800 linhas (math + matrix + LAPACK wrappers)
+- **Arquivos de Teste (.bx):** 31 (core + math + functions + pattern matching + complex)
+- **Features Implementadas:** ~80+ (v1.0 70% completo)
+- **Features Planejadas:** ~130+
+- **Versão Atual:** v1.0 (Pattern Matching + Complex Numbers)
+- **Progresso MVP:** 90%
+- **Última Atualização:** 27/01/2026
 
 ---
 
