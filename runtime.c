@@ -473,6 +473,60 @@ ComplexMatrix *brix_eigvecs(Matrix *A) {
 }
 
 // ==========================================
+// SECTION 1: ERROR HANDLING (v1.1)
+// ==========================================
+
+typedef struct {
+    char* message;
+} BrixError;
+
+// Create a new error with a message
+BrixError* brix_error_new(char* msg) {
+    if (msg == NULL) {
+        return NULL;  // nil error
+    }
+
+    BrixError* err = (BrixError*)malloc(sizeof(BrixError));
+    if (err == NULL) {
+        fprintf(stderr, "Fatal: Failed to allocate memory for error\n");
+        exit(1);
+    }
+
+    // Copy the message string
+    err->message = strdup(msg);
+    if (err->message == NULL) {
+        fprintf(stderr, "Fatal: Failed to allocate memory for error message\n");
+        free(err);
+        exit(1);
+    }
+
+    return err;
+}
+
+// Get error message
+char* brix_error_message(BrixError* err) {
+    if (err == NULL) {
+        return "";  // Empty string for nil error
+    }
+    return err->message;
+}
+
+// Check if error is nil
+int brix_error_is_nil(BrixError* err) {
+    return err == NULL;
+}
+
+// Free error memory
+void brix_error_free(BrixError* err) {
+    if (err != NULL) {
+        if (err->message != NULL) {
+            free(err->message);
+        }
+        free(err);
+    }
+}
+
+// ==========================================
 // SECTION 2: STRINGS (v0.4)
 // ==========================================
 

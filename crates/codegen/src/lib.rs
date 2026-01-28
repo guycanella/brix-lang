@@ -22,6 +22,7 @@ pub enum BrixType {
     Void,
     Tuple(Vec<BrixType>), // Multiple returns (stored as struct)
     Nil,       // Represents null/nil value (null pointer)
+    Error,     // Error type (pointer to BrixError struct in runtime.c)
 }
 
 pub struct Compiler<'a, 'ctx> {
@@ -261,6 +262,11 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             "int" => BrixType::Int,
             "float" => BrixType::Float,
             "string" => BrixType::String,
+            "matrix" => BrixType::Matrix,
+            "intmatrix" => BrixType::IntMatrix,
+            "complex" => BrixType::Complex,
+            "nil" => BrixType::Nil,
+            "error" => BrixType::Error,
             "void" => BrixType::Void,
             _ => {
                 eprintln!("Warning: Unknown type '{}', defaulting to Int", type_str);
@@ -274,7 +280,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         match brix_type {
             BrixType::Int => self.context.i64_type().into(),
             BrixType::Float => self.context.f64_type().into(),
-            BrixType::String | BrixType::Matrix | BrixType::IntMatrix | BrixType::FloatPtr | BrixType::Nil => {
+            BrixType::String | BrixType::Matrix | BrixType::IntMatrix | BrixType::FloatPtr | BrixType::Nil | BrixType::Error => {
                 self.context.ptr_type(AddressSpace::default()).into()
             }
             BrixType::Complex => {
@@ -558,7 +564,20 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                     );
                                 }
                             }
-                            _ => {}
+                            "error" => {
+                                if val_type != BrixType::Error && val_type != BrixType::Nil {
+                                    eprintln!(
+                                        "Warning: Trying to assign incompatible type to error."
+                                    );
+                                }
+                                // Accept both Error and Nil for error type
+                                // val_type remains as-is (Error or Nil)
+                            }
+                            _ => {
+                                if hint != "matrix" && hint != "intmatrix" && hint != "complex" {
+                                    eprintln!("Warning: Unknown type '{}', defaulting to Int", hint);
+                                }
+                            }
                         }
                     }
 
@@ -571,7 +590,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         | BrixType::IntMatrix
                         | BrixType::ComplexMatrix
                         | BrixType::FloatPtr
-                        | BrixType::Nil => {
+                        | BrixType::Nil
+                        | BrixType::Error => {
                             self.context.ptr_type(AddressSpace::default()).into()
                         }
                         BrixType::Complex => {
@@ -823,14 +843,20 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 // THEN
                 self.builder.position_at_end(then_bb);
                 self.compile_stmt(then_block, function);
-                let _ = self.builder.build_unconditional_branch(merge_bb);
+                // Only add branch if block doesn't already have a terminator (e.g., return)
+                if self.builder.get_insert_block().unwrap().get_terminator().is_none() {
+                    let _ = self.builder.build_unconditional_branch(merge_bb);
+                }
 
                 // ELSE
                 self.builder.position_at_end(else_bb);
                 if let Some(else_stmt) = else_block {
                     self.compile_stmt(else_stmt, function);
                 }
-                let _ = self.builder.build_unconditional_branch(merge_bb);
+                // Only add branch if block doesn't already have a terminator
+                if self.builder.get_insert_block().unwrap().get_terminator().is_none() {
+                    let _ = self.builder.build_unconditional_branch(merge_bb);
+                }
 
                 // MERGE
                 self.builder.position_at_end(merge_bb);
@@ -1547,6 +1573,15 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             .unwrap();
                         Some((val, BrixType::Nil))
                     }
+                    BrixType::Error => {
+                        // Load error (pointer to BrixError struct)
+                        let ptr_type = self.context.ptr_type(AddressSpace::default());
+                        let val = self
+                            .builder
+                            .build_load(ptr_type, *ptr, name)
+                            .unwrap();
+                        Some((val, BrixType::Error))
+                    }
                     _ => {
                         eprintln!("Error: Type not supported in identifier.");
                         None
@@ -1700,10 +1735,25 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let (lhs_val, lhs_type) = self.compile_expr(lhs)?;
                 let (rhs_val, rhs_type) = self.compile_expr(rhs)?;
 
-                // --- NIL COMPARISON: x == nil, x != nil ---
+                // --- NIL COMPARISON: x == nil, x != nil, err == nil, err != nil ---
                 // Handle comparisons with nil (null pointer comparison)
-                if (lhs_type == BrixType::Nil || rhs_type == BrixType::Nil)
-                    && (matches!(op, BinaryOp::Eq) || matches!(op, BinaryOp::NotEq)) {
+                // Allow comparison of Error, String, Matrix, etc. with Nil
+                let is_pointer_type = |t: &BrixType| {
+                    matches!(t,
+                        BrixType::Nil |
+                        BrixType::Error |
+                        BrixType::String |
+                        BrixType::Matrix |
+                        BrixType::IntMatrix |
+                        BrixType::Complex |
+                        BrixType::ComplexMatrix |
+                        BrixType::FloatPtr
+                    )
+                };
+
+                if (is_pointer_type(&lhs_type) || is_pointer_type(&rhs_type))
+                    && (matches!(op, BinaryOp::Eq) || matches!(op, BinaryOp::NotEq))
+                    && (lhs_type == BrixType::Nil || rhs_type == BrixType::Nil) {
 
                     let ptr_type = self.context.ptr_type(AddressSpace::default());
                     let null_ptr = ptr_type.const_null();
@@ -2128,6 +2178,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             BrixType::Void => "void",
                             BrixType::Tuple(_) => "tuple",
                             BrixType::Nil => "nil",
+                            BrixType::Error => "error",
                         };
 
                         return self
@@ -2354,6 +2405,52 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         };
 
                         return Some((result, BrixType::Int)); // bool is represented as int
+                    }
+
+                    // error(msg: string) -> error - create error
+                    if fn_name == "error" {
+                        if args.len() != 1 {
+                            eprintln!("Error: error() expects exactly 1 argument (message string).");
+                            return None;
+                        }
+
+                        let (msg_val, msg_type) = self.compile_expr(&args[0])?;
+
+                        if msg_type != BrixType::String {
+                            eprintln!("Error: error() expects a string argument.");
+                            return None;
+                        }
+
+                        // Declare brix_error_new(char* msg) -> BrixError*
+                        let ptr_type = self.context.ptr_type(AddressSpace::default());
+                        let fn_type = ptr_type.fn_type(&[ptr_type.into()], false);
+                        let error_new_fn = self.module.get_function("brix_error_new").unwrap_or_else(|| {
+                            self.module.add_function("brix_error_new", fn_type, Some(Linkage::External))
+                        });
+
+                        // Extract char* from BrixString struct
+                        let str_struct_ptr = msg_val.into_pointer_value();
+                        let str_type = self.get_string_type();
+                        let data_ptr_ptr = self
+                            .builder
+                            .build_struct_gep(str_type, str_struct_ptr, 1, "str_data_ptr")
+                            .unwrap();
+                        let char_ptr = self
+                            .builder
+                            .build_load(ptr_type, data_ptr_ptr, "str_data")
+                            .unwrap()
+                            .into_pointer_value();
+
+                        // Call brix_error_new(char_ptr)
+                        let error_ptr = self
+                            .builder
+                            .build_call(error_new_fn, &[char_ptr.into()], "error_new")
+                            .unwrap()
+                            .try_as_basic_value()
+                            .left()
+                            .unwrap();
+
+                        return Some((error_ptr, BrixType::Error));
                     }
 
                     // === COMPLEX NUMBER FUNCTIONS ===
@@ -3942,6 +4039,61 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     .unwrap().try_as_basic_value().left().unwrap();
 
                 Some(final_str)
+            }
+
+            BrixType::Nil => {
+                // Convert nil to string "nil"
+                let nil_str = self.builder.build_global_string_ptr("nil", "nil_str").unwrap();
+                let ptr_type = self.context.ptr_type(AddressSpace::default());
+                let fn_type = ptr_type.fn_type(&[ptr_type.into()], false);
+                let str_new_fn = self.module.get_function("str_new").unwrap_or_else(|| {
+                    self.module.add_function("str_new", fn_type, Some(Linkage::External))
+                });
+
+                let brix_string = self
+                    .builder
+                    .build_call(str_new_fn, &[nil_str.as_pointer_value().into()], "nil_brix_str")
+                    .unwrap()
+                    .try_as_basic_value()
+                    .left()
+                    .unwrap();
+
+                Some(brix_string)
+            }
+
+            BrixType::Error => {
+                // Call brix_error_message(error_ptr) to get the message string
+                let ptr_type = self.context.ptr_type(AddressSpace::default());
+                let fn_type = ptr_type.fn_type(&[ptr_type.into()], false);
+                let error_msg_fn = self.module.get_function("brix_error_message").unwrap_or_else(|| {
+                    self.module.add_function("brix_error_message", fn_type, Some(Linkage::External))
+                });
+
+                let error_ptr = val.into_pointer_value();
+                let msg_char_ptr = self
+                    .builder
+                    .build_call(error_msg_fn, &[error_ptr.into()], "error_msg")
+                    .unwrap()
+                    .try_as_basic_value()
+                    .left()
+                    .unwrap()
+                    .into_pointer_value();
+
+                // Convert char* to BrixString using str_new
+                let str_new_fn = self.module.get_function("str_new").unwrap_or_else(|| {
+                    let fn_type = ptr_type.fn_type(&[ptr_type.into()], false);
+                    self.module.add_function("str_new", fn_type, Some(Linkage::External))
+                });
+
+                let brix_string = self
+                    .builder
+                    .build_call(str_new_fn, &[msg_char_ptr.into()], "error_str")
+                    .unwrap()
+                    .try_as_basic_value()
+                    .left()
+                    .unwrap();
+
+                Some(brix_string)
             }
 
             _ => {
