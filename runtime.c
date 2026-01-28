@@ -193,9 +193,9 @@ Complex complex_ctanh(Complex z) {
 char* complex_to_string(Complex z) {
     char* buffer = malloc(100);
     if (z.imag >= 0) {
-        snprintf(buffer, 100, "%.6g+%.6gi", z.real, z.imag);
+        snprintf(buffer, 100, "%.6g+%.6gim", z.real, z.imag);
     } else {
-        snprintf(buffer, 100, "%.6g%.6gi", z.real, z.imag);  // minus sign included in imag
+        snprintf(buffer, 100, "%.6g%.6gim", z.real, z.imag);  // minus sign included in imag
     }
     return buffer;
 }

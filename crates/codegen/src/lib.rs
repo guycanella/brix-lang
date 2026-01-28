@@ -1462,7 +1462,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 }
             },
 
-            Expr::Identifier(name) => match self.variables.get(name) {
+            Expr::Identifier(name) => {
+                // First check if it's a user-defined variable
+                match self.variables.get(name) {
                 Some((ptr, brix_type)) => match brix_type {
                     BrixType::String | BrixType::FloatPtr => {
                         let val = self
@@ -1534,8 +1536,22 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     }
                 },
                 None => {
+                    // Special case: 'im' is the imaginary unit (0+1i), like Julia
+                    // Only use this if no variable named 'im' exists
+                    if name == "im" {
+                        let complex_type = self.context.struct_type(&[
+                            self.context.f64_type().into(),
+                            self.context.f64_type().into()
+                        ], false);
+                        let zero = self.context.f64_type().const_float(0.0);
+                        let one = self.context.f64_type().const_float(1.0);
+                        let im_val = complex_type.const_named_struct(&[zero.into(), one.into()]);
+                        return Some((im_val.into(), BrixType::Complex));
+                    }
+
                     eprintln!("Error: Variable '{}' not found.", name);
                     None
+                }
                 }
             },
 
