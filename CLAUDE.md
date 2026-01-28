@@ -815,7 +815,14 @@ Test files are `.bx` files in the root directory. Common test files include:
 - `match_typeof_test.bx`: Match on typeof(value)
 - `match_types_test.bx`: Type coercion (int→float promotion)
 
-**Complex Numbers & LAPACK (v1.0):**
+**Complex Numbers (v1.0):**
+- `simple_complex_test.bx`: Complex literals and constructor syntax
+- `complex_full_test.bx`: Operators and all complex functions
+- `complex_test.bx`: Comprehensive test (16+ functions, operators, validation)
+- `im_test.bx`: Imaginary unit constant `im`, implicit multiplication `(expr)im`, and loop variable `i` compatibility
+- `imaginary_unit_test.bx`: Original test with `i` constant (deprecated in favor of `im`)
+
+**LAPACK Integration (v1.0):**
 - `eigvals_simple_test.bx`: Eigenvalues of identity matrix
 - `eigvals_rotation_test.bx`: Complex eigenvalues (rotation, symmetric, diagonal matrices)
 - `eigvecs_test.bx`: Eigenvectors (5 different scenarios)
@@ -830,7 +837,7 @@ cargo run <test_file.bx>
 
 ## Project Status (v1.0 em progresso - Jan 2026)
 
-### Progress: 92% MVP Complete
+### Progress: 95% MVP Complete
 
 **Completed:**
 
@@ -861,8 +868,16 @@ cargo run <test_file.bx>
 - ✅ **Complex Numbers** (v1.0):
   - Complex struct with real and imag fields
   - ComplexMatrix for eigenvalue/eigenvector results
-  - 2D matrix printing: `[[a+bi, c+di], [e+fi, g+hi]]`
-  - LAPACK integration for linear algebra
+  - Imaginary literals: `2.0i`, `3i`
+  - Complex literals: `3.0 + 4.0i`
+  - Imaginary unit constant `im` (Julia-style, avoids conflict with loop variable `i`)
+  - Implicit multiplication: `(expr)im` → `expr * im`
+  - All arithmetic operators: +, -, *, /, **
+  - 16+ complex functions: exp, log, sqrt, sin/cos/tan, sinh/cosh/tanh, real, imag, abs, angle, conj, abs2
+  - Auto-conversion Float/Int → Complex
+  - String format with "im" suffix: `3+4im`
+  - 2D matrix printing: `[[a+bim, c+dim], [e+fim, g+him]]`
+  - LAPACK integration for linear algebra (eigvals, eigvecs)
 - ✅ **User-defined functions** (v0.8):
   - Function definitions with `function` keyword
   - Single and multiple return values (tuples)
@@ -1253,11 +1268,79 @@ Sistema completo de números complexos e integração LAPACK para álgebra linea
 
 1. **Complex (struct):**
    - Campos: `double real`, `double imag`
-   - Usado internamente para cálculos
+   - Usado para todos os cálculos complexos
+   - String format: `"3+4im"` (usa "im" ao invés de "i")
 
 2. **ComplexMatrix (struct):**
    - Campos: `long rows`, `long cols`, `Complex* data`
    - Retorno de `eigvals()` e `eigvecs()`
+
+**Complex Literals e Sintaxe:**
+
+```brix
+// Imaginary literals
+var i1 := 2.0i        // 0+2im
+var i2 := 3i          // 0+3im
+
+// Complex literals (real + imaginary)
+var z1 := 3.0 + 4.0i  // 3+4im
+var z2 := 1.0 - 2.0i  // 1-2im
+
+// Complex constructor
+var z3 := complex(5.0, 12.0)  // 5+12im
+
+// Imaginary unit constant (Julia-style)
+var unit := im        // 0+1im (built-in constant)
+
+// Implicit multiplication with im
+var z4 := (pi / 2.0)im        // Equivalent to (pi / 2.0) * im
+var euler := exp((pi / 2.0)im) // Euler's formula
+```
+
+**Nota importante sobre `im`:**
+- A constante `im` representa a unidade imaginária (0+1i), similar ao Julia
+- Variáveis definidas pelo usuário têm prioridade: `var im := 5.0` sobrescreve a constante
+- Multiplicação implícita: `(expressão)im` é automaticamente convertida para `expressão * im` pelo parser
+- Usamos `im` ao invés de `i` para evitar conflito com variáveis de loop comuns (`for i in 1:10`)
+
+**Complex Operators:**
+
+Todos os operadores aritméticos suportam Complex:
+- **Adição:** `z1 + z2`, `z1 + 5.0` (auto-converte real → complex)
+- **Subtração:** `z1 - z2`, `10.0 - z1`
+- **Multiplicação:** `z1 * z2`, `2.0 * im`
+- **Divisão:** `z1 / z2`
+- **Potência:** `z ** n` (inteiro ou float)
+
+**Complex Functions:**
+
+```brix
+// Propriedades
+var r := real(z)      // Parte real (retorna Float)
+var i := imag(z)      // Parte imaginária (retorna Float)
+var mag := abs(z)     // Magnitude |z| (retorna Float)
+var theta := angle(z) // Fase/ângulo (retorna Float)
+var z_conj := conj(z) // Conjugado (retorna Complex)
+
+// Funções exponenciais/logarítmicas
+var exp_z := exp(z)   // e^z
+var log_z := log(z)   // ln(z)
+var sqrt_z := sqrt(z) // √z
+
+// Funções trigonométricas
+var sin_z := csin(z)
+var cos_z := ccos(z)
+var tan_z := ctan(z)
+
+// Funções hiperbólicas
+var sinh_z := csinh(z)
+var cosh_z := ccosh(z)
+var tanh_z := ctanh(z)
+
+// Potência e raiz
+var pow_z := cpow(z, n)   // z^n
+var abs2_z := abs2(z)     // |z|² (retorna Float)
+```
 
 **Funções LAPACK:**
 
@@ -1276,27 +1359,44 @@ Sistema completo de números complexos e integração LAPACK para álgebra linea
 
 **Implementação Técnica:**
 
-1. **Runtime (runtime.c):**
+1. **Lexer (token.rs):**
+   - `ImaginaryLiteral` token com priority=3 (maior que Float/Int)
+   - Regex: `r"[0-9]+\.[0-9]+i|[0-9]+i"`
+   - Garante que `2.0i` seja reconhecido como imaginary ao invés de float + identifier
+
+2. **Parser (parser.rs):**
+   - `Literal::Complex(f64, f64)` no AST
+   - Multiplicação implícita: `(expr)im` é parseado como `expr * im`
+   - Parsing de `3.0 + 4.0i` como Complex literal
+
+3. **Runtime (runtime.c):**
    - Structs Complex e ComplexMatrix
-   - Funções `brix_eigvals()` e `brix_eigvecs()`
+   - Operadores: `complex_add`, `complex_sub`, `complex_mul`, `complex_div`, `complex_pow`
+   - Funções: `complex_exp`, `complex_log`, `complex_sqrt`, `complex_sin`, `complex_cos`, etc.
+   - String formatting: `complex_to_string()` usa formato "a+bim" (com "im" ao invés de "i")
+   - Funções LAPACK: `brix_eigvals()` e `brix_eigvecs()`
    - Conversão row-major → column-major para LAPACK
    - Work array queries (two-pass LAPACK)
    - Handling de complex conjugate pairs
 
-2. **Codegen:**
+4. **Codegen:**
    - `BrixType::Complex` e `BrixType::ComplexMatrix`
+   - Constante `im`: retorna Complex(0, 1) quando identifier "im" não existe como variável
+   - Prioridade de variáveis sobre constantes builtin
+   - External function declarations para todas as funções complex do runtime
    - `declare_eigen_function()` helper
    - Return type detection para eigvals/eigvecs
    - ComplexMatrix loading support
    - **CRITICAL FIX:** eye() passa i64 direto sem conversão int→float
 
-3. **String Formatting (2D Matrix Printing):**
-   - ComplexMatrix imprime como `[[elem1, elem2], [elem3, elem4]]`
+5. **String Formatting:**
+   - Complex: `"3+4im"` ou `"3-4im"` (sinal incluído no imag quando negativo)
+   - ComplexMatrix (2D): `[[elem1, elem2], [elem3, elem4]]`
    - Usa modulo arithmetic para detectar row boundaries
    - Adiciona `[` no início de cada row
    - Adiciona `]` no fim de cada row
    - Adiciona `, ` entre rows
-   - Formato: `println(f"eigvecs = {eigvecs}")` → `[[1+0i, 0+0i], [0+0i, 1+0i]]`
+   - Formato: `println(f"eigvecs = {eigvecs}")` → `[[1+0im, 0+0im], [0+0im, 1+0im]]`
 
 **Exemplos:**
 
@@ -1327,19 +1427,29 @@ println(f"Eigenvectors: {vecs}")  // [[1+0i, 0+0i], [0+0i, 1+0i]]
 - Complex eigenvector pair handling
 
 **Testes:**
+- `simple_complex_test.bx` - Complex literals e constructor ✅
+- `complex_full_test.bx` - Operadores e funções complexas (completo) ✅
+- `complex_test.bx` - Teste comprehensivo (16+ funções) ✅
+- `im_test.bx` - Constante imaginária `im` e multiplicação implícita ✅
 - `eigvals_simple_test.bx` - Matriz identidade ✅
 - `eigvals_rotation_test.bx` - Autovalores complexos (rotação, simétrica, diagonal) ✅
 - `eigvecs_test.bx` - Autovetores (5 cenários) ✅
 
 **Design Decisions:**
-- Autovalores sempre retornam ComplexMatrix (mesmo quando reais)
-- Autovetores como colunas da matriz (convenção matemática padrão)
-- Erro exit(1) para matrizes não-quadradas (futuro: Go-style (error, value) tuples)
-- 2D printing para legibilidade (nested array format)
+- **Imaginary unit:** Usa `im` ao invés de `i` (Julia-style) para evitar conflito com loop variables
+- **String format:** Complex printam com "im" suffix (`3+4im`) ao invés de "i"
+- **Implicit multiplication:** Parser reconhece `(expr)im` e converte para `expr * im`
+- **Variable priority:** Variáveis definidas pelo usuário têm prioridade sobre constante builtin `im`
+- **Auto-conversion:** Operadores complexos promovem Float/Int → Complex automaticamente
+- **Function return types:** `real()` e `imag()` retornam Float; outras funções retornam Complex
+- **Eigenvalues:** Sempre retornam ComplexMatrix (mesmo quando reais)
+- **Eigenvectors:** Como colunas da matriz (convenção matemática padrão)
+- **Error handling:** exit(1) para matrizes não-quadradas (futuro: Go-style (error, value) tuples)
+- **2D printing:** ComplexMatrix usa nested array format para legibilidade
 
 ---
 
-## Current Limitations (v1.0 70% completo)
+## Current Limitations (v1.0 95% completo)
 
 - **No generics**: Only concrete types (int, float, string, matrix, complex, tuple)
 - **Single-file compilation**: Multi-file imports not yet implemented (user modules coming in v1.1+)
@@ -1349,7 +1459,6 @@ println(f"Eigenvectors: {vecs}")  // [[1+0i, 0+0i], [0+0i, 1+0i]]
 - **Basic error handling**: Parse errors shown via debug output; LAPACK errors use exit(1) instead of Go-style (error, value) tuples
 - **List comprehensions type inference**: Currently only returns Matrix (Float), IntMatrix support coming soon
 - **Pattern matching destructuring**: Only scalar patterns supported (no struct/tuple/array destructuring yet)
-- **Complex arithmetic**: Complex numbers exist but no +, -, *, / operators yet (only via LAPACK eigvals/eigvecs)
 
 ## Future Roadmap (from DOCUMENTATION.md)
 
@@ -1371,8 +1480,8 @@ println(f"Eigenvectors: {vecs}")  // [[1+0i, 0+0i], [0+0i, 1+0i]]
 - ✅ v0.7: Import system, math library (38 functions + constants)
 - ✅ v0.8: User-defined functions (single/multiple returns, destructuring, default values)
 - ✅ v0.9: List comprehensions, zip(), destructuring in for loops, array printing
-- 🚧 v1.0: Pattern matching ✅, complex numbers ✅, LAPACK integration ✅, closures ⏸️, user-defined modules ⏸️ (70% complete)
-- v1.1: Complex arithmetic operators, closures, first-class functions, user-defined modules
+- 🚧 v1.0: Pattern matching ✅, complex numbers ✅ (literals, operators, 16+ functions), LAPACK integration ✅ (eigvals/eigvecs), closures ⏸️, user-defined modules ⏸️ (95% complete)
+- v1.1: Closures, first-class functions, user-defined modules
 - v1.2: Generics, concurrency primitives
 - v1.3: Full standard library with data structures (Stack, Queue, HashMap, Heap)
 

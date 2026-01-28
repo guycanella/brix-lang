@@ -1309,11 +1309,83 @@ math.g_earth      // Aceleração gravitacional Terra (9.80665 m/s²)
 
 ---
 
-#### ✅ Números Complexos (v1.0 - PARCIALMENTE IMPLEMENTADO)
+#### ✅ Números Complexos (v1.0 - COMPLETO)
 
-**Status:** Complex struct e ComplexMatrix implementados. Operadores aritméticos planejados para v1.1+.
+**Status:** Sistema completo de números complexos com literais, operadores, 16+ funções e LAPACK integration.
 
-**Implementado em v1.0:**
+**Literais e Sintaxe:**
+```brix
+// Imaginary literals
+var i1 := 2.0i        // 0+2im
+var i2 := 3i          // 0+3im
+
+// Complex literals (real + imaginary)
+var z := 3.0 + 4.0i   // 3+4im
+var w := 1.0 - 2.0i   // 1-2im
+
+// Complex constructor
+var z3 := complex(5.0, 12.0)  // 5+12im
+
+// Imaginary unit constant (Julia-style)
+var unit := im        // 0+1im (built-in constant)
+
+// Implicit multiplication with im
+var euler := exp((pi / 2.0)im)  // (pi/2)*im automatically
+```
+
+**Nota sobre `im`:**
+- Constante builtin `im` = 0+1i (similar ao Julia)
+- Evita conflito com loop variables: `for i in 1:10` ainda funciona
+- Variáveis do usuário têm prioridade: `var im := 5.0` sobrescreve
+- Multiplicação implícita: `(expr)im` → `expr * im` (parser automático)
+
+**Operadores Aritméticos:**
+```brix
+var z1 := 3.0 + 4.0i
+var z2 := 1.0 - 2.0i
+
+// Todos os operadores suportam Complex
+var soma := z1 + z2       // 4+2im
+var diff := z1 - z2       // 2+6im
+var prod := z1 * z2       // 11-2im
+var quot := z1 / z2       // -1+2im
+var pow := z1 ** 2.0      // Potência
+
+// Auto-conversão Float/Int → Complex
+var z3 := z1 + 5.0        // 8+4im
+var z4 := 10.0 - z1       // 7-4im
+```
+
+**Funções Complexas (16+):**
+```brix
+// Propriedades
+var r := real(z)      // Parte real (retorna Float)
+var i := imag(z)      // Parte imaginária (retorna Float)
+var mag := abs(z)     // Magnitude |z| (Float)
+var theta := angle(z) // Fase/ângulo (Float)
+var z_conj := conj(z) // Conjugado (Complex)
+var mag_sq := abs2(z) // |z|² (Float)
+
+// Funções exponenciais/logarítmicas
+var exp_z := exp(z)   // e^z
+var log_z := log(z)   // ln(z)
+var sqrt_z := sqrt(z) // √z
+
+// Funções trigonométricas
+var sin_z := csin(z)
+var cos_z := ccos(z)
+var tan_z := ctan(z)
+
+// Funções hiperbólicas
+var sinh_z := csinh(z)
+var cosh_z := ccosh(z)
+var tanh_z := ctanh(z)
+
+// Potência complexa
+var pow_z := cpow(z, n)  // z^n
+```
+
+**LAPACK Integration:**
 ```brix
 import math
 
@@ -1325,37 +1397,23 @@ var eigenvalues := math.eigvals(A)   // ComplexMatrix
 var eigenvectors := math.eigvecs(A)  // ComplexMatrix
 
 // Printing automático em formato 2D
-println(f"Eigenvalues: {eigenvalues}")  // [[0+1i], [0-1i]]
-println(f"Eigenvectors: {eigenvectors}") // [[a+bi, c+di], [e+fi, g+hi]]
+println(f"Eigenvalues: {eigenvalues}")  // [[0+1im], [0-1im]]
+println(f"Eigenvectors: {eigenvectors}") // [[a+bim, c+dim], [e+fim, g+him]]
 ```
 
-**Planejado para v1.1+:**
-```brix
-// Literal complexo usando 'im' (imaginary unit)
-var z := 1.0 + 2.0im
-var w := 3.5 - 1.2im
-
-// Operadores aritméticos
-var soma := z + w          // Adição
-var produto := z * w       // Multiplicação
-var divisao := z / w       // Divisão
-
-// Funções complexas via math
-var r := math.real(z)      // Parte real
-var i := math.imag(z)      // Parte imaginária
-var conj := math.conj(z)   // Conjugado
-var mag := math.abs(z)     // Magnitude
-var phase := math.angle(z) // Fase
-```
-
-**Implementação Atual (v1.0):**
+**Implementação v1.0:**
 - ✅ Tipo `BrixType::Complex` e `BrixType::ComplexMatrix`
 - ✅ Struct LLVM { f64 real, f64 imag }
+- ✅ Imaginary literals (`2.0i`, `3i`)
+- ✅ Complex literals (`3.0 + 4.0i`)
+- ✅ Constante `im` (imaginary unit)
+- ✅ Multiplicação implícita `(expr)im`
+- ✅ Operadores aritméticos (+, -, *, /, **)
+- ✅ 16+ funções complexas (exp, log, sqrt, trig, hyperbolic)
+- ✅ Auto-conversão Float/Int → Complex
 - ✅ LAPACK integration (eigvals/eigvecs)
-- ✅ 2D matrix printing
-- ⏸️ Operadores aritméticos (+, -, *, /)
-- ⏸️ Literais complexos (1+2im syntax)
-- ⏸️ Funções complexas (real, imag, conj, abs, angle)
+- ✅ 2D matrix printing para ComplexMatrix
+- ✅ String format com "im" suffix
 
 **Performance:** SIMD-friendly (2 floats = 16 bytes, cabe em registradores)
 
@@ -1439,11 +1497,11 @@ var phase := math.angle(z) // Fase
 
 ---
 
-### 🎯 **v1.0 - Advanced Features** ✅ **70% COMPLETO (27/01/2026)**
+### 🎯 **v1.0 - Advanced Features** ✅ **95% COMPLETO (28/01/2026)**
 
 **Status Geral:**
 - [x] Pattern matching (`match` syntax) ✅ **COMPLETO**
-- [x] Complex numbers (Complex, ComplexMatrix) ✅ **COMPLETO**
+- [x] Complex numbers (literals, operators, 16+ functions) ✅ **COMPLETO**
 - [x] LAPACK integration (eigvals, eigvecs) ✅ **COMPLETO**
 - [ ] Closures and lambda functions ⏸️ **Adiado para v1.1**
 - [ ] First-class functions ⏸️ **Adiado para v1.1**
@@ -1459,15 +1517,25 @@ var phase := math.angle(z) // Fase
    - Match em typeof()
    - Exhaustiveness warning
 
-2. **Complex Numbers & LAPACK:**
+2. **Complex Numbers Completo:**
    - Tipos Complex e ComplexMatrix
+   - Imaginary literals: `2.0i`, `3i`
+   - Complex literals: `3.0 + 4.0i`
+   - Constante `im` (imaginary unit, Julia-style)
+   - Multiplicação implícita: `(expr)im`
+   - Operadores: +, -, *, /, **
+   - 16+ funções: exp, log, sqrt, sin/cos/tan (complex), sinh/cosh/tanh, real, imag, abs, angle, conj, abs2
+   - Auto-conversão Float/Int → Complex
+   - String format com "im" suffix
+
+3. **LAPACK Integration:**
    - Funções `math.eigvals()` e `math.eigvecs()`
    - LAPACK dgeev integration
    - 2D matrix printing para ComplexMatrix
    - Column-major conversion
    - Work array queries
 
-**Próximo:** v1.1 - Complex arithmetic operators, closures, modules
+**Próximo:** v1.1 - Closures, first-class functions, user-defined modules
 
 ---
 
@@ -1479,12 +1547,6 @@ var phase := math.angle(z) // Fase
 - [ ] **Capture de variáveis:** Acesso a variáveis do escopo externo
 - [ ] **First-class functions:** Passar funções como argumentos
 - [ ] **Higher-order functions:** Funções que retornam funções
-
-#### Complex Numbers
-
-- [ ] **Tipo nativo Complex:** `var z := 3.0 + 4.0im`
-- [ ] **Operadores aritméticos:** `+`, `-`, `*`, `/`
-- [ ] **Funções math:** `abs()`, `angle()`, `conjugate()`
 
 #### User-Defined Modules
 
@@ -1617,8 +1679,8 @@ v0.6 ████████████████████ 100% ✅ IntMa
 v0.7 ████████████████████ 100% ✅ Import system, math library (38 functions)
 v0.8 ████████████████████ 100% ✅ User-defined functions, multiple returns
 v0.9 ████████████████████ 100% ✅ List comprehensions, zip(), destructuring
-v1.0 ██████████████░░░░░░  70% 🚧 Pattern matching ✅, Complex ✅, LAPACK ✅
-v1.1 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Complex ops, closures, modules
+v1.0 ███████████████████░  95% 🚧 Pattern matching ✅, Complex ✅ (16+ funcs), LAPACK ✅
+v1.1 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Closures, first-class functions, modules
 v1.2 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Generics, concurrency
 v1.3 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Standard Library completa
 ```
@@ -1801,13 +1863,10 @@ math.sum(arr), math.mean(arr), math.median(arr), math.std(arr)
 
 ### Próximas Features (v1.1+):
 
-**v1.1 - Complex Arithmetic & Closures:**
-- Complex arithmetic operators: `z + w`, `z * w`, `z / w`
-- Complex literals: `var z := 1.0 + 2.0im`
-- Complex functions: `real()`, `imag()`, `conj()`, `abs()`, `angle()`
+**v1.1 - Closures & Modules:**
 - Closures: `var fn := (x: int) -> int { return x * 2 }`
 - First-class functions: Passar funções como parâmetros
-- User-defined modules
+- User-defined modules: `module mymod { ... }`
 
 **v1.2 - Generics & Concurrency:**
 - Generics: `function map<T, U>(arr: [T], fn: T -> U) -> [U]`
@@ -1822,13 +1881,13 @@ math.sum(arr), math.mean(arr), math.median(arr), math.std(arr)
 ### 📊 Estatísticas do Projeto:
 
 - **Linhas de Código (Rust):** ~5000 linhas (compiler core)
-- **Linhas de Código (C Runtime):** ~800 linhas (math + matrix + LAPACK wrappers)
-- **Arquivos de Teste (.bx):** 31 (core + math + functions + pattern matching + complex)
-- **Features Implementadas:** ~80+ (v1.0 70% completo)
+- **Linhas de Código (C Runtime):** ~900 linhas (math + matrix + complex + LAPACK wrappers)
+- **Arquivos de Teste (.bx):** 35+ (core + math + functions + pattern matching + complex)
+- **Features Implementadas:** ~90+ (v1.0 95% completo)
 - **Features Planejadas:** ~130+
-- **Versão Atual:** v1.0 (Pattern Matching + Complex Numbers)
-- **Progresso MVP:** 90%
-- **Última Atualização:** 27/01/2026
+- **Versão Atual:** v1.0 (Pattern Matching + Complex Numbers + LAPACK)
+- **Progresso MVP:** 95%
+- **Última Atualização:** 28/01/2026
 
 ---
 
