@@ -5,6 +5,7 @@ pub enum Literal {
     String(String),
     Bool(bool),
     Complex(f64, f64),  // (real, imag)
+    Nil,                // Represents null/nil value
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -21,6 +21,7 @@ pub enum BrixType {
     FloatPtr,
     Void,
     Tuple(Vec<BrixType>), // Multiple returns (stored as struct)
+    Nil,       // Represents null/nil value (null pointer)
 }
 
 pub struct Compiler<'a, 'ctx> {
@@ -273,7 +274,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         match brix_type {
             BrixType::Int => self.context.i64_type().into(),
             BrixType::Float => self.context.f64_type().into(),
-            BrixType::String | BrixType::Matrix | BrixType::IntMatrix | BrixType::FloatPtr => {
+            BrixType::String | BrixType::Matrix | BrixType::IntMatrix | BrixType::FloatPtr | BrixType::Nil => {
                 self.context.ptr_type(AddressSpace::default()).into()
             }
             BrixType::Complex => {
@@ -569,7 +570,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         | BrixType::Matrix
                         | BrixType::IntMatrix
                         | BrixType::ComplexMatrix
-                        | BrixType::FloatPtr => {
+                        | BrixType::FloatPtr
+                        | BrixType::Nil => {
                             self.context.ptr_type(AddressSpace::default()).into()
                         }
                         BrixType::Complex => {
@@ -1460,6 +1462,12 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
                     Some((complex_val.into(), BrixType::Complex))
                 }
+                Literal::Nil => {
+                    // Nil is represented as a null pointer
+                    let ptr_type = self.context.ptr_type(AddressSpace::default());
+                    let null_ptr = ptr_type.const_null();
+                    Some((null_ptr.into(), BrixType::Nil))
+                }
             },
 
             Expr::Identifier(name) => {
@@ -1529,6 +1537,15 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             .build_load(complex_type, *ptr, name)
                             .unwrap();
                         Some((val, BrixType::Complex))
+                    }
+                    BrixType::Nil => {
+                        // Load nil (null pointer)
+                        let ptr_type = self.context.ptr_type(AddressSpace::default());
+                        let val = self
+                            .builder
+                            .build_load(ptr_type, *ptr, name)
+                            .unwrap();
+                        Some((val, BrixType::Nil))
                     }
                     _ => {
                         eprintln!("Error: Type not supported in identifier.");
@@ -1682,6 +1699,40 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
                 let (lhs_val, lhs_type) = self.compile_expr(lhs)?;
                 let (rhs_val, rhs_type) = self.compile_expr(rhs)?;
+
+                // --- NIL COMPARISON: x == nil, x != nil ---
+                // Handle comparisons with nil (null pointer comparison)
+                if (lhs_type == BrixType::Nil || rhs_type == BrixType::Nil)
+                    && (matches!(op, BinaryOp::Eq) || matches!(op, BinaryOp::NotEq)) {
+
+                    let ptr_type = self.context.ptr_type(AddressSpace::default());
+                    let null_ptr = ptr_type.const_null();
+
+                    // Get the non-nil value (or use null if both are nil)
+                    let value_to_compare = if lhs_type == BrixType::Nil {
+                        rhs_val.into_pointer_value()
+                    } else {
+                        lhs_val.into_pointer_value()
+                    };
+
+                    // Compare pointer with null
+                    let predicate = if matches!(op, BinaryOp::Eq) {
+                        IntPredicate::EQ
+                    } else {
+                        IntPredicate::NE
+                    };
+
+                    let cmp = self.builder
+                        .build_int_compare(predicate, value_to_compare, null_ptr, "nil_cmp")
+                        .unwrap();
+
+                    // Extend i1 to i64 for consistency
+                    let result = self.builder
+                        .build_int_z_extend(cmp, self.context.i64_type(), "nil_cmp_ext")
+                        .unwrap();
+
+                    return Some((result.into(), BrixType::Int));
+                }
 
                 // --- COMPLEX PATTERN DETECTION: 3.0 + 4.0i ---
                 // Detect pattern: Float/Int +/- Complex(0, imag) → Complex(real, imag)
@@ -2076,6 +2127,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             BrixType::FloatPtr => "float_ptr",
                             BrixType::Void => "void",
                             BrixType::Tuple(_) => "tuple",
+                            BrixType::Nil => "nil",
                         };
 
                         return self

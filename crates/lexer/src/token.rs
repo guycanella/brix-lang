@@ -33,6 +33,9 @@ pub enum Token {
     #[token("false")]
     False,
 
+    #[token("nil")]
+    Nil,
+
     #[token("&&")]
     #[token("and")]
     And,
