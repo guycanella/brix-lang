@@ -526,14 +526,33 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
             .delimited_by(just(Token::LBracket), just(Token::RBracket))
             .map(Expr::Array);
 
+        // Parse expressions in parentheses, with optional 'im' suffix for implicit multiplication
+        let paren_expr = expr
+            .clone()
+            .delimited_by(just(Token::LParen), just(Token::RParen))
+            .then(
+                select! { Token::Identifier(s) if s == "im" => s }
+                .or_not()
+            )
+            .map(|(e, im_suffix)| {
+                if im_suffix.is_some() {
+                    // (expr)im → expr * im
+                    Expr::Binary {
+                        op: BinaryOp::Mul,
+                        lhs: Box::new(e),
+                        rhs: Box::new(Expr::Identifier("im".to_string())),
+                    }
+                } else {
+                    e
+                }
+            });
+
         let atom = val
             .or(fstring)
             .or(match_expr)
             .or(list_comp)
             .or(array_literal)
-            .or(expr
-                .clone()
-                .delimited_by(just(Token::LParen), just(Token::RParen)));
+            .or(paren_expr);
 
         // Static initialization: int[5], float[2,3]
         // Must be tried BEFORE atom to avoid "int"/"float" being parsed as identifiers
