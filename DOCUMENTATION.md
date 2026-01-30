@@ -1679,10 +1679,11 @@ v0.6 ████████████████████ 100% ✅ IntMa
 v0.7 ████████████████████ 100% ✅ Import system, math library (38 functions)
 v0.8 ████████████████████ 100% ✅ User-defined functions, multiple returns
 v0.9 ████████████████████ 100% ✅ List comprehensions, zip(), destructuring
-v1.0 ███████████████████░  95% 🚧 Pattern matching ✅, Complex ✅ (16+ funcs), LAPACK ✅
-v1.1 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Closures, first-class functions, modules
-v1.2 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Generics, concurrency
-v1.3 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Standard Library completa
+v1.0 ███████████████████▓  98% ✅ Pattern matching, Complex, LAPACK, Nil/Error
+v1.1 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Atoms, Type checkers, String functions
+v1.2 ░░░░░░░░░░░░░░░░░░░░   0% 📋 @doc, panic(), modules, advanced strings
+v1.3 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Generics, Result<T,E>, Structs, Closures
+v1.4 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Concurrency, stdlib, optimizations
 ```
 
 **Legenda:**
@@ -1880,14 +1881,17 @@ math.sum(arr), math.mean(arr), math.median(arr), math.std(arr)
 
 ### 📊 Estatísticas do Projeto:
 
-- **Linhas de Código (Rust):** ~5000 linhas (compiler core)
-- **Linhas de Código (C Runtime):** ~900 linhas (math + matrix + complex + LAPACK wrappers)
-- **Arquivos de Teste (.bx):** 35+ (core + math + functions + pattern matching + complex)
-- **Features Implementadas:** ~90+ (v1.0 95% completo)
-- **Features Planejadas:** ~130+
-- **Versão Atual:** v1.0 (Pattern Matching + Complex Numbers + LAPACK)
-- **Progresso MVP:** 95%
-- **Última Atualização:** 28/01/2026
+- **Linhas de Código (Rust):** ~5200 linhas (compiler core)
+- **Linhas de Código (C Runtime):** ~950 linhas (math + matrix + complex + LAPACK + error handling)
+- **Arquivos de Teste (.bx):** 40+ (core + math + functions + pattern matching + complex + nil/error)
+- **Tipos Implementados:** 11 (Int, Float, String, Matrix, IntMatrix, Complex, ComplexMatrix, FloatPtr, Void, Tuple, Nil, Error)
+- **Features Implementadas:** ~95+ (v1.0 98% completo)
+- **Features Planejadas v1.1:** Atoms + Type checkers + String functions (22 features)
+- **Features Planejadas v1.2+:** ~150+
+- **Versão Atual:** v1.0 (Pattern Matching + Complex Numbers + LAPACK + Nil/Error Handling)
+- **Progresso MVP:** 98%
+- **Próxima Versão:** v1.1 (Atoms + String Operations)
+- **Última Atualização:** 29/01/2026
 
 ---
 
