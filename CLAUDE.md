@@ -1449,41 +1449,302 @@ println(f"Eigenvectors: {vecs}")  // [[1+0i, 0+0i], [0+0i, 1+0i]]
 
 ---
 
-## Current Limitations (v1.0 95% completo)
+### ✅ **v1.0 - Nil/Null Safety & Error Handling** ✅ **COMPLETO (28/01/2026)**
 
-- **No generics**: Only concrete types (int, float, string, matrix, complex, tuple)
-- **Single-file compilation**: Multi-file imports not yet implemented (user modules coming in v1.1+)
+Sistema completo de null safety e error handling estilo Go.
+
+**Nil Type & Null Safety:**
+
+1. **Nil Literal:**
+   - Literal `nil` representa ausência de valor
+   - Type: `BrixType::Nil`
+   - Usado para indicar valores opcionais ou ausência de erro
+
+```brix
+// Nil literal
+var x := nil
+println(typeof(x))  // "nil"
+
+// Nil comparisons
+if x == nil {
+    println("x is nil")
+}
+
+if x != nil {
+    println("x has a value")
+}
+
+// Nil equality
+if nil == nil {
+    println("nil equals nil")  // Always true
+}
+```
+
+2. **Error Type (Go-style):**
+   - Constructor `error(message)` cria erro com mensagem
+   - Type: `BrixType::Error`
+   - String message armazenada internamente
+   - Usado para error handling sem exceptions
+
+```brix
+// Create error
+var err := error("something went wrong")
+println(typeof(err))  // "error"
+println(err)          // "something went wrong"
+
+// Check for errors
+if err != nil {
+    println(f"Error: {err}")
+}
+```
+
+**Go-Style Error Handling:**
+
+Funções podem retornar `(result, error)` tuples para error handling explícito:
+
+```brix
+// Function with error return
+function divide(a: float, b: float) -> (float, error) {
+    if b == 0.0 {
+        return 0.0, error("division by zero")
+    }
+    return a / b, nil
+}
+
+// Success case
+var { result, err } := divide(10.0, 2.0)
+if err != nil {
+    println(f"Error: {err}")
+} else {
+    println(f"Result: {result}")  // 5.0
+}
+
+// Error case
+var { result2, err2 } := divide(10.0, 0.0)
+if err2 != nil {
+    println(f"Error: {err2}")  // "division by zero"
+} else {
+    println(f"Result: {result2}")
+}
+```
+
+**Implementação Técnica:**
+
+1. **Lexer/Parser:**
+   - `nil` keyword token
+   - `error(string)` built-in function
+   - AST: `Literal::Nil`, built-in function handling
+
+2. **Runtime (runtime.c):**
+   ```c
+   typedef struct {
+       char* message;
+   } BrixError;
+
+   BrixError* brix_error_new(const char* msg);
+   char* brix_error_message(BrixError* err);
+   int brix_error_is_nil(BrixError* err);
+   void brix_error_free(BrixError* err);
+   ```
+
+3. **Codegen:**
+   - `BrixType::Nil` - represented as null pointer (i8* null)
+   - `BrixType::Error` - struct pointer with message field
+   - Nil comparisons use LLVM icmp with null
+   - Error comparisons check pointer equality with nil
+   - Supports comparison of any pointer type with nil (Error, String, Matrix, etc.)
+
+**Características:**
+
+- ✅ Nil literal com type checking
+- ✅ Nil comparisons (`== nil`, `!= nil`)
+- ✅ Error type constructor `error(message)`
+- ✅ Go-style (result, error) returns
+- ✅ Destructuring support para error handling
+- ✅ String conversion para errors (print, f-strings)
+- ✅ typeof() returns "nil" e "error"
+- ✅ Pointer type comparisons com nil (Error, String, Matrix, etc.)
+
+**Testes:**
+- `nil_test.bx` - Nil literal e comparações ✅
+- `error_simple_test.bx` - Error type básico ✅
+- `error_test.bx` - Go-style error handling completo ✅
+- `error_divide_test.bx` - Division by zero example ✅
+- `error_destructure_test.bx` - Destructuring com errors ✅
+
+**Design Decisions:**
+- **Nil representation:** Null pointer (i8* null) in LLVM for zero memory overhead
+- **Error representation:** Heap-allocated struct com string message
+- **Go-style:** Explicit error checking via tuple returns, não exceptions
+- **Type safety:** Nil e Error são tipos distintos com type checking
+- **String format:** Errors printam sua message diretamente
+- **NO exceptions:** Evitamos try/catch para manter performance Fortran-level
+
+**Futuro (v1.2+):**
+- [ ] **Result<T, E>:** Generic result type para APIs mais type-safe
+- [ ] **panic():** Para erros irrecuperáveis (abort program)
+- [ ] **Optional types:** `var x: int?` (type union Int | Nil) - v1.3+
+
+---
+
+## Current Limitations (v1.0 - 98% completo)
+
+- **No atoms**: Elixir-style atoms not yet implemented (planned for v1.1)
+- **Limited type checking**: No is_atom(), is_nil(), is_boolean() helpers yet (planned for v1.1)
+- **Basic string operations**: No uppercase(), lowercase(), split(), replace() yet (planned for v1.1)
+- **No documentation system**: @doc comments not implemented yet (planned for v1.2)
+- **No panic()**: For unrecoverable errors (planned for v1.2)
+- **No generics**: Only concrete types (int, float, string, matrix, complex, tuple) - planned for v1.3+
+- **Single-file compilation**: Multi-file imports not yet implemented (user modules coming in v1.2+)
 - **No optimizations**: LLVM runs with `OptimizationLevel::None`
-- **No closures**: Functions are not first-class (v1.1+ planned)
-- **No structs**: User-defined types not implemented (v1.1+ planned)
-- **Basic error handling**: Parse errors shown via debug output; LAPACK errors use exit(1) instead of Go-style (error, value) tuples
-- **List comprehensions type inference**: Currently only returns Matrix (Float), IntMatrix support coming soon
-- **Pattern matching destructuring**: Only scalar patterns supported (no struct/tuple/array destructuring yet)
+- **No closures**: Functions are not first-class (v1.2+ planned)
+- **No structs**: User-defined types not implemented (v1.2+ planned)
+- **Parse errors**: Shown via debug output (Ariadne integration planned)
+- **List comprehensions**: Currently only returns Matrix (Float), IntMatrix support coming soon
+- **Pattern matching**: Only scalar patterns supported (no struct/tuple/array destructuring yet)
 
-## Future Roadmap (from DOCUMENTATION.md)
-
-### Planned Features
-
-- Pattern matching (`when` syntax)
-- Pipe operator (`|>`) for data pipelines
-- SQL and JSON as native types
-- Extension methods
-- Null safety with `?` operator
-- Dimensional units (`f64<m>`, `f64<s>`)
-- Concurrency: `spawn`, `par for`, `par map`
-- Closures and lambda functions
-- First-class functions
+## Future Roadmap
 
 ### Implementation Phases
 
+**Completed:**
 - ✅ v0.6: IntMatrix type, zeros/izeros, static initialization
 - ✅ v0.7: Import system, math library (38 functions + constants)
 - ✅ v0.8: User-defined functions (single/multiple returns, destructuring, default values)
 - ✅ v0.9: List comprehensions, zip(), destructuring in for loops, array printing
-- 🚧 v1.0: Pattern matching ✅, complex numbers ✅ (literals, operators, 16+ functions), LAPACK integration ✅ (eigvals/eigvecs), closures ⏸️, user-defined modules ⏸️ (95% complete)
-- v1.1: Closures, first-class functions, user-defined modules
-- v1.2: Generics, concurrency primitives
-- v1.3: Full standard library with data structures (Stack, Queue, HashMap, Heap)
+- ✅ v1.0: Pattern matching, complex numbers, LAPACK integration, nil/error handling (98% complete)
+
+**Next Steps:**
+
+### 🎯 **v1.1 - Atoms & String Operations** (2-3 semanas)
+
+**Core Features:**
+1. **Atoms (Elixir-style)** - 3 dias
+   - ✨ Syntax: `:ok`, `:error`, `:atom_name`
+   - ✨ Constant values (interned strings)
+   - ✨ O(1) comparison via pointer equality
+   - ✨ Global atom pool for memory efficiency
+   - ✨ Pattern matching support
+   - ✨ typeof() returns "atom"
+
+2. **Type Checking Functions** - 1 dia
+   - ✨ `is_nil(x)` - Check if value is nil
+   - ✨ `is_atom(x)` - Check if value is atom
+   - ✨ `is_boolean(x)` - Check if value is boolean (0 or 1)
+   - ✨ `is_number(x)` - is_int(x) || is_float(x)
+   - ✨ `is_integer(x)` - Check if value is int
+   - ✨ `is_float(x)` - Check if value is float
+   - ✨ `is_string(x)` - Check if value is string
+   - ✨ `is_list(x)` - Check if value is matrix/intmatrix
+   - ✨ `is_tuple(x)` - Check if value is tuple
+   - ✨ `is_function(x)` - Check if value is function (future)
+
+3. **String Functions (Core)** - 5 dias
+   - **Transformações:**
+     - ✨ `uppercase(str)` - "hello" → "HELLO"
+     - ✨ `lowercase(str)` - "HELLO" → "hello"
+     - ✨ `capitalize(str)` - "hello world" → "Hello world"
+   - **Manipulação:**
+     - ✨ `split(str, delimiter)` - "a,b,c" → ["a", "b", "c"]
+     - ✨ `join(list, separator)` - ["a", "b"] → "a,b"
+     - ✨ `replace(str, old, new)` - Replace first occurrence
+     - ✨ `replace_all(str, old, new)` - Replace all occurrences
+   - **Análise:**
+     - ✨ `byte_size(str)` - Tamanho em bytes
+     - ✨ `length(str)` - Número de caracteres (UTF-8 aware)
+
+**Total v1.1:** 3 tipos + 10 type checkers + 9 string functions = 22 features
+
+---
+
+### 🎯 **v1.2 - Documentation & Advanced Strings** (3-4 semanas)
+
+**Core Features:**
+1. **Documentation System (@doc Elixir-style)** - 1 semana
+   - ✨ `@doc """..."""` para funções
+   - ✨ Suporte a exemplos de código
+   - ✨ Parser reconhece doc comments
+   - ✨ `brix doc` command gera HTML
+   - ✨ LSP integration (hover mostra docs)
+
+2. **panic() Function** - 2 dias
+   - ✨ Para erros irrecuperáveis
+   - ✨ Abort program com stack trace
+   - ✨ Similar a Rust panic!()
+   - ✨ Exemplo: `panic("index out of bounds")`
+
+3. **String Functions (Advanced)** - 1 semana
+   - **Transformações:**
+     - ✨ `trim(str)` - Remove espaços nas bordas
+     - ✨ `trim_left(str)` / `trim_right(str)`
+     - ✨ `reverse(str)` - Inverte string
+   - **Análise:**
+     - ✨ `starts_with(str, prefix)` - bool
+     - ✨ `ends_with(str, suffix)` - bool
+     - ✨ `contains(str, substr)` - bool
+   - **Manipulação:**
+     - ✨ `substring(str, start, len)` - Slice
+   - **Conversão:**
+     - ✨ `to_charlist(str)` - String → [int]
+     - ✨ `from_charlist(list)` - [int] → String
+
+4. **User-Defined Modules** - 1 semana
+   - ✨ `module mymod { ... }` syntax
+   - ✨ `export function foo()`
+   - ✨ `import mymod`
+   - ✨ Multi-file compilation
+
+**Total v1.2:** Documentation + panic + 8 string functions + modules
+
+---
+
+### 🎯 **v1.3 - Generics & Advanced Types** (1-2 meses)
+
+**Core Features:**
+1. **Generics** - 2-3 semanas
+   - ✨ Generic functions: `function map<T, U>(arr: [T], fn: T -> U) -> [U]`
+   - ✨ Generic types: `type Box<T> = { value: T }`
+   - ✨ Type constraints: `where T: Numeric`
+
+2. **Result<T, E> Type** - 1 semana
+   - ✨ Rust-style result type
+   - ✨ `enum Result<T, E> { Ok(T), Err(E) }`
+   - ✨ Pattern matching integration
+   - ✨ Melhor que exceptions
+
+3. **Structs** - 1 semana
+   - ✨ User-defined types: `type Point = { x: float, y: float }`
+   - ✨ Type composition: `type NamedPoint = Point & Label`
+   - ✨ Field access: `p.x`, `p.y`
+
+4. **Closures & First-Class Functions** - 2 semanas
+   - ✨ Lambda functions: `(x) -> x * 2`
+   - ✨ Capture de variáveis do escopo externo
+   - ✨ Higher-order functions
+   - ✨ Passar funções como argumentos
+
+**Total v1.3:** Generics + Result + Structs + Closures
+
+---
+
+### 🎯 **v1.4+ - Concurrency & Advanced Features** (Futuro)
+
+**Planejado:**
+- ⏳ **Concurrency**: `spawn`, `par for`, `par map`
+- ⏳ **Pipe operator**: `|>` for data pipelines
+- ⏳ **Optional types**: `var x: int?` (sugar para `int | nil`)
+- ⏳ **Safe navigation**: `x?.field` (Elvis operator)
+- ⏳ **Extension methods**: Estender tipos existentes
+- ⏳ **Dimensional units**: `f64<m>`, `f64<s>` for physics
+- ⏳ **Standard library**: Stack, Queue, HashMap, Heap
+- ⏳ **SQL/JSON native types**: Zero-ORM
+- ⏳ **LLVM optimizations**: -O2, -O3
+- ⏳ **Better error messages**: Ariadne integration
+
+**Não Planejado:**
+- ❌ **try/catch exceptions**: Mantemos Go-style error handling
+- ❌ **Inheritance/Classes**: Usamos composition com structs
+- ❌ **Garbage Collection**: Mantemos ARC (performance)
 
 ## Troubleshooting
 
