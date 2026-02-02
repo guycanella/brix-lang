@@ -23,6 +23,7 @@ pub enum BrixType {
     Tuple(Vec<BrixType>), // Multiple returns (stored as struct)
     Nil,       // Represents null/nil value (null pointer)
     Error,     // Error type (pointer to BrixError struct in runtime.c)
+    Atom,      // Elixir-style atom (interned string, i64 ID)
 }
 
 pub struct Compiler<'a, 'ctx> {
@@ -267,6 +268,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             "complex" => BrixType::Complex,
             "nil" => BrixType::Nil,
             "error" => BrixType::Error,
+            "atom" => BrixType::Atom,
             "void" => BrixType::Void,
             _ => {
                 eprintln!("Warning: Unknown type '{}', defaulting to Int", type_str);
@@ -278,7 +280,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     // --- HELPER: Convert BrixType to LLVM type ---
     fn brix_type_to_llvm(&self, brix_type: &BrixType) -> BasicTypeEnum<'ctx> {
         match brix_type {
-            BrixType::Int => self.context.i64_type().into(),
+            BrixType::Int | BrixType::Atom => self.context.i64_type().into(),  // Atom = i64 (atom ID)
             BrixType::Float => self.context.f64_type().into(),
             BrixType::String | BrixType::Matrix | BrixType::IntMatrix | BrixType::FloatPtr | BrixType::Nil | BrixType::Error => {
                 self.context.ptr_type(AddressSpace::default()).into()
@@ -583,7 +585,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
                     // --- ALLOCATION ---
                     let llvm_type: BasicTypeEnum = match &val_type {
-                        BrixType::Int => self.context.i64_type().into(),
+                        BrixType::Int | BrixType::Atom => self.context.i64_type().into(),  // Atom = i64 (atom ID)
                         BrixType::Float => self.context.f64_type().into(),
                         BrixType::String
                         | BrixType::Matrix
@@ -1494,6 +1496,33 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     let null_ptr = ptr_type.const_null();
                     Some((null_ptr.into(), BrixType::Nil))
                 }
+                Literal::Atom(name) => {
+                    // Atom: call atom_intern() to get unique ID
+                    // Declare atom_intern(const char*) -> i64
+                    let i64_type = self.context.i64_type();
+                    let ptr_type = self.context.ptr_type(AddressSpace::default());
+                    let fn_type = i64_type.fn_type(&[ptr_type.into()], false);
+                    let atom_intern_fn = self.module.get_function("atom_intern").unwrap_or_else(|| {
+                        self.module.add_function("atom_intern", fn_type, Some(Linkage::External))
+                    });
+
+                    // Create string literal for atom name
+                    let name_cstr = self.builder
+                        .build_global_string_ptr(name, "atom_name_str")
+                        .unwrap();
+
+                    // Call atom_intern(name)
+                    let atom_id = self
+                        .builder
+                        .build_call(atom_intern_fn, &[name_cstr.as_pointer_value().into()], "atom_id")
+                        .unwrap()
+                        .try_as_basic_value()
+                        .left()
+                        .unwrap()
+                        .into_int_value();
+
+                    Some((atom_id.into(), BrixType::Atom))
+                }
             },
 
             Expr::Identifier(name) => {
@@ -1514,6 +1543,13 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             .build_load(self.context.i64_type(), *ptr, name)
                             .unwrap();
                         Some((val, BrixType::Int))
+                    }
+                    BrixType::Atom => {
+                        let val = self
+                            .builder
+                            .build_load(self.context.i64_type(), *ptr, name)
+                            .unwrap();
+                        Some((val, BrixType::Atom))
                     }
                     BrixType::Float => {
                         let val = self
@@ -2179,6 +2215,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             BrixType::Tuple(_) => "tuple",
                             BrixType::Nil => "nil",
                             BrixType::Error => "error",
+                            BrixType::Atom => "atom",
                         };
 
                         return self
@@ -4096,6 +4133,42 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 Some(brix_string)
             }
 
+            BrixType::Atom => {
+                // Call atom_name(atom_id) to get the name string
+                let i64_type = self.context.i64_type();
+                let ptr_type = self.context.ptr_type(AddressSpace::default());
+                let fn_type = ptr_type.fn_type(&[i64_type.into()], false);
+                let atom_name_fn = self.module.get_function("atom_name").unwrap_or_else(|| {
+                    self.module.add_function("atom_name", fn_type, Some(Linkage::External))
+                });
+
+                let atom_id = val.into_int_value();
+                let name_char_ptr = self
+                    .builder
+                    .build_call(atom_name_fn, &[atom_id.into()], "atom_name")
+                    .unwrap()
+                    .try_as_basic_value()
+                    .left()
+                    .unwrap()
+                    .into_pointer_value();
+
+                // Convert char* to BrixString using str_new
+                let str_new_fn = self.module.get_function("str_new").unwrap_or_else(|| {
+                    let fn_type = ptr_type.fn_type(&[ptr_type.into()], false);
+                    self.module.add_function("str_new", fn_type, Some(Linkage::External))
+                });
+
+                let brix_string = self
+                    .builder
+                    .build_call(str_new_fn, &[name_char_ptr.into()], "atom_str")
+                    .unwrap()
+                    .try_as_basic_value()
+                    .left()
+                    .unwrap();
+
+                Some(brix_string)
+            }
+
             _ => {
                 eprintln!("value_to_string not implemented for type: {:?}", typ);
                 None
@@ -5406,6 +5479,44 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             .into_int_value();
 
                         Some(result)
+                    }
+                    (parser::ast::Literal::Atom(name), BrixType::Atom) => {
+                        // Atom comparison: compare atom IDs (i64)
+                        // First, intern the pattern atom to get its ID
+                        let i64_type = self.context.i64_type();
+                        let ptr_type = self.context.ptr_type(AddressSpace::default());
+                        let fn_type = i64_type.fn_type(&[ptr_type.into()], false);
+                        let atom_intern_fn = self.module.get_function("atom_intern").unwrap_or_else(|| {
+                            self.module.add_function("atom_intern", fn_type, Some(Linkage::External))
+                        });
+
+                        // Create string literal for atom name
+                        let name_cstr = self.builder
+                            .build_global_string_ptr(name, "pat_atom_name")
+                            .unwrap();
+
+                        // Call atom_intern(name) to get the pattern atom ID
+                        let pattern_atom_id = self
+                            .builder
+                            .build_call(atom_intern_fn, &[name_cstr.as_pointer_value().into()], "pat_atom_id")
+                            .unwrap()
+                            .try_as_basic_value()
+                            .left()
+                            .unwrap()
+                            .into_int_value();
+
+                        // Compare atom IDs (O(1) comparison)
+                        let cmp = self
+                            .builder
+                            .build_int_compare(
+                                inkwell::IntPredicate::EQ,
+                                value.into_int_value(),
+                                pattern_atom_id,
+                                "pat_atom_cmp",
+                            )
+                            .unwrap();
+
+                        Some(cmp)
                     }
                     _ => {
                         eprintln!(

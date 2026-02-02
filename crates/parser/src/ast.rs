@@ -6,6 +6,7 @@ pub enum Literal {
     Bool(bool),
     Complex(f64, f64),  // (real, imag)
     Nil,                // Represents null/nil value
+    Atom(String),       // Elixir-style atoms (:ok, :error, :atom_name)
 }
 
 #[derive(Debug, Clone, PartialEq)]
