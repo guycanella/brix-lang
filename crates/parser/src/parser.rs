@@ -370,6 +370,7 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
             Token::True => Expr::Literal(Literal::Bool(true)),
             Token::False => Expr::Literal(Literal::Bool(false)),
             Token::Nil => Expr::Literal(Literal::Nil),
+            Token::Atom(name) => Expr::Literal(Literal::Atom(name)),
             Token::ImaginaryLiteral(s) => {
                 // Parse imaginary literal: "4.0i" or "2i"
                 let imag_str = s.trim_end_matches('i');
@@ -425,6 +426,7 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
                 Token::String(s) => Pattern::Literal(Literal::String(s.trim_matches('"').to_string())),
                 Token::True => Pattern::Literal(Literal::Bool(true)),
                 Token::False => Pattern::Literal(Literal::Bool(false)),
+                Token::Atom(name) => Pattern::Literal(Literal::Atom(name)),
             };
 
             // Wildcard pattern: _

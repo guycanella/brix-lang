@@ -4,6 +4,85 @@
 #include <math.h>
 
 // ==========================================
+// SECTION -1: ATOMS (v1.1 - Elixir-style)
+// ==========================================
+
+// Global atom pool for interned strings
+// Each atom has a unique ID (index in the pool)
+// Atoms are compared by ID (O(1) comparison)
+
+typedef struct {
+    char** names;      // Array of atom names
+    long count;        // Number of atoms
+    long capacity;     // Allocated capacity
+} AtomPool;
+
+static AtomPool ATOM_POOL = {NULL, 0, 0};
+
+// Intern an atom (get or create ID)
+// Returns unique ID for the atom name
+long atom_intern(const char* name) {
+    if (name == NULL) {
+        fprintf(stderr, "Error: atom_intern called with NULL\n");
+        exit(1);
+    }
+
+    // Linear search (could optimize with hash table later)
+    for (long i = 0; i < ATOM_POOL.count; i++) {
+        if (strcmp(ATOM_POOL.names[i], name) == 0) {
+            return i;  // Atom already exists
+        }
+    }
+
+    // Add new atom
+    if (ATOM_POOL.count >= ATOM_POOL.capacity) {
+        long new_capacity = (ATOM_POOL.capacity == 0) ? 16 : ATOM_POOL.capacity * 2;
+        char** new_names = (char**)realloc(ATOM_POOL.names, new_capacity * sizeof(char*));
+        if (new_names == NULL) {
+            fprintf(stderr, "Error: Failed to allocate atom pool\n");
+            exit(1);
+        }
+        ATOM_POOL.names = new_names;
+        ATOM_POOL.capacity = new_capacity;
+    }
+
+    // Store atom name (copy string)
+    ATOM_POOL.names[ATOM_POOL.count] = strdup(name);
+    if (ATOM_POOL.names[ATOM_POOL.count] == NULL) {
+        fprintf(stderr, "Error: Failed to allocate atom name\n");
+        exit(1);
+    }
+
+    return ATOM_POOL.count++;
+}
+
+// Get atom name by ID
+const char* atom_name(long id) {
+    if (id < 0 || id >= ATOM_POOL.count) {
+        fprintf(stderr, "Error: Invalid atom ID %ld\n", id);
+        exit(1);
+    }
+    return ATOM_POOL.names[id];
+}
+
+// Compare two atoms (by ID)
+// Returns 1 if equal, 0 if not equal
+int atom_eq(long id1, long id2) {
+    return id1 == id2;
+}
+
+// Free atom pool memory (cleanup)
+void atom_pool_free() {
+    for (long i = 0; i < ATOM_POOL.count; i++) {
+        free(ATOM_POOL.names[i]);
+    }
+    free(ATOM_POOL.names);
+    ATOM_POOL.names = NULL;
+    ATOM_POOL.count = 0;
+    ATOM_POOL.capacity = 0;
+}
+
+// ==========================================
 // SECTION 0: COMPLEX NUMBERS (v1.0)
 // ==========================================
 
