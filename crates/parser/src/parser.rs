@@ -2,6 +2,39 @@ use crate::ast::{BinaryOp, Expr, FStringPart, Literal, MatchArm, Pattern, Progra
 use chumsky::prelude::*;
 use lexer::token::Token;
 
+/// Process escape sequences in a string (e.g., \n, \t, \\, \")
+fn process_escape_sequences(s: &str) -> String {
+    let mut result = String::new();
+    let mut chars = s.chars();
+
+    while let Some(ch) = chars.next() {
+        if ch == '\\' {
+            if let Some(next) = chars.next() {
+                match next {
+                    'n' => result.push('\n'),
+                    't' => result.push('\t'),
+                    'r' => result.push('\r'),
+                    '\\' => result.push('\\'),
+                    '"' => result.push('"'),
+                    'b' => result.push('\u{0008}'), // backspace
+                    'f' => result.push('\u{000C}'), // form feed
+                    _ => {
+                        // Unknown escape sequence, keep as-is
+                        result.push('\\');
+                        result.push(next);
+                    }
+                }
+            } else {
+                result.push('\\');
+            }
+        } else {
+            result.push(ch);
+        }
+    }
+
+    result
+}
+
 pub fn parser() -> impl Parser<Token, Program, Error = Simple<Token>> {
     let stmt = stmt_parser();
 
@@ -249,7 +282,10 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
 
         let printf_stmt = just(Token::Printf)
             .ignore_then(
-                select! { Token::String(s) => s }
+                select! { Token::String(s) => {
+                    let raw = s.trim_matches('"');
+                    process_escape_sequences(raw)
+                }}
                     .then(
                         just(Token::Comma)
                             .ignore_then(expr_parser())
@@ -259,9 +295,8 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
                     .delimited_by(just(Token::LParen), just(Token::RParen)),
             )
             .map(|(f, a)| {
-                let format = f.trim_matches('"').replace("\\n", "\n").to_string();
                 Stmt::Printf {
-                    format,
+                    format: f,  // Already processed by process_escape_sequences
                     args: a.unwrap_or_default(),
                 }
             });
@@ -366,7 +401,11 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
         let val = select! {
             Token::Int(n) => Expr::Literal(Literal::Int(n)),
             Token::Float(s) => Expr::Literal(Literal::Float(s.parse().unwrap())),
-            Token::String(s) => Expr::Literal(Literal::String(s.trim_matches('"').to_string())),
+            Token::String(s) => {
+                let raw = s.trim_matches('"');
+                let processed = process_escape_sequences(raw);
+                Expr::Literal(Literal::String(processed))
+            },
             Token::True => Expr::Literal(Literal::Bool(true)),
             Token::False => Expr::Literal(Literal::Bool(false)),
             Token::Nil => Expr::Literal(Literal::Nil),
@@ -423,7 +462,11 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
             let literal_pattern = select! {
                 Token::Int(n) => Pattern::Literal(Literal::Int(n)),
                 Token::Float(s) => Pattern::Literal(Literal::Float(s.parse().unwrap())),
-                Token::String(s) => Pattern::Literal(Literal::String(s.trim_matches('"').to_string())),
+                Token::String(s) => {
+                    let raw = s.trim_matches('"');
+                    let processed = process_escape_sequences(raw);
+                    Pattern::Literal(Literal::String(processed))
+                },
                 Token::True => Pattern::Literal(Literal::Bool(true)),
                 Token::False => Pattern::Literal(Literal::Bool(false)),
                 Token::Atom(name) => Pattern::Literal(Literal::Atom(name)),
