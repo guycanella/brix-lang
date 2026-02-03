@@ -615,3 +615,766 @@ fn test_import_with_alias() {
     let result = compile_program(program);
     assert!(result.is_ok());
 }
+
+// ==================== MATH LIBRARY - TRIGONOMETRIC FUNCTIONS ====================
+
+#[test]
+fn test_math_tan() {
+    let program = Program {
+        statements: vec![Stmt::Import {
+            module: "math".to_string(),
+            alias: None,
+        }, Stmt::Expr(Expr::Call {
+            func: Box::new(Expr::FieldAccess {
+                target: Box::new(Expr::Identifier("math".to_string())),
+                field: "tan".to_string(),
+            }),
+            args: vec![Expr::Literal(Literal::Float(0.785))],
+        })],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_math_asin() {
+    let program = Program {
+        statements: vec![Stmt::Import {
+            module: "math".to_string(),
+            alias: None,
+        }, Stmt::Expr(Expr::Call {
+            func: Box::new(Expr::FieldAccess {
+                target: Box::new(Expr::Identifier("math".to_string())),
+                field: "asin".to_string(),
+            }),
+            args: vec![Expr::Literal(Literal::Float(0.5))],
+        })],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_math_acos() {
+    let program = Program {
+        statements: vec![Stmt::Import {
+            module: "math".to_string(),
+            alias: None,
+        }, Stmt::Expr(Expr::Call {
+            func: Box::new(Expr::FieldAccess {
+                target: Box::new(Expr::Identifier("math".to_string())),
+                field: "acos".to_string(),
+            }),
+            args: vec![Expr::Literal(Literal::Float(0.5))],
+        })],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_math_atan() {
+    let program = Program {
+        statements: vec![Stmt::Import {
+            module: "math".to_string(),
+            alias: None,
+        }, Stmt::Expr(Expr::Call {
+            func: Box::new(Expr::FieldAccess {
+                target: Box::new(Expr::Identifier("math".to_string())),
+                field: "atan".to_string(),
+            }),
+            args: vec![Expr::Literal(Literal::Float(1.0))],
+        })],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_math_atan2() {
+    let program = Program {
+        statements: vec![Stmt::Import {
+            module: "math".to_string(),
+            alias: None,
+        }, Stmt::Expr(Expr::Call {
+            func: Box::new(Expr::FieldAccess {
+                target: Box::new(Expr::Identifier("math".to_string())),
+                field: "atan2".to_string(),
+            }),
+            args: vec![
+                Expr::Literal(Literal::Float(1.0)),
+                Expr::Literal(Literal::Float(1.0)),
+            ],
+        })],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+// ==================== MATH LIBRARY - HYPERBOLIC FUNCTIONS ====================
+
+#[test]
+fn test_math_sinh() {
+    let program = Program {
+        statements: vec![Stmt::Import {
+            module: "math".to_string(),
+            alias: None,
+        }, Stmt::Expr(Expr::Call {
+            func: Box::new(Expr::FieldAccess {
+                target: Box::new(Expr::Identifier("math".to_string())),
+                field: "sinh".to_string(),
+            }),
+            args: vec![Expr::Literal(Literal::Float(1.0))],
+        })],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_math_cosh() {
+    let program = Program {
+        statements: vec![Stmt::Import {
+            module: "math".to_string(),
+            alias: None,
+        }, Stmt::Expr(Expr::Call {
+            func: Box::new(Expr::FieldAccess {
+                target: Box::new(Expr::Identifier("math".to_string())),
+                field: "cosh".to_string(),
+            }),
+            args: vec![Expr::Literal(Literal::Float(1.0))],
+        })],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_math_tanh() {
+    let program = Program {
+        statements: vec![Stmt::Import {
+            module: "math".to_string(),
+            alias: None,
+        }, Stmt::Expr(Expr::Call {
+            func: Box::new(Expr::FieldAccess {
+                target: Box::new(Expr::Identifier("math".to_string())),
+                field: "tanh".to_string(),
+            }),
+            args: vec![Expr::Literal(Literal::Float(1.0))],
+        })],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+// ==================== MATH LIBRARY - LOGARITHMIC FUNCTIONS ====================
+
+#[test]
+fn test_math_log10() {
+    let program = Program {
+        statements: vec![Stmt::Import {
+            module: "math".to_string(),
+            alias: None,
+        }, Stmt::Expr(Expr::Call {
+            func: Box::new(Expr::FieldAccess {
+                target: Box::new(Expr::Identifier("math".to_string())),
+                field: "log10".to_string(),
+            }),
+            args: vec![Expr::Literal(Literal::Float(100.0))],
+        })],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_math_log2() {
+    let program = Program {
+        statements: vec![Stmt::Import {
+            module: "math".to_string(),
+            alias: None,
+        }, Stmt::Expr(Expr::Call {
+            func: Box::new(Expr::FieldAccess {
+                target: Box::new(Expr::Identifier("math".to_string())),
+                field: "log2".to_string(),
+            }),
+            args: vec![Expr::Literal(Literal::Float(8.0))],
+        })],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_math_cbrt() {
+    let program = Program {
+        statements: vec![Stmt::Import {
+            module: "math".to_string(),
+            alias: None,
+        }, Stmt::Expr(Expr::Call {
+            func: Box::new(Expr::FieldAccess {
+                target: Box::new(Expr::Identifier("math".to_string())),
+                field: "cbrt".to_string(),
+            }),
+            args: vec![Expr::Literal(Literal::Float(27.0))],
+        })],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+// ==================== MATH LIBRARY - ROUNDING FUNCTIONS ====================
+
+#[test]
+fn test_math_round() {
+    let program = Program {
+        statements: vec![Stmt::Import {
+            module: "math".to_string(),
+            alias: None,
+        }, Stmt::Expr(Expr::Call {
+            func: Box::new(Expr::FieldAccess {
+                target: Box::new(Expr::Identifier("math".to_string())),
+                field: "round".to_string(),
+            }),
+            args: vec![Expr::Literal(Literal::Float(3.6))],
+        })],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+// ==================== MATH LIBRARY - UTILITY FUNCTIONS ====================
+
+#[test]
+fn test_math_fmod() {
+    let program = Program {
+        statements: vec![Stmt::Import {
+            module: "math".to_string(),
+            alias: None,
+        }, Stmt::Expr(Expr::Call {
+            func: Box::new(Expr::FieldAccess {
+                target: Box::new(Expr::Identifier("math".to_string())),
+                field: "fmod".to_string(),
+            }),
+            args: vec![
+                Expr::Literal(Literal::Float(5.5)),
+                Expr::Literal(Literal::Float(2.0)),
+            ],
+        })],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_math_hypot() {
+    let program = Program {
+        statements: vec![Stmt::Import {
+            module: "math".to_string(),
+            alias: None,
+        }, Stmt::Expr(Expr::Call {
+            func: Box::new(Expr::FieldAccess {
+                target: Box::new(Expr::Identifier("math".to_string())),
+                field: "hypot".to_string(),
+            }),
+            args: vec![
+                Expr::Literal(Literal::Float(3.0)),
+                Expr::Literal(Literal::Float(4.0)),
+            ],
+        })],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_math_min() {
+    let program = Program {
+        statements: vec![Stmt::Import {
+            module: "math".to_string(),
+            alias: None,
+        }, Stmt::Expr(Expr::Call {
+            func: Box::new(Expr::FieldAccess {
+                target: Box::new(Expr::Identifier("math".to_string())),
+                field: "min".to_string(),
+            }),
+            args: vec![
+                Expr::Literal(Literal::Float(3.0)),
+                Expr::Literal(Literal::Float(7.0)),
+            ],
+        })],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_math_max() {
+    let program = Program {
+        statements: vec![Stmt::Import {
+            module: "math".to_string(),
+            alias: None,
+        }, Stmt::Expr(Expr::Call {
+            func: Box::new(Expr::FieldAccess {
+                target: Box::new(Expr::Identifier("math".to_string())),
+                field: "max".to_string(),
+            }),
+            args: vec![
+                Expr::Literal(Literal::Float(3.0)),
+                Expr::Literal(Literal::Float(7.0)),
+            ],
+        })],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+// ==================== MATH LIBRARY - CONSTANTS ====================
+
+#[test]
+fn test_math_tau_constant() {
+    let program = Program {
+        statements: vec![Stmt::Import {
+            module: "math".to_string(),
+            alias: None,
+        }, Stmt::Expr(Expr::FieldAccess {
+            target: Box::new(Expr::Identifier("math".to_string())),
+            field: "tau".to_string(),
+        })],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_math_phi_constant() {
+    let program = Program {
+        statements: vec![Stmt::Import {
+            module: "math".to_string(),
+            alias: None,
+        }, Stmt::Expr(Expr::FieldAccess {
+            target: Box::new(Expr::Identifier("math".to_string())),
+            field: "phi".to_string(),
+        })],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_math_sqrt2_constant() {
+    let program = Program {
+        statements: vec![Stmt::Import {
+            module: "math".to_string(),
+            alias: None,
+        }, Stmt::Expr(Expr::FieldAccess {
+            target: Box::new(Expr::Identifier("math".to_string())),
+            field: "sqrt2".to_string(),
+        })],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_math_ln2_constant() {
+    let program = Program {
+        statements: vec![Stmt::Import {
+            module: "math".to_string(),
+            alias: None,
+        }, Stmt::Expr(Expr::FieldAccess {
+            target: Box::new(Expr::Identifier("math".to_string())),
+            field: "ln2".to_string(),
+        })],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+// ==================== MATH LIBRARY - STATISTICS ====================
+
+#[test]
+fn test_math_median() {
+    let program = Program {
+        statements: vec![Stmt::Import {
+            module: "math".to_string(),
+            alias: None,
+        }, Stmt::Expr(Expr::Call {
+            func: Box::new(Expr::FieldAccess {
+                target: Box::new(Expr::Identifier("math".to_string())),
+                field: "median".to_string(),
+            }),
+            args: vec![Expr::Array(vec![
+                Expr::Literal(Literal::Float(1.0)),
+                Expr::Literal(Literal::Float(2.0)),
+                Expr::Literal(Literal::Float(3.0)),
+                Expr::Literal(Literal::Float(4.0)),
+                Expr::Literal(Literal::Float(5.0)),
+            ])],
+        })],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_math_std() {
+    let program = Program {
+        statements: vec![Stmt::Import {
+            module: "math".to_string(),
+            alias: None,
+        }, Stmt::Expr(Expr::Call {
+            func: Box::new(Expr::FieldAccess {
+                target: Box::new(Expr::Identifier("math".to_string())),
+                field: "std".to_string(),
+            }),
+            args: vec![Expr::Array(vec![
+                Expr::Literal(Literal::Float(1.0)),
+                Expr::Literal(Literal::Float(2.0)),
+                Expr::Literal(Literal::Float(3.0)),
+            ])],
+        })],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_math_var() {
+    let program = Program {
+        statements: vec![Stmt::Import {
+            module: "math".to_string(),
+            alias: None,
+        }, Stmt::Expr(Expr::Call {
+            func: Box::new(Expr::FieldAccess {
+                target: Box::new(Expr::Identifier("math".to_string())),
+                field: "var".to_string(),
+            }),
+            args: vec![Expr::Array(vec![
+                Expr::Literal(Literal::Float(1.0)),
+                Expr::Literal(Literal::Float(2.0)),
+                Expr::Literal(Literal::Float(3.0)),
+            ])],
+        })],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+// ==================== MATH LIBRARY - LINEAR ALGEBRA ====================
+
+#[test]
+fn test_math_det() {
+    let program = Program {
+        statements: vec![Stmt::Import {
+            module: "math".to_string(),
+            alias: None,
+        }, Stmt::Expr(Expr::Call {
+            func: Box::new(Expr::FieldAccess {
+                target: Box::new(Expr::Identifier("math".to_string())),
+                field: "det".to_string(),
+            }),
+            args: vec![Expr::Call {
+                func: Box::new(Expr::Identifier("zeros".to_string())),
+                args: vec![
+                    Expr::Literal(Literal::Int(3)),
+                    Expr::Literal(Literal::Int(3)),
+                ],
+            }],
+        })],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_math_inv() {
+    let program = Program {
+        statements: vec![Stmt::Import {
+            module: "math".to_string(),
+            alias: None,
+        }, Stmt::Expr(Expr::Call {
+            func: Box::new(Expr::FieldAccess {
+                target: Box::new(Expr::Identifier("math".to_string())),
+                field: "inv".to_string(),
+            }),
+            args: vec![Expr::Call {
+                func: Box::new(Expr::Identifier("zeros".to_string())),
+                args: vec![
+                    Expr::Literal(Literal::Int(2)),
+                    Expr::Literal(Literal::Int(2)),
+                ],
+            }],
+        })],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_math_tr() {
+    let program = Program {
+        statements: vec![Stmt::Import {
+            module: "math".to_string(),
+            alias: None,
+        }, Stmt::Expr(Expr::Call {
+            func: Box::new(Expr::FieldAccess {
+                target: Box::new(Expr::Identifier("math".to_string())),
+                field: "tr".to_string(),
+            }),
+            args: vec![Expr::Call {
+                func: Box::new(Expr::Identifier("zeros".to_string())),
+                args: vec![
+                    Expr::Literal(Literal::Int(3)),
+                    Expr::Literal(Literal::Int(4)),
+                ],
+            }],
+        })],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_math_eigvals() {
+    let program = Program {
+        statements: vec![Stmt::Import {
+            module: "math".to_string(),
+            alias: None,
+        }, Stmt::Expr(Expr::Call {
+            func: Box::new(Expr::FieldAccess {
+                target: Box::new(Expr::Identifier("math".to_string())),
+                field: "eigvals".to_string(),
+            }),
+            args: vec![Expr::Call {
+                func: Box::new(Expr::Identifier("zeros".to_string())),
+                args: vec![
+                    Expr::Literal(Literal::Int(2)),
+                    Expr::Literal(Literal::Int(2)),
+                ],
+            }],
+        })],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_math_eigvecs() {
+    let program = Program {
+        statements: vec![Stmt::Import {
+            module: "math".to_string(),
+            alias: None,
+        }, Stmt::Expr(Expr::Call {
+            func: Box::new(Expr::FieldAccess {
+                target: Box::new(Expr::Identifier("math".to_string())),
+                field: "eigvecs".to_string(),
+            }),
+            args: vec![Expr::Call {
+                func: Box::new(Expr::Identifier("zeros".to_string())),
+                args: vec![
+                    Expr::Literal(Literal::Int(3)),
+                    Expr::Literal(Literal::Int(3)),
+                ],
+            }],
+        })],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_math_eye() {
+    let program = Program {
+        statements: vec![Stmt::Import {
+            module: "math".to_string(),
+            alias: None,
+        }, Stmt::Expr(Expr::Call {
+            func: Box::new(Expr::FieldAccess {
+                target: Box::new(Expr::Identifier("math".to_string())),
+                field: "eye".to_string(),
+            }),
+            args: vec![Expr::Literal(Literal::Int(5))],
+        })],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+// ==================== INPUT FUNCTIONS ====================
+
+#[test]
+fn test_input_int() {
+    let program = Program {
+        statements: vec![Stmt::Expr(Expr::Call {
+            func: Box::new(Expr::Identifier("input".to_string())),
+            args: vec![Expr::Literal(Literal::String("int".to_string()))],
+        })],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_input_float() {
+    let program = Program {
+        statements: vec![Stmt::Expr(Expr::Call {
+            func: Box::new(Expr::Identifier("input".to_string())),
+            args: vec![Expr::Literal(Literal::String("float".to_string()))],
+        })],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_input_string() {
+    let program = Program {
+        statements: vec![Stmt::Expr(Expr::Call {
+            func: Box::new(Expr::Identifier("input".to_string())),
+            args: vec![Expr::Literal(Literal::String("string".to_string()))],
+        })],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+// ==================== EDGE CASES - TYPE CONVERSIONS ====================
+
+#[test]
+fn test_int_conversion_from_string() {
+    let program = Program {
+        statements: vec![Stmt::Expr(Expr::Call {
+            func: Box::new(Expr::Identifier("int".to_string())),
+            args: vec![Expr::Literal(Literal::String("123".to_string()))],
+        })],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_float_conversion_from_string() {
+    let program = Program {
+        statements: vec![Stmt::Expr(Expr::Call {
+            func: Box::new(Expr::Identifier("float".to_string())),
+            args: vec![Expr::Literal(Literal::String("3.14".to_string()))],
+        })],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_bool_conversion_from_int_zero() {
+    let program = Program {
+        statements: vec![Stmt::Expr(Expr::Call {
+            func: Box::new(Expr::Identifier("bool".to_string())),
+            args: vec![Expr::Literal(Literal::Int(0))],
+        })],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_bool_conversion_from_int_nonzero() {
+    let program = Program {
+        statements: vec![Stmt::Expr(Expr::Call {
+            func: Box::new(Expr::Identifier("bool".to_string())),
+            args: vec![Expr::Literal(Literal::Int(42))],
+        })],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_string_conversion_from_float() {
+    let program = Program {
+        statements: vec![Stmt::Expr(Expr::Call {
+            func: Box::new(Expr::Identifier("string".to_string())),
+            args: vec![Expr::Literal(Literal::Float(3.14))],
+        })],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_typeof_on_different_types() {
+    let program = Program {
+        statements: vec![
+            Stmt::Expr(Expr::Call {
+                func: Box::new(Expr::Identifier("typeof".to_string())),
+                args: vec![Expr::Literal(Literal::Int(42))],
+            }),
+            Stmt::Expr(Expr::Call {
+                func: Box::new(Expr::Identifier("typeof".to_string())),
+                args: vec![Expr::Literal(Literal::Float(3.14))],
+            }),
+            Stmt::Expr(Expr::Call {
+                func: Box::new(Expr::Identifier("typeof".to_string())),
+                args: vec![Expr::Literal(Literal::String("hello".to_string()))],
+            }),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+// ==================== EDGE CASES - MATH WITH SPECIAL VALUES ====================
+
+#[test]
+fn test_math_abs_negative() {
+    let program = Program {
+        statements: vec![Stmt::Import {
+            module: "math".to_string(),
+            alias: None,
+        }, Stmt::Expr(Expr::Call {
+            func: Box::new(Expr::FieldAccess {
+                target: Box::new(Expr::Identifier("math".to_string())),
+                field: "abs".to_string(),
+            }),
+            args: vec![Expr::Literal(Literal::Float(-10.5))],
+        })],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_math_sqrt_zero() {
+    let program = Program {
+        statements: vec![Stmt::Import {
+            module: "math".to_string(),
+            alias: None,
+        }, Stmt::Expr(Expr::Call {
+            func: Box::new(Expr::FieldAccess {
+                target: Box::new(Expr::Identifier("math".to_string())),
+                field: "sqrt".to_string(),
+            }),
+            args: vec![Expr::Literal(Literal::Float(0.0))],
+        })],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_math_log_one() {
+    let program = Program {
+        statements: vec![Stmt::Import {
+            module: "math".to_string(),
+            alias: None,
+        }, Stmt::Expr(Expr::Call {
+            func: Box::new(Expr::FieldAccess {
+                target: Box::new(Expr::Identifier("math".to_string())),
+                field: "log".to_string(),
+            }),
+            args: vec![Expr::Literal(Literal::Float(1.0))],
+        })],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
