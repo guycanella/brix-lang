@@ -10,7 +10,12 @@ use logos::Logos;
 fn assert_single_token(input: &str, expected: Token) {
     let mut lexer = Token::lexer(input);
     let token = lexer.next();
-    assert_eq!(token, Some(Ok(expected)), "Failed to match token for input: {}", input);
+    assert_eq!(
+        token,
+        Some(Ok(expected)),
+        "Failed to match token for input: {}",
+        input
+    );
     assert_eq!(lexer.next(), None, "Expected single token, found more");
 }
 
@@ -84,7 +89,10 @@ fn test_atom_multiple_underscores() {
 
 #[test]
 fn test_atom_long_name() {
-    assert_single_token(":this_is_a_very_long_atom_name", Token::Atom("this_is_a_very_long_atom_name".to_string()));
+    assert_single_token(
+        ":this_is_a_very_long_atom_name",
+        Token::Atom("this_is_a_very_long_atom_name".to_string()),
+    );
 }
 
 // ==================== ATOM NAMING CONVENTIONS ====================
@@ -168,7 +176,10 @@ fn test_priority_walrus_vs_atom() {
 fn test_atom_in_assignment() {
     let mut lexer = Token::lexer("var status = :ok");
     assert_eq!(lexer.next(), Some(Ok(Token::Var)));
-    assert_eq!(lexer.next(), Some(Ok(Token::Identifier("status".to_string()))));
+    assert_eq!(
+        lexer.next(),
+        Some(Ok(Token::Identifier("status".to_string())))
+    );
     assert_eq!(lexer.next(), Some(Ok(Token::Eq)));
     assert_eq!(lexer.next(), Some(Ok(Token::Atom("ok".to_string()))));
     assert_eq!(lexer.next(), None);
@@ -177,7 +188,10 @@ fn test_atom_in_assignment() {
 #[test]
 fn test_atom_in_comparison() {
     let mut lexer = Token::lexer("status == :ok");
-    assert_eq!(lexer.next(), Some(Ok(Token::Identifier("status".to_string()))));
+    assert_eq!(
+        lexer.next(),
+        Some(Ok(Token::Identifier("status".to_string())))
+    );
     assert_eq!(lexer.next(), Some(Ok(Token::DoubleEq)));
     assert_eq!(lexer.next(), Some(Ok(Token::Atom("ok".to_string()))));
     assert_eq!(lexer.next(), None);
@@ -293,7 +307,10 @@ fn test_complex_go_style_error_handling() {
 fn test_complex_http_status_pattern() {
     let mut lexer = Token::lexer("match status { :http_200 -> :ok }");
     assert_eq!(lexer.next(), Some(Ok(Token::Match)));
-    assert_eq!(lexer.next(), Some(Ok(Token::Identifier("status".to_string()))));
+    assert_eq!(
+        lexer.next(),
+        Some(Ok(Token::Identifier("status".to_string())))
+    );
     assert_eq!(lexer.next(), Some(Ok(Token::LBrace)));
     assert_eq!(lexer.next(), Some(Ok(Token::Atom("http_200".to_string()))));
     assert_eq!(lexer.next(), Some(Ok(Token::Arrow)));

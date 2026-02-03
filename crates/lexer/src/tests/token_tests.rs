@@ -15,7 +15,12 @@ fn tokenize(input: &str) -> Vec<Result<Token, ()>> {
 fn assert_single_token(input: &str, expected: Token) {
     let mut lexer = Token::lexer(input);
     let token = lexer.next();
-    assert_eq!(token, Some(Ok(expected)), "Failed to match token for input: {}", input);
+    assert_eq!(
+        token,
+        Some(Ok(expected)),
+        "Failed to match token for input: {}",
+        input
+    );
     assert_eq!(lexer.next(), None, "Expected single token, found more");
 }
 

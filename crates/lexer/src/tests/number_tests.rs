@@ -10,7 +10,12 @@ use logos::Logos;
 fn assert_single_token(input: &str, expected: Token) {
     let mut lexer = Token::lexer(input);
     let token = lexer.next();
-    assert_eq!(token, Some(Ok(expected)), "Failed to match token for input: {}", input);
+    assert_eq!(
+        token,
+        Some(Ok(expected)),
+        "Failed to match token for input: {}",
+        input
+    );
     assert_eq!(lexer.next(), None, "Expected single token, found more");
 }
 
@@ -103,7 +108,10 @@ fn test_float_large_number() {
 
 #[test]
 fn test_float_many_decimals() {
-    assert_single_token("1.23456789012345", Token::Float("1.23456789012345".to_string()));
+    assert_single_token(
+        "1.23456789012345",
+        Token::Float("1.23456789012345".to_string()),
+    );
 }
 
 #[test]
@@ -160,7 +168,10 @@ fn test_imaginary_decimal_complex() {
 
 #[test]
 fn test_imaginary_many_decimals() {
-    assert_single_token("3.14159265359i", Token::ImaginaryLiteral("3.14159265359i".to_string()));
+    assert_single_token(
+        "3.14159265359i",
+        Token::ImaginaryLiteral("3.14159265359i".to_string()),
+    );
 }
 
 // ==================== PRIORITY TESTS ====================
@@ -180,7 +191,10 @@ fn test_priority_imaginary_float_vs_float_identifier() {
     // "3.14i" should be ImaginaryLiteral, NOT Float("3.14") + Identifier("i")
     let mut lexer = Token::lexer("3.14i");
     let token = lexer.next();
-    assert_eq!(token, Some(Ok(Token::ImaginaryLiteral("3.14i".to_string()))));
+    assert_eq!(
+        token,
+        Some(Ok(Token::ImaginaryLiteral("3.14i".to_string())))
+    );
     assert_eq!(lexer.next(), None);
 }
 
@@ -239,7 +253,10 @@ fn test_edge_mixed_number_types() {
     let mut lexer = Token::lexer("42 3.14 2i");
     assert_eq!(lexer.next(), Some(Ok(Token::Int(42))));
     assert_eq!(lexer.next(), Some(Ok(Token::Float("3.14".to_string()))));
-    assert_eq!(lexer.next(), Some(Ok(Token::ImaginaryLiteral("2i".to_string()))));
+    assert_eq!(
+        lexer.next(),
+        Some(Ok(Token::ImaginaryLiteral("2i".to_string())))
+    );
     assert_eq!(lexer.next(), None);
 }
 
@@ -250,7 +267,10 @@ fn test_edge_numbers_in_arithmetic() {
     assert_eq!(lexer.next(), Some(Ok(Token::Plus)));
     assert_eq!(lexer.next(), Some(Ok(Token::Float("3.5".to_string()))));
     assert_eq!(lexer.next(), Some(Ok(Token::Minus)));
-    assert_eq!(lexer.next(), Some(Ok(Token::ImaginaryLiteral("2i".to_string()))));
+    assert_eq!(
+        lexer.next(),
+        Some(Ok(Token::ImaginaryLiteral("2i".to_string())))
+    );
     assert_eq!(lexer.next(), None);
 }
 
@@ -280,7 +300,10 @@ fn test_negative_imaginary_tokenizes_as_minus_plus_imaginary() {
     // "-2i" should be Minus + ImaginaryLiteral("2i")
     let mut lexer = Token::lexer("-2i");
     assert_eq!(lexer.next(), Some(Ok(Token::Minus)));
-    assert_eq!(lexer.next(), Some(Ok(Token::ImaginaryLiteral("2i".to_string()))));
+    assert_eq!(
+        lexer.next(),
+        Some(Ok(Token::ImaginaryLiteral("2i".to_string())))
+    );
     assert_eq!(lexer.next(), None);
 }
 
@@ -319,7 +342,10 @@ fn test_float_boundary_very_small() {
 
 #[test]
 fn test_float_boundary_very_large() {
-    assert_single_token("999999999.999999999", Token::Float("999999999.999999999".to_string()));
+    assert_single_token(
+        "999999999.999999999",
+        Token::Float("999999999.999999999".to_string()),
+    );
 }
 
 // ==================== COMPLEX NUMBER EXPRESSION TESTS ====================
@@ -330,7 +356,10 @@ fn test_complex_literal_expression() {
     let mut lexer = Token::lexer("3.0 + 4.0i");
     assert_eq!(lexer.next(), Some(Ok(Token::Float("3.0".to_string()))));
     assert_eq!(lexer.next(), Some(Ok(Token::Plus)));
-    assert_eq!(lexer.next(), Some(Ok(Token::ImaginaryLiteral("4.0i".to_string()))));
+    assert_eq!(
+        lexer.next(),
+        Some(Ok(Token::ImaginaryLiteral("4.0i".to_string())))
+    );
     assert_eq!(lexer.next(), None);
 }
 
@@ -340,6 +369,9 @@ fn test_complex_literal_subtraction() {
     let mut lexer = Token::lexer("1.0 - 2.0i");
     assert_eq!(lexer.next(), Some(Ok(Token::Float("1.0".to_string()))));
     assert_eq!(lexer.next(), Some(Ok(Token::Minus)));
-    assert_eq!(lexer.next(), Some(Ok(Token::ImaginaryLiteral("2.0i".to_string()))));
+    assert_eq!(
+        lexer.next(),
+        Some(Ok(Token::ImaginaryLiteral("2.0i".to_string())))
+    );
     assert_eq!(lexer.next(), None);
 }
