@@ -1497,15 +1497,16 @@ println(f"Eigenvectors: {eigenvectors}") // [[a+bim, c+dim], [e+fim, g+him]]
 
 ---
 
-### 🎯 **v1.0 - Advanced Features** ✅ **95% COMPLETO (28/01/2026)**
+### 🎯 **v1.0 - Advanced Features** ✅ **COMPLETO (28/01/2026)**
 
 **Status Geral:**
 - [x] Pattern matching (`match` syntax) ✅ **COMPLETO**
 - [x] Complex numbers (literals, operators, 16+ functions) ✅ **COMPLETO**
 - [x] LAPACK integration (eigvals, eigvecs) ✅ **COMPLETO**
-- [ ] Closures and lambda functions ⏸️ **Adiado para v1.1**
-- [ ] First-class functions ⏸️ **Adiado para v1.1**
-- [ ] User-defined modules ⏸️ **Adiado para v1.1**
+- [x] Nil/Error handling (Go-style) ✅ **COMPLETO**
+- [ ] Closures and lambda functions ⏸️ **Adiado para v1.2**
+- [ ] First-class functions ⏸️ **Adiado para v1.2**
+- [ ] User-defined modules ⏸️ **Adiado para v1.2**
 
 **O que foi implementado em v1.0:**
 
@@ -1535,11 +1536,225 @@ println(f"Eigenvectors: {eigenvectors}") // [[a+bim, c+dim], [e+fim, g+him]]
    - Column-major conversion
    - Work array queries
 
-**Próximo:** v1.1 - Closures, first-class functions, user-defined modules
+**Próximo:** v1.1 - Type checkers, String functions
 
 ---
 
-### 🧩 **v1.1 - Closures e Funções Avançadas** (PRÓXIMO)
+### ✅ **v1.1 - Atoms & Escape Sequences** ✅ **COMPLETO (29/01/2026)**
+
+Sistema de atoms estilo Elixir com atom pool global e correção completa de escape sequences em strings.
+
+**Atoms (Elixir-style):**
+
+Atoms são constant values (interned strings) usados para representar estados e identificadores imutáveis.
+
+**Sintaxe:**
+```brix
+// Atom literals
+var status := :ok
+var msg := :error
+var custom := :my_custom_atom
+
+// Comparações O(1)
+if status == :ok {
+    println("Success!")
+}
+
+// Pattern matching
+match status {
+    :ok -> println("All good")
+    :error -> println("Something failed")
+    :pending -> println("Waiting...")
+    _ -> println("Unknown status")
+}
+
+// typeof
+println(typeof(status))  // "atom"
+```
+
+**Características:**
+
+1. **Interned Strings:**
+   - Atoms são armazenados em pool global
+   - Cada atom recebe ID único (i64)
+   - Strings duplicadas compartilham mesmo ID
+
+2. **O(1) Comparison:**
+   - Comparação por ID (não por string)
+   - Performance superior a string comparison
+
+3. **Memory Efficient:**
+   - Cada atom armazenado uma única vez
+   - IDs pequenos (8 bytes)
+
+**Implementação Técnica:**
+
+1. **Lexer (token.rs):**
+   ```rust
+   #[regex(r":[a-zA-Z_][a-zA-Z0-9_]*", priority = 4, callback = |lex| {
+       let s = lex.slice();
+       s[1..].to_string()  // Remove leading ':'
+   })]
+   Atom(String),
+   ```
+
+2. **Parser (ast.rs):**
+   ```rust
+   pub enum Literal {
+       // ... existing
+       Atom(String),  // :ok, :error, :atom_name
+   }
+   ```
+
+3. **Runtime (runtime.c):**
+   ```c
+   typedef struct {
+       char** names;
+       long count;
+       long capacity;
+   } AtomPool;
+
+   // Global atom pool
+   static AtomPool ATOM_POOL = {NULL, 0, 0};
+
+   // Intern string and return ID
+   long atom_intern(const char* name) {
+       // Search for existing atom
+       for (long i = 0; i < ATOM_POOL.count; i++) {
+           if (strcmp(ATOM_POOL.names[i], name) == 0) {
+               return i;
+           }
+       }
+       // Add new atom with dynamic realloc
+       // ... (implementation in runtime.c)
+       return ATOM_POOL.count++;
+   }
+
+   // Get atom name from ID
+   const char* atom_name(long id);
+   ```
+
+4. **Codegen:**
+   - `BrixType::Atom` → i64 in LLVM
+   - Calls `atom_intern()` during compilation
+   - Pattern matching via ID comparison
+   - typeof() returns "atom"
+
+**Escape Sequences Fix:**
+
+Implementado processamento completo de escape sequences em todos os contextos de strings.
+
+**Função Helper:**
+```rust
+fn process_escape_sequences(s: &str) -> String {
+    let mut result = String::new();
+    let mut chars = s.chars();
+    while let Some(ch) = chars.next() {
+        if ch == '\\' {
+            if let Some(next) = chars.next() {
+                match next {
+                    'n' => result.push('\n'),
+                    't' => result.push('\t'),
+                    'r' => result.push('\r'),
+                    '\\' => result.push('\\'),
+                    '"' => result.push('"'),
+                    'b' => result.push('\u{0008}'),
+                    'f' => result.push('\u{000C}'),
+                    _ => {
+                        result.push('\\');
+                        result.push(next);
+                    }
+                }
+            }
+        } else {
+            result.push(ch);
+        }
+    }
+    result
+}
+```
+
+**Escape Sequences Suportados:**
+- `\n` - Newline (line feed)
+- `\t` - Tab horizontal
+- `\r` - Carriage return
+- `\\` - Backslash literal
+- `\"` - Double quote
+- `\b` - Backspace
+- `\f` - Form feed
+
+**Aplicado em:**
+- String literals: `"hello\nworld"`
+- Pattern literals: `"line1\nline2"`
+- Printf format strings: `printf("Name:\t%s\n", name)`
+- Atom names (edge case): `:atom_with_\n`
+
+**Exemplos:**
+```brix
+// String literals
+var msg := "Hello\nWorld"
+println(msg)
+// Output:
+// Hello
+// World
+
+// Pattern matching
+var text := "Line 1\nLine 2"
+match text {
+    "Line 1\nLine 2" -> println("Match!")
+    _ -> println("No match")
+}
+
+// Printf
+printf("Name:\t%s\nAge:\t%d\n", "Alice", 30)
+// Output:
+// Name:   Alice
+// Age:    30
+```
+
+**Testes:**
+- `atom_simple_test.bx` - Atoms básicos ✅
+- `atom_test_v2.bx` - Pattern matching ✅
+- `atom_test_fixed.bx` - Suite completa ✅
+- `atom_with_newlines_test.bx` - Atoms com \n ✅
+- `newline_test.bx` - Validação de \n ✅
+- `escape_test.bx` - Todos os escapes ✅
+
+**Design Decisions:**
+- **Atom representation:** i64 ID (não string) para performance
+- **Atom pool:** Global static pool com dynamic realloc
+- **Comparison:** ID equality (O(1))
+- **Memory:** Shared strings (atoms duplicados = mesmo ID)
+- **Pattern matching:** Full support
+- **Escape sequences:** Processados no parser (não no lexer)
+- **Compatibility:** Atoms podem conter chars escapados (raro mas suportado)
+
+**Performance:**
+- Atom interning: O(n) worst case (linear search)
+- Atom comparison: O(1) (ID equality)
+- Memory overhead: 8 bytes per atom ID + shared string storage
+
+**Futuro (v1.2+):**
+- [ ] **Atom GC:** Cleanup de atoms não usados (low priority)
+- [ ] **Atom limits:** Warning quando pool cresce demais
+- [ ] **Hash table:** Substituir linear search por hash table para O(1) interning
+
+---
+
+### 🧩 **v1.1 - Type Checkers & String Functions** 🚧 **EM ANDAMENTO**
+
+**Status:** Atoms completos, Type checkers e String functions pendentes.
+
+**Implementado:**
+- [x] Atoms (Elixir-style) ✅ **COMPLETO (29/01/2026)**
+- [x] Escape sequences ✅ **COMPLETO (29/01/2026)**
+
+**Pendente:**
+- [ ] Lexer string fix (\" em f-strings) 🎯 **PRÓXIMO (30/01/2026)**
+- [ ] Type checking functions (is_nil, is_atom, etc.) - 1 dia
+- [ ] String functions (uppercase, lowercase, split, etc.) - 3-5 dias
+
+### 🧩 **v1.2 - Closures e Funções Avançadas**
 
 #### Closures e Lambda Functions
 
@@ -1679,8 +1894,8 @@ v0.6 ████████████████████ 100% ✅ IntMa
 v0.7 ████████████████████ 100% ✅ Import system, math library (38 functions)
 v0.8 ████████████████████ 100% ✅ User-defined functions, multiple returns
 v0.9 ████████████████████ 100% ✅ List comprehensions, zip(), destructuring
-v1.0 ███████████████████▓  98% ✅ Pattern matching, Complex, LAPACK, Nil/Error
-v1.1 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Atoms, Type checkers, String functions
+v1.0 ████████████████████ 100% ✅ Pattern matching, Complex, LAPACK, Nil/Error
+v1.1 ██████░░░░░░░░░░░░░░  30% 🚧 Atoms ✅, Escapes ✅, Type checkers, Strings
 v1.2 ░░░░░░░░░░░░░░░░░░░░   0% 📋 @doc, panic(), modules, advanced strings
 v1.3 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Generics, Result<T,E>, Structs, Closures
 v1.4 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Concurrency, stdlib, optimizations
@@ -1881,16 +2096,16 @@ math.sum(arr), math.mean(arr), math.median(arr), math.std(arr)
 
 ### 📊 Estatísticas do Projeto:
 
-- **Linhas de Código (Rust):** ~5200 linhas (compiler core)
-- **Linhas de Código (C Runtime):** ~950 linhas (math + matrix + complex + LAPACK + error handling)
-- **Arquivos de Teste (.bx):** 40+ (core + math + functions + pattern matching + complex + nil/error)
-- **Tipos Implementados:** 11 (Int, Float, String, Matrix, IntMatrix, Complex, ComplexMatrix, FloatPtr, Void, Tuple, Nil, Error)
-- **Features Implementadas:** ~95+ (v1.0 98% completo)
-- **Features Planejadas v1.1:** Atoms + Type checkers + String functions (22 features)
+- **Linhas de Código (Rust):** ~5400 linhas (compiler core + atoms)
+- **Linhas de Código (C Runtime):** ~1050 linhas (math + matrix + complex + LAPACK + error handling + atoms)
+- **Arquivos de Teste (.bx):** 46+ (core + math + functions + pattern matching + complex + nil/error + atoms)
+- **Tipos Implementados:** 14 (Int, Float, String, Matrix, IntMatrix, Complex, ComplexMatrix, FloatPtr, Void, Tuple, Nil, Error, Atom)
+- **Features Implementadas:** ~100+ (v1.1 30% completo)
+- **Features Planejadas v1.1:** Type checkers + String functions (19 features restantes)
 - **Features Planejadas v1.2+:** ~150+
-- **Versão Atual:** v1.0 (Pattern Matching + Complex Numbers + LAPACK + Nil/Error Handling)
-- **Progresso MVP:** 98%
-- **Próxima Versão:** v1.1 (Atoms + String Operations)
+- **Versão Atual:** v1.1 (Atoms + Escape Sequences) - Em andamento
+- **Progresso MVP:** 99%
+- **Próxima Feature:** Lexer string fix (\" em f-strings)
 - **Última Atualização:** 29/01/2026
 
 ---
