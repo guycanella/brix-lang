@@ -477,3 +477,203 @@ fn test_compile_complex_arithmetic() {
     let result = compile_program(program);
     assert!(result.is_ok());
 }
+
+// ==================== ATOMS (v1.1) ====================
+
+#[test]
+fn test_atom_literal() {
+    let expr = Expr::Literal(Literal::Atom("ok".to_string()));
+    let program = make_program(Stmt::Expr(expr));
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_atom_comparison() {
+    let expr = Expr::Binary {
+        op: BinaryOp::Eq,
+        lhs: Box::new(Expr::Literal(Literal::Atom("ok".to_string()))),
+        rhs: Box::new(Expr::Literal(Literal::Atom("ok".to_string()))),
+    };
+    let program = make_program(Stmt::Expr(expr));
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_atom_different_comparison() {
+    let expr = Expr::Binary {
+        op: BinaryOp::NotEq,
+        lhs: Box::new(Expr::Literal(Literal::Atom("ok".to_string()))),
+        rhs: Box::new(Expr::Literal(Literal::Atom("error".to_string()))),
+    };
+    let program = make_program(Stmt::Expr(expr));
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+// ==================== NIL AND ERROR (v1.0) ====================
+
+#[test]
+fn test_nil_literal() {
+    let expr = Expr::Identifier("nil".to_string());
+    let program = make_program(Stmt::Expr(expr));
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_error_creation() {
+    let expr = Expr::Call {
+        func: Box::new(Expr::Identifier("error".to_string())),
+        args: vec![Expr::Literal(Literal::String("something failed".to_string()))],
+    };
+    let program = make_program(Stmt::Expr(expr));
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+// ==================== LIST COMPREHENSIONS (v0.9) ====================
+
+#[test]
+fn test_list_comprehension_basic() {
+    let expr = Expr::ListComprehension {
+        expr: Box::new(Expr::Binary {
+            op: BinaryOp::Mul,
+            lhs: Box::new(Expr::Identifier("x".to_string())),
+            rhs: Box::new(Expr::Literal(Literal::Int(2))),
+        }),
+        generators: vec![parser::ast::ComprehensionGen {
+            var_names: vec!["x".to_string()],
+            iterable: Box::new(Expr::Array(vec![
+                Expr::Literal(Literal::Float(1.0)),
+                Expr::Literal(Literal::Float(2.0)),
+                Expr::Literal(Literal::Float(3.0)),
+            ])),
+            conditions: vec![],
+        }],
+    };
+    let program = make_program(Stmt::Expr(expr));
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_list_comprehension_with_filter() {
+    let expr = Expr::ListComprehension {
+        expr: Box::new(Expr::Identifier("x".to_string())),
+        generators: vec![parser::ast::ComprehensionGen {
+            var_names: vec!["x".to_string()],
+            iterable: Box::new(Expr::Array(vec![
+                Expr::Literal(Literal::Float(1.0)),
+                Expr::Literal(Literal::Float(2.0)),
+                Expr::Literal(Literal::Float(3.0)),
+                Expr::Literal(Literal::Float(4.0)),
+            ])),
+            conditions: vec![Expr::Binary {
+                op: BinaryOp::Gt,
+                lhs: Box::new(Expr::Identifier("x".to_string())),
+                rhs: Box::new(Expr::Literal(Literal::Float(2.0))),
+            }],
+        }],
+    };
+    let program = make_program(Stmt::Expr(expr));
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_list_comprehension_nested() {
+    let expr = Expr::ListComprehension {
+        expr: Box::new(Expr::Binary {
+            op: BinaryOp::Mul,
+            lhs: Box::new(Expr::Identifier("x".to_string())),
+            rhs: Box::new(Expr::Identifier("y".to_string())),
+        }),
+        generators: vec![
+            parser::ast::ComprehensionGen {
+                var_names: vec!["x".to_string()],
+                iterable: Box::new(Expr::Array(vec![
+                    Expr::Literal(Literal::Float(1.0)),
+                    Expr::Literal(Literal::Float(2.0)),
+                ])),
+                conditions: vec![],
+            },
+            parser::ast::ComprehensionGen {
+                var_names: vec!["y".to_string()],
+                iterable: Box::new(Expr::Array(vec![
+                    Expr::Literal(Literal::Float(10.0)),
+                    Expr::Literal(Literal::Float(20.0)),
+                ])),
+                conditions: vec![],
+            },
+        ],
+    };
+    let program = make_program(Stmt::Expr(expr));
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_zip_function() {
+    let expr = Expr::Call {
+        func: Box::new(Expr::Identifier("zip".to_string())),
+        args: vec![
+            Expr::Array(vec![
+                Expr::Literal(Literal::Float(1.0)),
+                Expr::Literal(Literal::Float(2.0)),
+            ]),
+            Expr::Array(vec![
+                Expr::Literal(Literal::Float(10.0)),
+                Expr::Literal(Literal::Float(20.0)),
+            ]),
+        ],
+    };
+    let program = make_program(Stmt::Expr(expr));
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+// ==================== F-STRINGS WITH FORMAT SPECIFIERS ====================
+
+#[test]
+fn test_fstring_basic() {
+    let expr = Expr::FString { parts: vec![
+        parser::ast::FStringPart::Text("Value: ".to_string()),
+        parser::ast::FStringPart::Expr {
+            expr: Box::new(Expr::Literal(Literal::Int(42))),
+            format: None,
+        },
+    ] };
+    let program = make_program(Stmt::Expr(expr));
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_fstring_with_hex_format() {
+    let expr = Expr::FString { parts: vec![
+        parser::ast::FStringPart::Text("Hex: ".to_string()),
+        parser::ast::FStringPart::Expr {
+            expr: Box::new(Expr::Literal(Literal::Int(255))),
+            format: Some("x".to_string()),
+        },
+    ] };
+    let program = make_program(Stmt::Expr(expr));
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_fstring_with_precision_format() {
+    let expr = Expr::FString { parts: vec![
+        parser::ast::FStringPart::Text("Pi: ".to_string()),
+        parser::ast::FStringPart::Expr {
+            expr: Box::new(Expr::Literal(Literal::Float(3.14159))),
+            format: Some(".2f".to_string()),
+        },
+    ] };
+    let program = make_program(Stmt::Expr(expr));
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}

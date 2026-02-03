@@ -277,3 +277,210 @@ fn test_return_multiple_values() {
     let result = compile_program(program);
     assert!(result.is_ok());
 }
+
+// ==================== ADVANCED PATTERN MATCHING TESTS ====================
+
+#[test]
+fn test_match_with_or_pattern() {
+    let program = Program {
+        statements: vec![
+            Stmt::VariableDecl {
+                name: "x".to_string(),
+                type_hint: None,
+                value: Expr::Literal(Literal::Int(2)),
+                is_const: false,
+            },
+            Stmt::Expr(Expr::Match {
+                value: Box::new(Expr::Identifier("x".to_string())),
+                arms: vec![
+                    parser::ast::MatchArm {
+                        pattern: parser::ast::Pattern::Or(vec![
+                            parser::ast::Pattern::Literal(Literal::Int(1)),
+                            parser::ast::Pattern::Literal(Literal::Int(2)),
+                            parser::ast::Pattern::Literal(Literal::Int(3)),
+                        ]),
+                        guard: None,
+                        body: Box::new(Expr::Literal(Literal::String("small".to_string()))),
+                    },
+                    parser::ast::MatchArm {
+                        pattern: parser::ast::Pattern::Wildcard,
+                        guard: None,
+                        body: Box::new(Expr::Literal(Literal::String("large".to_string()))),
+                    },
+                ],
+            }),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_match_with_guard() {
+    let program = Program {
+        statements: vec![
+            Stmt::VariableDecl {
+                name: "x".to_string(),
+                type_hint: None,
+                value: Expr::Literal(Literal::Int(15)),
+                is_const: false,
+            },
+            Stmt::Expr(Expr::Match {
+                value: Box::new(Expr::Identifier("x".to_string())),
+                arms: vec![
+                    parser::ast::MatchArm {
+                        pattern: parser::ast::Pattern::Binding("n".to_string()),
+                        guard: Some(Box::new(Expr::Binary {
+                            op: BinaryOp::Gt,
+                            lhs: Box::new(Expr::Identifier("n".to_string())),
+                            rhs: Box::new(Expr::Literal(Literal::Int(10))),
+                        })),
+                        body: Box::new(Expr::Literal(Literal::String("large".to_string()))),
+                    },
+                    parser::ast::MatchArm {
+                        pattern: parser::ast::Pattern::Wildcard,
+                        guard: None,
+                        body: Box::new(Expr::Literal(Literal::String("small".to_string()))),
+                    },
+                ],
+            }),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_match_with_binding() {
+    let program = Program {
+        statements: vec![
+            Stmt::VariableDecl {
+                name: "x".to_string(),
+                type_hint: None,
+                value: Expr::Literal(Literal::Int(42)),
+                is_const: false,
+            },
+            Stmt::Expr(Expr::Match {
+                value: Box::new(Expr::Identifier("x".to_string())),
+                arms: vec![parser::ast::MatchArm {
+                    pattern: parser::ast::Pattern::Binding("val".to_string()),
+                    guard: None,
+                    body: Box::new(Expr::Identifier("val".to_string())),
+                }],
+            }),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_match_with_atoms() {
+    let program = Program {
+        statements: vec![
+            Stmt::VariableDecl {
+                name: "status".to_string(),
+                type_hint: None,
+                value: Expr::Literal(Literal::Atom("ok".to_string())),
+                is_const: false,
+            },
+            Stmt::Expr(Expr::Match {
+                value: Box::new(Expr::Identifier("status".to_string())),
+                arms: vec![
+                    parser::ast::MatchArm {
+                        pattern: parser::ast::Pattern::Literal(Literal::Atom("ok".to_string())),
+                        guard: None,
+                        body: Box::new(Expr::Literal(Literal::String("success".to_string()))),
+                    },
+                    parser::ast::MatchArm {
+                        pattern: parser::ast::Pattern::Literal(Literal::Atom("error".to_string())),
+                        guard: None,
+                        body: Box::new(Expr::Literal(Literal::String("failed".to_string()))),
+                    },
+                    parser::ast::MatchArm {
+                        pattern: parser::ast::Pattern::Wildcard,
+                        guard: None,
+                        body: Box::new(Expr::Literal(Literal::String("unknown".to_string()))),
+                    },
+                ],
+            }),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_match_multiple_guards() {
+    let program = Program {
+        statements: vec![
+            Stmt::VariableDecl {
+                name: "x".to_string(),
+                type_hint: None,
+                value: Expr::Literal(Literal::Int(25)),
+                is_const: false,
+            },
+            Stmt::Expr(Expr::Match {
+                value: Box::new(Expr::Identifier("x".to_string())),
+                arms: vec![
+                    parser::ast::MatchArm {
+                        pattern: parser::ast::Pattern::Binding("n".to_string()),
+                        guard: Some(Box::new(Expr::Binary {
+                            op: BinaryOp::Lt,
+                            lhs: Box::new(Expr::Identifier("n".to_string())),
+                            rhs: Box::new(Expr::Literal(Literal::Int(18))),
+                        })),
+                        body: Box::new(Expr::Literal(Literal::String("child".to_string()))),
+                    },
+                    parser::ast::MatchArm {
+                        pattern: parser::ast::Pattern::Binding("n".to_string()),
+                        guard: Some(Box::new(Expr::Binary {
+                            op: BinaryOp::Lt,
+                            lhs: Box::new(Expr::Identifier("n".to_string())),
+                            rhs: Box::new(Expr::Literal(Literal::Int(60))),
+                        })),
+                        body: Box::new(Expr::Literal(Literal::String("adult".to_string()))),
+                    },
+                    parser::ast::MatchArm {
+                        pattern: parser::ast::Pattern::Wildcard,
+                        guard: None,
+                        body: Box::new(Expr::Literal(Literal::String("senior".to_string()))),
+                    },
+                ],
+            }),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_match_with_strings() {
+    let program = Program {
+        statements: vec![
+            Stmt::VariableDecl {
+                name: "msg".to_string(),
+                type_hint: None,
+                value: Expr::Literal(Literal::String("hello".to_string())),
+                is_const: false,
+            },
+            Stmt::Expr(Expr::Match {
+                value: Box::new(Expr::Identifier("msg".to_string())),
+                arms: vec![
+                    parser::ast::MatchArm {
+                        pattern: parser::ast::Pattern::Literal(Literal::String("hello".to_string())),
+                        guard: None,
+                        body: Box::new(Expr::Literal(Literal::Int(1))),
+                    },
+                    parser::ast::MatchArm {
+                        pattern: parser::ast::Pattern::Wildcard,
+                        guard: None,
+                        body: Box::new(Expr::Literal(Literal::Int(0))),
+                    },
+                ],
+            }),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
