@@ -4,9 +4,9 @@ pub enum Literal {
     Float(f64),
     String(String),
     Bool(bool),
-    Complex(f64, f64),  // (real, imag)
-    Nil,                // Represents null/nil value
-    Atom(String),       // Elixir-style atoms (:ok, :error, :atom_name)
+    Complex(f64, f64), // (real, imag)
+    Nil,               // Represents null/nil value
+    Atom(String),      // Elixir-style atoms (:ok, :error, :atom_name)
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -48,17 +48,17 @@ pub enum UnaryOp {
 // Pattern Matching support
 #[derive(Debug, Clone, PartialEq)]
 pub enum Pattern {
-    Literal(Literal),           // 42, 3.14, "text", true
-    Binding(String),            // x (captures value and binds to variable)
-    Wildcard,                   // _ (matches anything, doesn't bind)
-    Or(Vec<Pattern>),           // 1 | 2 | 3 (matches any of the patterns)
+    Literal(Literal), // 42, 3.14, "text", true
+    Binding(String),  // x (captures value and binds to variable)
+    Wildcard,         // _ (matches anything, doesn't bind)
+    Or(Vec<Pattern>), // 1 | 2 | 3 (matches any of the patterns)
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct MatchArm {
     pub pattern: Pattern,
-    pub guard: Option<Box<Expr>>,  // Optional 'if' guard condition
-    pub body: Box<Expr>,           // Expression to execute if pattern matches
+    pub guard: Option<Box<Expr>>, // Optional 'if' guard condition
+    pub body: Box<Expr>,          // Expression to execute if pattern matches
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -86,12 +86,12 @@ pub enum Expr {
 
     Increment {
         expr: Box<Expr>,
-        is_prefix: bool,  // true = ++x, false = x++
+        is_prefix: bool, // true = ++x, false = x++
     },
 
     Decrement {
         expr: Box<Expr>,
-        is_prefix: bool,  // true = --x, false = x--
+        is_prefix: bool, // true = --x, false = x--
     },
 
     FString {
@@ -127,8 +127,8 @@ pub enum Expr {
     },
 
     ListComprehension {
-        expr: Box<Expr>,                    // Expression to evaluate
-        generators: Vec<ComprehensionGen>,  // for clauses
+        expr: Box<Expr>,                   // Expression to evaluate
+        generators: Vec<ComprehensionGen>, // for clauses
     },
 
     StaticInit {
@@ -139,9 +139,9 @@ pub enum Expr {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ComprehensionGen {
-    pub var_names: Vec<String>,  // Variables (supports destructuring)
-    pub iterable: Box<Expr>,     // What to iterate over
-    pub conditions: Vec<Expr>,   // if clauses (multiple allowed)
+    pub var_names: Vec<String>, // Variables (supports destructuring)
+    pub iterable: Box<Expr>,    // What to iterate over
+    pub conditions: Vec<Expr>,  // if clauses (multiple allowed)
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -154,9 +154,9 @@ pub enum Stmt {
     },
 
     DestructuringDecl {
-        names: Vec<String>,  // Variable names to destructure into
-        value: Expr,         // Expression that returns a tuple
-        is_const: bool,      // var or const
+        names: Vec<String>, // Variable names to destructure into
+        value: Expr,        // Expression that returns a tuple
+        is_const: bool,     // var or const
     },
 
     Assignment {
@@ -178,7 +178,7 @@ pub enum Stmt {
     },
 
     For {
-        var_names: Vec<String>,  // Support multiple variables: for x, y in ...
+        var_names: Vec<String>, // Support multiple variables: for x, y in ...
         iterable: Expr,
         body: Box<Stmt>,
     },
@@ -203,13 +203,13 @@ pub enum Stmt {
 
     FunctionDef {
         name: String,
-        params: Vec<(String, String, Option<Expr>)>,  // (param_name, type, default_value)
-        return_type: Option<Vec<String>>,  // None = void, Some(vec!["int"]) = single, Some(vec!["int", "float"]) = multiple
+        params: Vec<(String, String, Option<Expr>)>, // (param_name, type, default_value)
+        return_type: Option<Vec<String>>, // None = void, Some(vec!["int"]) = single, Some(vec!["int", "float"]) = multiple
         body: Box<Stmt>,
     },
 
     Return {
-        values: Vec<Expr>,  // Empty for void, 1+ for returns
+        values: Vec<Expr>, // Empty for void, 1+ for returns
     },
 
     Expr(Expr),

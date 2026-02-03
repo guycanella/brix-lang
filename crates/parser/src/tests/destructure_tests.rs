@@ -8,7 +8,11 @@ use lexer::token::Token;
 fn parse_stmt(input: &str) -> Result<Stmt, String> {
     let tokens: Vec<Token> = lexer::lex(input);
     let program = parser().parse(tokens).map_err(|e| format!("{:?}", e))?;
-    program.statements.first().cloned().ok_or("No stmt".to_string())
+    program
+        .statements
+        .first()
+        .cloned()
+        .ok_or("No stmt".to_string())
 }
 
 #[test]

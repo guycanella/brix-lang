@@ -172,7 +172,7 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
                 select! { Token::Identifier(name) => name }
                     .separated_by(just(Token::Comma))
                     .allow_trailing()
-                    .delimited_by(just(Token::LBrace), just(Token::RBrace))
+                    .delimited_by(just(Token::LBrace), just(Token::RBrace)),
             )
             .then_ignore(just(Token::ColonEq))
             .then(expr_parser())
@@ -260,7 +260,7 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
             .ignore_then(
                 select! { Token::Identifier(n) => n }
                     .separated_by(just(Token::Comma))
-                    .at_least(1)
+                    .at_least(1),
             )
             .then_ignore(just(Token::In))
             .then(expr_parser())
@@ -276,7 +276,7 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
             .then(
                 just(Token::As)
                     .ignore_then(select! { Token::Identifier(alias) => alias })
-                    .or_not()
+                    .or_not(),
             )
             .map(|(module, alias)| Stmt::Import { module, alias });
 
@@ -286,33 +286,27 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
                     let raw = s.trim_matches('"');
                     process_escape_sequences(raw)
                 }}
-                    .then(
-                        just(Token::Comma)
-                            .ignore_then(expr_parser())
-                            .repeated()
-                            .or_not(),
-                    )
-                    .delimited_by(just(Token::LParen), just(Token::RParen)),
+                .then(
+                    just(Token::Comma)
+                        .ignore_then(expr_parser())
+                        .repeated()
+                        .or_not(),
+                )
+                .delimited_by(just(Token::LParen), just(Token::RParen)),
             )
             .map(|(f, a)| {
                 Stmt::Printf {
-                    format: f,  // Already processed by process_escape_sequences
+                    format: f, // Already processed by process_escape_sequences
                     args: a.unwrap_or_default(),
                 }
             });
 
         let print_stmt = just(Token::Print)
-            .ignore_then(
-                expr_parser()
-                    .delimited_by(just(Token::LParen), just(Token::RParen))
-            )
+            .ignore_then(expr_parser().delimited_by(just(Token::LParen), just(Token::RParen)))
             .map(|expr| Stmt::Print { expr });
 
         let println_stmt = just(Token::Println)
-            .ignore_then(
-                expr_parser()
-                    .delimited_by(just(Token::LParen), just(Token::RParen))
-            )
+            .ignore_then(expr_parser().delimited_by(just(Token::LParen), just(Token::RParen)))
             .map(|expr| Stmt::Println { expr });
 
         // Function definition
@@ -323,29 +317,24 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
                 select! { Token::Identifier(param_name) => param_name }
                     .then_ignore(just(Token::Colon))
                     .then(select! { Token::Identifier(param_type) => param_type })
-                    .then(
-                        just(Token::Eq)
-                            .ignore_then(expr_parser())
-                            .or_not()
-                    )
+                    .then(just(Token::Eq).ignore_then(expr_parser()).or_not())
                     .map(|((name, ty), default)| (name, ty, default))
                     .separated_by(just(Token::Comma))
                     .allow_trailing()
-                    .delimited_by(just(Token::LParen), just(Token::RParen))
+                    .delimited_by(just(Token::LParen), just(Token::RParen)),
             )
             .then(
                 // Return type: -> type or -> (type1, type2)
                 just(Token::Arrow)
                     .ignore_then(
-                        select! { Token::Identifier(t) => vec![t] }
-                            .or(
-                                select! { Token::Identifier(t) => t }
-                                    .separated_by(just(Token::Comma))
-                                    .at_least(1)
-                                    .delimited_by(just(Token::LParen), just(Token::RParen))
-                            )
+                        select! { Token::Identifier(t) => vec![t] }.or(
+                            select! { Token::Identifier(t) => t }
+                                .separated_by(just(Token::Comma))
+                                .at_least(1)
+                                .delimited_by(just(Token::LParen), just(Token::RParen)),
+                        ),
                     )
-                    .or_not()  // Optional for void functions
+                    .or_not(), // Optional for void functions
             )
             .then(block.clone())
             .map(|(((name, params), return_type), body)| Stmt::FunctionDef {
@@ -364,13 +353,11 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
                     .separated_by(just(Token::Comma))
                     .allow_trailing()
                     .delimited_by(just(Token::LParen), just(Token::RParen))
-                // Or bare comma-separated expressions: expr, expr, ...
-                .or(
-                    expr_parser()
+                    // Or bare comma-separated expressions: expr, expr, ...
+                    .or(expr_parser()
                         .separated_by(just(Token::Comma))
-                        .allow_trailing()
-                )
-                .or_not()
+                        .allow_trailing())
+                    .or_not(),
             )
             .map(|values| Stmt::Return {
                 values: values.unwrap_or_default(),
@@ -483,9 +470,7 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
             };
 
             // Base pattern (literal, wildcard, or binding)
-            let base_pattern = literal_pattern
-                .or(wildcard_pattern)
-                .or(binding_pattern);
+            let base_pattern = literal_pattern.or(wildcard_pattern).or(binding_pattern);
 
             // Or pattern: pattern | pattern | pattern
             base_pattern
@@ -503,11 +488,7 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
 
         // Match arm: pattern [if guard] -> expr
         let match_arm = pattern
-            .then(
-                just(Token::If)
-                    .ignore_then(expr.clone())
-                    .or_not()
-            )
+            .then(just(Token::If).ignore_then(expr.clone()).or_not())
             .then_ignore(just(Token::Arrow))
             .then(expr.clone())
             .map(|((pattern, guard), body)| MatchArm {
@@ -523,7 +504,7 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
                 match_arm
                     .repeated()
                     .at_least(1)
-                    .delimited_by(just(Token::LBrace), just(Token::RBrace))
+                    .delimited_by(just(Token::LBrace), just(Token::RBrace)),
             )
             .map(|(value, arms)| Expr::Match {
                 value: Box::new(value),
@@ -539,15 +520,11 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
                     .ignore_then(
                         select! { Token::Identifier(n) => n }
                             .separated_by(just(Token::Comma))
-                            .at_least(1)
+                            .at_least(1),
                     )
                     .then_ignore(just(Token::In))
                     .then(expr.clone())
-                    .then(
-                        just(Token::If)
-                            .ignore_then(expr.clone())
-                            .repeated()
-                    )
+                    .then(just(Token::If).ignore_then(expr.clone()).repeated())
                     .map(|((var_names, iterable), conditions)| {
                         use crate::ast::ComprehensionGen;
                         ComprehensionGen {
@@ -557,7 +534,7 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
                         }
                     })
                     .repeated()
-                    .at_least(1)
+                    .at_least(1),
             )
             .then_ignore(just(Token::RBracket))
             .map(|(expr, generators)| Expr::ListComprehension {
@@ -576,10 +553,7 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
         let paren_expr = expr
             .clone()
             .delimited_by(just(Token::LParen), just(Token::RParen))
-            .then(
-                select! { Token::Identifier(s) if s == "im" => s }
-                .or_not()
-            )
+            .then(select! { Token::Identifier(s) if s == "im" => s }.or_not())
             .map(|(e, im_suffix)| {
                 if im_suffix.is_some() {
                     // (expr)im → expr * im
@@ -608,7 +582,7 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
                     .separated_by(just(Token::Comma))
                     .at_least(1)
                     .at_most(2)
-                    .delimited_by(just(Token::LBracket), just(Token::RBracket))
+                    .delimited_by(just(Token::LBracket), just(Token::RBracket)),
             )
             .map(|(element_type, dimensions)| Expr::StaticInit {
                 element_type,
