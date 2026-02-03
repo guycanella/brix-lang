@@ -95,11 +95,13 @@ pub enum Token {
     Float(String),
 
     // Strings (ex: "Olá Brix")
-    #[regex(r#""([^"\\]|\\["\\bnfrt])*""#, |lex| lex.slice().to_string())]
+    // Updated regex to accept any escaped character (\.)
+    #[regex(r#""(([^"\\]|\\.)*)""#, |lex| lex.slice().to_string())]
     String(String),
 
     // F-Strings (ex: f"Value: {x}")
-    #[regex(r#"f"([^"\\]|\\["\\bnfrt])*""#, |lex| lex.slice().to_string())]
+    // Updated regex to accept any escaped character (\.)
+    #[regex(r#"f"(([^"\\]|\\.)*)""#, |lex| lex.slice().to_string())]
     FString(String),
 
     // Atoms (ex: :ok, :error, :atom_name)

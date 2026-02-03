@@ -660,6 +660,189 @@ void print_brix_string(BrixString *s) {
 }
 
 // ==========================================
+// SECTION 2.1: STRING FUNCTIONS (v1.1)
+// ==========================================
+
+#include <ctype.h>  // For toupper, tolower
+
+// uppercase(str) - Convert string to uppercase
+// Returns new string with all characters in uppercase
+BrixString* brix_uppercase(BrixString* str) {
+    if (str == NULL || str->data == NULL) {
+        return str_new("");
+    }
+
+    BrixString* result = (BrixString*)malloc(sizeof(BrixString));
+    result->len = str->len;
+    result->data = (char*)malloc(result->len + 1);
+
+    for (long i = 0; i < str->len; i++) {
+        result->data[i] = toupper((unsigned char)str->data[i]);
+    }
+    result->data[result->len] = '\0';
+
+    return result;
+}
+
+// lowercase(str) - Convert string to lowercase
+// Returns new string with all characters in lowercase
+BrixString* brix_lowercase(BrixString* str) {
+    if (str == NULL || str->data == NULL) {
+        return str_new("");
+    }
+
+    BrixString* result = (BrixString*)malloc(sizeof(BrixString));
+    result->len = str->len;
+    result->data = (char*)malloc(result->len + 1);
+
+    for (long i = 0; i < str->len; i++) {
+        result->data[i] = tolower((unsigned char)str->data[i]);
+    }
+    result->data[result->len] = '\0';
+
+    return result;
+}
+
+// capitalize(str) - Capitalize first character
+// Returns new string with first character uppercase, rest unchanged
+BrixString* brix_capitalize(BrixString* str) {
+    if (str == NULL || str->data == NULL || str->len == 0) {
+        return str_new("");
+    }
+
+    BrixString* result = (BrixString*)malloc(sizeof(BrixString));
+    result->len = str->len;
+    result->data = (char*)malloc(result->len + 1);
+
+    // Copy string
+    strcpy(result->data, str->data);
+
+    // Capitalize first character
+    result->data[0] = toupper((unsigned char)result->data[0]);
+
+    return result;
+}
+
+// byte_size(str) - Get byte size of string
+// Returns number of bytes (same as len field)
+long brix_byte_size(BrixString* str) {
+    if (str == NULL) {
+        return 0;
+    }
+    return str->len;
+}
+
+// length(str) - Get number of characters (UTF-8 aware)
+// For ASCII this is the same as byte_size
+// For UTF-8, counts actual characters not bytes
+long brix_length(BrixString* str) {
+    if (str == NULL || str->data == NULL) {
+        return 0;
+    }
+
+    long count = 0;
+    for (long i = 0; i < str->len; i++) {
+        // UTF-8: Count bytes that don't start with 10xxxxxx
+        // This correctly counts multi-byte characters as 1 character
+        if ((str->data[i] & 0xC0) != 0x80) {
+            count++;
+        }
+    }
+    return count;
+}
+
+// replace(str, old, new) - Replace first occurrence
+// Returns new string with first occurrence of old replaced by new
+BrixString* brix_replace(BrixString* str, BrixString* old, BrixString* new) {
+    if (str == NULL || old == NULL || new == NULL) {
+        return str;
+    }
+
+    if (old->len == 0) {
+        return str;  // Can't replace empty string
+    }
+
+    // Find first occurrence
+    char* pos = strstr(str->data, old->data);
+    if (pos == NULL) {
+        // Not found, return copy of original
+        return str_new(str->data);
+    }
+
+    // Calculate new length
+    long new_len = str->len - old->len + new->len;
+    BrixString* result = (BrixString*)malloc(sizeof(BrixString));
+    result->len = new_len;
+    result->data = (char*)malloc(new_len + 1);
+
+    // Copy before match
+    long before_len = pos - str->data;
+    strncpy(result->data, str->data, before_len);
+
+    // Copy replacement
+    strcpy(result->data + before_len, new->data);
+
+    // Copy after match
+    strcpy(result->data + before_len + new->len, pos + old->len);
+
+    return result;
+}
+
+// replace_all(str, old, new) - Replace all occurrences
+// Returns new string with all occurrences of old replaced by new
+BrixString* brix_replace_all(BrixString* str, BrixString* old, BrixString* new) {
+    if (str == NULL || old == NULL || new == NULL) {
+        return str;
+    }
+
+    if (old->len == 0) {
+        return str;  // Can't replace empty string
+    }
+
+    // Count occurrences
+    long count = 0;
+    char* pos = str->data;
+    while ((pos = strstr(pos, old->data)) != NULL) {
+        count++;
+        pos += old->len;
+    }
+
+    if (count == 0) {
+        // Not found, return copy of original
+        return str_new(str->data);
+    }
+
+    // Calculate new length
+    long new_len = str->len - (count * old->len) + (count * new->len);
+    BrixString* result = (BrixString*)malloc(sizeof(BrixString));
+    result->len = new_len;
+    result->data = (char*)malloc(new_len + 1);
+
+    // Build result with all replacements
+    char* src = str->data;
+    char* dest = result->data;
+
+    while ((pos = strstr(src, old->data)) != NULL) {
+        // Copy before match
+        long before_len = pos - src;
+        strncpy(dest, src, before_len);
+        dest += before_len;
+
+        // Copy replacement
+        strcpy(dest, new->data);
+        dest += new->len;
+
+        // Move source pointer
+        src = pos + old->len;
+    }
+
+    // Copy remaining
+    strcpy(dest, src);
+
+    return result;
+}
+
+// ==========================================
 // SECTION 3: STATISTICS (v0.7)
 // ==========================================
 
