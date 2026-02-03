@@ -1875,16 +1875,142 @@ printf("Name:\t%s\nAge:\t%d\n", "Alice", 30)
 - Todas as 18 features têm testes completos e funcionando
 - Arquivos de teste: `fstring_escape_test.bx`, `type_check_test.bx`, `string_functions_test.bx`
 
-### 🧩 **v1.2 - Closures e Funções Avançadas**
+### 🎯 **INFRAESTRUTURA DE TESTES** (2-3 semanas) 🚧 **EM ANDAMENTO (03/02/2026)**
 
-#### Closures e Lambda Functions
+**MUDANÇA ESTRATÉGICA:**
+
+Antes de implementar novas features (v1.2+), vamos focar em **infraestrutura de qualidade** para garantir robustez do código existente.
+
+**Motivação:**
+- ❌ Zero testes automatizados (só 49+ testes manuais .bx)
+- ❌ 573 unwrap() calls que podem crashar
+- ❌ 6,093-line monolithic codegen/lib.rs
+- ❌ Mensagens de erro ruins (Ariadne unused)
+
+**Objetivo:** Implementar **~1,520 testes automatizados** em 5 fases.
+
+---
+
+#### **Fase 1: Lexer Tests** (3-4 dias) 🎯 **EM ANDAMENTO**
+
+**Unit Tests para tokenização:**
+- ~400 tests cobrindo todos os 80+ tokens
+- Edge cases: empty strings, escape sequences, números extremos
+- Testes de precedência (ImaginaryLiteral vs Float+Identifier)
+- Validação de regex patterns
+
+**Arquivos a criar:**
+```
+crates/lexer/src/tests/
+  mod.rs              # Test module setup
+  token_tests.rs      # Basic token recognition (~200 tests)
+  number_tests.rs     # Int/Float/Imaginary edge cases (~50 tests)
+  string_tests.rs     # String/FString/Escape sequences (~80 tests)
+  atom_tests.rs       # Atom literals edge cases (~30 tests)
+  edge_cases.rs       # Weird inputs, malformed tokens (~40 tests)
+```
+
+---
+
+#### **Fase 2: Parser Tests** (4-5 dias)
+
+**Unit Tests para AST construction:**
+- ~480 tests cobrindo todas as expressões e statements
+- Operator precedence completo (power > mul > add > bitwise > cmp > logical)
+- Pattern matching edge cases
+- Destructuring validation
+- Error recovery (continuar parsing após erro)
+
+**Edge cases:**
+- Expressões aninhadas: `((((1 + 2) * 3) / 4) ** 5)`
+- Chained comparisons: `1 < x < 10 < 100`
+- Nested f-strings: `f"outer {f"inner {x}"} end"`
+- Match exhaustiveness
+- Empty blocks: `if x { }`
+- Trailing commas: `[1, 2, 3,]`
+
+---
+
+#### **Fase 3: Codegen Tests** (5-6 dias)
+
+**Unit Tests para geração LLVM IR:**
+- ~560 tests cobrindo todas as 60+ built-in functions
+- Type inference e casting (int→float, etc)
+- Complex numbers e matrix operations
+- Control flow (if/else, loops, match)
+- Function calls (user-defined, defaults, multiple returns)
+- String interpolation com format specifiers
+
+**Edge cases:**
+- Division by zero (compile OK, runtime error)
+- Integer overflow (i64 limits)
+- Type mismatches (int + string)
+- Null pointer checks (is_nil)
+- Empty arrays: `[]`
+- 1D vs 2D matrix indexing
+
+---
+
+#### **Fase 4: Integration Tests** (2-3 dias)
+
+**Golden File Tests:**
+- ~60 testes end-to-end (compile + run + output comparison)
+- Converter todos os 49+ arquivos .bx existentes
+- Adicionar testes para features v1.1 (type checking, strings, atoms)
+- Programs com Unicode, múltiplas funções, imports, errors, pattern matching
+
+**Estrutura:**
+```
+tests/
+  integration_test.rs
+  golden/
+    arithmetic.bx
+    arithmetic.expected
+    (50+ test pairs)
+```
+
+---
+
+#### **Fase 5: Property-Based Tests** (2-3 dias) - OPCIONAL
+
+**Geração automática com proptest:**
+- ~20 proptests validando propriedades matemáticas
+- Comutatividade: `a + b == b + a`
+- Associatividade: `(a + b) + c == a + (b + c)`
+- Roundtrip: `int(float(x)) == x`
+
+---
+
+### 📊 Total de Testes: ~1,520 | Tempo: 16-21 dias
+
+**Distribuição:**
+- Lexer: ~400 tests (3-4 dias)
+- Parser: ~480 tests (4-5 dias)
+- Codegen: ~560 tests (5-6 dias)
+- Integration: ~60 tests (2-3 dias)
+- Property-based: ~20 tests (2-3 dias, opcional)
+
+**Próximos passos após testes:**
+1. Refatoração arquitetural (modularizar codegen)
+2. Error handling (substituir unwrap() por Result<>)
+3. Ariadne integration (mensagens bonitas)
+4. LSP + REPL
+5. Então: v1.2 (docs, panic, modules)
+
+---
+
+### ⏸️ **v1.2 - Closures e Funções Avançadas** (ADIADO - Após Testes)
+
+**NOTA:** Esta versão foi adiada para priorizar infraestrutura de testes.
+
+#### Closures e Lambda Functions (planejado)
 
 - [ ] **Closures básicas:** `var double := (x) -> x * 2`
 - [ ] **Capture de variáveis:** Acesso a variáveis do escopo externo
 - [ ] **First-class functions:** Passar funções como argumentos
 - [ ] **Higher-order functions:** Funções que retornam funções
 
-#### User-Defined Modules
+#### User-Defined Modules (planejado)
 
 - [ ] **Sintaxe de módulo:** `module mymod { ... }`
 - [ ] **Export/import:** `export function foo()`, `import mymod`
@@ -1892,7 +2018,7 @@ printf("Name:\t%s\nAge:\t%d\n", "Alice", 30)
 
 ---
 
-### 🔧 **v1.1 - Programação Funcional Avançada**
+### 🔧 **v1.3 - Programação Funcional Avançada** (ADIADO)
 
 **Iteradores:**
 
@@ -2017,9 +2143,10 @@ v0.8 ████████████████████ 100% ✅ User-
 v0.9 ████████████████████ 100% ✅ List comprehensions, zip(), destructuring
 v1.0 ████████████████████ 100% ✅ Pattern matching, Complex, LAPACK, Nil/Error
 v1.1 ████████████████████ 100% ✅ Atoms, Escapes, Type checkers (10), Strings (7)
-v1.2 ░░░░░░░░░░░░░░░░░░░░   0% 📋 @doc, panic(), modules, advanced strings
-v1.3 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Generics, Result<T,E>, Structs, Closures
-v1.4 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Concurrency, stdlib, optimizations
+TESTES ██░░░░░░░░░░░░░░░░  10% 🚧 Testing Infrastructure (~1,520 tests) ← EM ANDAMENTO
+v1.2 ░░░░░░░░░░░░░░░░░░░░   0% ⏸️ Closures, modules (ADIADO - Após testes)
+v1.3 ░░░░░░░░░░░░░░░░░░░░   0% ⏸️ Generics, Result<T,E>, Structs (ADIADO)
+v1.4 ░░░░░░░░░░░░░░░░░░░░   0% ⏸️ Concurrency, stdlib, optimizations (ADIADO)
 ```
 
 **Legenda:**
