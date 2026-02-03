@@ -105,9 +105,9 @@ fn main() {
     let link_output = Command::new("cc")
         .arg("output.o")
         .arg("runtime.o")
-        .arg("-lm")       // Link math library
-        .arg("-llapack")  // Link LAPACK library (for eigvals/eigvecs)
-        .arg("-lblas")    // Link BLAS library (required by LAPACK)
+        .arg("-lm") // Link math library
+        .arg("-llapack") // Link LAPACK library (for eigvals/eigvecs)
+        .arg("-lblas") // Link BLAS library (required by LAPACK)
         .arg("-o")
         .arg(exe_name)
         .output()
