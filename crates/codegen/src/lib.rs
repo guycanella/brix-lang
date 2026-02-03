@@ -2444,6 +2444,425 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         return Some((result, BrixType::Int)); // bool is represented as int
                     }
 
+                    // ===== TYPE CHECKING FUNCTIONS =====
+                    // All return 1 (true) or 0 (false) as i64
+
+                    // is_nil(x) - Check if value is nil (null pointer for pointer types)
+                    if fn_name == "is_nil" {
+                        if args.len() != 1 {
+                            eprintln!("Error: is_nil() expects exactly 1 argument.");
+                            return None;
+                        }
+                        let (val, val_type) = self.compile_expr(&args[0])?;
+
+                        let result = match val_type {
+                            BrixType::Nil => {
+                                // nil is always nil
+                                self.context.i64_type().const_int(1, false).into()
+                            }
+                            BrixType::Error | BrixType::String => {
+                                // Check if pointer is null
+                                let ptr = val.into_pointer_value();
+                                let null_ptr = self.context.ptr_type(AddressSpace::default()).const_null();
+                                let cmp = self
+                                    .builder
+                                    .build_int_compare(
+                                        inkwell::IntPredicate::EQ,
+                                        ptr,
+                                        null_ptr,
+                                        "is_nil_cmp",
+                                    )
+                                    .unwrap();
+
+                                self.builder
+                                    .build_int_z_extend(cmp, self.context.i64_type(), "is_nil_result")
+                                    .unwrap()
+                                    .into()
+                            }
+                            _ => {
+                                // Non-pointer types are never nil
+                                self.context.i64_type().const_int(0, false).into()
+                            }
+                        };
+
+                        return Some((result, BrixType::Int));
+                    }
+
+                    // is_atom(x) - Check if value is atom
+                    if fn_name == "is_atom" {
+                        if args.len() != 1 {
+                            eprintln!("Error: is_atom() expects exactly 1 argument.");
+                            return None;
+                        }
+                        let (_, val_type) = self.compile_expr(&args[0])?;
+
+                        let result = if val_type == BrixType::Atom {
+                            self.context.i64_type().const_int(1, false)
+                        } else {
+                            self.context.i64_type().const_int(0, false)
+                        };
+
+                        return Some((result.into(), BrixType::Int));
+                    }
+
+                    // is_boolean(x) - Check if int value is 0 or 1
+                    if fn_name == "is_boolean" {
+                        if args.len() != 1 {
+                            eprintln!("Error: is_boolean() expects exactly 1 argument.");
+                            return None;
+                        }
+                        let (val, val_type) = self.compile_expr(&args[0])?;
+
+                        let result = match val_type {
+                            BrixType::Int => {
+                                // Check if x == 0 || x == 1
+                                let int_val = val.into_int_value();
+                                let zero = self.context.i64_type().const_int(0, false);
+                                let one = self.context.i64_type().const_int(1, false);
+
+                                let is_zero = self
+                                    .builder
+                                    .build_int_compare(
+                                        inkwell::IntPredicate::EQ,
+                                        int_val,
+                                        zero,
+                                        "is_zero",
+                                    )
+                                    .unwrap();
+
+                                let is_one = self
+                                    .builder
+                                    .build_int_compare(
+                                        inkwell::IntPredicate::EQ,
+                                        int_val,
+                                        one,
+                                        "is_one",
+                                    )
+                                    .unwrap();
+
+                                let is_bool = self
+                                    .builder
+                                    .build_or(is_zero, is_one, "is_bool_or")
+                                    .unwrap();
+
+                                self.builder
+                                    .build_int_z_extend(is_bool, self.context.i64_type(), "is_bool_result")
+                                    .unwrap()
+                                    .into()
+                            }
+                            _ => {
+                                // Non-int types are not boolean
+                                self.context.i64_type().const_int(0, false).into()
+                            }
+                        };
+
+                        return Some((result, BrixType::Int));
+                    }
+
+                    // is_integer(x) - Check if value is int
+                    if fn_name == "is_integer" {
+                        if args.len() != 1 {
+                            eprintln!("Error: is_integer() expects exactly 1 argument.");
+                            return None;
+                        }
+                        let (_, val_type) = self.compile_expr(&args[0])?;
+
+                        let result = if val_type == BrixType::Int {
+                            self.context.i64_type().const_int(1, false)
+                        } else {
+                            self.context.i64_type().const_int(0, false)
+                        };
+
+                        return Some((result.into(), BrixType::Int));
+                    }
+
+                    // is_float(x) - Check if value is float
+                    if fn_name == "is_float" {
+                        if args.len() != 1 {
+                            eprintln!("Error: is_float() expects exactly 1 argument.");
+                            return None;
+                        }
+                        let (_, val_type) = self.compile_expr(&args[0])?;
+
+                        let result = if val_type == BrixType::Float {
+                            self.context.i64_type().const_int(1, false)
+                        } else {
+                            self.context.i64_type().const_int(0, false)
+                        };
+
+                        return Some((result.into(), BrixType::Int));
+                    }
+
+                    // is_number(x) - Check if value is int or float
+                    if fn_name == "is_number" {
+                        if args.len() != 1 {
+                            eprintln!("Error: is_number() expects exactly 1 argument.");
+                            return None;
+                        }
+                        let (_, val_type) = self.compile_expr(&args[0])?;
+
+                        let result = if val_type == BrixType::Int || val_type == BrixType::Float {
+                            self.context.i64_type().const_int(1, false)
+                        } else {
+                            self.context.i64_type().const_int(0, false)
+                        };
+
+                        return Some((result.into(), BrixType::Int));
+                    }
+
+                    // is_string(x) - Check if value is string
+                    if fn_name == "is_string" {
+                        if args.len() != 1 {
+                            eprintln!("Error: is_string() expects exactly 1 argument.");
+                            return None;
+                        }
+                        let (_, val_type) = self.compile_expr(&args[0])?;
+
+                        let result = if val_type == BrixType::String {
+                            self.context.i64_type().const_int(1, false)
+                        } else {
+                            self.context.i64_type().const_int(0, false)
+                        };
+
+                        return Some((result.into(), BrixType::Int));
+                    }
+
+                    // is_list(x) - Check if value is matrix or intmatrix
+                    if fn_name == "is_list" {
+                        if args.len() != 1 {
+                            eprintln!("Error: is_list() expects exactly 1 argument.");
+                            return None;
+                        }
+                        let (_, val_type) = self.compile_expr(&args[0])?;
+
+                        let result = if val_type == BrixType::Matrix || val_type == BrixType::IntMatrix {
+                            self.context.i64_type().const_int(1, false)
+                        } else {
+                            self.context.i64_type().const_int(0, false)
+                        };
+
+                        return Some((result.into(), BrixType::Int));
+                    }
+
+                    // is_tuple(x) - Check if value is tuple
+                    if fn_name == "is_tuple" {
+                        if args.len() != 1 {
+                            eprintln!("Error: is_tuple() expects exactly 1 argument.");
+                            return None;
+                        }
+                        let (_, val_type) = self.compile_expr(&args[0])?;
+
+                        let result = if matches!(val_type, BrixType::Tuple(_)) {
+                            self.context.i64_type().const_int(1, false)
+                        } else {
+                            self.context.i64_type().const_int(0, false)
+                        };
+
+                        return Some((result.into(), BrixType::Int));
+                    }
+
+                    // is_function(x) - Check if value is function (not implemented yet, always returns 0)
+                    if fn_name == "is_function" {
+                        if args.len() != 1 {
+                            eprintln!("Error: is_function() expects exactly 1 argument.");
+                            return None;
+                        }
+                        let _ = self.compile_expr(&args[0])?;
+
+                        // Functions are not first-class yet, so always return false
+                        let result = self.context.i64_type().const_int(0, false);
+                        return Some((result.into(), BrixType::Int));
+                    }
+
+                    // ===== STRING FUNCTIONS (v1.1) =====
+
+                    // uppercase(str) - Convert string to uppercase
+                    if fn_name == "uppercase" {
+                        if args.len() != 1 {
+                            eprintln!("Error: uppercase() expects exactly 1 argument.");
+                            return None;
+                        }
+                        let (val, val_type) = self.compile_expr(&args[0])?;
+
+                        if val_type != BrixType::String {
+                            eprintln!("Error: uppercase() expects a string argument.");
+                            return None;
+                        }
+
+                        let uppercase_fn = self.get_uppercase();
+                        let result = self
+                            .builder
+                            .build_call(uppercase_fn, &[val.into()], "uppercase_result")
+                            .unwrap()
+                            .try_as_basic_value()
+                            .left()
+                            .unwrap();
+
+                        return Some((result, BrixType::String));
+                    }
+
+                    // lowercase(str) - Convert string to lowercase
+                    if fn_name == "lowercase" {
+                        if args.len() != 1 {
+                            eprintln!("Error: lowercase() expects exactly 1 argument.");
+                            return None;
+                        }
+                        let (val, val_type) = self.compile_expr(&args[0])?;
+
+                        if val_type != BrixType::String {
+                            eprintln!("Error: lowercase() expects a string argument.");
+                            return None;
+                        }
+
+                        let lowercase_fn = self.get_lowercase();
+                        let result = self
+                            .builder
+                            .build_call(lowercase_fn, &[val.into()], "lowercase_result")
+                            .unwrap()
+                            .try_as_basic_value()
+                            .left()
+                            .unwrap();
+
+                        return Some((result, BrixType::String));
+                    }
+
+                    // capitalize(str) - Capitalize first character
+                    if fn_name == "capitalize" {
+                        if args.len() != 1 {
+                            eprintln!("Error: capitalize() expects exactly 1 argument.");
+                            return None;
+                        }
+                        let (val, val_type) = self.compile_expr(&args[0])?;
+
+                        if val_type != BrixType::String {
+                            eprintln!("Error: capitalize() expects a string argument.");
+                            return None;
+                        }
+
+                        let capitalize_fn = self.get_capitalize();
+                        let result = self
+                            .builder
+                            .build_call(capitalize_fn, &[val.into()], "capitalize_result")
+                            .unwrap()
+                            .try_as_basic_value()
+                            .left()
+                            .unwrap();
+
+                        return Some((result, BrixType::String));
+                    }
+
+                    // byte_size(str) - Get byte size of string
+                    if fn_name == "byte_size" {
+                        if args.len() != 1 {
+                            eprintln!("Error: byte_size() expects exactly 1 argument.");
+                            return None;
+                        }
+                        let (val, val_type) = self.compile_expr(&args[0])?;
+
+                        if val_type != BrixType::String {
+                            eprintln!("Error: byte_size() expects a string argument.");
+                            return None;
+                        }
+
+                        let byte_size_fn = self.get_byte_size();
+                        let result = self
+                            .builder
+                            .build_call(byte_size_fn, &[val.into()], "byte_size_result")
+                            .unwrap()
+                            .try_as_basic_value()
+                            .left()
+                            .unwrap();
+
+                        return Some((result, BrixType::Int));
+                    }
+
+                    // length(str) - Get number of characters (UTF-8 aware)
+                    if fn_name == "length" {
+                        if args.len() != 1 {
+                            eprintln!("Error: length() expects exactly 1 argument.");
+                            return None;
+                        }
+                        let (val, val_type) = self.compile_expr(&args[0])?;
+
+                        if val_type != BrixType::String {
+                            eprintln!("Error: length() expects a string argument.");
+                            return None;
+                        }
+
+                        let length_fn = self.get_length();
+                        let result = self
+                            .builder
+                            .build_call(length_fn, &[val.into()], "length_result")
+                            .unwrap()
+                            .try_as_basic_value()
+                            .left()
+                            .unwrap();
+
+                        return Some((result, BrixType::Int));
+                    }
+
+                    // replace(str, old, new) - Replace first occurrence
+                    if fn_name == "replace" {
+                        if args.len() != 3 {
+                            eprintln!("Error: replace() expects exactly 3 arguments (str, old, new).");
+                            return None;
+                        }
+                        let (str_val, str_type) = self.compile_expr(&args[0])?;
+                        let (old_val, old_type) = self.compile_expr(&args[1])?;
+                        let (new_val, new_type) = self.compile_expr(&args[2])?;
+
+                        if str_type != BrixType::String || old_type != BrixType::String || new_type != BrixType::String {
+                            eprintln!("Error: replace() expects all arguments to be strings.");
+                            return None;
+                        }
+
+                        let replace_fn = self.get_replace();
+                        let result = self
+                            .builder
+                            .build_call(
+                                replace_fn,
+                                &[str_val.into(), old_val.into(), new_val.into()],
+                                "replace_result",
+                            )
+                            .unwrap()
+                            .try_as_basic_value()
+                            .left()
+                            .unwrap();
+
+                        return Some((result, BrixType::String));
+                    }
+
+                    // replace_all(str, old, new) - Replace all occurrences
+                    if fn_name == "replace_all" {
+                        if args.len() != 3 {
+                            eprintln!("Error: replace_all() expects exactly 3 arguments (str, old, new).");
+                            return None;
+                        }
+                        let (str_val, str_type) = self.compile_expr(&args[0])?;
+                        let (old_val, old_type) = self.compile_expr(&args[1])?;
+                        let (new_val, new_type) = self.compile_expr(&args[2])?;
+
+                        if str_type != BrixType::String || old_type != BrixType::String || new_type != BrixType::String {
+                            eprintln!("Error: replace_all() expects all arguments to be strings.");
+                            return None;
+                        }
+
+                        let replace_all_fn = self.get_replace_all();
+                        let result = self
+                            .builder
+                            .build_call(
+                                replace_all_fn,
+                                &[str_val.into(), old_val.into(), new_val.into()],
+                                "replace_all_result",
+                            )
+                            .unwrap()
+                            .try_as_basic_value()
+                            .left()
+                            .unwrap();
+
+                        return Some((result, BrixType::String));
+                    }
+
                     // error(msg: string) -> error - create error
                     if fn_name == "error" {
                         if args.len() != 1 {
@@ -4219,6 +4638,108 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
         self.module
             .add_function("atof", fn_type, Some(Linkage::External))
+    }
+
+    // ===== STRING FUNCTION HELPERS (v1.1) =====
+
+    fn get_uppercase(&self) -> inkwell::values::FunctionValue<'ctx> {
+        if let Some(func) = self.module.get_function("brix_uppercase") {
+            return func;
+        }
+
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+
+        // BrixString* brix_uppercase(BrixString* str)
+        let fn_type = ptr_type.fn_type(&[ptr_type.into()], false);
+
+        self.module
+            .add_function("brix_uppercase", fn_type, Some(Linkage::External))
+    }
+
+    fn get_lowercase(&self) -> inkwell::values::FunctionValue<'ctx> {
+        if let Some(func) = self.module.get_function("brix_lowercase") {
+            return func;
+        }
+
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+
+        // BrixString* brix_lowercase(BrixString* str)
+        let fn_type = ptr_type.fn_type(&[ptr_type.into()], false);
+
+        self.module
+            .add_function("brix_lowercase", fn_type, Some(Linkage::External))
+    }
+
+    fn get_capitalize(&self) -> inkwell::values::FunctionValue<'ctx> {
+        if let Some(func) = self.module.get_function("brix_capitalize") {
+            return func;
+        }
+
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+
+        // BrixString* brix_capitalize(BrixString* str)
+        let fn_type = ptr_type.fn_type(&[ptr_type.into()], false);
+
+        self.module
+            .add_function("brix_capitalize", fn_type, Some(Linkage::External))
+    }
+
+    fn get_byte_size(&self) -> inkwell::values::FunctionValue<'ctx> {
+        if let Some(func) = self.module.get_function("brix_byte_size") {
+            return func;
+        }
+
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let i64_type = self.context.i64_type();
+
+        // long brix_byte_size(BrixString* str)
+        let fn_type = i64_type.fn_type(&[ptr_type.into()], false);
+
+        self.module
+            .add_function("brix_byte_size", fn_type, Some(Linkage::External))
+    }
+
+    fn get_length(&self) -> inkwell::values::FunctionValue<'ctx> {
+        if let Some(func) = self.module.get_function("brix_length") {
+            return func;
+        }
+
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let i64_type = self.context.i64_type();
+
+        // long brix_length(BrixString* str)
+        let fn_type = i64_type.fn_type(&[ptr_type.into()], false);
+
+        self.module
+            .add_function("brix_length", fn_type, Some(Linkage::External))
+    }
+
+    fn get_replace(&self) -> inkwell::values::FunctionValue<'ctx> {
+        if let Some(func) = self.module.get_function("brix_replace") {
+            return func;
+        }
+
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+
+        // BrixString* brix_replace(BrixString* str, BrixString* old, BrixString* new)
+        let fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into(), ptr_type.into()], false);
+
+        self.module
+            .add_function("brix_replace", fn_type, Some(Linkage::External))
+    }
+
+    fn get_replace_all(&self) -> inkwell::values::FunctionValue<'ctx> {
+        if let Some(func) = self.module.get_function("brix_replace_all") {
+            return func;
+        }
+
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+
+        // BrixString* brix_replace_all(BrixString* str, BrixString* old, BrixString* new)
+        let fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into(), ptr_type.into()], false);
+
+        self.module
+            .add_function("brix_replace_all", fn_type, Some(Linkage::External))
     }
 
     fn compile_input_int(&self) -> Option<BasicValueEnum<'ctx>> {
