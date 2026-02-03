@@ -18,7 +18,11 @@ fn parse_expr(input: &str) -> Result<Expr, String> {
 fn parse_stmt(input: &str) -> Result<Stmt, String> {
     let tokens: Vec<Token> = lexer::lex(input);
     let program = parser().parse(tokens).map_err(|e| format!("{:?}", e))?;
-    program.statements.first().cloned().ok_or("No stmt".to_string())
+    program
+        .statements
+        .first()
+        .cloned()
+        .ok_or("No stmt".to_string())
 }
 
 // ==================== DEEPLY NESTED STRUCTURES ====================
@@ -91,12 +95,10 @@ fn test_chained_function_calls() {
 fn test_mixed_field_and_index() {
     let expr = parse_expr("obj.field[0]").unwrap();
     match expr {
-        Expr::Index { array, .. } => {
-            match *array {
-                Expr::FieldAccess { .. } => {}
-                _ => panic!("Expected field access"),
-            }
-        }
+        Expr::Index { array, .. } => match *array {
+            Expr::FieldAccess { .. } => {}
+            _ => panic!("Expected field access"),
+        },
         _ => panic!("Expected index"),
     }
 }
@@ -106,12 +108,10 @@ fn test_mixed_field_and_index() {
 fn test_mixed_call_and_field() {
     let expr = parse_expr("foo().field").unwrap();
     match expr {
-        Expr::FieldAccess { target, .. } => {
-            match *target {
-                Expr::Call { .. } => {}
-                _ => panic!("Expected call"),
-            }
-        }
+        Expr::FieldAccess { target, .. } => match *target {
+            Expr::Call { .. } => {}
+            _ => panic!("Expected call"),
+        },
         _ => panic!("Expected field access"),
     }
 }

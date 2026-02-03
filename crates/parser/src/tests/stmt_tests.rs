@@ -10,7 +10,11 @@ use lexer::token::Token;
 fn parse_stmt(input: &str) -> Result<Stmt, String> {
     let tokens: Vec<Token> = lexer::lex(input);
     let program = parser().parse(tokens).map_err(|e| format!("{:?}", e))?;
-    program.statements.first().cloned().ok_or("No statement".to_string())
+    program
+        .statements
+        .first()
+        .cloned()
+        .ok_or("No statement".to_string())
 }
 
 // ==================== VARIABLE DECLARATION TESTS ====================
@@ -19,7 +23,12 @@ fn parse_stmt(input: &str) -> Result<Stmt, String> {
 fn test_var_decl_inferred() {
     let stmt = parse_stmt("var x := 10").unwrap();
     match stmt {
-        Stmt::VariableDecl { name, type_hint, value, is_const } => {
+        Stmt::VariableDecl {
+            name,
+            type_hint,
+            value,
+            is_const,
+        } => {
             assert_eq!(name, "x");
             assert_eq!(type_hint, None);
             assert_eq!(value, Expr::Literal(Literal::Int(10)));
@@ -33,7 +42,9 @@ fn test_var_decl_inferred() {
 fn test_var_decl_typed() {
     let stmt = parse_stmt("var x: int = 10").unwrap();
     match stmt {
-        Stmt::VariableDecl { name, type_hint, .. } => {
+        Stmt::VariableDecl {
+            name, type_hint, ..
+        } => {
             assert_eq!(name, "x");
             assert_eq!(type_hint, Some("int".to_string()));
         }
@@ -58,7 +69,9 @@ fn test_const_decl() {
 fn test_destructuring_simple() {
     let stmt = parse_stmt("var { a, b } := foo()").unwrap();
     match stmt {
-        Stmt::DestructuringDecl { names, is_const, .. } => {
+        Stmt::DestructuringDecl {
+            names, is_const, ..
+        } => {
             assert_eq!(names, vec!["a".to_string(), "b".to_string()]);
             assert_eq!(is_const, false);
         }
@@ -95,12 +108,10 @@ fn test_assignment_simple() {
 fn test_assignment_array_index() {
     let stmt = parse_stmt("arr[0] = 42").unwrap();
     match stmt {
-        Stmt::Assignment { target, .. } => {
-            match target {
-                Expr::Index { .. } => {}
-                _ => panic!("Expected index in target"),
-            }
-        }
+        Stmt::Assignment { target, .. } => match target {
+            Expr::Index { .. } => {}
+            _ => panic!("Expected index in target"),
+        },
         _ => panic!("Expected assignment"),
     }
 }
@@ -111,7 +122,11 @@ fn test_assignment_array_index() {
 fn test_if_no_else() {
     let stmt = parse_stmt("if x > 0 { x = x + 1 }").unwrap();
     match stmt {
-        Stmt::If { condition, then_block: _, else_block } => {
+        Stmt::If {
+            condition,
+            then_block: _,
+            else_block,
+        } => {
             assert!(else_block.is_none());
             match condition {
                 Expr::Binary { .. } => {}
@@ -159,7 +174,11 @@ fn test_while_loop() {
 fn test_for_range() {
     let stmt = parse_stmt("for i in 1:10 { }").unwrap();
     match stmt {
-        Stmt::For { var_names, iterable, .. } => {
+        Stmt::For {
+            var_names,
+            iterable,
+            ..
+        } => {
             assert_eq!(var_names, vec!["i".to_string()]);
             match iterable {
                 Expr::Range { .. } => {}
@@ -247,7 +266,12 @@ fn test_println() {
 fn test_function_no_params() {
     let stmt = parse_stmt("function foo() -> int { return 42 }").unwrap();
     match stmt {
-        Stmt::FunctionDef { name, params, return_type, .. } => {
+        Stmt::FunctionDef {
+            name,
+            params,
+            return_type,
+            ..
+        } => {
             assert_eq!(name, "foo");
             assert_eq!(params.len(), 0);
             assert_eq!(return_type, Some(vec!["int".to_string()]));
@@ -282,10 +306,14 @@ fn test_function_void() {
 
 #[test]
 fn test_function_multiple_returns() {
-    let stmt = parse_stmt("function calc(a: int, b: int) -> (int, int) { return (a + b, a - b) }").unwrap();
+    let stmt = parse_stmt("function calc(a: int, b: int) -> (int, int) { return (a + b, a - b) }")
+        .unwrap();
     match stmt {
         Stmt::FunctionDef { return_type, .. } => {
-            assert_eq!(return_type, Some(vec!["int".to_string(), "int".to_string()]));
+            assert_eq!(
+                return_type,
+                Some(vec!["int".to_string(), "int".to_string()])
+            );
         }
         _ => panic!("Expected function def"),
     }

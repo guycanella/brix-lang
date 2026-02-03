@@ -24,9 +24,15 @@ fn test_mul_over_add() {
     // 1 + 2 * 3 should be 1 + (2 * 3)
     let expr = parse_expr("1 + 2 * 3").unwrap();
     match expr {
-        Expr::Binary { op: BinaryOp::Add, rhs, .. } => {
+        Expr::Binary {
+            op: BinaryOp::Add,
+            rhs,
+            ..
+        } => {
             match *rhs {
-                Expr::Binary { op: BinaryOp::Mul, .. } => {} // Good
+                Expr::Binary {
+                    op: BinaryOp::Mul, ..
+                } => {} // Good
                 _ => panic!("Mul should bind tighter than Add"),
             }
         }
@@ -39,12 +45,16 @@ fn test_div_over_sub() {
     // 10 - 4 / 2 should be 10 - (4 / 2)
     let expr = parse_expr("10 - 4 / 2").unwrap();
     match expr {
-        Expr::Binary { op: BinaryOp::Sub, rhs, .. } => {
-            match *rhs {
-                Expr::Binary { op: BinaryOp::Div, .. } => {}
-                _ => panic!("Div should bind tighter"),
-            }
-        }
+        Expr::Binary {
+            op: BinaryOp::Sub,
+            rhs,
+            ..
+        } => match *rhs {
+            Expr::Binary {
+                op: BinaryOp::Div, ..
+            } => {}
+            _ => panic!("Div should bind tighter"),
+        },
         _ => panic!("Expected Sub"),
     }
 }
@@ -54,12 +64,16 @@ fn test_pow_over_mul() {
     // 2 * 3 ** 4 should be 2 * (3 ** 4)
     let expr = parse_expr("2 * 3 ** 4").unwrap();
     match expr {
-        Expr::Binary { op: BinaryOp::Mul, rhs, .. } => {
-            match *rhs {
-                Expr::Binary { op: BinaryOp::Pow, .. } => {}
-                _ => panic!("Pow should bind tighter"),
-            }
-        }
+        Expr::Binary {
+            op: BinaryOp::Mul,
+            rhs,
+            ..
+        } => match *rhs {
+            Expr::Binary {
+                op: BinaryOp::Pow, ..
+            } => {}
+            _ => panic!("Pow should bind tighter"),
+        },
         _ => panic!("Expected Mul"),
     }
 }
@@ -71,12 +85,21 @@ fn test_comparison_over_logical() {
     // x > 0 && y < 10 should be (x > 0) && (y < 10)
     let expr = parse_expr("x > 0 && y < 10").unwrap();
     match expr {
-        Expr::Binary { op: BinaryOp::LogicalAnd, lhs, rhs } => {
-            match (*lhs, *rhs) {
-                (Expr::Binary { op: BinaryOp::Gt, .. }, Expr::Binary { op: BinaryOp::Lt, .. }) => {}
-                _ => panic!("Comparisons should bind first"),
-            }
-        }
+        Expr::Binary {
+            op: BinaryOp::LogicalAnd,
+            lhs,
+            rhs,
+        } => match (*lhs, *rhs) {
+            (
+                Expr::Binary {
+                    op: BinaryOp::Gt, ..
+                },
+                Expr::Binary {
+                    op: BinaryOp::Lt, ..
+                },
+            ) => {}
+            _ => panic!("Comparisons should bind first"),
+        },
         _ => panic!("Expected LogicalAnd"),
     }
 }
@@ -86,12 +109,16 @@ fn test_add_over_comparison() {
     // x + 1 > y should be (x + 1) > y
     let expr = parse_expr("x + 1 > y").unwrap();
     match expr {
-        Expr::Binary { op: BinaryOp::Gt, lhs, .. } => {
-            match *lhs {
-                Expr::Binary { op: BinaryOp::Add, .. } => {}
-                _ => panic!("Add should bind tighter"),
-            }
-        }
+        Expr::Binary {
+            op: BinaryOp::Gt,
+            lhs,
+            ..
+        } => match *lhs {
+            Expr::Binary {
+                op: BinaryOp::Add, ..
+            } => {}
+            _ => panic!("Add should bind tighter"),
+        },
         _ => panic!("Expected Gt"),
     }
 }
@@ -104,12 +131,17 @@ fn test_bitwise_over_comparison() {
     // x & 0xFF == 0 should be (x & 0xFF) == 0
     let expr = parse_expr("x & 0xFF == 0").unwrap();
     match expr {
-        Expr::Binary { op: BinaryOp::Eq, lhs, .. } => {
-            match *lhs {
-                Expr::Binary { op: BinaryOp::BitAnd, .. } => {}
-                _ => panic!("BitAnd should bind first"),
-            }
-        }
+        Expr::Binary {
+            op: BinaryOp::Eq,
+            lhs,
+            ..
+        } => match *lhs {
+            Expr::Binary {
+                op: BinaryOp::BitAnd,
+                ..
+            } => {}
+            _ => panic!("BitAnd should bind first"),
+        },
         _ => panic!("Expected Eq"),
     }
 }
@@ -121,12 +153,16 @@ fn test_parens_override_precedence() {
     // (1 + 2) * 3 should have Add under Mul
     let expr = parse_expr("(1 + 2) * 3").unwrap();
     match expr {
-        Expr::Binary { op: BinaryOp::Mul, lhs, .. } => {
-            match *lhs {
-                Expr::Binary { op: BinaryOp::Add, .. } => {}
-                _ => panic!("Parens should override"),
-            }
-        }
+        Expr::Binary {
+            op: BinaryOp::Mul,
+            lhs,
+            ..
+        } => match *lhs {
+            Expr::Binary {
+                op: BinaryOp::Add, ..
+            } => {}
+            _ => panic!("Parens should override"),
+        },
         _ => panic!("Expected Mul"),
     }
 }
@@ -138,9 +174,15 @@ fn test_left_associative_add() {
     // 1 + 2 + 3 should be (1 + 2) + 3
     let expr = parse_expr("1 + 2 + 3").unwrap();
     match expr {
-        Expr::Binary { op: BinaryOp::Add, lhs, .. } => {
+        Expr::Binary {
+            op: BinaryOp::Add,
+            lhs,
+            ..
+        } => {
             match *lhs {
-                Expr::Binary { op: BinaryOp::Add, .. } => {} // Left-assoc
+                Expr::Binary {
+                    op: BinaryOp::Add, ..
+                } => {} // Left-assoc
                 _ => panic!("Add should be left-associative"),
             }
         }
@@ -154,9 +196,15 @@ fn test_right_associative_pow() {
     // 2 ** 3 ** 2 should be 2 ** (3 ** 2) = 2 ** 9 = 512
     let expr = parse_expr("2 ** 3 ** 2").unwrap();
     match expr {
-        Expr::Binary { op: BinaryOp::Pow, rhs, .. } => {
+        Expr::Binary {
+            op: BinaryOp::Pow,
+            rhs,
+            ..
+        } => {
             match *rhs {
-                Expr::Binary { op: BinaryOp::Pow, .. } => {} // Right-assoc
+                Expr::Binary {
+                    op: BinaryOp::Pow, ..
+                } => {} // Right-assoc
                 _ => panic!("Pow should be right-associative"),
             }
         }
@@ -171,7 +219,9 @@ fn test_complex_expression() {
     // 1 + 2 * 3 ** 4 - 5 / 6 should respect all precedence
     let expr = parse_expr("1 + 2 * 3 ** 4 - 5 / 6").unwrap();
     match expr {
-        Expr::Binary { op: BinaryOp::Sub, .. } => {} // Sub at top (same precedence as Add, left-assoc)
+        Expr::Binary {
+            op: BinaryOp::Sub, ..
+        } => {} // Sub at top (same precedence as Add, left-assoc)
         _ => panic!("Expected Sub at top"),
     }
 }

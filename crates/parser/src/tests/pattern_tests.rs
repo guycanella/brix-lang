@@ -35,12 +35,10 @@ fn test_match_literal_int() {
 fn test_match_wildcard() {
     let expr = parse_expr("match x { _ -> 0 }").unwrap();
     match expr {
-        Expr::Match { arms, .. } => {
-            match &arms[0].pattern {
-                Pattern::Wildcard => {}
-                _ => panic!("Expected wildcard"),
-            }
-        }
+        Expr::Match { arms, .. } => match &arms[0].pattern {
+            Pattern::Wildcard => {}
+            _ => panic!("Expected wildcard"),
+        },
         _ => panic!("Expected match"),
     }
 }
@@ -49,12 +47,10 @@ fn test_match_wildcard() {
 fn test_match_binding() {
     let expr = parse_expr("match x { n -> n * 2 }").unwrap();
     match expr {
-        Expr::Match { arms, .. } => {
-            match &arms[0].pattern {
-                Pattern::Binding(name) => assert_eq!(name, "n"),
-                _ => panic!("Expected binding"),
-            }
-        }
+        Expr::Match { arms, .. } => match &arms[0].pattern {
+            Pattern::Binding(name) => assert_eq!(name, "n"),
+            _ => panic!("Expected binding"),
+        },
         _ => panic!("Expected match"),
     }
 }
@@ -63,12 +59,10 @@ fn test_match_binding() {
 fn test_match_or_pattern() {
     let expr = parse_expr("match x { 1 | 2 | 3 -> :small _ -> :large }").unwrap();
     match expr {
-        Expr::Match { arms, .. } => {
-            match &arms[0].pattern {
-                Pattern::Or(patterns) => assert_eq!(patterns.len(), 3),
-                _ => panic!("Expected or pattern"),
-            }
-        }
+        Expr::Match { arms, .. } => match &arms[0].pattern {
+            Pattern::Or(patterns) => assert_eq!(patterns.len(), 3),
+            _ => panic!("Expected or pattern"),
+        },
         _ => panic!("Expected match"),
     }
 }
@@ -89,12 +83,10 @@ fn test_match_with_guard() {
 fn test_match_string_literal() {
     let expr = parse_expr(r#"match status { "ok" -> 1 "error" -> 0 }"#).unwrap();
     match expr {
-        Expr::Match { arms, .. } => {
-            match &arms[0].pattern {
-                Pattern::Literal(Literal::String(_)) => {}
-                _ => panic!("Expected string literal"),
-            }
-        }
+        Expr::Match { arms, .. } => match &arms[0].pattern {
+            Pattern::Literal(Literal::String(_)) => {}
+            _ => panic!("Expected string literal"),
+        },
         _ => panic!("Expected match"),
     }
 }
@@ -103,12 +95,10 @@ fn test_match_string_literal() {
 fn test_match_atom() {
     let expr = parse_expr("match status { :ok -> 1 :error -> 0 }").unwrap();
     match expr {
-        Expr::Match { arms, .. } => {
-            match &arms[0].pattern {
-                Pattern::Literal(Literal::Atom(atom)) => assert_eq!(atom, "ok"),
-                _ => panic!("Expected atom"),
-            }
-        }
+        Expr::Match { arms, .. } => match &arms[0].pattern {
+            Pattern::Literal(Literal::Atom(atom)) => assert_eq!(atom, "ok"),
+            _ => panic!("Expected atom"),
+        },
         _ => panic!("Expected match"),
     }
 }

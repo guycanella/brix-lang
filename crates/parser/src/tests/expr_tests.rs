@@ -79,7 +79,9 @@ fn test_literal_complex() {
     // This should parse as Binary(Add, Float(3.0), ImaginaryLiteral)
     // Complex literal is constructed during codegen, not parsing
     match expr {
-        Expr::Binary { op: BinaryOp::Add, .. } => {}, // OK
+        Expr::Binary {
+            op: BinaryOp::Add, ..
+        } => {} // OK
         _ => panic!("Expected binary addition for complex literal"),
     }
 }
@@ -110,7 +112,11 @@ fn test_identifier_camel_case() {
 fn test_binary_add() {
     let expr = parse_expr("1 + 2").unwrap();
     match expr {
-        Expr::Binary { op: BinaryOp::Add, lhs, rhs } => {
+        Expr::Binary {
+            op: BinaryOp::Add,
+            lhs,
+            rhs,
+        } => {
             assert_eq!(*lhs, Expr::Literal(Literal::Int(1)));
             assert_eq!(*rhs, Expr::Literal(Literal::Int(2)));
         }
@@ -122,7 +128,11 @@ fn test_binary_add() {
 fn test_binary_sub() {
     let expr = parse_expr("5 - 3").unwrap();
     match expr {
-        Expr::Binary { op: BinaryOp::Sub, lhs, rhs } => {
+        Expr::Binary {
+            op: BinaryOp::Sub,
+            lhs,
+            rhs,
+        } => {
             assert_eq!(*lhs, Expr::Literal(Literal::Int(5)));
             assert_eq!(*rhs, Expr::Literal(Literal::Int(3)));
         }
@@ -134,7 +144,9 @@ fn test_binary_sub() {
 fn test_binary_mul() {
     let expr = parse_expr("2 * 3").unwrap();
     match expr {
-        Expr::Binary { op: BinaryOp::Mul, .. } => {}
+        Expr::Binary {
+            op: BinaryOp::Mul, ..
+        } => {}
         _ => panic!("Expected binary mul"),
     }
 }
@@ -143,7 +155,9 @@ fn test_binary_mul() {
 fn test_binary_div() {
     let expr = parse_expr("10 / 2").unwrap();
     match expr {
-        Expr::Binary { op: BinaryOp::Div, .. } => {}
+        Expr::Binary {
+            op: BinaryOp::Div, ..
+        } => {}
         _ => panic!("Expected binary div"),
     }
 }
@@ -152,7 +166,9 @@ fn test_binary_div() {
 fn test_binary_mod() {
     let expr = parse_expr("10 % 3").unwrap();
     match expr {
-        Expr::Binary { op: BinaryOp::Mod, .. } => {}
+        Expr::Binary {
+            op: BinaryOp::Mod, ..
+        } => {}
         _ => panic!("Expected binary mod"),
     }
 }
@@ -161,7 +177,9 @@ fn test_binary_mod() {
 fn test_binary_pow() {
     let expr = parse_expr("2 ** 3").unwrap();
     match expr {
-        Expr::Binary { op: BinaryOp::Pow, .. } => {}
+        Expr::Binary {
+            op: BinaryOp::Pow, ..
+        } => {}
         _ => panic!("Expected binary pow"),
     }
 }
@@ -170,7 +188,10 @@ fn test_binary_pow() {
 fn test_binary_bit_and() {
     let expr = parse_expr("5 & 3").unwrap();
     match expr {
-        Expr::Binary { op: BinaryOp::BitAnd, .. } => {}
+        Expr::Binary {
+            op: BinaryOp::BitAnd,
+            ..
+        } => {}
         _ => panic!("Expected binary bit and"),
     }
 }
@@ -179,7 +200,10 @@ fn test_binary_bit_and() {
 fn test_binary_bit_or() {
     let expr = parse_expr("5 | 3").unwrap();
     match expr {
-        Expr::Binary { op: BinaryOp::BitOr, .. } => {}
+        Expr::Binary {
+            op: BinaryOp::BitOr,
+            ..
+        } => {}
         _ => panic!("Expected binary bit or"),
     }
 }
@@ -188,7 +212,10 @@ fn test_binary_bit_or() {
 fn test_binary_bit_xor() {
     let expr = parse_expr("5 ^ 3").unwrap();
     match expr {
-        Expr::Binary { op: BinaryOp::BitXor, .. } => {}
+        Expr::Binary {
+            op: BinaryOp::BitXor,
+            ..
+        } => {}
         _ => panic!("Expected binary bit xor"),
     }
 }
@@ -197,7 +224,9 @@ fn test_binary_bit_xor() {
 fn test_binary_eq() {
     let expr = parse_expr("x == 10").unwrap();
     match expr {
-        Expr::Binary { op: BinaryOp::Eq, .. } => {}
+        Expr::Binary {
+            op: BinaryOp::Eq, ..
+        } => {}
         _ => panic!("Expected binary eq"),
     }
 }
@@ -206,7 +235,10 @@ fn test_binary_eq() {
 fn test_binary_not_eq() {
     let expr = parse_expr("x != 10").unwrap();
     match expr {
-        Expr::Binary { op: BinaryOp::NotEq, .. } => {}
+        Expr::Binary {
+            op: BinaryOp::NotEq,
+            ..
+        } => {}
         _ => panic!("Expected binary not eq"),
     }
 }
@@ -215,7 +247,9 @@ fn test_binary_not_eq() {
 fn test_binary_lt() {
     let expr = parse_expr("x < 10").unwrap();
     match expr {
-        Expr::Binary { op: BinaryOp::Lt, .. } => {}
+        Expr::Binary {
+            op: BinaryOp::Lt, ..
+        } => {}
         _ => panic!("Expected binary lt"),
     }
 }
@@ -224,7 +258,9 @@ fn test_binary_lt() {
 fn test_binary_gt() {
     let expr = parse_expr("x > 10").unwrap();
     match expr {
-        Expr::Binary { op: BinaryOp::Gt, .. } => {}
+        Expr::Binary {
+            op: BinaryOp::Gt, ..
+        } => {}
         _ => panic!("Expected binary gt"),
     }
 }
@@ -233,7 +269,9 @@ fn test_binary_gt() {
 fn test_binary_lteq() {
     let expr = parse_expr("x <= 10").unwrap();
     match expr {
-        Expr::Binary { op: BinaryOp::LtEq, .. } => {}
+        Expr::Binary {
+            op: BinaryOp::LtEq, ..
+        } => {}
         _ => panic!("Expected binary lteq"),
     }
 }
@@ -242,7 +280,9 @@ fn test_binary_lteq() {
 fn test_binary_gteq() {
     let expr = parse_expr("x >= 10").unwrap();
     match expr {
-        Expr::Binary { op: BinaryOp::GtEq, .. } => {}
+        Expr::Binary {
+            op: BinaryOp::GtEq, ..
+        } => {}
         _ => panic!("Expected binary gteq"),
     }
 }
@@ -251,7 +291,10 @@ fn test_binary_gteq() {
 fn test_binary_logical_and() {
     let expr = parse_expr("x && y").unwrap();
     match expr {
-        Expr::Binary { op: BinaryOp::LogicalAnd, .. } => {}
+        Expr::Binary {
+            op: BinaryOp::LogicalAnd,
+            ..
+        } => {}
         _ => panic!("Expected binary logical and"),
     }
 }
@@ -260,7 +303,10 @@ fn test_binary_logical_and() {
 fn test_binary_logical_or() {
     let expr = parse_expr("x || y").unwrap();
     match expr {
-        Expr::Binary { op: BinaryOp::LogicalOr, .. } => {}
+        Expr::Binary {
+            op: BinaryOp::LogicalOr,
+            ..
+        } => {}
         _ => panic!("Expected binary logical or"),
     }
 }
@@ -271,7 +317,10 @@ fn test_binary_logical_or() {
 fn test_unary_not() {
     let expr = parse_expr("!x").unwrap();
     match expr {
-        Expr::Unary { op: UnaryOp::Not, expr } => {
+        Expr::Unary {
+            op: UnaryOp::Not,
+            expr,
+        } => {
             assert_eq!(*expr, Expr::Identifier("x".to_string()));
         }
         _ => panic!("Expected unary not"),
@@ -282,7 +331,9 @@ fn test_unary_not() {
 fn test_unary_not_word() {
     let expr = parse_expr("not x").unwrap();
     match expr {
-        Expr::Unary { op: UnaryOp::Not, .. } => {}
+        Expr::Unary {
+            op: UnaryOp::Not, ..
+        } => {}
         _ => panic!("Expected unary not"),
     }
 }
@@ -291,7 +342,10 @@ fn test_unary_not_word() {
 fn test_unary_negate() {
     let expr = parse_expr("-x").unwrap();
     match expr {
-        Expr::Unary { op: UnaryOp::Negate, expr } => {
+        Expr::Unary {
+            op: UnaryOp::Negate,
+            expr,
+        } => {
             assert_eq!(*expr, Expr::Identifier("x".to_string()));
         }
         _ => panic!("Expected unary negate"),
@@ -302,7 +356,10 @@ fn test_unary_negate() {
 fn test_unary_negate_number() {
     let expr = parse_expr("-42").unwrap();
     match expr {
-        Expr::Unary { op: UnaryOp::Negate, expr } => {
+        Expr::Unary {
+            op: UnaryOp::Negate,
+            expr,
+        } => {
             assert_eq!(*expr, Expr::Literal(Literal::Int(42)));
         }
         _ => panic!("Expected unary negate"),
@@ -365,10 +422,16 @@ fn test_decrement_postfix() {
 fn test_ternary_simple() {
     let expr = parse_expr("x > 0 ? 1 : 0").unwrap();
     match expr {
-        Expr::Ternary { condition, then_expr, else_expr } => {
+        Expr::Ternary {
+            condition,
+            then_expr,
+            else_expr,
+        } => {
             // Condition should be binary comparison
             match *condition {
-                Expr::Binary { op: BinaryOp::Gt, .. } => {}
+                Expr::Binary {
+                    op: BinaryOp::Gt, ..
+                } => {}
                 _ => panic!("Expected gt comparison in condition"),
             }
             assert_eq!(*then_expr, Expr::Literal(Literal::Int(1)));
@@ -458,12 +521,12 @@ fn test_index_2d() {
 fn test_index_expression() {
     let expr = parse_expr("arr[i + 1]").unwrap();
     match expr {
-        Expr::Index { indices, .. } => {
-            match &indices[0] {
-                Expr::Binary { op: BinaryOp::Add, .. } => {}
-                _ => panic!("Expected binary add in index"),
-            }
-        }
+        Expr::Index { indices, .. } => match &indices[0] {
+            Expr::Binary {
+                op: BinaryOp::Add, ..
+            } => {}
+            _ => panic!("Expected binary add in index"),
+        },
         _ => panic!("Expected index"),
     }
 }
@@ -600,7 +663,10 @@ fn test_range_with_variables() {
 fn test_static_init_int_1d() {
     let expr = parse_expr("int[5]").unwrap();
     match expr {
-        Expr::StaticInit { element_type, dimensions } => {
+        Expr::StaticInit {
+            element_type,
+            dimensions,
+        } => {
             assert_eq!(element_type, "int");
             assert_eq!(dimensions.len(), 1);
             assert_eq!(dimensions[0], Expr::Literal(Literal::Int(5)));
@@ -613,7 +679,10 @@ fn test_static_init_int_1d() {
 fn test_static_init_float_2d() {
     let expr = parse_expr("float[3, 4]").unwrap();
     match expr {
-        Expr::StaticInit { element_type, dimensions } => {
+        Expr::StaticInit {
+            element_type,
+            dimensions,
+        } => {
             assert_eq!(element_type, "float");
             assert_eq!(dimensions.len(), 2);
         }
@@ -656,10 +725,16 @@ fn test_complex_arithmetic() {
     let expr = parse_expr("1 + 2 * 3").unwrap();
     // Should parse as 1 + (2 * 3) due to precedence
     match expr {
-        Expr::Binary { op: BinaryOp::Add, lhs, rhs } => {
+        Expr::Binary {
+            op: BinaryOp::Add,
+            lhs,
+            rhs,
+        } => {
             assert_eq!(*lhs, Expr::Literal(Literal::Int(1)));
             match *rhs {
-                Expr::Binary { op: BinaryOp::Mul, .. } => {} // Good
+                Expr::Binary {
+                    op: BinaryOp::Mul, ..
+                } => {} // Good
                 _ => panic!("Expected multiplication on right side"),
             }
         }
@@ -672,9 +747,15 @@ fn test_complex_with_parens() {
     let expr = parse_expr("(1 + 2) * 3").unwrap();
     // Parentheses should change precedence
     match expr {
-        Expr::Binary { op: BinaryOp::Mul, lhs, rhs } => {
+        Expr::Binary {
+            op: BinaryOp::Mul,
+            lhs,
+            rhs,
+        } => {
             match *lhs {
-                Expr::Binary { op: BinaryOp::Add, .. } => {}
+                Expr::Binary {
+                    op: BinaryOp::Add, ..
+                } => {}
                 _ => panic!("Expected addition on left side"),
             }
             assert_eq!(*rhs, Expr::Literal(Literal::Int(3)));
