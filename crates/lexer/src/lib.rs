@@ -1,5 +1,8 @@
 pub mod token;
 
+#[cfg(test)]
+mod tests;
+
 use logos::Logos;
 use token::Token;
 
