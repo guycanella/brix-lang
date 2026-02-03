@@ -1890,7 +1890,246 @@ A v1.1 está completa com todas as features principais:
 - ✅ Atoms (Elixir-style, já implementado em 29/01/2026)
 - ✅ Escape Sequences (completo, já implementado em 29/01/2026)
 
-**Próximo:** v1.2 - Documentation & Advanced Strings
+**Próximo:** Infraestrutura de Testes (MUDANÇA ESTRATÉGICA)
+
+---
+
+## 🎯 DECISÃO ESTRATÉGICA: Testes Antes de Tudo (03/02/2026)
+
+**Decisão tomada:** Pausar desenvolvimento de features para focar em infraestrutura de qualidade.
+
+**Motivação:**
+Antes de continuar com v1.2 (docs, panic, modules), precisamos garantir que o código existente é robusto e testável. A linguagem já tem 118 features implementadas, mas:
+- ❌ Zero testes automatizados (só testes manuais .bx)
+- ❌ 573 unwrap() calls (crash risk)
+- ❌ 6,093-line monolithic codegen/lib.rs
+- ❌ Ariadne dependency exists mas nunca foi usado
+
+**Nova Prioridade:** Implementar infraestrutura de testes ABRANGENTE antes de qualquer nova feature.
+
+---
+
+## 📋 ROADMAP DE TESTES (2-3 semanas)
+
+### Estratégia de Testes em Múltiplas Camadas
+
+**Objetivo:** Máxima cobertura possível, testando todos os edge cases e garantindo robustez para uma linguagem de programação.
+
+**5 Fases de Implementação:**
+
+#### **Fase 1: Lexer Tests** (3-4 dias) 🎯 **EM ANDAMENTO**
+
+**Unit Tests em `crates/lexer/src/tests/`:**
+- Token recognition (todos os 80+ tokens)
+- Regex patterns (números, strings, f-strings, atoms)
+- Priority handling (ImaginaryLiteral > Float+Identifier)
+- Escape sequences (\n, \t, \r, \\, \", \b, \f)
+- Edge cases:
+  - Empty strings: `""`
+  - Strings com apenas escapes: `"\n\t\r"`
+  - F-strings com múltiplas interpolações
+  - Números edge: `0`, `0.0`, `999999999999`, `1e308`
+  - Comments edge: nested, EOF sem newline
+  - Atoms edge: `:_`, `:atom123`, `:atom_with_underscores`
+
+**Arquivos a criar:**
+```
+crates/lexer/src/
+  tests/
+    mod.rs              # Test module setup
+    token_tests.rs      # Basic token recognition (~200 tests)
+    number_tests.rs     # Int/Float/Imaginary edge cases (~50 tests)
+    string_tests.rs     # String/FString/Escape sequences (~80 tests)
+    atom_tests.rs       # Atom literals edge cases (~30 tests)
+    edge_cases.rs       # Weird inputs, malformed tokens (~40 tests)
+```
+
+**Estimativa:** ~400 tests
+
+---
+
+#### **Fase 2: Parser Tests** (4-5 dias)
+
+**Unit Tests em `crates/parser/src/tests/`:**
+- AST construction para cada tipo de expressão
+- Operator precedence (todos os níveis)
+- Statement parsing (if/else, for, while, match, function)
+- Pattern matching (literals, guards, or-patterns, wildcard)
+- Destructuring (tuples, for loops)
+- Error recovery (continuar parsing após erro)
+- Edge cases:
+  - Expressões profundamente aninhadas
+  - Chained comparisons: `1 < x < 10 < 100`
+  - Nested f-strings
+  - Match exhaustiveness
+  - Empty blocks: `if x { }`
+  - Trailing commas: `[1, 2, 3,]`
+
+**Arquivos a criar:**
+```
+crates/parser/src/
+  tests/
+    mod.rs
+    expr_tests.rs         # Expression parsing (~150 tests)
+    stmt_tests.rs         # Statement parsing (~100 tests)
+    precedence_tests.rs   # Operator precedence (~60 tests)
+    pattern_tests.rs      # Pattern matching (~50 tests)
+    destructure_tests.rs  # Destructuring (~40 tests)
+    error_recovery.rs     # Parse error handling (~30 tests)
+    edge_cases.rs         # Weird syntax edge cases (~50 tests)
+```
+
+**Estimativa:** ~480 tests
+
+---
+
+#### **Fase 3: Codegen Tests** (5-6 dias)
+
+**Unit Tests em `crates/codegen/src/tests/`:**
+- LLVM IR generation para cada tipo de expressão
+- Type inference e casting (int→float, etc)
+- Built-in functions (todos os 60+ built-ins)
+- Control flow (if/else, loops, match)
+- Function calls (user-defined, defaults, multiple returns)
+- Complex numbers (operators, functions)
+- Matrix operations (indexing, assignment)
+- String interpolation (format specifiers)
+- Edge cases:
+  - Division by zero (should compile, runtime error)
+  - Integer overflow (i64 limits)
+  - Type mismatches (int + string)
+  - Null pointer checks (is_nil)
+  - Empty arrays: `[]`
+  - 1D vs 2D matrix indexing
+
+**Arquivos a criar:**
+```
+crates/codegen/src/
+  tests/
+    mod.rs
+    expr_tests.rs         # Expression codegen (~120 tests)
+    stmt_tests.rs         # Statement codegen (~80 tests)
+    builtin_tests.rs      # All 60+ built-in functions (~100 tests)
+    type_tests.rs         # Type inference & casting (~60 tests)
+    complex_tests.rs      # Complex number operations (~50 tests)
+    matrix_tests.rs       # Matrix operations (~50 tests)
+    control_flow_tests.rs # If/loops/match (~40 tests)
+    edge_cases.rs         # Type errors, edge inputs (~60 tests)
+```
+
+**Estimativa:** ~560 tests
+
+---
+
+#### **Fase 4: Integration Tests** (2-3 dias)
+
+**Golden File Tests em `tests/`:**
+- Compile + run + compare output
+- Todos os 49+ test files existentes convertidos
+- Novos testes para features recentes (v1.1)
+- Edge cases end-to-end:
+  - Programs que printam Unicode
+  - Programs com múltiplas funções
+  - Programs com imports (math)
+  - Programs com errors (Go-style)
+  - Programs com pattern matching complexo
+
+**Arquivos a criar:**
+```
+tests/
+  integration_test.rs        # Test runner
+  golden/
+    arithmetic.bx            # Basic arithmetic
+    arithmetic.expected      # Expected output
+    strings.bx
+    strings.expected
+    complex.bx
+    complex.expected
+    (50+ golden test pairs)
+```
+
+**Estimativa:** ~60 golden tests
+
+---
+
+#### **Fase 5: Property-Based Tests** (2-3 dias) - OPCIONAL
+
+**Usar `proptest` para gerar casos automaticamente:**
+
+```rust
+use proptest::prelude::*;
+
+proptest! {
+    #[test]
+    fn test_int_literal_roundtrip(x in any::<i64>()) {
+        let input = format!("{}", x);
+        let mut lexer = Token::lexer(&input);
+        let token = lexer.next();
+        assert_eq!(token, Some(Ok(Token::Int(x.to_string()))));
+    }
+
+    #[test]
+    fn test_arithmetic_commutativity(a in 0i64..1000, b in 0i64..1000) {
+        let output1 = compile_and_run(&format!("print({} + {})", a, b));
+        let output2 = compile_and_run(&format!("print({} + {})", b, a));
+        assert_eq!(output1, output2);
+    }
+}
+```
+
+**Estimativa:** ~20 proptests
+
+---
+
+### 📊 Estimativa Total de Testes
+
+| Fase | Testes | Tempo |
+|------|--------|-------|
+| **Lexer Tests** | ~400 tests | 3-4 dias |
+| **Parser Tests** | ~480 tests | 4-5 dias |
+| **Codegen Tests** | ~560 tests | 5-6 dias |
+| **Integration Tests** | ~60 golden tests | 2-3 dias |
+| **Property Tests (opcional)** | ~20 proptests | 2-3 dias |
+| **TOTAL** | **~1,520 tests** | **16-21 dias** |
+
+---
+
+### ⏭️ Após Testes: Refatoração & Qualidade
+
+**Somente após termos os testes implementados:**
+
+1. **Refatoração Arquitetural** (2-3 semanas)
+   - Modularizar codegen/lib.rs (6,093 linhas)
+   - Extrair: types.rs, builtins.rs, expr.rs, stmt.rs, control_flow.rs
+
+2. **Error Handling** (1 semana)
+   - Substituir unwrap() por Result<>
+   - Define CompilerError enum
+   - Ariadne integration para mensagens bonitas
+
+3. **LSP + REPL** (3-4 semanas)
+   - Language Server Protocol para IDEs
+   - REPL com LLVM JIT
+
+4. **Documentation** (2 semanas)
+   - @doc comments (Elixir-style)
+   - HTML generation
+
+---
+
+### 🎯 Próximo Passo Imediato: Lexer Tests
+
+**Status:** 🎯 EM ANDAMENTO (03/02/2026)
+
+Vamos começar pela Fase 1 criando a infraestrutura de testes para o lexer e implementando os primeiros ~400 testes.
+
+**Arquivos a criar:**
+1. `crates/lexer/src/tests/mod.rs` - Test module setup
+2. `crates/lexer/src/tests/token_tests.rs` - Basic token recognition
+3. `crates/lexer/src/tests/number_tests.rs` - Int/Float/Imaginary edge cases
+4. `crates/lexer/src/tests/string_tests.rs` - String/FString/Escapes
+5. `crates/lexer/src/tests/atom_tests.rs` - Atom literals
+6. `crates/lexer/src/tests/edge_cases.rs` - Weird inputs
 
 ---
 
