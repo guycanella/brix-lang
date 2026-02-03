@@ -6,6 +6,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **CRITICAL**: Do not stop tasks early due to context limits. Always complete the full task even if it requires significant context usage. Use context efficiently but prioritize task completion.
 
+## Quick Start for New Contributors
+
+1. **Compile and run a test file**: `cargo run <file.bx>`
+2. **Build the compiler**: `cargo build` (debug) or `cargo build --release`
+3. **Run a single test**: `cargo run tests/<test_name>.bx`
+4. **Key files**:
+   - `runtime.c` - C runtime library (must be in project root)
+   - `crates/lexer/src/token.rs` - Token definitions
+   - `crates/parser/src/parser.rs` - Parser implementation
+   - `crates/codegen/src/lib.rs` - LLVM code generation
+   - `src/main.rs` - Compiler driver (orchestrates lexer → parser → codegen → linking)
+
+**Note**: This file (CLAUDE.md) is for Claude Code guidance. See DOCUMENTATION.md for end-user language documentation.
+
 ## Project Overview
 
 **Brix** is a compiled programming language designed for Data Engineering and Algorithms, combining Python-like syntax with Fortran-level performance. The language compiles to native binaries via LLVM.
@@ -762,6 +776,32 @@ stdlib/
 2. Update type inference in `infer_type()`
 3. Update casting logic in `cast_value()`
 4. Add LLVM type mapping in codegen
+
+## Development Workflow
+
+### Adding a New Language Feature
+
+1. **Lexer**: Add token to `crates/lexer/src/token.rs` (use `#[token]` or `#[regex]` with logos)
+2. **Parser**: Update AST in `crates/parser/src/ast.rs` and parser logic in `crates/parser/src/parser.rs`
+3. **Codegen**: Implement LLVM code generation in `crates/codegen/src/lib.rs`
+4. **Runtime** (if needed): Add C implementations to `runtime.c`
+5. **Test**: Create a `.bx` test file and run with `cargo run <test>.bx`
+
+### Debugging Tips
+
+- **LLVM IR inspection**: The compiler generates LLVM IR during compilation. You can inspect it by modifying the codegen crate to print the module.
+- **Intermediate files**: The compiler generates `runtime.o`, `output.o`, and an executable `program` in the project root during compilation.
+- **Parse errors**: Currently shown via debug output (`{:?}`) - Ariadne integration is planned.
+- **Runtime errors**: C runtime functions in `runtime.c` often print to stderr before exit(1).
+
+### Clean Build
+
+If you encounter linking or runtime errors:
+```bash
+rm -f runtime.o output.o program
+cargo clean
+cargo run <file.bx>
+```
 
 ## Testing
 
@@ -1807,40 +1847,50 @@ fn process_escape_sequences(s: &str) -> String {
    - ✅ Applied to string literals, patterns, printf
    - ✅ process_escape_sequences() helper function
 
-**Pendente:**
+**Completo:**
 
-1. **Lexer String Fix** - 1 dia 🎯 **PRÓXIMO (30/01/2026)**
-   - 🔧 Fix: Escape sequences em f-strings com \"
-   - 🔧 Problema: Regex do lexer não trata \" corretamente
-   - 🔧 Solução: Atualizar regex para `r#"f"(([^"\\]|\\.)*)""#`
+1. **Lexer String Fix** ✅ **COMPLETO (03/02/2026)**
+   - ✅ Fix: Escape sequences em f-strings com \"
+   - ✅ Solução: Atualizado regex para `r#"f"(([^"\\]|\\.)*)""#`
+   - ✅ Teste: `fstring_escape_test.bx` - todos os casos passaram
+   - ✅ Agora aceita qualquer caractere escapado em strings e f-strings
 
-2. **Type Checking Functions** - 1 dia
-   - ✨ `is_nil(x)` - Check if value is nil
-   - ✨ `is_atom(x)` - Check if value is atom
-   - ✨ `is_boolean(x)` - Check if value is boolean (0 or 1)
-   - ✨ `is_number(x)` - is_int(x) || is_float(x)
-   - ✨ `is_integer(x)` - Check if value is int
-   - ✨ `is_float(x)` - Check if value is float
-   - ✨ `is_string(x)` - Check if value is string
-   - ✨ `is_list(x)` - Check if value is matrix/intmatrix
-   - ✨ `is_tuple(x)` - Check if value is tuple
-   - ✨ `is_function(x)` - Check if value is function (future)
+2. **Type Checking Functions** ✅ **COMPLETO (03/02/2026)**
+   - ✅ Implementadas 10 funções em codegen: `is_nil()`, `is_atom()`, `is_boolean()`, `is_number()`, `is_integer()`, `is_float()`, `is_string()`, `is_list()`, `is_tuple()`, `is_function()`
+   - ✅ Maioria são compile-time checks baseadas em BrixType
+   - ✅ `is_nil()` faz runtime check para pointer types
+   - ✅ `is_boolean()` verifica se int é 0 ou 1
+   - ✅ Teste: `type_check_test.bx` - todos os 10 testes passaram
 
-3. **String Functions (Core)** - 5 dias
+3. **String Functions (Core)** ✅ **COMPLETO (03/02/2026)**
+   - ✅ Implementadas 7 funções em runtime.c e codegen
    - **Transformações:**
-     - ✨ `uppercase(str)` - "hello" → "HELLO"
-     - ✨ `lowercase(str)` - "HELLO" → "hello"
-     - ✨ `capitalize(str)` - "hello world" → "Hello world"
+     - ✅ `uppercase(str)` - "hello" → "HELLO"
+     - ✅ `lowercase(str)` - "HELLO" → "hello"
+     - ✅ `capitalize(str)` - "hello world" → "Hello world"
    - **Manipulação:**
-     - ✨ `split(str, delimiter)` - "a,b,c" → ["a", "b", "c"]
-     - ✨ `join(list, separator)` - ["a", "b"] → "a,b"
-     - ✨ `replace(str, old, new)` - Replace first occurrence
-     - ✨ `replace_all(str, old, new)` - Replace all occurrences
+     - ✅ `replace(str, old, new)` - Replace first occurrence
+     - ✅ `replace_all(str, old, new)` - Replace all occurrences
    - **Análise:**
-     - ✨ `byte_size(str)` - Tamanho em bytes
-     - ✨ `length(str)` - Número de caracteres (UTF-8 aware)
+     - ✅ `byte_size(str)` - Tamanho em bytes
+     - ✅ `length(str)` - Número de caracteres (UTF-8 aware)
+   - ⏸️ `split()` e `join()` adiadas para v1.2 (requerem StringMatrix type)
+   - ✅ Teste: `string_functions_test.bx` - todos os 7 testes passaram
 
-**Total v1.1:** 3 tipos + 10 type checkers + 9 string functions = 22 features
+**Total v1.1 Completo:** ✅ **1 lexer fix + 10 type checkers + 7 string functions = 18 features!**
+
+---
+
+## 🎉 v1.1 - 100% COMPLETO! (03/02/2026)
+
+A v1.1 está completa com todas as features principais:
+- ✅ Lexer String Fix (aspas escapadas em f-strings)
+- ✅ Type Checking Functions (10 funções: is_nil, is_atom, is_boolean, is_number, is_integer, is_float, is_string, is_list, is_tuple, is_function)
+- ✅ String Functions (7 funções: uppercase, lowercase, capitalize, byte_size, length, replace, replace_all)
+- ✅ Atoms (Elixir-style, já implementado em 29/01/2026)
+- ✅ Escape Sequences (completo, já implementado em 29/01/2026)
+
+**Próximo:** v1.2 - Documentation & Advanced Strings
 
 ---
 
