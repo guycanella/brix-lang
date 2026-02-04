@@ -106,6 +106,7 @@ pub enum Token {
 
     // Atoms (ex: :ok, :error, :atom_name)
     // CRITICAL: Higher priority than Colon to match first!
+    // Note: Ranges with variables require space (start : end) to avoid conflict with atoms
     #[regex(r":[a-zA-Z_][a-zA-Z0-9_]*", priority = 4, callback = |lex| {
         let s = lex.slice();
         s[1..].to_string()  // Remove leading ':'

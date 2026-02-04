@@ -232,11 +232,11 @@ fn test_edge_atom_sequence() {
 
 #[test]
 fn test_edge_atom_without_space() {
-    // ":ok:error" should be TWO atoms if properly separated by whitespace in parser
-    // But lexer will see it as ":ok" + ":" + "error" since second : is not followed by letter immediately
+    // ":ok:error" tokenizes as two atoms (both start with : followed by letter)
+    // This is valid lexer behavior - atoms don't need space between them
+    // Note: For readability, prefer "[:ok, :error]" or ":ok :error"
     let mut lexer = Token::lexer(":ok:error");
     assert_eq!(lexer.next(), Some(Ok(Token::Atom("ok".to_string()))));
-    // After ":ok", we have ":error" which should be an atom
     assert_eq!(lexer.next(), Some(Ok(Token::Atom("error".to_string()))));
     assert_eq!(lexer.next(), None);
 }
