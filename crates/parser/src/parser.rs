@@ -705,10 +705,32 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
         let power = unary
             .clone()
             .then(just(Token::Pow).to(BinaryOp::Pow).then(unary).repeated())
-            .foldl(|lhs, (op, rhs)| Expr::Binary {
-                op,
-                lhs: Box::new(lhs),
-                rhs: Box::new(rhs),
+            .map(|(first, rest)| {
+                // Right-associative: build tree from right to left
+                // 2**3**4 should be 2**(3**4), not (2**3)**4
+                if rest.is_empty() {
+                    first
+                } else {
+                    // Collect all operands: [2, 3, 4] and all operators: [Pow, Pow]
+                    let mut operands = vec![first];
+                    let mut operators = vec![];
+                    for (op, expr) in rest {
+                        operators.push(op);
+                        operands.push(expr);
+                    }
+
+                    // Build from right to left
+                    let mut result = operands.pop().unwrap();
+                    while let Some(lhs) = operands.pop() {
+                        let op = operators.pop().unwrap();
+                        result = Expr::Binary {
+                            op,
+                            lhs: Box::new(lhs),
+                            rhs: Box::new(result),
+                        };
+                    }
+                    result
+                }
             })
             .boxed();
 
