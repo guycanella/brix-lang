@@ -191,7 +191,6 @@ fn test_left_associative_add() {
 }
 
 #[test]
-#[ignore = "Pow is currently LEFT-associative: 2**3**2 = (2**3)**2 = 64, not 2**(3**2) = 512"]
 fn test_right_associative_pow() {
     // 2 ** 3 ** 2 should be 2 ** (3 ** 2) = 2 ** 9 = 512
     let expr = parse_expr("2 ** 3 ** 2").unwrap();
