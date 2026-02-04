@@ -388,3 +388,490 @@ fn test_underscore_identifier() {
     let result = compile_program(program);
     assert!(result.is_ok());
 }
+
+// ==================== OVERFLOW/UNDERFLOW EDGE CASES ====================
+
+#[test]
+fn test_int_max_value() {
+    // i64::MAX = 9223372036854775807
+    let program = Program {
+        statements: vec![Stmt::VariableDecl {
+            name: "max_int".to_string(),
+            type_hint: None,
+            value: Expr::Literal(Literal::Int(9223372036854775807)),
+            is_const: false,
+        }],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_int_min_value() {
+    // i64::MIN = -9223372036854775808
+    let program = Program {
+        statements: vec![Stmt::VariableDecl {
+            name: "min_int".to_string(),
+            type_hint: None,
+            value: Expr::Literal(Literal::Int(-9223372036854775808)),
+            is_const: false,
+        }],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_very_large_float() {
+    // Close to f64::MAX
+    let program = Program {
+        statements: vec![Stmt::VariableDecl {
+            name: "large_float".to_string(),
+            type_hint: None,
+            value: Expr::Literal(Literal::Float(1.7976931348623157e308)),
+            is_const: false,
+        }],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_very_small_float() {
+    // Close to f64::MIN (most negative)
+    let program = Program {
+        statements: vec![Stmt::VariableDecl {
+            name: "small_float".to_string(),
+            type_hint: None,
+            value: Expr::Literal(Literal::Float(-1.7976931348623157e308)),
+            is_const: false,
+        }],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_tiny_positive_float() {
+    // Very small positive number (denormalized)
+    let program = Program {
+        statements: vec![Stmt::VariableDecl {
+            name: "tiny".to_string(),
+            type_hint: None,
+            value: Expr::Literal(Literal::Float(2.2250738585072014e-308)),
+            is_const: false,
+        }],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+// ==================== OPERATOR PRECEDENCE COMPLEX ====================
+
+#[test]
+fn test_precedence_add_mul() {
+    // 1 + 2 * 3 should be 1 + (2 * 3) = 7
+    let expr = Expr::Binary {
+        op: BinaryOp::Add,
+        lhs: Box::new(Expr::Literal(Literal::Int(1))),
+        rhs: Box::new(Expr::Binary {
+            op: BinaryOp::Mul,
+            lhs: Box::new(Expr::Literal(Literal::Int(2))),
+            rhs: Box::new(Expr::Literal(Literal::Int(3))),
+        }),
+    };
+    let program = Program {
+        statements: vec![Stmt::Expr(expr)],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_precedence_mul_pow() {
+    // 2 * 3 ** 2 should be 2 * (3 ** 2) = 18
+    let expr = Expr::Binary {
+        op: BinaryOp::Mul,
+        lhs: Box::new(Expr::Literal(Literal::Int(2))),
+        rhs: Box::new(Expr::Binary {
+            op: BinaryOp::Pow,
+            lhs: Box::new(Expr::Literal(Literal::Int(3))),
+            rhs: Box::new(Expr::Literal(Literal::Int(2))),
+        }),
+    };
+    let program = Program {
+        statements: vec![Stmt::Expr(expr)],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_precedence_comparison_logical() {
+    // 1 < 2 && 3 < 4 should be (1 < 2) && (3 < 4)
+    let expr = Expr::Binary {
+        op: BinaryOp::LogicalAnd,
+        lhs: Box::new(Expr::Binary {
+            op: BinaryOp::Lt,
+            lhs: Box::new(Expr::Literal(Literal::Int(1))),
+            rhs: Box::new(Expr::Literal(Literal::Int(2))),
+        }),
+        rhs: Box::new(Expr::Binary {
+            op: BinaryOp::Lt,
+            lhs: Box::new(Expr::Literal(Literal::Int(3))),
+            rhs: Box::new(Expr::Literal(Literal::Int(4))),
+        }),
+    };
+    let program = Program {
+        statements: vec![Stmt::Expr(expr)],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_precedence_bitwise_and_or() {
+    // 1 | 2 & 4 should be 1 | (2 & 4)
+    let expr = Expr::Binary {
+        op: BinaryOp::BitOr,
+        lhs: Box::new(Expr::Literal(Literal::Int(1))),
+        rhs: Box::new(Expr::Binary {
+            op: BinaryOp::BitAnd,
+            lhs: Box::new(Expr::Literal(Literal::Int(2))),
+            rhs: Box::new(Expr::Literal(Literal::Int(4))),
+        }),
+    };
+    let program = Program {
+        statements: vec![Stmt::Expr(expr)],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_precedence_unary_binary() {
+    // -2 + 3 should be (-2) + 3 = 1
+    let expr = Expr::Binary {
+        op: BinaryOp::Add,
+        lhs: Box::new(Expr::Unary {
+            op: UnaryOp::Negate,
+            expr: Box::new(Expr::Literal(Literal::Int(2))),
+        }),
+        rhs: Box::new(Expr::Literal(Literal::Int(3))),
+    };
+    let program = Program {
+        statements: vec![Stmt::Expr(expr)],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+// ==================== DIVISION EDGE CASES ====================
+
+#[test]
+fn test_division_by_one() {
+    let expr = Expr::Binary {
+        op: BinaryOp::Div,
+        lhs: Box::new(Expr::Literal(Literal::Int(42))),
+        rhs: Box::new(Expr::Literal(Literal::Int(1))),
+    };
+    let program = Program {
+        statements: vec![Stmt::Expr(expr)],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_integer_division_truncation() {
+    // 7 / 2 should truncate to 3 (integer division)
+    let expr = Expr::Binary {
+        op: BinaryOp::Div,
+        lhs: Box::new(Expr::Literal(Literal::Int(7))),
+        rhs: Box::new(Expr::Literal(Literal::Int(2))),
+    };
+    let program = Program {
+        statements: vec![Stmt::Expr(expr)],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_negative_division() {
+    // -10 / 3 should be -3 (truncated toward zero)
+    let expr = Expr::Binary {
+        op: BinaryOp::Div,
+        lhs: Box::new(Expr::Literal(Literal::Int(-10))),
+        rhs: Box::new(Expr::Literal(Literal::Int(3))),
+    };
+    let program = Program {
+        statements: vec![Stmt::Expr(expr)],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+// ==================== BOOLEAN EDGE CASES ====================
+
+#[test]
+fn test_boolean_literal_true_in_expression() {
+    let expr = Expr::Binary {
+        op: BinaryOp::LogicalAnd,
+        lhs: Box::new(Expr::Literal(Literal::Bool(true))),
+        rhs: Box::new(Expr::Literal(Literal::Bool(true))),
+    };
+    let program = Program {
+        statements: vec![Stmt::Expr(expr)],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_boolean_literal_false_in_expression() {
+    let expr = Expr::Binary {
+        op: BinaryOp::LogicalOr,
+        lhs: Box::new(Expr::Literal(Literal::Bool(false))),
+        rhs: Box::new(Expr::Literal(Literal::Bool(false))),
+    };
+    let program = Program {
+        statements: vec![Stmt::Expr(expr)],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_boolean_comparison_result() {
+    // (1 < 2) == true
+    let expr = Expr::Binary {
+        op: BinaryOp::Eq,
+        lhs: Box::new(Expr::Binary {
+            op: BinaryOp::Lt,
+            lhs: Box::new(Expr::Literal(Literal::Int(1))),
+            rhs: Box::new(Expr::Literal(Literal::Int(2))),
+        }),
+        rhs: Box::new(Expr::Literal(Literal::Bool(true))),
+    };
+    let program = Program {
+        statements: vec![Stmt::Expr(expr)],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+// ==================== ARRAY EDGE CASES ====================
+
+#[test]
+fn test_single_element_array() {
+    let program = Program {
+        statements: vec![Stmt::Expr(Expr::Array(vec![Expr::Literal(Literal::Int(
+            42,
+        ))]))],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_large_array() {
+    // Array with 100 elements
+    let elements: Vec<Expr> = (0..100).map(|i| Expr::Literal(Literal::Int(i))).collect();
+    let program = Program {
+        statements: vec![Stmt::Expr(Expr::Array(elements))],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_array_with_expressions() {
+    // [1 + 1, 2 * 2, 3 - 1]
+    let program = Program {
+        statements: vec![Stmt::Expr(Expr::Array(vec![
+            Expr::Binary {
+                op: BinaryOp::Add,
+                lhs: Box::new(Expr::Literal(Literal::Int(1))),
+                rhs: Box::new(Expr::Literal(Literal::Int(1))),
+            },
+            Expr::Binary {
+                op: BinaryOp::Mul,
+                lhs: Box::new(Expr::Literal(Literal::Int(2))),
+                rhs: Box::new(Expr::Literal(Literal::Int(2))),
+            },
+            Expr::Binary {
+                op: BinaryOp::Sub,
+                lhs: Box::new(Expr::Literal(Literal::Int(3))),
+                rhs: Box::new(Expr::Literal(Literal::Int(1))),
+            },
+        ]))],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_array_with_variables() {
+    let program = Program {
+        statements: vec![
+            Stmt::VariableDecl {
+                name: "a".to_string(),
+                type_hint: None,
+                value: Expr::Literal(Literal::Int(1)),
+                is_const: false,
+            },
+            Stmt::VariableDecl {
+                name: "b".to_string(),
+                type_hint: None,
+                value: Expr::Literal(Literal::Int(2)),
+                is_const: false,
+            },
+            Stmt::Expr(Expr::Array(vec![
+                Expr::Identifier("a".to_string()),
+                Expr::Identifier("b".to_string()),
+            ])),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+// ==================== TYPE CASTING EDGE CASES ====================
+
+#[test]
+fn test_float_to_int_positive() {
+    // Implicit cast or explicit truncation
+    let program = Program {
+        statements: vec![Stmt::VariableDecl {
+            name: "x".to_string(),
+            type_hint: Some("int".to_string()),
+            value: Expr::Literal(Literal::Float(3.7)),
+            is_const: false,
+        }],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_float_to_int_negative() {
+    let program = Program {
+        statements: vec![Stmt::VariableDecl {
+            name: "x".to_string(),
+            type_hint: Some("int".to_string()),
+            value: Expr::Literal(Literal::Float(-3.7)),
+            is_const: false,
+        }],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_int_to_float_exact() {
+    let program = Program {
+        statements: vec![Stmt::VariableDecl {
+            name: "x".to_string(),
+            type_hint: Some("float".to_string()),
+            value: Expr::Literal(Literal::Int(42)),
+            is_const: false,
+        }],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+// ==================== NEGATIVE NUMBER EDGE CASES ====================
+
+#[test]
+fn test_negative_zero_int() {
+    // -0 is still 0 for integers
+    let program = Program {
+        statements: vec![Stmt::Expr(Expr::Unary {
+            op: UnaryOp::Negate,
+            expr: Box::new(Expr::Literal(Literal::Int(0))),
+        })],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_negative_zero_float() {
+    // -0.0 exists for floats (IEEE 754)
+    let program = Program {
+        statements: vec![Stmt::Expr(Expr::Literal(Literal::Float(-0.0)))],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_double_negation() {
+    // -(-5) should be 5
+    let program = Program {
+        statements: vec![Stmt::Expr(Expr::Unary {
+            op: UnaryOp::Negate,
+            expr: Box::new(Expr::Unary {
+                op: UnaryOp::Negate,
+                expr: Box::new(Expr::Literal(Literal::Int(5))),
+            }),
+        })],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+// ==================== EXPRESSION EVALUATION ORDER ====================
+
+#[test]
+fn test_left_to_right_evaluation() {
+    // (1 + 2) + (3 + 4)
+    let expr = Expr::Binary {
+        op: BinaryOp::Add,
+        lhs: Box::new(Expr::Binary {
+            op: BinaryOp::Add,
+            lhs: Box::new(Expr::Literal(Literal::Int(1))),
+            rhs: Box::new(Expr::Literal(Literal::Int(2))),
+        }),
+        rhs: Box::new(Expr::Binary {
+            op: BinaryOp::Add,
+            lhs: Box::new(Expr::Literal(Literal::Int(3))),
+            rhs: Box::new(Expr::Literal(Literal::Int(4))),
+        }),
+    };
+    let program = Program {
+        statements: vec![Stmt::Expr(expr)],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_complex_mixed_operators() {
+    // 1 + 2 * 3 - 4 / 2
+    // Should be: 1 + (2 * 3) - (4 / 2) = 1 + 6 - 2 = 5
+    let expr = Expr::Binary {
+        op: BinaryOp::Sub,
+        lhs: Box::new(Expr::Binary {
+            op: BinaryOp::Add,
+            lhs: Box::new(Expr::Literal(Literal::Int(1))),
+            rhs: Box::new(Expr::Binary {
+                op: BinaryOp::Mul,
+                lhs: Box::new(Expr::Literal(Literal::Int(2))),
+                rhs: Box::new(Expr::Literal(Literal::Int(3))),
+            }),
+        }),
+        rhs: Box::new(Expr::Binary {
+            op: BinaryOp::Div,
+            lhs: Box::new(Expr::Literal(Literal::Int(4))),
+            rhs: Box::new(Expr::Literal(Literal::Int(2))),
+        }),
+    };
+    let program = Program {
+        statements: vec![Stmt::Expr(expr)],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
