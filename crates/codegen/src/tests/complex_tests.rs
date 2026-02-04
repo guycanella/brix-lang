@@ -375,3 +375,83 @@ fn test_complex_constructor() {
     let result = compile_program(program);
     assert!(result.is_ok());
 }
+
+// ==================== COMPLEX MATRIX ====================
+
+#[test]
+fn test_complex_matrix_from_eigvals() {
+    let program = Program {
+        statements: vec![
+            Stmt::Import {
+                module: "math".to_string(),
+                alias: None,
+            },
+            Stmt::VariableDecl {
+                name: "A".to_string(),
+                type_hint: None,
+                value: Expr::Array(vec![
+                    Expr::Literal(Literal::Float(1.0)),
+                    Expr::Literal(Literal::Float(2.0)),
+                    Expr::Literal(Literal::Float(3.0)),
+                    Expr::Literal(Literal::Float(4.0)),
+                ]),
+                is_const: false,
+            },
+            Stmt::VariableDecl {
+                name: "evals".to_string(),
+                type_hint: None,
+                value: Expr::Call {
+                    func: Box::new(Expr::FieldAccess {
+                        target: Box::new(Expr::Identifier("math".to_string())),
+                        field: "eigvals".to_string(),
+                    }),
+                    args: vec![Expr::Identifier("A".to_string())],
+                },
+                is_const: false,
+            },
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_complex_matrix_indexing() {
+    let program = Program {
+        statements: vec![
+            Stmt::Import {
+                module: "math".to_string(),
+                alias: None,
+            },
+            Stmt::VariableDecl {
+                name: "A".to_string(),
+                type_hint: None,
+                value: Expr::Array(vec![
+                    Expr::Literal(Literal::Float(1.0)),
+                    Expr::Literal(Literal::Float(2.0)),
+                    Expr::Literal(Literal::Float(3.0)),
+                    Expr::Literal(Literal::Float(4.0)),
+                ]),
+                is_const: false,
+            },
+            Stmt::VariableDecl {
+                name: "evals".to_string(),
+                type_hint: None,
+                value: Expr::Call {
+                    func: Box::new(Expr::FieldAccess {
+                        target: Box::new(Expr::Identifier("math".to_string())),
+                        field: "eigvals".to_string(),
+                    }),
+                    args: vec![Expr::Identifier("A".to_string())],
+                },
+                is_const: false,
+            },
+            Stmt::Expr(Expr::Index {
+                array: Box::new(Expr::Identifier("evals".to_string())),
+                indices: vec![Expr::Literal(Literal::Int(0))],
+            }),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
