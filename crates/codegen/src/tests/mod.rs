@@ -6,6 +6,7 @@ mod control_flow_tests;
 mod edge_cases;
 mod expr_tests;
 mod function_tests;
+mod integration_tests;
 mod matrix_tests;
 mod pattern_tests;
 mod stmt_tests;
