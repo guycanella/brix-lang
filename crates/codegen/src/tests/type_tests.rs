@@ -5,7 +5,7 @@
 
 use crate::Compiler;
 use inkwell::context::Context;
-use parser::ast::{Expr, Literal, Program, Stmt};
+use parser::ast::{BinaryOp, Expr, Literal, Program, Stmt};
 
 // Helper function to create a simple program with one statement
 fn make_program(stmt: Stmt) -> Program {
@@ -31,6 +31,15 @@ fn compile_program(program: Program) -> Result<String, String> {
     match result {
         Ok(ir) => Ok(ir),
         Err(_) => Err("Compilation panicked".to_string()),
+    }
+}
+
+// Helper function to create binary operations
+fn binary(op: BinaryOp, lhs: Expr, rhs: Expr) -> Expr {
+    Expr::Binary {
+        op,
+        lhs: Box::new(lhs),
+        rhs: Box::new(rhs),
     }
 }
 
@@ -341,3 +350,333 @@ fn test_bitwise_on_float_fails() {
         rhs: Box::new(Expr::Literal(Literal::Float(2.5))),
     };
 }
+
+// ==================== TYPE INFERENCE ADVANCED ====================
+
+#[test]
+fn test_inference_in_ternary() {
+    // var x := true ? 10 : 20;  // Should infer int
+    let program = Program {
+        statements: vec![Stmt::VariableDecl {
+            name: "x".to_string(),
+            type_hint: None,
+            value: Expr::Ternary {
+                condition: Box::new(Expr::Literal(Literal::Bool(true))),
+                then_expr: Box::new(Expr::Literal(Literal::Int(10))),
+                else_expr: Box::new(Expr::Literal(Literal::Int(20))),
+            },
+            is_const: false,
+        }],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_inference_in_binary_op() {
+    // var x := 5 + 3;  // Should infer int
+    let program = Program {
+        statements: vec![Stmt::VariableDecl {
+            name: "x".to_string(),
+            type_hint: None,
+            value: binary(
+                BinaryOp::Add,
+                Expr::Literal(Literal::Int(5)),
+                Expr::Literal(Literal::Int(3)),
+            ),
+            is_const: false,
+        }],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_inference_float_from_division() {
+    // var x := 10 / 3;  // Should be int division, result int
+    let program = Program {
+        statements: vec![Stmt::VariableDecl {
+            name: "x".to_string(),
+            type_hint: None,
+            value: binary(
+                BinaryOp::Div,
+                Expr::Literal(Literal::Int(10)),
+                Expr::Literal(Literal::Int(3)),
+            ),
+            is_const: false,
+        }],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_inference_from_comparison() {
+    // var x := 5 > 3;  // Should infer bool
+    let program = Program {
+        statements: vec![Stmt::VariableDecl {
+            name: "x".to_string(),
+            type_hint: None,
+            value: binary(
+                BinaryOp::Gt,
+                Expr::Literal(Literal::Int(5)),
+                Expr::Literal(Literal::Int(3)),
+            ),
+            is_const: false,
+        }],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_inference_from_logical_op() {
+    // var x := true && false;  // Should infer bool
+    let program = Program {
+        statements: vec![Stmt::VariableDecl {
+            name: "x".to_string(),
+            type_hint: None,
+            value: binary(
+                BinaryOp::LogicalAnd,
+                Expr::Literal(Literal::Bool(true)),
+                Expr::Literal(Literal::Bool(false)),
+            ),
+            is_const: false,
+        }],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_inference_from_unary_negate() {
+    // var x := -42;  // Should infer int
+    let program = Program {
+        statements: vec![Stmt::VariableDecl {
+            name: "x".to_string(),
+            type_hint: None,
+            value: Expr::Unary {
+                op: parser::ast::UnaryOp::Negate,
+                expr: Box::new(Expr::Literal(Literal::Int(42))),
+            },
+            is_const: false,
+        }],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+
+// ==================== CASTING EDGE CASES ====================
+
+#[test]
+fn test_float_to_int_truncate_positive() {
+    // var x: int := 3.9;  // Should truncate to 3
+    let program = Program {
+        statements: vec![Stmt::VariableDecl {
+            name: "x".to_string(),
+            type_hint: Some("int".to_string()),
+            value: Expr::Literal(Literal::Float(3.9)),
+            is_const: false,
+        }],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_float_to_int_truncate_negative() {
+    // var x: int := -3.9;  // Should truncate to -3
+    let program = Program {
+        statements: vec![Stmt::VariableDecl {
+            name: "x".to_string(),
+            type_hint: Some("int".to_string()),
+            value: Expr::Literal(Literal::Float(-3.9)),
+            is_const: false,
+        }],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_int_to_float_exact() {
+    // var x: float := 42;  // Should convert to 42.0
+    let program = Program {
+        statements: vec![Stmt::VariableDecl {
+            name: "x".to_string(),
+            type_hint: Some("float".to_string()),
+            value: Expr::Literal(Literal::Int(42)),
+            is_const: false,
+        }],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_auto_promotion_in_mixed_operation() {
+    // var x := 5 + 2.5;  // int + float -> float
+    let program = Program {
+        statements: vec![Stmt::VariableDecl {
+            name: "x".to_string(),
+            type_hint: None,
+            value: binary(
+                BinaryOp::Add,
+                Expr::Literal(Literal::Int(5)),
+                Expr::Literal(Literal::Float(2.5)),
+            ),
+            is_const: false,
+        }],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_auto_promotion_in_multiplication() {
+    // var x := 3 * 1.5;  // int * float -> float
+    let program = Program {
+        statements: vec![Stmt::VariableDecl {
+            name: "x".to_string(),
+            type_hint: None,
+            value: binary(
+                BinaryOp::Mul,
+                Expr::Literal(Literal::Int(3)),
+                Expr::Literal(Literal::Float(1.5)),
+            ),
+            is_const: false,
+        }],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_cast_zero() {
+    // var x: float := 0;  // Cast int 0 to float 0.0
+    let program = Program {
+        statements: vec![Stmt::VariableDecl {
+            name: "x".to_string(),
+            type_hint: Some("float".to_string()),
+            value: Expr::Literal(Literal::Int(0)),
+            is_const: false,
+        }],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+
+// ==================== NUMERIC EDGE CASES ====================
+
+#[test]
+fn test_very_large_int() {
+    // var x := 9223372036854775807;  // i64::MAX
+    let program = Program {
+        statements: vec![Stmt::VariableDecl {
+            name: "x".to_string(),
+            type_hint: None,
+            value: Expr::Literal(Literal::Int(9223372036854775807)),
+            is_const: false,
+        }],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_very_small_int() {
+    // var x := -9223372036854775808;  // i64::MIN
+    let program = Program {
+        statements: vec![Stmt::VariableDecl {
+            name: "x".to_string(),
+            type_hint: None,
+            value: Expr::Literal(Literal::Int(-9223372036854775808)),
+            is_const: false,
+        }],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_very_large_float() {
+    // var x := 1e308;  // Very large float
+    let program = Program {
+        statements: vec![Stmt::VariableDecl {
+            name: "x".to_string(),
+            type_hint: None,
+            value: Expr::Literal(Literal::Float(1e308)),
+            is_const: false,
+        }],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_very_small_float() {
+    // var x := 1e-308;  // Very small positive float
+    let program = Program {
+        statements: vec![Stmt::VariableDecl {
+            name: "x".to_string(),
+            type_hint: None,
+            value: Expr::Literal(Literal::Float(1e-308)),
+            is_const: false,
+        }],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_float_zero_positive() {
+    // var x := 0.0;
+    let program = Program {
+        statements: vec![Stmt::VariableDecl {
+            name: "x".to_string(),
+            type_hint: None,
+            value: Expr::Literal(Literal::Float(0.0)),
+            is_const: false,
+        }],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_float_negative_zero() {
+    // var x := -0.0;
+    let program = Program {
+        statements: vec![Stmt::VariableDecl {
+            name: "x".to_string(),
+            type_hint: None,
+            value: Expr::Literal(Literal::Float(-0.0)),
+            is_const: false,
+        }],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_division_by_int_zero() {
+    // var x := 10 / 0;  // Division by zero (compiles, runtime behavior undefined)
+    let program = Program {
+        statements: vec![Stmt::VariableDecl {
+            name: "x".to_string(),
+            type_hint: None,
+            value: binary(
+                BinaryOp::Div,
+                Expr::Literal(Literal::Int(10)),
+                Expr::Literal(Literal::Int(0)),
+            ),
+            is_const: false,
+        }],
+    };
+    let result = compile_program(program);
+    // Should compile (runtime error is OK)
+    assert!(result.is_ok());
+}
+
