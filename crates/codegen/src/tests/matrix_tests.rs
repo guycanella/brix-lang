@@ -1039,3 +1039,519 @@ fn test_zip_with_zeros() {
     let result = compile_program(program);
     assert!(result.is_ok());
 }
+
+// ==================== EYE FUNCTION ADVANCED ====================
+
+#[test]
+fn test_eye_indexing() {
+    let program = Program {
+        statements: vec![
+            Stmt::VariableDecl {
+                name: "identity".to_string(),
+                type_hint: None,
+                value: Expr::Call {
+                    func: Box::new(Expr::Identifier("eye".to_string())),
+                    args: vec![Expr::Literal(Literal::Int(3))],
+                },
+                is_const: false,
+            },
+            Stmt::Expr(Expr::Index {
+                array: Box::new(Expr::Identifier("identity".to_string())),
+                indices: vec![
+                    Expr::Literal(Literal::Int(0)),
+                    Expr::Literal(Literal::Int(0)),
+                ],
+            }),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_eye_field_access() {
+    let program = Program {
+        statements: vec![
+            Stmt::VariableDecl {
+                name: "identity".to_string(),
+                type_hint: None,
+                value: Expr::Call {
+                    func: Box::new(Expr::Identifier("eye".to_string())),
+                    args: vec![Expr::Literal(Literal::Int(5))],
+                },
+                is_const: false,
+            },
+            Stmt::Expr(Expr::FieldAccess {
+                target: Box::new(Expr::Identifier("identity".to_string())),
+                field: "rows".to_string(),
+            }),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_eye_with_variable() {
+    let program = Program {
+        statements: vec![
+            Stmt::VariableDecl {
+                name: "n".to_string(),
+                type_hint: None,
+                value: Expr::Literal(Literal::Int(4)),
+                is_const: false,
+            },
+            Stmt::Expr(Expr::Call {
+                func: Box::new(Expr::Identifier("eye".to_string())),
+                args: vec![Expr::Identifier("n".to_string())],
+            }),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+// ==================== INDEXING EDGE CASES ====================
+
+#[test]
+fn test_index_with_max_int() {
+    let program = Program {
+        statements: vec![
+            Stmt::VariableDecl {
+                name: "arr".to_string(),
+                type_hint: None,
+                value: Expr::Call {
+                    func: Box::new(Expr::Identifier("zeros".to_string())),
+                    args: vec![Expr::Literal(Literal::Int(10))],
+                },
+                is_const: false,
+            },
+            Stmt::Expr(Expr::Index {
+                array: Box::new(Expr::Identifier("arr".to_string())),
+                indices: vec![Expr::Literal(Literal::Int(9))],
+            }),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_index_zero() {
+    let program = Program {
+        statements: vec![
+            Stmt::VariableDecl {
+                name: "arr".to_string(),
+                type_hint: None,
+                value: Expr::Array(vec![
+                    Expr::Literal(Literal::Float(1.0)),
+                    Expr::Literal(Literal::Float(2.0)),
+                ]),
+                is_const: false,
+            },
+            Stmt::Expr(Expr::Index {
+                array: Box::new(Expr::Identifier("arr".to_string())),
+                indices: vec![Expr::Literal(Literal::Int(0))],
+            }),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_2d_index_both_zero() {
+    let program = Program {
+        statements: vec![
+            Stmt::VariableDecl {
+                name: "mat".to_string(),
+                type_hint: None,
+                value: Expr::Call {
+                    func: Box::new(Expr::Identifier("zeros".to_string())),
+                    args: vec![
+                        Expr::Literal(Literal::Int(2)),
+                        Expr::Literal(Literal::Int(2)),
+                    ],
+                },
+                is_const: false,
+            },
+            Stmt::Expr(Expr::Index {
+                array: Box::new(Expr::Identifier("mat".to_string())),
+                indices: vec![
+                    Expr::Literal(Literal::Int(0)),
+                    Expr::Literal(Literal::Int(0)),
+                ],
+            }),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_index_complex_expression() {
+    let program = Program {
+        statements: vec![
+            Stmt::VariableDecl {
+                name: "arr".to_string(),
+                type_hint: None,
+                value: Expr::Call {
+                    func: Box::new(Expr::Identifier("zeros".to_string())),
+                    args: vec![Expr::Literal(Literal::Int(20))],
+                },
+                is_const: false,
+            },
+            Stmt::VariableDecl {
+                name: "i".to_string(),
+                type_hint: None,
+                value: Expr::Literal(Literal::Int(3)),
+                is_const: false,
+            },
+            Stmt::Expr(Expr::Index {
+                array: Box::new(Expr::Identifier("arr".to_string())),
+                indices: vec![Expr::Binary {
+                    op: parser::ast::BinaryOp::Mul,
+                    lhs: Box::new(Expr::Identifier("i".to_string())),
+                    rhs: Box::new(Expr::Literal(Literal::Int(2))),
+                }],
+            }),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+// ==================== MATRIX/INTMATRIX INTEROPERABILITY ====================
+
+#[test]
+#[ignore = "IntMatrix to Matrix automatic promotion in mixed operations not yet implemented"]
+fn test_intmatrix_to_matrix_promotion() {
+    // IntMatrix promoted to Matrix in mixed operations
+    let program = Program {
+        statements: vec![
+            Stmt::VariableDecl {
+                name: "iarr".to_string(),
+                type_hint: None,
+                value: Expr::Array(vec![
+                    Expr::Literal(Literal::Int(1)),
+                    Expr::Literal(Literal::Int(2)),
+                ]),
+                is_const: false,
+            },
+            Stmt::VariableDecl {
+                name: "result".to_string(),
+                type_hint: None,
+                value: Expr::Binary {
+                    op: parser::ast::BinaryOp::Mul,
+                    lhs: Box::new(Expr::Identifier("iarr".to_string())),
+                    rhs: Box::new(Expr::Literal(Literal::Float(2.5))),
+                },
+                is_const: false,
+            },
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_intmatrix_index_returns_int() {
+    let program = Program {
+        statements: vec![
+            Stmt::VariableDecl {
+                name: "iarr".to_string(),
+                type_hint: None,
+                value: Expr::Array(vec![
+                    Expr::Literal(Literal::Int(10)),
+                    Expr::Literal(Literal::Int(20)),
+                    Expr::Literal(Literal::Int(30)),
+                ]),
+                is_const: false,
+            },
+            Stmt::VariableDecl {
+                name: "val".to_string(),
+                type_hint: None,
+                value: Expr::Index {
+                    array: Box::new(Expr::Identifier("iarr".to_string())),
+                    indices: vec![Expr::Literal(Literal::Int(1))],
+                },
+                is_const: false,
+            },
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_mixed_array_types_in_comprehension() {
+    let program = Program {
+        statements: vec![
+            Stmt::VariableDecl {
+                name: "ints".to_string(),
+                type_hint: None,
+                value: Expr::Array(vec![
+                    Expr::Literal(Literal::Int(1)),
+                    Expr::Literal(Literal::Int(2)),
+                    Expr::Literal(Literal::Int(3)),
+                ]),
+                is_const: false,
+            },
+            Stmt::Expr(Expr::ListComprehension {
+                expr: Box::new(Expr::Binary {
+                    op: parser::ast::BinaryOp::Mul,
+                    lhs: Box::new(Expr::Identifier("x".to_string())),
+                    rhs: Box::new(Expr::Literal(Literal::Float(1.5))),
+                }),
+                generators: vec![parser::ast::ComprehensionGen {
+                    var_names: vec!["x".to_string()],
+                    iterable: Box::new(Expr::Identifier("ints".to_string())),
+                    conditions: vec![],
+                }],
+            }),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+// ==================== ARRAY OPERATIONS ADVANCED ====================
+
+#[test]
+fn test_array_in_variable_then_index() {
+    let program = Program {
+        statements: vec![
+            Stmt::VariableDecl {
+                name: "data".to_string(),
+                type_hint: None,
+                value: Expr::Array(vec![
+                    Expr::Literal(Literal::Float(1.1)),
+                    Expr::Literal(Literal::Float(2.2)),
+                    Expr::Literal(Literal::Float(3.3)),
+                ]),
+                is_const: false,
+            },
+            Stmt::VariableDecl {
+                name: "first".to_string(),
+                type_hint: None,
+                value: Expr::Index {
+                    array: Box::new(Expr::Identifier("data".to_string())),
+                    indices: vec![Expr::Literal(Literal::Int(0))],
+                },
+                is_const: false,
+            },
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_zeros_then_multiple_assignments() {
+    let program = Program {
+        statements: vec![
+            Stmt::VariableDecl {
+                name: "arr".to_string(),
+                type_hint: None,
+                value: Expr::Call {
+                    func: Box::new(Expr::Identifier("zeros".to_string())),
+                    args: vec![Expr::Literal(Literal::Int(3))],
+                },
+                is_const: false,
+            },
+            Stmt::Assignment {
+                target: Expr::Index {
+                    array: Box::new(Expr::Identifier("arr".to_string())),
+                    indices: vec![Expr::Literal(Literal::Int(0))],
+                },
+                value: Expr::Literal(Literal::Float(1.0)),
+            },
+            Stmt::Assignment {
+                target: Expr::Index {
+                    array: Box::new(Expr::Identifier("arr".to_string())),
+                    indices: vec![Expr::Literal(Literal::Int(1))],
+                },
+                value: Expr::Literal(Literal::Float(2.0)),
+            },
+            Stmt::Assignment {
+                target: Expr::Index {
+                    array: Box::new(Expr::Identifier("arr".to_string())),
+                    indices: vec![Expr::Literal(Literal::Int(2))],
+                },
+                value: Expr::Literal(Literal::Float(3.0)),
+            },
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_array_element_in_expression() {
+    let program = Program {
+        statements: vec![
+            Stmt::VariableDecl {
+                name: "nums".to_string(),
+                type_hint: None,
+                value: Expr::Array(vec![
+                    Expr::Literal(Literal::Int(5)),
+                    Expr::Literal(Literal::Int(10)),
+                    Expr::Literal(Literal::Int(15)),
+                ]),
+                is_const: false,
+            },
+            Stmt::VariableDecl {
+                name: "sum".to_string(),
+                type_hint: None,
+                value: Expr::Binary {
+                    op: parser::ast::BinaryOp::Add,
+                    lhs: Box::new(Expr::Index {
+                        array: Box::new(Expr::Identifier("nums".to_string())),
+                        indices: vec![Expr::Literal(Literal::Int(0))],
+                    }),
+                    rhs: Box::new(Expr::Index {
+                        array: Box::new(Expr::Identifier("nums".to_string())),
+                        indices: vec![Expr::Literal(Literal::Int(1))],
+                    }),
+                },
+                is_const: false,
+            },
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_matrix_element_in_ternary() {
+    let program = Program {
+        statements: vec![
+            Stmt::VariableDecl {
+                name: "arr".to_string(),
+                type_hint: None,
+                value: Expr::Array(vec![
+                    Expr::Literal(Literal::Float(5.0)),
+                    Expr::Literal(Literal::Float(10.0)),
+                ]),
+                is_const: false,
+            },
+            Stmt::VariableDecl {
+                name: "val".to_string(),
+                type_hint: None,
+                value: Expr::Ternary {
+                    condition: Box::new(Expr::Binary {
+                        op: parser::ast::BinaryOp::Gt,
+                        lhs: Box::new(Expr::Index {
+                            array: Box::new(Expr::Identifier("arr".to_string())),
+                            indices: vec![Expr::Literal(Literal::Int(0))],
+                        }),
+                        rhs: Box::new(Expr::Literal(Literal::Float(3.0))),
+                    }),
+                    then_expr: Box::new(Expr::Index {
+                        array: Box::new(Expr::Identifier("arr".to_string())),
+                        indices: vec![Expr::Literal(Literal::Int(0))],
+                    }),
+                    else_expr: Box::new(Expr::Index {
+                        array: Box::new(Expr::Identifier("arr".to_string())),
+                        indices: vec![Expr::Literal(Literal::Int(1))],
+                    }),
+                },
+                is_const: false,
+            },
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_array_from_function_call_then_index() {
+    let program = Program {
+        statements: vec![
+            Stmt::VariableDecl {
+                name: "z".to_string(),
+                type_hint: None,
+                value: Expr::Index {
+                    array: Box::new(Expr::Call {
+                        func: Box::new(Expr::Identifier("zeros".to_string())),
+                        args: vec![Expr::Literal(Literal::Int(5))],
+                    }),
+                    indices: vec![Expr::Literal(Literal::Int(2))],
+                },
+                is_const: false,
+            },
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+// ==================== CONSTRUCTOR EDGE CASES ====================
+
+#[test]
+fn test_zeros_from_variable_expression() {
+    let program = Program {
+        statements: vec![
+            Stmt::VariableDecl {
+                name: "size".to_string(),
+                type_hint: None,
+                value: Expr::Literal(Literal::Int(10)),
+                is_const: false,
+            },
+            Stmt::Expr(Expr::Call {
+                func: Box::new(Expr::Identifier("zeros".to_string())),
+                args: vec![Expr::Binary {
+                    op: parser::ast::BinaryOp::Div,
+                    lhs: Box::new(Expr::Identifier("size".to_string())),
+                    rhs: Box::new(Expr::Literal(Literal::Int(2))),
+                }],
+            }),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_eye_size_from_expression() {
+    let program = Program {
+        statements: vec![Stmt::Expr(Expr::Call {
+            func: Box::new(Expr::Identifier("eye".to_string())),
+            args: vec![Expr::Binary {
+                op: parser::ast::BinaryOp::Add,
+                lhs: Box::new(Expr::Literal(Literal::Int(2))),
+                rhs: Box::new(Expr::Literal(Literal::Int(1))),
+            }],
+        })],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_nested_zeros_calls() {
+    let program = Program {
+        statements: vec![
+            Stmt::VariableDecl {
+                name: "a".to_string(),
+                type_hint: None,
+                value: Expr::Call {
+                    func: Box::new(Expr::Identifier("zeros".to_string())),
+                    args: vec![Expr::Literal(Literal::Int(5))],
+                },
+                is_const: false,
+            },
+            Stmt::VariableDecl {
+                name: "b".to_string(),
+                type_hint: None,
+                value: Expr::Call {
+                    func: Box::new(Expr::Identifier("zeros".to_string())),
+                    args: vec![Expr::Literal(Literal::Int(3))],
+                },
+                is_const: false,
+            },
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
