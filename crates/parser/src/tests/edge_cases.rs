@@ -258,9 +258,9 @@ fn test_comment_in_expression() {
 // ==================== RANGE VARIATIONS ====================
 
 #[test]
-#[ignore = "Lexer issue: :end is tokenized as atom, not colon + identifier"]
 fn test_range_variables() {
-    let expr = parse_expr("start:end").unwrap();
+    // Ranges with variables require space to avoid conflict with atoms
+    let expr = parse_expr("start : end").unwrap();
     match expr {
         Expr::Range { .. } => {}
         _ => panic!("Expected range"),

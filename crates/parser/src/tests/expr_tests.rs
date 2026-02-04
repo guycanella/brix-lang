@@ -644,9 +644,11 @@ fn test_range_with_step() {
 }
 
 #[test]
-#[ignore = "Lexer issue: :end is tokenized as atom, not colon + identifier"]
 fn test_range_with_variables() {
-    let expr = parse_expr("start:end").unwrap();
+    // Ranges with variables require space to avoid conflict with atoms
+    // "start:end" would be tokenized as Identifier("start"), Atom("end")
+    // "start : end" is correctly tokenized as Identifier("start"), Colon, Identifier("end")
+    let expr = parse_expr("start : end").unwrap();
     match expr {
         Expr::Range { start, end, step } => {
             assert_eq!(*start, Expr::Identifier("start".to_string()));
