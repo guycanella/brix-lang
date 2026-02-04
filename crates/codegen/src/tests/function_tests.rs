@@ -1272,3 +1272,816 @@ fn test_recursive_nested_calls() {
     let result = compile_program(program);
     assert!(result.is_ok());
 }
+
+// ==================== SCOPING ====================
+
+#[test]
+fn test_local_shadows_global() {
+    // var x := 10;
+    // fn test() -> int {
+    //     var x := 20;  // Shadows global x
+    //     return x;
+    // }
+    // test()  // Should return 20, not 10
+    let program = Program {
+        statements: vec![
+            Stmt::VariableDecl {
+                name: "x".to_string(),
+                type_hint: None,
+                value: Expr::Literal(Literal::Int(10)),
+                is_const: false,
+            },
+            Stmt::FunctionDef {
+                name: "test".to_string(),
+                params: vec![],
+                return_type: Some(vec!["int".to_string()]),
+                body: Box::new(Stmt::Block(vec![
+                    Stmt::VariableDecl {
+                        name: "x".to_string(),
+                        type_hint: None,
+                        value: Expr::Literal(Literal::Int(20)),
+                        is_const: false,
+                    },
+                    Stmt::Return {
+                        values: vec![Expr::Identifier("x".to_string())],
+                    },
+                ])),
+            },
+            Stmt::Expr(Expr::Call {
+                func: Box::new(Expr::Identifier("test".to_string())),
+                args: vec![],
+            }),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_param_shadows_global() {
+    // var x := 10;
+    // fn test(x: int) -> int {  // Parameter x shadows global x
+    //     return x;
+    // }
+    // test(20)  // Should return 20
+    let program = Program {
+        statements: vec![
+            Stmt::VariableDecl {
+                name: "x".to_string(),
+                type_hint: None,
+                value: Expr::Literal(Literal::Int(10)),
+                is_const: false,
+            },
+            Stmt::FunctionDef {
+                name: "test".to_string(),
+                params: vec![("x".to_string(), "int".to_string(), None)],
+                return_type: Some(vec!["int".to_string()]),
+                body: Box::new(Stmt::Block(vec![Stmt::Return {
+                    values: vec![Expr::Identifier("x".to_string())],
+                }])),
+            },
+            Stmt::Expr(Expr::Call {
+                func: Box::new(Expr::Identifier("test".to_string())),
+                args: vec![Expr::Literal(Literal::Int(20))],
+            }),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_access_global_from_function() {
+    // var global := 42;
+    // fn get_global() -> int {
+    //     return global;
+    // }
+    // get_global()  // Should return 42
+    let program = Program {
+        statements: vec![
+            Stmt::VariableDecl {
+                name: "global".to_string(),
+                type_hint: None,
+                value: Expr::Literal(Literal::Int(42)),
+                is_const: false,
+            },
+            Stmt::FunctionDef {
+                name: "get_global".to_string(),
+                params: vec![],
+                return_type: Some(vec!["int".to_string()]),
+                body: Box::new(Stmt::Block(vec![Stmt::Return {
+                    values: vec![Expr::Identifier("global".to_string())],
+                }])),
+            },
+            Stmt::Expr(Expr::Call {
+                func: Box::new(Expr::Identifier("get_global".to_string())),
+                args: vec![],
+            }),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_local_shadows_param() {
+    // fn test(x: int) -> int {
+    //     var x := 100;  // Shadows parameter
+    //     return x;
+    // }
+    // test(50)  // Should return 100
+    let program = Program {
+        statements: vec![
+            Stmt::FunctionDef {
+                name: "test".to_string(),
+                params: vec![("x".to_string(), "int".to_string(), None)],
+                return_type: Some(vec!["int".to_string()]),
+                body: Box::new(Stmt::Block(vec![
+                    Stmt::VariableDecl {
+                        name: "x".to_string(),
+                        type_hint: None,
+                        value: Expr::Literal(Literal::Int(100)),
+                        is_const: false,
+                    },
+                    Stmt::Return {
+                        values: vec![Expr::Identifier("x".to_string())],
+                    },
+                ])),
+            },
+            Stmt::Expr(Expr::Call {
+                func: Box::new(Expr::Identifier("test".to_string())),
+                args: vec![Expr::Literal(Literal::Int(50))],
+            }),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_multiple_functions_same_local_name() {
+    // fn func1() -> int {
+    //     var x := 10;
+    //     return x;
+    // }
+    // fn func2() -> int {
+    //     var x := 20;  // Different x, different scope
+    //     return x;
+    // }
+    // func1() + func2()
+    let program = Program {
+        statements: vec![
+            Stmt::FunctionDef {
+                name: "func1".to_string(),
+                params: vec![],
+                return_type: Some(vec!["int".to_string()]),
+                body: Box::new(Stmt::Block(vec![
+                    Stmt::VariableDecl {
+                        name: "x".to_string(),
+                        type_hint: None,
+                        value: Expr::Literal(Literal::Int(10)),
+                        is_const: false,
+                    },
+                    Stmt::Return {
+                        values: vec![Expr::Identifier("x".to_string())],
+                    },
+                ])),
+            },
+            Stmt::FunctionDef {
+                name: "func2".to_string(),
+                params: vec![],
+                return_type: Some(vec!["int".to_string()]),
+                body: Box::new(Stmt::Block(vec![
+                    Stmt::VariableDecl {
+                        name: "x".to_string(),
+                        type_hint: None,
+                        value: Expr::Literal(Literal::Int(20)),
+                        is_const: false,
+                    },
+                    Stmt::Return {
+                        values: vec![Expr::Identifier("x".to_string())],
+                    },
+                ])),
+            },
+            Stmt::Expr(binary(
+                BinaryOp::Add,
+                Expr::Call {
+                    func: Box::new(Expr::Identifier("func1".to_string())),
+                    args: vec![],
+                },
+                Expr::Call {
+                    func: Box::new(Expr::Identifier("func2".to_string())),
+                    args: vec![],
+                },
+            )),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_shadowing_with_different_types() {
+    // var x := 10;  // int
+    // fn test() -> float {
+    //     var x := 3.14;  // float, shadows int x
+    //     return x;
+    // }
+    let program = Program {
+        statements: vec![
+            Stmt::VariableDecl {
+                name: "x".to_string(),
+                type_hint: None,
+                value: Expr::Literal(Literal::Int(10)),
+                is_const: false,
+            },
+            Stmt::FunctionDef {
+                name: "test".to_string(),
+                params: vec![],
+                return_type: Some(vec!["float".to_string()]),
+                body: Box::new(Stmt::Block(vec![
+                    Stmt::VariableDecl {
+                        name: "x".to_string(),
+                        type_hint: None,
+                        value: Expr::Literal(Literal::Float(3.14)),
+                        is_const: false,
+                    },
+                    Stmt::Return {
+                        values: vec![Expr::Identifier("x".to_string())],
+                    },
+                ])),
+            },
+            Stmt::Expr(Expr::Call {
+                func: Box::new(Expr::Identifier("test".to_string())),
+                args: vec![],
+            }),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_function_modifies_global() {
+    // var counter := 0;
+    // fn increment() -> int {
+    //     counter = counter + 1;
+    //     return counter;
+    // }
+    // increment()
+    let program = Program {
+        statements: vec![
+            Stmt::VariableDecl {
+                name: "counter".to_string(),
+                type_hint: None,
+                value: Expr::Literal(Literal::Int(0)),
+                is_const: false,
+            },
+            Stmt::FunctionDef {
+                name: "increment".to_string(),
+                params: vec![],
+                return_type: Some(vec!["int".to_string()]),
+                body: Box::new(Stmt::Block(vec![
+                    Stmt::Assignment {
+                        target: Expr::Identifier("counter".to_string()),
+                        value: binary(
+                            BinaryOp::Add,
+                            Expr::Identifier("counter".to_string()),
+                            Expr::Literal(Literal::Int(1)),
+                        ),
+                    },
+                    Stmt::Return {
+                        values: vec![Expr::Identifier("counter".to_string())],
+                    },
+                ])),
+            },
+            Stmt::Expr(Expr::Call {
+                func: Box::new(Expr::Identifier("increment".to_string())),
+                args: vec![],
+            }),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_nested_scopes_in_blocks() {
+    // fn test() -> int {
+    //     var x := 1;
+    //     if true {
+    //         var x := 2;  // Shadows outer x in block
+    //         return x;
+    //     }
+    //     return x;
+    // }
+    let program = Program {
+        statements: vec![Stmt::FunctionDef {
+            name: "test".to_string(),
+            params: vec![],
+            return_type: Some(vec!["int".to_string()]),
+            body: Box::new(Stmt::Block(vec![
+                Stmt::VariableDecl {
+                    name: "x".to_string(),
+                    type_hint: None,
+                    value: Expr::Literal(Literal::Int(1)),
+                    is_const: false,
+                },
+                Stmt::If {
+                    condition: Expr::Literal(Literal::Bool(true)),
+                    then_block: Box::new(Stmt::Block(vec![
+                        Stmt::VariableDecl {
+                            name: "x".to_string(),
+                            type_hint: None,
+                            value: Expr::Literal(Literal::Int(2)),
+                            is_const: false,
+                        },
+                        Stmt::Return {
+                            values: vec![Expr::Identifier("x".to_string())],
+                        },
+                    ])),
+                    else_block: None,
+                },
+                Stmt::Return {
+                    values: vec![Expr::Identifier("x".to_string())],
+                },
+            ])),
+        }],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_param_access_in_nested_calls() {
+    // fn outer(x: int) -> int {
+    //     fn inner() -> int {  // Can access x from outer? (depends on implementation)
+    //         return x + 1;
+    //     }
+    //     return inner();
+    // }
+    // For now, just test that params are accessible within their function
+    let program = Program {
+        statements: vec![
+            Stmt::FunctionDef {
+                name: "outer".to_string(),
+                params: vec![("x".to_string(), "int".to_string(), None)],
+                return_type: Some(vec!["int".to_string()]),
+                body: Box::new(Stmt::Block(vec![Stmt::Return {
+                    values: vec![binary(
+                        BinaryOp::Add,
+                        Expr::Identifier("x".to_string()),
+                        Expr::Literal(Literal::Int(1)),
+                    )],
+                }])),
+            },
+            Stmt::Expr(Expr::Call {
+                func: Box::new(Expr::Identifier("outer".to_string())),
+                args: vec![Expr::Literal(Literal::Int(5))],
+            }),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_multiple_params_same_name_different_functions() {
+    // fn add(x: int) -> int { return x + 1; }
+    // fn mul(x: int) -> int { return x * 2; }
+    // Each function has its own 'x' parameter
+    let program = Program {
+        statements: vec![
+            Stmt::FunctionDef {
+                name: "add".to_string(),
+                params: vec![("x".to_string(), "int".to_string(), None)],
+                return_type: Some(vec!["int".to_string()]),
+                body: Box::new(Stmt::Block(vec![Stmt::Return {
+                    values: vec![binary(
+                        BinaryOp::Add,
+                        Expr::Identifier("x".to_string()),
+                        Expr::Literal(Literal::Int(1)),
+                    )],
+                }])),
+            },
+            Stmt::FunctionDef {
+                name: "mul".to_string(),
+                params: vec![("x".to_string(), "int".to_string(), None)],
+                return_type: Some(vec!["int".to_string()]),
+                body: Box::new(Stmt::Block(vec![Stmt::Return {
+                    values: vec![binary(
+                        BinaryOp::Mul,
+                        Expr::Identifier("x".to_string()),
+                        Expr::Literal(Literal::Int(2)),
+                    )],
+                }])),
+            },
+            Stmt::Expr(binary(
+                BinaryOp::Add,
+                Expr::Call {
+                    func: Box::new(Expr::Identifier("add".to_string())),
+                    args: vec![Expr::Literal(Literal::Int(5))],
+                },
+                Expr::Call {
+                    func: Box::new(Expr::Identifier("mul".to_string())),
+                    args: vec![Expr::Literal(Literal::Int(3))],
+                },
+            )),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+// ==================== FUNCTION EDGE CASES ====================
+
+#[test]
+fn test_function_no_return_void() {
+    // fn do_nothing() -> void { }
+    // do_nothing()
+    let program = Program {
+        statements: vec![
+            Stmt::FunctionDef {
+                name: "do_nothing".to_string(),
+                params: vec![],
+                return_type: None, // void function
+                body: Box::new(Stmt::Block(vec![])), // empty body
+            },
+            Stmt::Expr(Expr::Call {
+                func: Box::new(Expr::Identifier("do_nothing".to_string())),
+                args: vec![],
+            }),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_function_early_return() {
+    // fn early(x: int) -> int {
+    //     if x > 10 { return 100; }
+    //     return x;
+    // }
+    let program = Program {
+        statements: vec![
+            Stmt::FunctionDef {
+                name: "early".to_string(),
+                params: vec![("x".to_string(), "int".to_string(), None)],
+                return_type: Some(vec!["int".to_string()]),
+                body: Box::new(Stmt::Block(vec![
+                    Stmt::If {
+                        condition: binary(
+                            BinaryOp::Gt,
+                            Expr::Identifier("x".to_string()),
+                            Expr::Literal(Literal::Int(10)),
+                        ),
+                        then_block: Box::new(Stmt::Block(vec![Stmt::Return {
+                            values: vec![Expr::Literal(Literal::Int(100))],
+                        }])),
+                        else_block: None,
+                    },
+                    Stmt::Return {
+                        values: vec![Expr::Identifier("x".to_string())],
+                    },
+                ])),
+            },
+            Stmt::Expr(Expr::Call {
+                func: Box::new(Expr::Identifier("early".to_string())),
+                args: vec![Expr::Literal(Literal::Int(15))],
+            }),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_function_return_in_if_else() {
+    // fn abs(x: int) -> int {
+    //     if x < 0 { return -x; }
+    //     else { return x; }
+    // }
+    let program = Program {
+        statements: vec![
+            Stmt::FunctionDef {
+                name: "abs".to_string(),
+                params: vec![("x".to_string(), "int".to_string(), None)],
+                return_type: Some(vec!["int".to_string()]),
+                body: Box::new(Stmt::Block(vec![Stmt::If {
+                    condition: binary(
+                        BinaryOp::Lt,
+                        Expr::Identifier("x".to_string()),
+                        Expr::Literal(Literal::Int(0)),
+                    ),
+                    then_block: Box::new(Stmt::Block(vec![Stmt::Return {
+                        values: vec![Expr::Unary {
+                            op: parser::ast::UnaryOp::Negate,
+                            expr: Box::new(Expr::Identifier("x".to_string())),
+                        }],
+                    }])),
+                    else_block: Some(Box::new(Stmt::Block(vec![Stmt::Return {
+                        values: vec![Expr::Identifier("x".to_string())],
+                    }]))),
+                }])),
+            },
+            Stmt::Expr(Expr::Call {
+                func: Box::new(Expr::Identifier("abs".to_string())),
+                args: vec![Expr::Literal(Literal::Int(-42))],
+            }),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_function_calling_function() {
+    // fn double(x: int) -> int { return x * 2; }
+    // fn quad(x: int) -> int { return double(double(x)); }
+    let program = Program {
+        statements: vec![
+            Stmt::FunctionDef {
+                name: "double".to_string(),
+                params: vec![("x".to_string(), "int".to_string(), None)],
+                return_type: Some(vec!["int".to_string()]),
+                body: Box::new(Stmt::Block(vec![Stmt::Return {
+                    values: vec![binary(
+                        BinaryOp::Mul,
+                        Expr::Identifier("x".to_string()),
+                        Expr::Literal(Literal::Int(2)),
+                    )],
+                }])),
+            },
+            Stmt::FunctionDef {
+                name: "quad".to_string(),
+                params: vec![("x".to_string(), "int".to_string(), None)],
+                return_type: Some(vec!["int".to_string()]),
+                body: Box::new(Stmt::Block(vec![Stmt::Return {
+                    values: vec![Expr::Call {
+                        func: Box::new(Expr::Identifier("double".to_string())),
+                        args: vec![Expr::Call {
+                            func: Box::new(Expr::Identifier("double".to_string())),
+                            args: vec![Expr::Identifier("x".to_string())],
+                        }],
+                    }],
+                }])),
+            },
+            Stmt::Expr(Expr::Call {
+                func: Box::new(Expr::Identifier("quad".to_string())),
+                args: vec![Expr::Literal(Literal::Int(5))],
+            }),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_nested_function_calls() {
+    // fn add(a: int, b: int) -> int { return a + b; }
+    // fn mul(a: int, b: int) -> int { return a * b; }
+    // add(mul(2, 3), mul(4, 5))
+    let program = Program {
+        statements: vec![
+            Stmt::FunctionDef {
+                name: "add".to_string(),
+                params: vec![
+                    ("a".to_string(), "int".to_string(), None),
+                    ("b".to_string(), "int".to_string(), None),
+                ],
+                return_type: Some(vec!["int".to_string()]),
+                body: Box::new(Stmt::Block(vec![Stmt::Return {
+                    values: vec![binary(
+                        BinaryOp::Add,
+                        Expr::Identifier("a".to_string()),
+                        Expr::Identifier("b".to_string()),
+                    )],
+                }])),
+            },
+            Stmt::FunctionDef {
+                name: "mul".to_string(),
+                params: vec![
+                    ("a".to_string(), "int".to_string(), None),
+                    ("b".to_string(), "int".to_string(), None),
+                ],
+                return_type: Some(vec!["int".to_string()]),
+                body: Box::new(Stmt::Block(vec![Stmt::Return {
+                    values: vec![binary(
+                        BinaryOp::Mul,
+                        Expr::Identifier("a".to_string()),
+                        Expr::Identifier("b".to_string()),
+                    )],
+                }])),
+            },
+            Stmt::Expr(Expr::Call {
+                func: Box::new(Expr::Identifier("add".to_string())),
+                args: vec![
+                    Expr::Call {
+                        func: Box::new(Expr::Identifier("mul".to_string())),
+                        args: vec![
+                            Expr::Literal(Literal::Int(2)),
+                            Expr::Literal(Literal::Int(3)),
+                        ],
+                    },
+                    Expr::Call {
+                        func: Box::new(Expr::Identifier("mul".to_string())),
+                        args: vec![
+                            Expr::Literal(Literal::Int(4)),
+                            Expr::Literal(Literal::Int(5)),
+                        ],
+                    },
+                ],
+            }),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_function_many_parameters() {
+    // fn sum5(a: int, b: int, c: int, d: int, e: int) -> int {
+    //     return a + b + c + d + e;
+    // }
+    let program = Program {
+        statements: vec![
+            Stmt::FunctionDef {
+                name: "sum5".to_string(),
+                params: vec![
+                    ("a".to_string(), "int".to_string(), None),
+                    ("b".to_string(), "int".to_string(), None),
+                    ("c".to_string(), "int".to_string(), None),
+                    ("d".to_string(), "int".to_string(), None),
+                    ("e".to_string(), "int".to_string(), None),
+                ],
+                return_type: Some(vec!["int".to_string()]),
+                body: Box::new(Stmt::Block(vec![Stmt::Return {
+                    values: vec![binary(
+                        BinaryOp::Add,
+                        binary(
+                            BinaryOp::Add,
+                            binary(
+                                BinaryOp::Add,
+                                binary(
+                                    BinaryOp::Add,
+                                    Expr::Identifier("a".to_string()),
+                                    Expr::Identifier("b".to_string()),
+                                ),
+                                Expr::Identifier("c".to_string()),
+                            ),
+                            Expr::Identifier("d".to_string()),
+                        ),
+                        Expr::Identifier("e".to_string()),
+                    )],
+                }])),
+            },
+            Stmt::Expr(Expr::Call {
+                func: Box::new(Expr::Identifier("sum5".to_string())),
+                args: vec![
+                    Expr::Literal(Literal::Int(1)),
+                    Expr::Literal(Literal::Int(2)),
+                    Expr::Literal(Literal::Int(3)),
+                    Expr::Literal(Literal::Int(4)),
+                    Expr::Literal(Literal::Int(5)),
+                ],
+            }),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_function_no_parameters() {
+    // fn get_pi() -> float { return 3.14159; }
+    let program = Program {
+        statements: vec![
+            Stmt::FunctionDef {
+                name: "get_pi".to_string(),
+                params: vec![],
+                return_type: Some(vec!["float".to_string()]),
+                body: Box::new(Stmt::Block(vec![Stmt::Return {
+                    values: vec![Expr::Literal(Literal::Float(3.14159))],
+                }])),
+            },
+            Stmt::Expr(Expr::Call {
+                func: Box::new(Expr::Identifier("get_pi".to_string())),
+                args: vec![],
+            }),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_function_returns_function_result() {
+    // fn inner() -> int { return 42; }
+    // fn outer() -> int { return inner(); }
+    let program = Program {
+        statements: vec![
+            Stmt::FunctionDef {
+                name: "inner".to_string(),
+                params: vec![],
+                return_type: Some(vec!["int".to_string()]),
+                body: Box::new(Stmt::Block(vec![Stmt::Return {
+                    values: vec![Expr::Literal(Literal::Int(42))],
+                }])),
+            },
+            Stmt::FunctionDef {
+                name: "outer".to_string(),
+                params: vec![],
+                return_type: Some(vec!["int".to_string()]),
+                body: Box::new(Stmt::Block(vec![Stmt::Return {
+                    values: vec![Expr::Call {
+                        func: Box::new(Expr::Identifier("inner".to_string())),
+                        args: vec![],
+                    }],
+                }])),
+            },
+            Stmt::Expr(Expr::Call {
+                func: Box::new(Expr::Identifier("outer".to_string())),
+                args: vec![],
+            }),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_function_with_complex_expression() {
+    // fn complex(x: int, y: int) -> int {
+    //     return (x + y) * (x - y);
+    // }
+    let program = Program {
+        statements: vec![
+            Stmt::FunctionDef {
+                name: "complex".to_string(),
+                params: vec![
+                    ("x".to_string(), "int".to_string(), None),
+                    ("y".to_string(), "int".to_string(), None),
+                ],
+                return_type: Some(vec!["int".to_string()]),
+                body: Box::new(Stmt::Block(vec![Stmt::Return {
+                    values: vec![binary(
+                        BinaryOp::Mul,
+                        binary(
+                            BinaryOp::Add,
+                            Expr::Identifier("x".to_string()),
+                            Expr::Identifier("y".to_string()),
+                        ),
+                        binary(
+                            BinaryOp::Sub,
+                            Expr::Identifier("x".to_string()),
+                            Expr::Identifier("y".to_string()),
+                        ),
+                    )],
+                }])),
+            },
+            Stmt::Expr(Expr::Call {
+                func: Box::new(Expr::Identifier("complex".to_string())),
+                args: vec![Expr::Literal(Literal::Int(5)), Expr::Literal(Literal::Int(3))],
+            }),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_function_with_ternary_return() {
+    // fn max(a: int, b: int) -> int {
+    //     return a > b ? a : b;
+    // }
+    let program = Program {
+        statements: vec![
+            Stmt::FunctionDef {
+                name: "max".to_string(),
+                params: vec![
+                    ("a".to_string(), "int".to_string(), None),
+                    ("b".to_string(), "int".to_string(), None),
+                ],
+                return_type: Some(vec!["int".to_string()]),
+                body: Box::new(Stmt::Block(vec![Stmt::Return {
+                    values: vec![Expr::Ternary {
+                        condition: Box::new(binary(
+                            BinaryOp::Gt,
+                            Expr::Identifier("a".to_string()),
+                            Expr::Identifier("b".to_string()),
+                        )),
+                        then_expr: Box::new(Expr::Identifier("a".to_string())),
+                        else_expr: Box::new(Expr::Identifier("b".to_string())),
+                    }],
+                }])),
+            },
+            Stmt::Expr(Expr::Call {
+                func: Box::new(Expr::Identifier("max".to_string())),
+                args: vec![Expr::Literal(Literal::Int(10)), Expr::Literal(Literal::Int(20))],
+            }),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
