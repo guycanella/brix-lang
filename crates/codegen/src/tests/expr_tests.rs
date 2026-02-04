@@ -677,3 +677,405 @@ fn test_fstring_with_precision_format() {
     let result = compile_program(program);
     assert!(result.is_ok());
 }
+
+// ==================== INCREMENT/DECREMENT ADVANCED ====================
+
+#[test]
+fn test_decrement_prefix() {
+    // --x
+    let stmt = Stmt::Block(vec![
+        Stmt::VariableDecl {
+            name: "x".to_string(),
+            type_hint: None,
+            value: Expr::Literal(Literal::Int(10)),
+            is_const: false,
+        },
+        Stmt::Expr(Expr::Decrement {
+            expr: Box::new(Expr::Identifier("x".to_string())),
+            is_prefix: true,
+        }),
+    ]);
+    let program = make_program(stmt);
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_decrement_postfix() {
+    // x--
+    let stmt = Stmt::Block(vec![
+        Stmt::VariableDecl {
+            name: "x".to_string(),
+            type_hint: None,
+            value: Expr::Literal(Literal::Int(10)),
+            is_const: false,
+        },
+        Stmt::Expr(Expr::Decrement {
+            expr: Box::new(Expr::Identifier("x".to_string())),
+            is_prefix: false,
+        }),
+    ]);
+    let program = make_program(stmt);
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_increment_in_expression() {
+    // y := ++x + 5
+    let stmt = Stmt::Block(vec![
+        Stmt::VariableDecl {
+            name: "x".to_string(),
+            type_hint: None,
+            value: Expr::Literal(Literal::Int(10)),
+            is_const: false,
+        },
+        Stmt::VariableDecl {
+            name: "y".to_string(),
+            type_hint: None,
+            value: Expr::Binary {
+                op: BinaryOp::Add,
+                lhs: Box::new(Expr::Increment {
+                    expr: Box::new(Expr::Identifier("x".to_string())),
+                    is_prefix: true,
+                }),
+                rhs: Box::new(Expr::Literal(Literal::Int(5))),
+            },
+            is_const: false,
+        },
+    ]);
+    let program = make_program(stmt);
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+// ==================== BITWISE ADVANCED ====================
+
+#[test]
+fn test_bitwise_with_negative() {
+    // -5 & 7 (bitwise AND with negative number)
+    let expr = Expr::Binary {
+        op: BinaryOp::BitAnd,
+        lhs: Box::new(Expr::Literal(Literal::Int(-5))),
+        rhs: Box::new(Expr::Literal(Literal::Int(7))),
+    };
+    let program = make_program(Stmt::Expr(expr));
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_bitwise_with_zero() {
+    // 0xFF | 0 (bitwise OR with zero should return 0xFF)
+    let expr = Expr::Binary {
+        op: BinaryOp::BitOr,
+        lhs: Box::new(Expr::Literal(Literal::Int(0xFF))),
+        rhs: Box::new(Expr::Literal(Literal::Int(0))),
+    };
+    let program = make_program(Stmt::Expr(expr));
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_bitwise_xor_same_value() {
+    // x ^ x = 0 (XOR with same value)
+    let stmt = Stmt::Block(vec![
+        Stmt::VariableDecl {
+            name: "x".to_string(),
+            type_hint: None,
+            value: Expr::Literal(Literal::Int(42)),
+            is_const: false,
+        },
+        Stmt::Expr(Expr::Binary {
+            op: BinaryOp::BitXor,
+            lhs: Box::new(Expr::Identifier("x".to_string())),
+            rhs: Box::new(Expr::Identifier("x".to_string())),
+        }),
+    ]);
+    let program = make_program(stmt);
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+// ==================== TERNARY ADVANCED ====================
+
+#[test]
+fn test_nested_ternary() {
+    // x > 10 ? (x > 20 ? 30 : 20) : 10
+    let expr = Expr::Ternary {
+        condition: Box::new(Expr::Binary {
+            op: BinaryOp::Gt,
+            lhs: Box::new(Expr::Identifier("x".to_string())),
+            rhs: Box::new(Expr::Literal(Literal::Int(10))),
+        }),
+        then_expr: Box::new(Expr::Ternary {
+            condition: Box::new(Expr::Binary {
+                op: BinaryOp::Gt,
+                lhs: Box::new(Expr::Identifier("x".to_string())),
+                rhs: Box::new(Expr::Literal(Literal::Int(20))),
+            }),
+            then_expr: Box::new(Expr::Literal(Literal::Int(30))),
+            else_expr: Box::new(Expr::Literal(Literal::Int(20))),
+        }),
+        else_expr: Box::new(Expr::Literal(Literal::Int(10))),
+    };
+
+    let program = Program {
+        statements: vec![
+            Stmt::VariableDecl {
+                name: "x".to_string(),
+                type_hint: None,
+                value: Expr::Literal(Literal::Int(25)),
+                is_const: false,
+            },
+            Stmt::Expr(expr),
+        ],
+    };
+
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_ternary_type_coercion() {
+    // x > 5 ? 10 : 3.5 (should coerce to float)
+    let expr = Expr::Ternary {
+        condition: Box::new(Expr::Binary {
+            op: BinaryOp::Gt,
+            lhs: Box::new(Expr::Identifier("x".to_string())),
+            rhs: Box::new(Expr::Literal(Literal::Int(5))),
+        }),
+        then_expr: Box::new(Expr::Literal(Literal::Int(10))),
+        else_expr: Box::new(Expr::Literal(Literal::Float(3.5))),
+    };
+
+    let program = Program {
+        statements: vec![
+            Stmt::VariableDecl {
+                name: "x".to_string(),
+                type_hint: None,
+                value: Expr::Literal(Literal::Int(7)),
+                is_const: false,
+            },
+            Stmt::Expr(expr),
+        ],
+    };
+
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_ternary_in_assignment() {
+    // result := x > 0 ? x : -x (absolute value)
+    let stmt = Stmt::Block(vec![
+        Stmt::VariableDecl {
+            name: "x".to_string(),
+            type_hint: None,
+            value: Expr::Literal(Literal::Int(-5)),
+            is_const: false,
+        },
+        Stmt::VariableDecl {
+            name: "result".to_string(),
+            type_hint: None,
+            value: Expr::Ternary {
+                condition: Box::new(Expr::Binary {
+                    op: BinaryOp::Gt,
+                    lhs: Box::new(Expr::Identifier("x".to_string())),
+                    rhs: Box::new(Expr::Literal(Literal::Int(0))),
+                }),
+                then_expr: Box::new(Expr::Identifier("x".to_string())),
+                else_expr: Box::new(Expr::Unary {
+                    op: UnaryOp::Negate,
+                    expr: Box::new(Expr::Identifier("x".to_string())),
+                }),
+            },
+            is_const: false,
+        },
+    ]);
+    let program = make_program(stmt);
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+// ==================== SHORT-CIRCUIT EVALUATION ====================
+
+#[test]
+fn test_short_circuit_and_with_side_effect() {
+    // false && (++x > 0) - second part should not execute
+    let stmt = Stmt::Block(vec![
+        Stmt::VariableDecl {
+            name: "x".to_string(),
+            type_hint: None,
+            value: Expr::Literal(Literal::Int(5)),
+            is_const: false,
+        },
+        Stmt::Expr(Expr::Binary {
+            op: BinaryOp::LogicalAnd,
+            lhs: Box::new(Expr::Literal(Literal::Bool(false))),
+            rhs: Box::new(Expr::Binary {
+                op: BinaryOp::Gt,
+                lhs: Box::new(Expr::Increment {
+                    expr: Box::new(Expr::Identifier("x".to_string())),
+                    is_prefix: true,
+                }),
+                rhs: Box::new(Expr::Literal(Literal::Int(0))),
+            }),
+        }),
+    ]);
+    let program = make_program(stmt);
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_short_circuit_or_with_side_effect() {
+    // true || (++x > 0) - second part should not execute
+    let stmt = Stmt::Block(vec![
+        Stmt::VariableDecl {
+            name: "x".to_string(),
+            type_hint: None,
+            value: Expr::Literal(Literal::Int(5)),
+            is_const: false,
+        },
+        Stmt::Expr(Expr::Binary {
+            op: BinaryOp::LogicalOr,
+            lhs: Box::new(Expr::Literal(Literal::Bool(true))),
+            rhs: Box::new(Expr::Binary {
+                op: BinaryOp::Gt,
+                lhs: Box::new(Expr::Increment {
+                    expr: Box::new(Expr::Identifier("x".to_string())),
+                    is_prefix: true,
+                }),
+                rhs: Box::new(Expr::Literal(Literal::Int(0))),
+            }),
+        }),
+    ]);
+    let program = make_program(stmt);
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_chained_logical_operators() {
+    // x > 0 && y > 0 && z > 0
+    let stmt = Stmt::Block(vec![
+        Stmt::VariableDecl {
+            name: "x".to_string(),
+            type_hint: None,
+            value: Expr::Literal(Literal::Int(5)),
+            is_const: false,
+        },
+        Stmt::VariableDecl {
+            name: "y".to_string(),
+            type_hint: None,
+            value: Expr::Literal(Literal::Int(10)),
+            is_const: false,
+        },
+        Stmt::VariableDecl {
+            name: "z".to_string(),
+            type_hint: None,
+            value: Expr::Literal(Literal::Int(15)),
+            is_const: false,
+        },
+        Stmt::Expr(Expr::Binary {
+            op: BinaryOp::LogicalAnd,
+            lhs: Box::new(Expr::Binary {
+                op: BinaryOp::LogicalAnd,
+                lhs: Box::new(Expr::Binary {
+                    op: BinaryOp::Gt,
+                    lhs: Box::new(Expr::Identifier("x".to_string())),
+                    rhs: Box::new(Expr::Literal(Literal::Int(0))),
+                }),
+                rhs: Box::new(Expr::Binary {
+                    op: BinaryOp::Gt,
+                    lhs: Box::new(Expr::Identifier("y".to_string())),
+                    rhs: Box::new(Expr::Literal(Literal::Int(0))),
+                }),
+            }),
+            rhs: Box::new(Expr::Binary {
+                op: BinaryOp::Gt,
+                lhs: Box::new(Expr::Identifier("z".to_string())),
+                rhs: Box::new(Expr::Literal(Literal::Int(0))),
+            }),
+        }),
+    ]);
+    let program = make_program(stmt);
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+// ==================== CHAINED COMPARISONS ====================
+
+#[test]
+fn test_chained_comparison_basic() {
+    // 1 < x < 10
+    let stmt = Stmt::Block(vec![
+        Stmt::VariableDecl {
+            name: "x".to_string(),
+            type_hint: None,
+            value: Expr::Literal(Literal::Int(5)),
+            is_const: false,
+        },
+        Stmt::Expr(Expr::Binary {
+            op: BinaryOp::LogicalAnd,
+            lhs: Box::new(Expr::Binary {
+                op: BinaryOp::Lt,
+                lhs: Box::new(Expr::Literal(Literal::Int(1))),
+                rhs: Box::new(Expr::Identifier("x".to_string())),
+            }),
+            rhs: Box::new(Expr::Binary {
+                op: BinaryOp::Lt,
+                lhs: Box::new(Expr::Identifier("x".to_string())),
+                rhs: Box::new(Expr::Literal(Literal::Int(10))),
+            }),
+        }),
+    ]);
+    let program = make_program(stmt);
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_chained_comparison_multiple() {
+    // 1 < x < y < 100
+    let stmt = Stmt::Block(vec![
+        Stmt::VariableDecl {
+            name: "x".to_string(),
+            type_hint: None,
+            value: Expr::Literal(Literal::Int(5)),
+            is_const: false,
+        },
+        Stmt::VariableDecl {
+            name: "y".to_string(),
+            type_hint: None,
+            value: Expr::Literal(Literal::Int(50)),
+            is_const: false,
+        },
+        Stmt::Expr(Expr::Binary {
+            op: BinaryOp::LogicalAnd,
+            lhs: Box::new(Expr::Binary {
+                op: BinaryOp::LogicalAnd,
+                lhs: Box::new(Expr::Binary {
+                    op: BinaryOp::Lt,
+                    lhs: Box::new(Expr::Literal(Literal::Int(1))),
+                    rhs: Box::new(Expr::Identifier("x".to_string())),
+                }),
+                rhs: Box::new(Expr::Binary {
+                    op: BinaryOp::Lt,
+                    lhs: Box::new(Expr::Identifier("x".to_string())),
+                    rhs: Box::new(Expr::Identifier("y".to_string())),
+                }),
+            }),
+            rhs: Box::new(Expr::Binary {
+                op: BinaryOp::Lt,
+                lhs: Box::new(Expr::Identifier("y".to_string())),
+                rhs: Box::new(Expr::Literal(Literal::Int(100))),
+            }),
+        }),
+    ]);
+    let program = make_program(stmt);
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
