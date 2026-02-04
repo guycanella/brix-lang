@@ -696,3 +696,579 @@ fn test_tuple_four_values() {
     let result = compile_program(program);
     assert!(result.is_ok());
 }
+
+
+#[test]
+fn test_recursive_factorial() {
+    // fn factorial(n: int) -> int {
+    //     if n <= 1 { return 1; }
+    //     return n * factorial(n - 1);
+    // }
+    let program = Program {
+        statements: vec![
+            Stmt::FunctionDef {
+                name: "factorial".to_string(),
+                params: vec![("n".to_string(), "int".to_string(), None)],
+                return_type: Some(vec!["int".to_string()]),
+                body: Box::new(Stmt::Block(vec![
+                    Stmt::If {
+                        condition: binary(
+                            BinaryOp::LtEq,
+                            Expr::Identifier("n".to_string()),
+                            Expr::Literal(Literal::Int(1)),
+                        ),
+                        then_block: Box::new(Stmt::Block(vec![Stmt::Return {
+                            values: vec![Expr::Literal(Literal::Int(1))],
+                        }])),
+                        else_block: None,
+                    },
+                    Stmt::Return {
+                        values: vec![binary(
+                            BinaryOp::Mul,
+                            Expr::Identifier("n".to_string()),
+                            Expr::Call {
+                                func: Box::new(Expr::Identifier("factorial".to_string())),
+                                args: vec![binary(
+                                    BinaryOp::Sub,
+                                    Expr::Identifier("n".to_string()),
+                                    Expr::Literal(Literal::Int(1)),
+                                )],
+                            },
+                        )],
+                    },
+                ])),
+            },
+            Stmt::Expr(Expr::Call {
+                func: Box::new(Expr::Identifier("factorial".to_string())),
+                args: vec![Expr::Literal(Literal::Int(5))],
+            }),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_recursive_fibonacci() {
+    // fn fib(n: int) -> int {
+    //     if n <= 1 { return n; }
+    //     return fib(n - 1) + fib(n - 2);
+    // }
+    let program = Program {
+        statements: vec![
+            Stmt::FunctionDef {
+                name: "fib".to_string(),
+                params: vec![("n".to_string(), "int".to_string(), None)],
+                return_type: Some(vec!["int".to_string()]),
+                body: Box::new(Stmt::Block(vec![
+                    Stmt::If {
+                        condition: binary(
+                            BinaryOp::LtEq,
+                            Expr::Identifier("n".to_string()),
+                            Expr::Literal(Literal::Int(1)),
+                        ),
+                        then_block: Box::new(Stmt::Block(vec![Stmt::Return {
+                            values: vec![Expr::Identifier("n".to_string())],
+                        }])),
+                        else_block: None,
+                    },
+                    Stmt::Return {
+                        values: vec![binary(
+                            BinaryOp::Add,
+                            Expr::Call {
+                                func: Box::new(Expr::Identifier("fib".to_string())),
+                                args: vec![binary(
+                                    BinaryOp::Sub,
+                                    Expr::Identifier("n".to_string()),
+                                    Expr::Literal(Literal::Int(1)),
+                                )],
+                            },
+                            Expr::Call {
+                                func: Box::new(Expr::Identifier("fib".to_string())),
+                                args: vec![binary(
+                                    BinaryOp::Sub,
+                                    Expr::Identifier("n".to_string()),
+                                    Expr::Literal(Literal::Int(2)),
+                                )],
+                            },
+                        )],
+                    },
+                ])),
+            },
+            Stmt::Expr(Expr::Call {
+                func: Box::new(Expr::Identifier("fib".to_string())),
+                args: vec![Expr::Literal(Literal::Int(10))],
+            }),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_recursive_power() {
+    // fn power(base: int, exp: int) -> int {
+    //     if exp == 0 { return 1; }
+    //     return base * power(base, exp - 1);
+    // }
+    let program = Program {
+        statements: vec![
+            Stmt::FunctionDef {
+                name: "power".to_string(),
+                params: vec![
+                    ("base".to_string(), "int".to_string(), None),
+                    ("exp".to_string(), "int".to_string(), None),
+                ],
+                return_type: Some(vec!["int".to_string()]),
+                body: Box::new(Stmt::Block(vec![
+                    Stmt::If {
+                        condition: binary(
+                            BinaryOp::Eq,
+                            Expr::Identifier("exp".to_string()),
+                            Expr::Literal(Literal::Int(0)),
+                        ),
+                        then_block: Box::new(Stmt::Block(vec![Stmt::Return {
+                            values: vec![Expr::Literal(Literal::Int(1))],
+                        }])),
+                        else_block: None,
+                    },
+                    Stmt::Return {
+                        values: vec![binary(
+                            BinaryOp::Mul,
+                            Expr::Identifier("base".to_string()),
+                            Expr::Call {
+                                func: Box::new(Expr::Identifier("power".to_string())),
+                                args: vec![
+                                    Expr::Identifier("base".to_string()),
+                                    binary(
+                                        BinaryOp::Sub,
+                                        Expr::Identifier("exp".to_string()),
+                                        Expr::Literal(Literal::Int(1)),
+                                    ),
+                                ],
+                            },
+                        )],
+                    },
+                ])),
+            },
+            Stmt::Expr(Expr::Call {
+                func: Box::new(Expr::Identifier("power".to_string())),
+                args: vec![Expr::Literal(Literal::Int(2)), Expr::Literal(Literal::Int(10))],
+            }),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_recursive_gcd() {
+    // fn gcd(a: int, b: int) -> int {
+    //     if b == 0 { return a; }
+    //     return gcd(b, a % b);
+    // }
+    let program = Program {
+        statements: vec![
+            Stmt::FunctionDef {
+                name: "gcd".to_string(),
+                params: vec![
+                    ("a".to_string(), "int".to_string(), None),
+                    ("b".to_string(), "int".to_string(), None),
+                ],
+                return_type: Some(vec!["int".to_string()]),
+                body: Box::new(Stmt::Block(vec![
+                    Stmt::If {
+                        condition: binary(
+                            BinaryOp::Eq,
+                            Expr::Identifier("b".to_string()),
+                            Expr::Literal(Literal::Int(0)),
+                        ),
+                        then_block: Box::new(Stmt::Block(vec![Stmt::Return {
+                            values: vec![Expr::Identifier("a".to_string())],
+                        }])),
+                        else_block: None,
+                    },
+                    Stmt::Return {
+                        values: vec![Expr::Call {
+                            func: Box::new(Expr::Identifier("gcd".to_string())),
+                            args: vec![
+                                Expr::Identifier("b".to_string()),
+                                binary(
+                                    BinaryOp::Mod,
+                                    Expr::Identifier("a".to_string()),
+                                    Expr::Identifier("b".to_string()),
+                                ),
+                            ],
+                        }],
+                    },
+                ])),
+            },
+            Stmt::Expr(Expr::Call {
+                func: Box::new(Expr::Identifier("gcd".to_string())),
+                args: vec![Expr::Literal(Literal::Int(48)), Expr::Literal(Literal::Int(18))],
+            }),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_tail_recursive_factorial() {
+    // fn fact_helper(n: int, acc: int) -> int {
+    //     if n <= 1 { return acc; }
+    //     return fact_helper(n - 1, acc * n);
+    // }
+    let program = Program {
+        statements: vec![
+            Stmt::FunctionDef {
+                name: "fact_helper".to_string(),
+                params: vec![
+                    ("n".to_string(), "int".to_string(), None),
+                    ("acc".to_string(), "int".to_string(), None),
+                ],
+                return_type: Some(vec!["int".to_string()]),
+                body: Box::new(Stmt::Block(vec![
+                    Stmt::If {
+                        condition: binary(
+                            BinaryOp::LtEq,
+                            Expr::Identifier("n".to_string()),
+                            Expr::Literal(Literal::Int(1)),
+                        ),
+                        then_block: Box::new(Stmt::Block(vec![Stmt::Return {
+                            values: vec![Expr::Identifier("acc".to_string())],
+                        }])),
+                        else_block: None,
+                    },
+                    Stmt::Return {
+                        values: vec![Expr::Call {
+                            func: Box::new(Expr::Identifier("fact_helper".to_string())),
+                            args: vec![
+                                binary(
+                                    BinaryOp::Sub,
+                                    Expr::Identifier("n".to_string()),
+                                    Expr::Literal(Literal::Int(1)),
+                                ),
+                                binary(
+                                    BinaryOp::Mul,
+                                    Expr::Identifier("acc".to_string()),
+                                    Expr::Identifier("n".to_string()),
+                                ),
+                            ],
+                        }],
+                    },
+                ])),
+            },
+            Stmt::Expr(Expr::Call {
+                func: Box::new(Expr::Identifier("fact_helper".to_string())),
+                args: vec![Expr::Literal(Literal::Int(5)), Expr::Literal(Literal::Int(1))],
+            }),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_mutual_recursion_even_odd() {
+    // fn is_even(n: int) -> int {
+    //     if n == 0 { return 1; }
+    //     return is_odd(n - 1);
+    // }
+    // fn is_odd(n: int) -> int {
+    //     if n == 0 { return 0; }
+    //     return is_even(n - 1);
+    // }
+    let program = Program {
+        statements: vec![
+            Stmt::FunctionDef {
+                name: "is_even".to_string(),
+                params: vec![("n".to_string(), "int".to_string(), None)],
+                return_type: Some(vec!["int".to_string()]),
+                body: Box::new(Stmt::Block(vec![
+                    Stmt::If {
+                        condition: binary(
+                            BinaryOp::Eq,
+                            Expr::Identifier("n".to_string()),
+                            Expr::Literal(Literal::Int(0)),
+                        ),
+                        then_block: Box::new(Stmt::Block(vec![Stmt::Return {
+                            values: vec![Expr::Literal(Literal::Int(1))],
+                        }])),
+                        else_block: None,
+                    },
+                    Stmt::Return {
+                        values: vec![Expr::Call {
+                            func: Box::new(Expr::Identifier("is_odd".to_string())),
+                            args: vec![binary(
+                                BinaryOp::Sub,
+                                Expr::Identifier("n".to_string()),
+                                Expr::Literal(Literal::Int(1)),
+                            )],
+                        }],
+                    },
+                ])),
+            },
+            Stmt::FunctionDef {
+                name: "is_odd".to_string(),
+                params: vec![("n".to_string(), "int".to_string(), None)],
+                return_type: Some(vec!["int".to_string()]),
+                body: Box::new(Stmt::Block(vec![
+                    Stmt::If {
+                        condition: binary(
+                            BinaryOp::Eq,
+                            Expr::Identifier("n".to_string()),
+                            Expr::Literal(Literal::Int(0)),
+                        ),
+                        then_block: Box::new(Stmt::Block(vec![Stmt::Return {
+                            values: vec![Expr::Literal(Literal::Int(0))],
+                        }])),
+                        else_block: None,
+                    },
+                    Stmt::Return {
+                        values: vec![Expr::Call {
+                            func: Box::new(Expr::Identifier("is_even".to_string())),
+                            args: vec![binary(
+                                BinaryOp::Sub,
+                                Expr::Identifier("n".to_string()),
+                                Expr::Literal(Literal::Int(1)),
+                            )],
+                        }],
+                    },
+                ])),
+            },
+            Stmt::Expr(Expr::Call {
+                func: Box::new(Expr::Identifier("is_even".to_string())),
+                args: vec![Expr::Literal(Literal::Int(10))],
+            }),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_recursive_countdown() {
+    // fn countdown(n: int) -> int {
+    //     if n == 0 { return 0; }
+    //     return countdown(n - 1);
+    // }
+    let program = Program {
+        statements: vec![
+            Stmt::FunctionDef {
+                name: "countdown".to_string(),
+                params: vec![("n".to_string(), "int".to_string(), None)],
+                return_type: Some(vec!["int".to_string()]),
+                body: Box::new(Stmt::Block(vec![
+                    Stmt::If {
+                        condition: binary(
+                            BinaryOp::Eq,
+                            Expr::Identifier("n".to_string()),
+                            Expr::Literal(Literal::Int(0)),
+                        ),
+                        then_block: Box::new(Stmt::Block(vec![Stmt::Return {
+                            values: vec![Expr::Literal(Literal::Int(0))],
+                        }])),
+                        else_block: None,
+                    },
+                    Stmt::Return {
+                        values: vec![Expr::Call {
+                            func: Box::new(Expr::Identifier("countdown".to_string())),
+                            args: vec![binary(
+                                BinaryOp::Sub,
+                                Expr::Identifier("n".to_string()),
+                                Expr::Literal(Literal::Int(1)),
+                            )],
+                        }],
+                    },
+                ])),
+            },
+            Stmt::Expr(Expr::Call {
+                func: Box::new(Expr::Identifier("countdown".to_string())),
+                args: vec![Expr::Literal(Literal::Int(100))],
+            }),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_recursive_sum_range() {
+    // fn sum_range(start: int, end: int) -> int {
+    //     if start > end { return 0; }
+    //     return start + sum_range(start + 1, end);
+    // }
+    let program = Program {
+        statements: vec![
+            Stmt::FunctionDef {
+                name: "sum_range".to_string(),
+                params: vec![
+                    ("start".to_string(), "int".to_string(), None),
+                    ("end".to_string(), "int".to_string(), None),
+                ],
+                return_type: Some(vec!["int".to_string()]),
+                body: Box::new(Stmt::Block(vec![
+                    Stmt::If {
+                        condition: binary(
+                            BinaryOp::Gt,
+                            Expr::Identifier("start".to_string()),
+                            Expr::Identifier("end".to_string()),
+                        ),
+                        then_block: Box::new(Stmt::Block(vec![Stmt::Return {
+                            values: vec![Expr::Literal(Literal::Int(0))],
+                        }])),
+                        else_block: None,
+                    },
+                    Stmt::Return {
+                        values: vec![binary(
+                            BinaryOp::Add,
+                            Expr::Identifier("start".to_string()),
+                            Expr::Call {
+                                func: Box::new(Expr::Identifier("sum_range".to_string())),
+                                args: vec![
+                                    binary(
+                                        BinaryOp::Add,
+                                        Expr::Identifier("start".to_string()),
+                                        Expr::Literal(Literal::Int(1)),
+                                    ),
+                                    Expr::Identifier("end".to_string()),
+                                ],
+                            },
+                        )],
+                    },
+                ])),
+            },
+            Stmt::Expr(Expr::Call {
+                func: Box::new(Expr::Identifier("sum_range".to_string())),
+                args: vec![Expr::Literal(Literal::Int(1)), Expr::Literal(Literal::Int(10))],
+            }),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_recursive_min() {
+    // fn min(a: int, b: int) -> int {
+    //     return a < b ? a : b;
+    // }
+    let program = Program {
+        statements: vec![
+            Stmt::FunctionDef {
+                name: "min".to_string(),
+                params: vec![
+                    ("a".to_string(), "int".to_string(), None),
+                    ("b".to_string(), "int".to_string(), None),
+                ],
+                return_type: Some(vec!["int".to_string()]),
+                body: Box::new(Stmt::Block(vec![Stmt::Return {
+                    values: vec![Expr::Ternary {
+                        condition: Box::new(binary(
+                            BinaryOp::Lt,
+                            Expr::Identifier("a".to_string()),
+                            Expr::Identifier("b".to_string()),
+                        )),
+                        then_expr: Box::new(Expr::Identifier("a".to_string())),
+                        else_expr: Box::new(Expr::Identifier("b".to_string())),
+                    }],
+                }])),
+            },
+            Stmt::Expr(Expr::Call {
+                func: Box::new(Expr::Identifier("min".to_string())),
+                args: vec![Expr::Literal(Literal::Int(5)), Expr::Literal(Literal::Int(3))],
+            }),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_recursive_nested_calls() {
+    // fn ackermann(m: int, n: int) -> int {
+    //     if m == 0 { return n + 1; }
+    //     if n == 0 { return ackermann(m - 1, 1); }
+    //     return ackermann(m - 1, ackermann(m, n - 1));
+    // }
+    let program = Program {
+        statements: vec![
+            Stmt::FunctionDef {
+                name: "ackermann".to_string(),
+                params: vec![
+                    ("m".to_string(), "int".to_string(), None),
+                    ("n".to_string(), "int".to_string(), None),
+                ],
+                return_type: Some(vec!["int".to_string()]),
+                body: Box::new(Stmt::Block(vec![
+                    Stmt::If {
+                        condition: binary(
+                            BinaryOp::Eq,
+                            Expr::Identifier("m".to_string()),
+                            Expr::Literal(Literal::Int(0)),
+                        ),
+                        then_block: Box::new(Stmt::Block(vec![Stmt::Return {
+                            values: vec![binary(
+                                BinaryOp::Add,
+                                Expr::Identifier("n".to_string()),
+                                Expr::Literal(Literal::Int(1)),
+                            )],
+                        }])),
+                        else_block: None,
+                    },
+                    Stmt::If {
+                        condition: binary(
+                            BinaryOp::Eq,
+                            Expr::Identifier("n".to_string()),
+                            Expr::Literal(Literal::Int(0)),
+                        ),
+                        then_block: Box::new(Stmt::Block(vec![Stmt::Return {
+                            values: vec![Expr::Call {
+                                func: Box::new(Expr::Identifier("ackermann".to_string())),
+                                args: vec![
+                                    binary(
+                                        BinaryOp::Sub,
+                                        Expr::Identifier("m".to_string()),
+                                        Expr::Literal(Literal::Int(1)),
+                                    ),
+                                    Expr::Literal(Literal::Int(1)),
+                                ],
+                            }],
+                        }])),
+                        else_block: None,
+                    },
+                    Stmt::Return {
+                        values: vec![Expr::Call {
+                            func: Box::new(Expr::Identifier("ackermann".to_string())),
+                            args: vec![
+                                binary(
+                                    BinaryOp::Sub,
+                                    Expr::Identifier("m".to_string()),
+                                    Expr::Literal(Literal::Int(1)),
+                                ),
+                                Expr::Call {
+                                    func: Box::new(Expr::Identifier("ackermann".to_string())),
+                                    args: vec![
+                                        Expr::Identifier("m".to_string()),
+                                        binary(
+                                            BinaryOp::Sub,
+                                            Expr::Identifier("n".to_string()),
+                                            Expr::Literal(Literal::Int(1)),
+                                        ),
+                                    ],
+                                },
+                            ],
+                        }],
+                    },
+                ])),
+            },
+            Stmt::Expr(Expr::Call {
+                func: Box::new(Expr::Identifier("ackermann".to_string())),
+                args: vec![Expr::Literal(Literal::Int(2)), Expr::Literal(Literal::Int(2))],
+            }),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
