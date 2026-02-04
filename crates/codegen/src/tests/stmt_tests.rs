@@ -2,7 +2,7 @@
 
 use crate::Compiler;
 use inkwell::context::Context;
-use parser::ast::{Expr, Literal, Program, Stmt};
+use parser::ast::{BinaryOp, Expr, Literal, Program, Stmt};
 
 fn compile_program(program: Program) -> Result<String, String> {
     let result = std::panic::catch_unwind(|| {
@@ -16,6 +16,15 @@ fn compile_program(program: Program) -> Result<String, String> {
     match result {
         Ok(ir) => Ok(ir),
         Err(_) => Err("Compilation panicked".to_string()),
+    }
+}
+
+// Helper function to create binary operations
+fn binary(op: BinaryOp, lhs: Expr, rhs: Expr) -> Expr {
+    Expr::Binary {
+        op,
+        lhs: Box::new(lhs),
+        rhs: Box::new(rhs),
     }
 }
 
@@ -575,3 +584,271 @@ fn test_destructuring_with_ignore() {
     let result = compile_program(program);
     assert!(result.is_ok());
 }
+
+// ==================== NIL INFERENCE ====================
+
+#[test]
+fn test_var_decl_infer_nil() {
+    // var x := nil;
+    let program = Program {
+        statements: vec![Stmt::VariableDecl {
+            name: "x".to_string(),
+            type_hint: None,
+            value: Expr::Literal(Literal::Nil),
+            is_const: false,
+        }],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+// ==================== COMPOUND ASSIGNMENTS ====================
+
+#[test]
+fn test_assignment_sub_compound() {
+    // var x := 10;
+    // x -= 3;
+    let program = Program {
+        statements: vec![
+            Stmt::VariableDecl {
+                name: "x".to_string(),
+                type_hint: None,
+                value: Expr::Literal(Literal::Int(10)),
+                is_const: false,
+            },
+            Stmt::Assignment {
+                target: Expr::Identifier("x".to_string()),
+                value: binary(
+                    BinaryOp::Sub,
+                    Expr::Identifier("x".to_string()),
+                    Expr::Literal(Literal::Int(3)),
+                ),
+            },
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_assignment_mul_compound() {
+    // var x := 5;
+    // x *= 2;
+    let program = Program {
+        statements: vec![
+            Stmt::VariableDecl {
+                name: "x".to_string(),
+                type_hint: None,
+                value: Expr::Literal(Literal::Int(5)),
+                is_const: false,
+            },
+            Stmt::Assignment {
+                target: Expr::Identifier("x".to_string()),
+                value: binary(
+                    BinaryOp::Mul,
+                    Expr::Identifier("x".to_string()),
+                    Expr::Literal(Literal::Int(2)),
+                ),
+            },
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_assignment_div_compound() {
+    // var x := 20;
+    // x /= 4;
+    let program = Program {
+        statements: vec![
+            Stmt::VariableDecl {
+                name: "x".to_string(),
+                type_hint: None,
+                value: Expr::Literal(Literal::Int(20)),
+                is_const: false,
+            },
+            Stmt::Assignment {
+                target: Expr::Identifier("x".to_string()),
+                value: binary(
+                    BinaryOp::Div,
+                    Expr::Identifier("x".to_string()),
+                    Expr::Literal(Literal::Int(4)),
+                ),
+            },
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_assignment_mod_compound() {
+    // var x := 17;
+    // x %= 5;
+    let program = Program {
+        statements: vec![
+            Stmt::VariableDecl {
+                name: "x".to_string(),
+                type_hint: None,
+                value: Expr::Literal(Literal::Int(17)),
+                is_const: false,
+            },
+            Stmt::Assignment {
+                target: Expr::Identifier("x".to_string()),
+                value: binary(
+                    BinaryOp::Mod,
+                    Expr::Identifier("x".to_string()),
+                    Expr::Literal(Literal::Int(5)),
+                ),
+            },
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+// ==================== EDGE CASES ====================
+
+#[test]
+fn test_multiple_assignments_same_line() {
+    // var x := 10;
+    // var y := 20;
+    // x = y = 5;  // Simulated as: y = 5; x = y;
+    let program = Program {
+        statements: vec![
+            Stmt::VariableDecl {
+                name: "x".to_string(),
+                type_hint: None,
+                value: Expr::Literal(Literal::Int(10)),
+                is_const: false,
+            },
+            Stmt::VariableDecl {
+                name: "y".to_string(),
+                type_hint: None,
+                value: Expr::Literal(Literal::Int(20)),
+                is_const: false,
+            },
+            Stmt::Assignment {
+                target: Expr::Identifier("y".to_string()),
+                value: Expr::Literal(Literal::Int(5)),
+            },
+            Stmt::Assignment {
+                target: Expr::Identifier("x".to_string()),
+                value: Expr::Identifier("y".to_string()),
+            },
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_assignment_with_expression() {
+    // var x := 10;
+    // x = x * 2 + 5;
+    let program = Program {
+        statements: vec![
+            Stmt::VariableDecl {
+                name: "x".to_string(),
+                type_hint: None,
+                value: Expr::Literal(Literal::Int(10)),
+                is_const: false,
+            },
+            Stmt::Assignment {
+                target: Expr::Identifier("x".to_string()),
+                value: binary(
+                    BinaryOp::Add,
+                    binary(
+                        BinaryOp::Mul,
+                        Expr::Identifier("x".to_string()),
+                        Expr::Literal(Literal::Int(2)),
+                    ),
+                    Expr::Literal(Literal::Int(5)),
+                ),
+            },
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_const_with_expression() {
+    // const result := 2 + 3 * 4;
+    let program = Program {
+        statements: vec![Stmt::VariableDecl {
+            name: "result".to_string(),
+            type_hint: None,
+            value: binary(
+                BinaryOp::Add,
+                Expr::Literal(Literal::Int(2)),
+                binary(
+                    BinaryOp::Mul,
+                    Expr::Literal(Literal::Int(3)),
+                    Expr::Literal(Literal::Int(4)),
+                ),
+            ),
+            is_const: true,
+        }],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_variable_reassignment() {
+    // var x := 10;
+    // x = 20;
+    // x = 30;
+    let program = Program {
+        statements: vec![
+            Stmt::VariableDecl {
+                name: "x".to_string(),
+                type_hint: None,
+                value: Expr::Literal(Literal::Int(10)),
+                is_const: false,
+            },
+            Stmt::Assignment {
+                target: Expr::Identifier("x".to_string()),
+                value: Expr::Literal(Literal::Int(20)),
+            },
+            Stmt::Assignment {
+                target: Expr::Identifier("x".to_string()),
+                value: Expr::Literal(Literal::Int(30)),
+            },
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_assignment_from_function_result() {
+    // fn get_value() -> int { return 42; }
+    // var x := get_value();
+    let program = Program {
+        statements: vec![
+            Stmt::FunctionDef {
+                name: "get_value".to_string(),
+                params: vec![],
+                return_type: Some(vec!["int".to_string()]),
+                body: Box::new(Stmt::Block(vec![Stmt::Return {
+                    values: vec![Expr::Literal(Literal::Int(42))],
+                }])),
+            },
+            Stmt::VariableDecl {
+                name: "x".to_string(),
+                type_hint: None,
+                value: Expr::Call {
+                    func: Box::new(Expr::Identifier("get_value".to_string())),
+                    args: vec![],
+                },
+                is_const: false,
+            },
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
