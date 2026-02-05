@@ -1832,8 +1832,280 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     return Some((phi.as_basic_value().into(), BrixType::Int));
                 }
 
-                let (lhs_val, lhs_type) = self.compile_expr(lhs)?;
-                let (rhs_val, rhs_type) = self.compile_expr(rhs)?;
+                let (mut lhs_val, mut lhs_type) = self.compile_expr(lhs)?;
+                let (mut rhs_val, mut rhs_type) = self.compile_expr(rhs)?;
+
+                // --- INTMATRIX → MATRIX PROMOTION (v1.1) ---
+                // Automatically promote IntMatrix to Matrix when operating with Float or Matrix
+                // Only for arithmetic operators: +, -, *, /, %, **
+                let is_arithmetic_op = matches!(
+                    op,
+                    BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Mod | BinaryOp::Pow
+                );
+
+                if is_arithmetic_op {
+                    // Case 1: IntMatrix op Float → promote IntMatrix to Matrix
+                    // Case 2: Float op IntMatrix → promote IntMatrix to Matrix
+                    // Case 3: IntMatrix op Matrix → promote IntMatrix to Matrix
+                    // Case 4: Matrix op IntMatrix → promote IntMatrix to Matrix
+                    let needs_promotion = (lhs_type == BrixType::IntMatrix && rhs_type == BrixType::Float)
+                        || (lhs_type == BrixType::Float && rhs_type == BrixType::IntMatrix)
+                        || (lhs_type == BrixType::IntMatrix && rhs_type == BrixType::Matrix)
+                        || (lhs_type == BrixType::Matrix && rhs_type == BrixType::IntMatrix);
+
+                    if needs_promotion {
+                        // Declare intmatrix_to_matrix runtime function
+                        let ptr_type = self.context.ptr_type(AddressSpace::default());
+                        let fn_type = ptr_type.fn_type(&[ptr_type.into()], false);
+                        let func = self.module.get_function("intmatrix_to_matrix").unwrap_or_else(|| {
+                            self.module.add_function("intmatrix_to_matrix", fn_type, Some(Linkage::External))
+                        });
+
+                        // Promote left side if it's IntMatrix
+                        if lhs_type == BrixType::IntMatrix {
+                            let promoted = self
+                                .builder
+                                .build_call(func, &[lhs_val.into()], "promote_lhs")
+                                .unwrap()
+                                .try_as_basic_value()
+                                .left()
+                                .unwrap();
+                            lhs_val = promoted;
+                            lhs_type = BrixType::Matrix;
+                        }
+
+                        // Promote right side if it's IntMatrix
+                        if rhs_type == BrixType::IntMatrix {
+                            let promoted = self
+                                .builder
+                                .build_call(func, &[rhs_val.into()], "promote_rhs")
+                                .unwrap()
+                                .try_as_basic_value()
+                                .left()
+                                .unwrap();
+                            rhs_val = promoted;
+                            rhs_type = BrixType::Matrix;
+                        }
+                    }
+                }
+
+                // --- MATRIX ARITHMETIC OPERATIONS (v1.1) ---
+                // Handle Matrix/IntMatrix operations with scalars and other matrices
+                if is_arithmetic_op {
+                    let ptr_type = self.context.ptr_type(AddressSpace::default());
+
+                    // Matrix op scalar (Float or Int)
+                    if lhs_type == BrixType::Matrix && (rhs_type == BrixType::Float || rhs_type == BrixType::Int) {
+                        let fn_name = match op {
+                            BinaryOp::Add => "matrix_add_scalar",
+                            BinaryOp::Sub => "matrix_sub_scalar",
+                            BinaryOp::Mul => "matrix_mul_scalar",
+                            BinaryOp::Div => "matrix_div_scalar",
+                            BinaryOp::Mod => "matrix_mod_scalar",
+                            BinaryOp::Pow => "matrix_pow_scalar",
+                            _ => unreachable!(),
+                        };
+
+                        // Convert Int to Float if necessary
+                        let scalar_val = if rhs_type == BrixType::Int {
+                            self.builder
+                                .build_signed_int_to_float(rhs_val.into_int_value(), self.context.f64_type(), "int_to_float")
+                                .unwrap()
+                        } else {
+                            rhs_val.into_float_value()
+                        };
+
+                        let fn_type = ptr_type.fn_type(&[ptr_type.into(), self.context.f64_type().into()], false);
+                        let func = self.module.get_function(fn_name).unwrap_or_else(|| {
+                            self.module.add_function(fn_name, fn_type, Some(Linkage::External))
+                        });
+
+                        let result = self
+                            .builder
+                            .build_call(func, &[lhs_val.into(), scalar_val.into()], "matrix_op")
+                            .unwrap()
+                            .try_as_basic_value()
+                            .left()
+                            .unwrap();
+
+                        return Some((result, BrixType::Matrix));
+                    }
+
+                    // scalar (Float or Int) op Matrix
+                    if (lhs_type == BrixType::Float || lhs_type == BrixType::Int) && rhs_type == BrixType::Matrix {
+                        let fn_name = match op {
+                            BinaryOp::Add => "matrix_add_scalar",  // Commutative
+                            BinaryOp::Sub => "scalar_sub_matrix",  // Non-commutative
+                            BinaryOp::Mul => "matrix_mul_scalar",  // Commutative
+                            BinaryOp::Div => "scalar_div_matrix",  // Non-commutative
+                            _ => {
+                                // For Mod and Pow, scalar op Matrix doesn't make sense
+                                // Fall through to error
+                                return None;
+                            }
+                        };
+
+                        let scalar_val = if lhs_type == BrixType::Int {
+                            self.builder
+                                .build_signed_int_to_float(lhs_val.into_int_value(), self.context.f64_type(), "int_to_float")
+                                .unwrap()
+                        } else {
+                            lhs_val.into_float_value()
+                        };
+
+                        // Commutative operations: swap arguments
+                        let (arg1, arg2) = if matches!(op, BinaryOp::Add | BinaryOp::Mul) {
+                            (rhs_val, scalar_val.as_basic_value_enum())
+                        } else {
+                            // Non-commutative: scalar is first arg
+                            (scalar_val.as_basic_value_enum(), rhs_val)
+                        };
+
+                        let fn_type = if matches!(op, BinaryOp::Add | BinaryOp::Mul) {
+                            ptr_type.fn_type(&[ptr_type.into(), self.context.f64_type().into()], false)
+                        } else {
+                            ptr_type.fn_type(&[self.context.f64_type().into(), ptr_type.into()], false)
+                        };
+
+                        let func = self.module.get_function(fn_name).unwrap_or_else(|| {
+                            self.module.add_function(fn_name, fn_type, Some(Linkage::External))
+                        });
+
+                        let result = self
+                            .builder
+                            .build_call(func, &[arg1.into(), arg2.into()], "scalar_matrix_op")
+                            .unwrap()
+                            .try_as_basic_value()
+                            .left()
+                            .unwrap();
+
+                        return Some((result, BrixType::Matrix));
+                    }
+
+                    // Matrix op Matrix
+                    if lhs_type == BrixType::Matrix && rhs_type == BrixType::Matrix {
+                        let fn_name = match op {
+                            BinaryOp::Add => "matrix_add_matrix",
+                            BinaryOp::Sub => "matrix_sub_matrix",
+                            BinaryOp::Mul => "matrix_mul_matrix",
+                            BinaryOp::Div => "matrix_div_matrix",
+                            BinaryOp::Mod => "matrix_mod_matrix",
+                            BinaryOp::Pow => "matrix_pow_matrix",
+                            _ => unreachable!(),
+                        };
+
+                        let fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+                        let func = self.module.get_function(fn_name).unwrap_or_else(|| {
+                            self.module.add_function(fn_name, fn_type, Some(Linkage::External))
+                        });
+
+                        let result = self
+                            .builder
+                            .build_call(func, &[lhs_val.into(), rhs_val.into()], "matrix_matrix_op")
+                            .unwrap()
+                            .try_as_basic_value()
+                            .left()
+                            .unwrap();
+
+                        return Some((result, BrixType::Matrix));
+                    }
+
+                    // IntMatrix op Int scalar
+                    if lhs_type == BrixType::IntMatrix && rhs_type == BrixType::Int {
+                        let fn_name = match op {
+                            BinaryOp::Add => "intmatrix_add_scalar",
+                            BinaryOp::Sub => "intmatrix_sub_scalar",
+                            BinaryOp::Mul => "intmatrix_mul_scalar",
+                            BinaryOp::Div => "intmatrix_div_scalar",
+                            BinaryOp::Mod => "intmatrix_mod_scalar",
+                            BinaryOp::Pow => "intmatrix_pow_scalar",
+                            _ => unreachable!(),
+                        };
+
+                        let fn_type = ptr_type.fn_type(&[ptr_type.into(), self.context.i64_type().into()], false);
+                        let func = self.module.get_function(fn_name).unwrap_or_else(|| {
+                            self.module.add_function(fn_name, fn_type, Some(Linkage::External))
+                        });
+
+                        let result = self
+                            .builder
+                            .build_call(func, &[lhs_val.into(), rhs_val.into()], "intmatrix_op")
+                            .unwrap()
+                            .try_as_basic_value()
+                            .left()
+                            .unwrap();
+
+                        return Some((result, BrixType::IntMatrix));
+                    }
+
+                    // Int scalar op IntMatrix
+                    if lhs_type == BrixType::Int && rhs_type == BrixType::IntMatrix {
+                        let fn_name = match op {
+                            BinaryOp::Add => "intmatrix_add_scalar",  // Commutative
+                            BinaryOp::Sub => "scalar_sub_intmatrix",  // Non-commutative
+                            BinaryOp::Mul => "intmatrix_mul_scalar",  // Commutative
+                            _ => {
+                                // For Div, Mod, Pow: scalar op IntMatrix doesn't make sense
+                                return None;
+                            }
+                        };
+
+                        let (arg1, arg2) = if matches!(op, BinaryOp::Add | BinaryOp::Mul) {
+                            (rhs_val, lhs_val)
+                        } else {
+                            // scalar_sub_intmatrix(scalar, intmatrix)
+                            (lhs_val, rhs_val)
+                        };
+
+                        let fn_type = if matches!(op, BinaryOp::Add | BinaryOp::Mul) {
+                            ptr_type.fn_type(&[ptr_type.into(), self.context.i64_type().into()], false)
+                        } else {
+                            ptr_type.fn_type(&[self.context.i64_type().into(), ptr_type.into()], false)
+                        };
+
+                        let func = self.module.get_function(fn_name).unwrap_or_else(|| {
+                            self.module.add_function(fn_name, fn_type, Some(Linkage::External))
+                        });
+
+                        let result = self
+                            .builder
+                            .build_call(func, &[arg1.into(), arg2.into()], "scalar_intmatrix_op")
+                            .unwrap()
+                            .try_as_basic_value()
+                            .left()
+                            .unwrap();
+
+                        return Some((result, BrixType::IntMatrix));
+                    }
+
+                    // IntMatrix op IntMatrix
+                    if lhs_type == BrixType::IntMatrix && rhs_type == BrixType::IntMatrix {
+                        let fn_name = match op {
+                            BinaryOp::Add => "intmatrix_add_intmatrix",
+                            BinaryOp::Sub => "intmatrix_sub_intmatrix",
+                            BinaryOp::Mul => "intmatrix_mul_intmatrix",
+                            BinaryOp::Div => "intmatrix_div_intmatrix",
+                            BinaryOp::Mod => "intmatrix_mod_intmatrix",
+                            BinaryOp::Pow => "intmatrix_pow_intmatrix",
+                            _ => unreachable!(),
+                        };
+
+                        let fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+                        let func = self.module.get_function(fn_name).unwrap_or_else(|| {
+                            self.module.add_function(fn_name, fn_type, Some(Linkage::External))
+                        });
+
+                        let result = self
+                            .builder
+                            .build_call(func, &[lhs_val.into(), rhs_val.into()], "intmatrix_intmatrix_op")
+                            .unwrap()
+                            .try_as_basic_value()
+                            .left()
+                            .unwrap();
+
+                        return Some((result, BrixType::IntMatrix));
+                    }
+                }
 
                 // --- NIL COMPARISON: x == nil, x != nil, err == nil, err != nil ---
                 // Handle comparisons with nil (null pointer comparison)
