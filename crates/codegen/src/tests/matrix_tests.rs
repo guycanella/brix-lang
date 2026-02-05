@@ -1224,7 +1224,6 @@ fn test_index_complex_expression() {
 // ==================== MATRIX/INTMATRIX INTEROPERABILITY ====================
 
 #[test]
-#[ignore = "IntMatrix to Matrix automatic promotion in mixed operations not yet implemented"]
 fn test_intmatrix_to_matrix_promotion() {
     // IntMatrix promoted to Matrix in mixed operations
     let program = Program {

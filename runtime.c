@@ -363,6 +363,495 @@ IntMatrix *intmatrix_new(long rows, long cols) {
   return m;
 }
 
+// Convert IntMatrix to Matrix (automatic promotion for mixed operations)
+// Used when IntMatrix operates with Float or Matrix
+Matrix *intmatrix_to_matrix(IntMatrix *im) {
+  if (im == NULL) {
+    fprintf(stderr, "Error: intmatrix_to_matrix called with NULL\n");
+    exit(1);
+  }
+
+  Matrix *m = matrix_new(im->rows, im->cols);
+  long size = im->rows * im->cols;
+
+  // Convert each element from long to double
+  for (long i = 0; i < size; i++) {
+    m->data[i] = (double)im->data[i];
+  }
+
+  return m;
+}
+
+// ==========================================
+// MATRIX ARITHMETIC OPERATIONS (v1.1)
+// ==========================================
+
+// Matrix + scalar
+Matrix *matrix_add_scalar(Matrix *m, double scalar) {
+  if (m == NULL) {
+    fprintf(stderr, "Error: matrix_add_scalar called with NULL\n");
+    exit(1);
+  }
+  Matrix *result = matrix_new(m->rows, m->cols);
+  long size = m->rows * m->cols;
+  for (long i = 0; i < size; i++) {
+    result->data[i] = m->data[i] + scalar;
+  }
+  return result;
+}
+
+// Matrix - scalar
+Matrix *matrix_sub_scalar(Matrix *m, double scalar) {
+  if (m == NULL) {
+    fprintf(stderr, "Error: matrix_sub_scalar called with NULL\n");
+    exit(1);
+  }
+  Matrix *result = matrix_new(m->rows, m->cols);
+  long size = m->rows * m->cols;
+  for (long i = 0; i < size; i++) {
+    result->data[i] = m->data[i] - scalar;
+  }
+  return result;
+}
+
+// scalar - Matrix
+Matrix *scalar_sub_matrix(double scalar, Matrix *m) {
+  if (m == NULL) {
+    fprintf(stderr, "Error: scalar_sub_matrix called with NULL\n");
+    exit(1);
+  }
+  Matrix *result = matrix_new(m->rows, m->cols);
+  long size = m->rows * m->cols;
+  for (long i = 0; i < size; i++) {
+    result->data[i] = scalar - m->data[i];
+  }
+  return result;
+}
+
+// Matrix * scalar
+Matrix *matrix_mul_scalar(Matrix *m, double scalar) {
+  if (m == NULL) {
+    fprintf(stderr, "Error: matrix_mul_scalar called with NULL\n");
+    exit(1);
+  }
+  Matrix *result = matrix_new(m->rows, m->cols);
+  long size = m->rows * m->cols;
+  for (long i = 0; i < size; i++) {
+    result->data[i] = m->data[i] * scalar;
+  }
+  return result;
+}
+
+// Matrix / scalar
+Matrix *matrix_div_scalar(Matrix *m, double scalar) {
+  if (m == NULL) {
+    fprintf(stderr, "Error: matrix_div_scalar called with NULL\n");
+    exit(1);
+  }
+  if (scalar == 0.0) {
+    fprintf(stderr, "Error: division by zero in matrix_div_scalar\n");
+    exit(1);
+  }
+  Matrix *result = matrix_new(m->rows, m->cols);
+  long size = m->rows * m->cols;
+  for (long i = 0; i < size; i++) {
+    result->data[i] = m->data[i] / scalar;
+  }
+  return result;
+}
+
+// scalar / Matrix
+Matrix *scalar_div_matrix(double scalar, Matrix *m) {
+  if (m == NULL) {
+    fprintf(stderr, "Error: scalar_div_matrix called with NULL\n");
+    exit(1);
+  }
+  Matrix *result = matrix_new(m->rows, m->cols);
+  long size = m->rows * m->cols;
+  for (long i = 0; i < size; i++) {
+    if (m->data[i] == 0.0) {
+      fprintf(stderr, "Error: division by zero in scalar_div_matrix\n");
+      exit(1);
+    }
+    result->data[i] = scalar / m->data[i];
+  }
+  return result;
+}
+
+// Matrix % scalar (modulo)
+Matrix *matrix_mod_scalar(Matrix *m, double scalar) {
+  if (m == NULL) {
+    fprintf(stderr, "Error: matrix_mod_scalar called with NULL\n");
+    exit(1);
+  }
+  if (scalar == 0.0) {
+    fprintf(stderr, "Error: modulo by zero in matrix_mod_scalar\n");
+    exit(1);
+  }
+  Matrix *result = matrix_new(m->rows, m->cols);
+  long size = m->rows * m->cols;
+  for (long i = 0; i < size; i++) {
+    result->data[i] = fmod(m->data[i], scalar);
+  }
+  return result;
+}
+
+// Matrix ** scalar (power)
+Matrix *matrix_pow_scalar(Matrix *m, double scalar) {
+  if (m == NULL) {
+    fprintf(stderr, "Error: matrix_pow_scalar called with NULL\n");
+    exit(1);
+  }
+  Matrix *result = matrix_new(m->rows, m->cols);
+  long size = m->rows * m->cols;
+  for (long i = 0; i < size; i++) {
+    result->data[i] = pow(m->data[i], scalar);
+  }
+  return result;
+}
+
+// Matrix + Matrix (element-wise)
+Matrix *matrix_add_matrix(Matrix *m1, Matrix *m2) {
+  if (m1 == NULL || m2 == NULL) {
+    fprintf(stderr, "Error: matrix_add_matrix called with NULL\n");
+    exit(1);
+  }
+  if (m1->rows != m2->rows || m1->cols != m2->cols) {
+    fprintf(stderr, "Error: matrix dimensions mismatch in addition\n");
+    exit(1);
+  }
+  Matrix *result = matrix_new(m1->rows, m1->cols);
+  long size = m1->rows * m1->cols;
+  for (long i = 0; i < size; i++) {
+    result->data[i] = m1->data[i] + m2->data[i];
+  }
+  return result;
+}
+
+// Matrix - Matrix (element-wise)
+Matrix *matrix_sub_matrix(Matrix *m1, Matrix *m2) {
+  if (m1 == NULL || m2 == NULL) {
+    fprintf(stderr, "Error: matrix_sub_matrix called with NULL\n");
+    exit(1);
+  }
+  if (m1->rows != m2->rows || m1->cols != m2->cols) {
+    fprintf(stderr, "Error: matrix dimensions mismatch in subtraction\n");
+    exit(1);
+  }
+  Matrix *result = matrix_new(m1->rows, m1->cols);
+  long size = m1->rows * m1->cols;
+  for (long i = 0; i < size; i++) {
+    result->data[i] = m1->data[i] - m2->data[i];
+  }
+  return result;
+}
+
+// Matrix * Matrix (element-wise, NOT matrix multiplication)
+Matrix *matrix_mul_matrix(Matrix *m1, Matrix *m2) {
+  if (m1 == NULL || m2 == NULL) {
+    fprintf(stderr, "Error: matrix_mul_matrix called with NULL\n");
+    exit(1);
+  }
+  if (m1->rows != m2->rows || m1->cols != m2->cols) {
+    fprintf(stderr, "Error: matrix dimensions mismatch in multiplication\n");
+    exit(1);
+  }
+  Matrix *result = matrix_new(m1->rows, m1->cols);
+  long size = m1->rows * m1->cols;
+  for (long i = 0; i < size; i++) {
+    result->data[i] = m1->data[i] * m2->data[i];
+  }
+  return result;
+}
+
+// Matrix / Matrix (element-wise)
+Matrix *matrix_div_matrix(Matrix *m1, Matrix *m2) {
+  if (m1 == NULL || m2 == NULL) {
+    fprintf(stderr, "Error: matrix_div_matrix called with NULL\n");
+    exit(1);
+  }
+  if (m1->rows != m2->rows || m1->cols != m2->cols) {
+    fprintf(stderr, "Error: matrix dimensions mismatch in division\n");
+    exit(1);
+  }
+  Matrix *result = matrix_new(m1->rows, m1->cols);
+  long size = m1->rows * m1->cols;
+  for (long i = 0; i < size; i++) {
+    if (m2->data[i] == 0.0) {
+      fprintf(stderr, "Error: division by zero in matrix_div_matrix\n");
+      exit(1);
+    }
+    result->data[i] = m1->data[i] / m2->data[i];
+  }
+  return result;
+}
+
+// Matrix % Matrix (element-wise modulo)
+Matrix *matrix_mod_matrix(Matrix *m1, Matrix *m2) {
+  if (m1 == NULL || m2 == NULL) {
+    fprintf(stderr, "Error: matrix_mod_matrix called with NULL\n");
+    exit(1);
+  }
+  if (m1->rows != m2->rows || m1->cols != m2->cols) {
+    fprintf(stderr, "Error: matrix dimensions mismatch in modulo\n");
+    exit(1);
+  }
+  Matrix *result = matrix_new(m1->rows, m1->cols);
+  long size = m1->rows * m1->cols;
+  for (long i = 0; i < size; i++) {
+    if (m2->data[i] == 0.0) {
+      fprintf(stderr, "Error: modulo by zero in matrix_mod_matrix\n");
+      exit(1);
+    }
+    result->data[i] = fmod(m1->data[i], m2->data[i]);
+  }
+  return result;
+}
+
+// Matrix ** Matrix (element-wise power)
+Matrix *matrix_pow_matrix(Matrix *m1, Matrix *m2) {
+  if (m1 == NULL || m2 == NULL) {
+    fprintf(stderr, "Error: matrix_pow_matrix called with NULL\n");
+    exit(1);
+  }
+  if (m1->rows != m2->rows || m1->cols != m2->cols) {
+    fprintf(stderr, "Error: matrix dimensions mismatch in power\n");
+    exit(1);
+  }
+  Matrix *result = matrix_new(m1->rows, m1->cols);
+  long size = m1->rows * m1->cols;
+  for (long i = 0; i < size; i++) {
+    result->data[i] = pow(m1->data[i], m2->data[i]);
+  }
+  return result;
+}
+
+// ==========================================
+// INTMATRIX ARITHMETIC OPERATIONS (v1.1)
+// ==========================================
+
+// IntMatrix + Int (scalar)
+IntMatrix *intmatrix_add_scalar(IntMatrix *m, long scalar) {
+  if (m == NULL) {
+    fprintf(stderr, "Error: intmatrix_add_scalar called with NULL\n");
+    exit(1);
+  }
+  IntMatrix *result = intmatrix_new(m->rows, m->cols);
+  long size = m->rows * m->cols;
+  for (long i = 0; i < size; i++) {
+    result->data[i] = m->data[i] + scalar;
+  }
+  return result;
+}
+
+// IntMatrix - Int
+IntMatrix *intmatrix_sub_scalar(IntMatrix *m, long scalar) {
+  if (m == NULL) {
+    fprintf(stderr, "Error: intmatrix_sub_scalar called with NULL\n");
+    exit(1);
+  }
+  IntMatrix *result = intmatrix_new(m->rows, m->cols);
+  long size = m->rows * m->cols;
+  for (long i = 0; i < size; i++) {
+    result->data[i] = m->data[i] - scalar;
+  }
+  return result;
+}
+
+// Int - IntMatrix
+IntMatrix *scalar_sub_intmatrix(long scalar, IntMatrix *m) {
+  if (m == NULL) {
+    fprintf(stderr, "Error: scalar_sub_intmatrix called with NULL\n");
+    exit(1);
+  }
+  IntMatrix *result = intmatrix_new(m->rows, m->cols);
+  long size = m->rows * m->cols;
+  for (long i = 0; i < size; i++) {
+    result->data[i] = scalar - m->data[i];
+  }
+  return result;
+}
+
+// IntMatrix * Int
+IntMatrix *intmatrix_mul_scalar(IntMatrix *m, long scalar) {
+  if (m == NULL) {
+    fprintf(stderr, "Error: intmatrix_mul_scalar called with NULL\n");
+    exit(1);
+  }
+  IntMatrix *result = intmatrix_new(m->rows, m->cols);
+  long size = m->rows * m->cols;
+  for (long i = 0; i < size; i++) {
+    result->data[i] = m->data[i] * scalar;
+  }
+  return result;
+}
+
+// IntMatrix / Int
+IntMatrix *intmatrix_div_scalar(IntMatrix *m, long scalar) {
+  if (m == NULL) {
+    fprintf(stderr, "Error: intmatrix_div_scalar called with NULL\n");
+    exit(1);
+  }
+  if (scalar == 0) {
+    fprintf(stderr, "Error: division by zero in intmatrix_div_scalar\n");
+    exit(1);
+  }
+  IntMatrix *result = intmatrix_new(m->rows, m->cols);
+  long size = m->rows * m->cols;
+  for (long i = 0; i < size; i++) {
+    result->data[i] = m->data[i] / scalar;  // Integer division
+  }
+  return result;
+}
+
+// IntMatrix % Int
+IntMatrix *intmatrix_mod_scalar(IntMatrix *m, long scalar) {
+  if (m == NULL) {
+    fprintf(stderr, "Error: intmatrix_mod_scalar called with NULL\n");
+    exit(1);
+  }
+  if (scalar == 0) {
+    fprintf(stderr, "Error: modulo by zero in intmatrix_mod_scalar\n");
+    exit(1);
+  }
+  IntMatrix *result = intmatrix_new(m->rows, m->cols);
+  long size = m->rows * m->cols;
+  for (long i = 0; i < size; i++) {
+    result->data[i] = m->data[i] % scalar;
+  }
+  return result;
+}
+
+// IntMatrix ** Int (power with integer result)
+IntMatrix *intmatrix_pow_scalar(IntMatrix *m, long scalar) {
+  if (m == NULL) {
+    fprintf(stderr, "Error: intmatrix_pow_scalar called with NULL\n");
+    exit(1);
+  }
+  IntMatrix *result = intmatrix_new(m->rows, m->cols);
+  long size = m->rows * m->cols;
+  for (long i = 0; i < size; i++) {
+    result->data[i] = (long)pow((double)m->data[i], (double)scalar);
+  }
+  return result;
+}
+
+// IntMatrix + IntMatrix (element-wise)
+IntMatrix *intmatrix_add_intmatrix(IntMatrix *m1, IntMatrix *m2) {
+  if (m1 == NULL || m2 == NULL) {
+    fprintf(stderr, "Error: intmatrix_add_intmatrix called with NULL\n");
+    exit(1);
+  }
+  if (m1->rows != m2->rows || m1->cols != m2->cols) {
+    fprintf(stderr, "Error: intmatrix dimensions mismatch in addition\n");
+    exit(1);
+  }
+  IntMatrix *result = intmatrix_new(m1->rows, m1->cols);
+  long size = m1->rows * m1->cols;
+  for (long i = 0; i < size; i++) {
+    result->data[i] = m1->data[i] + m2->data[i];
+  }
+  return result;
+}
+
+// IntMatrix - IntMatrix (element-wise)
+IntMatrix *intmatrix_sub_intmatrix(IntMatrix *m1, IntMatrix *m2) {
+  if (m1 == NULL || m2 == NULL) {
+    fprintf(stderr, "Error: intmatrix_sub_intmatrix called with NULL\n");
+    exit(1);
+  }
+  if (m1->rows != m2->rows || m1->cols != m2->cols) {
+    fprintf(stderr, "Error: intmatrix dimensions mismatch in subtraction\n");
+    exit(1);
+  }
+  IntMatrix *result = intmatrix_new(m1->rows, m1->cols);
+  long size = m1->rows * m1->cols;
+  for (long i = 0; i < size; i++) {
+    result->data[i] = m1->data[i] - m2->data[i];
+  }
+  return result;
+}
+
+// IntMatrix * IntMatrix (element-wise)
+IntMatrix *intmatrix_mul_intmatrix(IntMatrix *m1, IntMatrix *m2) {
+  if (m1 == NULL || m2 == NULL) {
+    fprintf(stderr, "Error: intmatrix_mul_intmatrix called with NULL\n");
+    exit(1);
+  }
+  if (m1->rows != m2->rows || m1->cols != m2->cols) {
+    fprintf(stderr, "Error: intmatrix dimensions mismatch in multiplication\n");
+    exit(1);
+  }
+  IntMatrix *result = intmatrix_new(m1->rows, m1->cols);
+  long size = m1->rows * m1->cols;
+  for (long i = 0; i < size; i++) {
+    result->data[i] = m1->data[i] * m2->data[i];
+  }
+  return result;
+}
+
+// IntMatrix / IntMatrix (element-wise integer division)
+IntMatrix *intmatrix_div_intmatrix(IntMatrix *m1, IntMatrix *m2) {
+  if (m1 == NULL || m2 == NULL) {
+    fprintf(stderr, "Error: intmatrix_div_intmatrix called with NULL\n");
+    exit(1);
+  }
+  if (m1->rows != m2->rows || m1->cols != m2->cols) {
+    fprintf(stderr, "Error: intmatrix dimensions mismatch in division\n");
+    exit(1);
+  }
+  IntMatrix *result = intmatrix_new(m1->rows, m1->cols);
+  long size = m1->rows * m1->cols;
+  for (long i = 0; i < size; i++) {
+    if (m2->data[i] == 0) {
+      fprintf(stderr, "Error: division by zero in intmatrix_div_intmatrix\n");
+      exit(1);
+    }
+    result->data[i] = m1->data[i] / m2->data[i];
+  }
+  return result;
+}
+
+// IntMatrix % IntMatrix (element-wise modulo)
+IntMatrix *intmatrix_mod_intmatrix(IntMatrix *m1, IntMatrix *m2) {
+  if (m1 == NULL || m2 == NULL) {
+    fprintf(stderr, "Error: intmatrix_mod_intmatrix called with NULL\n");
+    exit(1);
+  }
+  if (m1->rows != m2->rows || m1->cols != m2->cols) {
+    fprintf(stderr, "Error: intmatrix dimensions mismatch in modulo\n");
+    exit(1);
+  }
+  IntMatrix *result = intmatrix_new(m1->rows, m1->cols);
+  long size = m1->rows * m1->cols;
+  for (long i = 0; i < size; i++) {
+    if (m2->data[i] == 0) {
+      fprintf(stderr, "Error: modulo by zero in intmatrix_mod_intmatrix\n");
+      exit(1);
+    }
+    result->data[i] = m1->data[i] % m2->data[i];
+  }
+  return result;
+}
+
+// IntMatrix ** IntMatrix (element-wise power)
+IntMatrix *intmatrix_pow_intmatrix(IntMatrix *m1, IntMatrix *m2) {
+  if (m1 == NULL || m2 == NULL) {
+    fprintf(stderr, "Error: intmatrix_pow_intmatrix called with NULL\n");
+    exit(1);
+  }
+  if (m1->rows != m2->rows || m1->cols != m2->cols) {
+    fprintf(stderr, "Error: intmatrix dimensions mismatch in power\n");
+    exit(1);
+  }
+  IntMatrix *result = intmatrix_new(m1->rows, m1->cols);
+  long size = m1->rows * m1->cols;
+  for (long i = 0; i < size; i++) {
+    result->data[i] = (long)pow((double)m1->data[i], (double)m2->data[i]);
+  }
+  return result;
+}
+
 // ==========================================
 // SECTION 1.6: COMPLEXMATRIX (v1.0)
 // ==========================================
