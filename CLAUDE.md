@@ -287,6 +287,29 @@ cargo test -- --nocapture     # Show output from tests
 - **Single-file compilation** - multi-file imports not yet implemented
 - **No integration tests** - only unit tests exist, need end-to-end `.bx` execution tests
 
+## Intentional Limitations (Design Decisions)
+
+- **Nested ternary operators not supported** - Use `match` or `if/else` instead for better readability
+  ```brix
+  // ❌ Not supported (poor readability)
+  var x := a > b ? 1 : c > d ? 2 : 3
+
+  // ✅ Use match instead
+  var x := match {
+      a > b -> 1,
+      c > d -> 2,
+      _ -> 3
+  }
+  ```
+- **Ranges with variables require spaces** - To avoid conflict with atoms
+  ```brix
+  // ✅ Numeric ranges - no space needed
+  for i in 0:10 { }
+
+  // ✅ Variable ranges - space required
+  for i in start : end { }
+  ```
+
 ## Troubleshooting
 
 **"runtime.c not found"**
