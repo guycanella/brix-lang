@@ -29,7 +29,6 @@ fn test_complex_literal() {
 }
 
 #[test]
-#[ignore = "Literal::Imaginary does not exist in AST - imaginary is parsed as Complex(0, n)"]
 fn test_imaginary_literal() {
     let program = Program {
         statements: vec![Stmt::Expr(Expr::Literal(Literal::Complex(0.0, 2.0)))],

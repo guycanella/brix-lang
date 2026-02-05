@@ -441,16 +441,6 @@ fn test_ternary_simple() {
     }
 }
 
-#[test]
-#[ignore = "Feature not implemented: nested ternary operators"]
-fn test_ternary_nested() {
-    let expr = parse_expr("x > 10 ? 1 : x > 5 ? 2 : 3").unwrap();
-    match expr {
-        Expr::Ternary { .. } => {} // Just verify it parses
-        _ => panic!("Expected ternary"),
-    }
-}
-
 // ==================== ARRAY TESTS ====================
 
 #[test]

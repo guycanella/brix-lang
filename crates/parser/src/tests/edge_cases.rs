@@ -75,7 +75,6 @@ fn test_chained_index_access() {
 }
 
 #[test]
-#[ignore = "Feature not implemented: function call chaining"]
 fn test_chained_function_calls() {
     let expr = parse_expr("foo()()()").unwrap();
     match expr {
@@ -104,7 +103,6 @@ fn test_mixed_field_and_index() {
 }
 
 #[test]
-#[ignore = "Feature not implemented: field access on call result"]
 fn test_mixed_call_and_field() {
     let expr = parse_expr("foo().field").unwrap();
     match expr {

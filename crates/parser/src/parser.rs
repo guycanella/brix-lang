@@ -589,60 +589,60 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
                 dimensions,
             });
 
-        // IMPORTANT: index_or_field must come BEFORE call
-        // so that math.sin(x) parses as Call { FieldAccess { math, sin }, [x] }
-        // instead of FieldAccess { math, sin } with orphaned (x)
-        let index_or_field = static_init
+        // Postfix operations: field access, indexing, and function calls
+        // Can be chained in any order: get_matrix().rows, arr[0].len, get_func()()
+        // Define the three types of postfix operations
+        enum PostfixOp {
+            Field(String),
+            Index(Expr),
+            Call(Vec<Expr>),
+        }
+
+        let postfix_chain = static_init
             .or(atom.clone())
             .then(
-                expr.clone()
-                    .delimited_by(just(Token::LBracket), just(Token::RBracket))
-                    .map(|idx| (true, idx, String::new()))
-                    .or(just(Token::Dot)
-                        .ignore_then(select! { Token::Identifier(name) => name })
-                        .map(|name| (false, Expr::Identifier("dummy".to_string()), name)))
+                // Field access: .field
+                just(Token::Dot)
+                    .ignore_then(select! { Token::Identifier(name) => name })
+                    .map(PostfixOp::Field)
+                    // Index: [expr]
+                    .or(expr.clone()
+                        .delimited_by(just(Token::LBracket), just(Token::RBracket))
+                        .map(PostfixOp::Index))
+                    // Function call: (args)
+                    .or(expr.clone()
+                        .separated_by(just(Token::Comma))
+                        .allow_trailing()
+                        .delimited_by(just(Token::LParen), just(Token::RParen))
+                        .map(PostfixOp::Call))
                     .repeated(),
             )
-            .foldl(|lhs, (is_index, expr_arg, field_name)| {
-                if is_index {
+            .foldl(|lhs, op| match op {
+                PostfixOp::Field(field_name) => Expr::FieldAccess {
+                    target: Box::new(lhs),
+                    field: field_name,
+                },
+                PostfixOp::Index(index_expr) => {
                     match lhs {
                         Expr::Index { array, mut indices } => {
-                            indices.push(expr_arg);
+                            indices.push(index_expr);
                             Expr::Index { array, indices }
                         }
                         _ => Expr::Index {
                             array: Box::new(lhs),
-                            indices: vec![expr_arg],
+                            indices: vec![index_expr],
                         },
                     }
-                } else {
-                    Expr::FieldAccess {
-                        target: Box::new(lhs),
-                        field: field_name,
-                    }
-                }
+                },
+                PostfixOp::Call(args) => Expr::Call {
+                    func: Box::new(lhs),
+                    args,
+                },
             })
             .boxed();
 
-        let call = index_or_field
-            .clone()
-            .then(
-                expr.clone()
-                    .separated_by(just(Token::Comma))
-                    .allow_trailing()
-                    .delimited_by(just(Token::LParen), just(Token::RParen))
-                    .or_not(),
-            )
-            .map(|(func, maybe_args)| match maybe_args {
-                Some(args) => Expr::Call {
-                    func: Box::new(func),
-                    args,
-                },
-                None => func,
-            });
-
         // Postfix increment/decrement (x++, x--)
-        let postfix_inc_dec = call
+        let postfix_inc_dec = postfix_chain
             .clone()
             .then(
                 just(Token::PlusPlus)

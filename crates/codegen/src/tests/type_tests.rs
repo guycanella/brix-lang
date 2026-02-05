@@ -316,7 +316,6 @@ fn test_complex_from_literal() {
 }
 
 #[test]
-#[ignore = "Literal::Imaginary does not exist in AST - imaginary is parsed as Complex(0, n)"]
 fn test_imaginary_literal() {
     // 2.0i -> Complex(0, 2.0)
     let expr = Expr::Literal(Literal::Complex(0.0, 2.0));
