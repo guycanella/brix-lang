@@ -9,6 +9,7 @@ use inkwell::targets::{
 use lexer::token::Token;
 use logos::Logos;
 use parser::parser::parser;
+use parser::error;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -36,18 +37,33 @@ fn main() {
     };
 
     println!("--- 1. Lexing & Parsing ---");
-    let tokens: Vec<Token> = Token::lexer(&code)
+
+    // Lex with spans for better error reporting
+    let tokens_with_spans: Vec<(Token, std::ops::Range<usize>)> = Token::lexer(&code)
         .spanned()
-        .map(|(t, _)| t.unwrap_or(Token::Error))
+        .map(|(t, span)| (t.unwrap_or(Token::Error), span))
+        .collect();
+
+    // Check for invalid operator sequences before parsing
+    if error::check_and_report_invalid_sequences(&cli.file_path, &code, &tokens_with_spans) {
+        return;
+    }
+
+    // Extract just tokens for parsing (chumsky doesn't use spans directly)
+    let tokens: Vec<Token> = tokens_with_spans
+        .iter()
+        .map(|(t, _)| t.clone())
         .collect();
 
     let ast = match parser().parse(tokens) {
         Ok(ast) => ast,
         Err(errs) => {
-            eprintln!("❌ Erro de Sintaxe:");
-            for err in errs {
-                eprintln!("  -> {:?}", err);
-            }
+            // Use Ariadne for beautiful error reporting
+            error::report_errors(
+                &cli.file_path,
+                &code,
+                errs
+            );
             return;
         }
     };
