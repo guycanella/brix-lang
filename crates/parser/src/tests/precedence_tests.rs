@@ -126,10 +126,10 @@ fn test_add_over_comparison() {
 // ==================== BITWISE PRECEDENCE ====================
 
 #[test]
-#[ignore = "Brix has comparison LOWER than bitwise (opposite of C), so x & 0xFF == 0 is x & (0xFF == 0)"]
 fn test_bitwise_over_comparison() {
-    // x & 0xFF == 0 should be (x & 0xFF) == 0
-    let expr = parse_expr("x & 0xFF == 0").unwrap();
+    // x & 255 == 0 should be (x & 255) == 0
+    // Note: using 255 instead of 0xFF since Brix doesn't support hex literals yet
+    let expr = parse_expr("x & 255 == 0").unwrap();
     match expr {
         Expr::Binary {
             op: BinaryOp::Eq,
