@@ -16,27 +16,11 @@ mod operators;
 mod stmt;
 mod expr;
 
+// Re-export BrixType for public API
+pub use types::BrixType;
+
 #[cfg(test)]
 mod tests;
-
-// --- BRIX TYPE SYSTEM ---
-#[derive(Debug, Clone, PartialEq)]
-pub enum BrixType {
-    Int,
-    Float,
-    String,
-    Matrix,        // Matrix of f64 (double*)
-    IntMatrix,     // Matrix of i64 (long*)
-    Complex,       // Complex number (struct { f64 real, f64 imag })
-    ComplexArray,  // Array of Complex (1D)
-    ComplexMatrix, // Matrix of Complex (2D)
-    FloatPtr,
-    Void,
-    Tuple(Vec<BrixType>), // Multiple returns (stored as struct)
-    Nil,                  // Represents null/nil value (null pointer)
-    Error,                // Error type (pointer to BrixError struct in runtime.c)
-    Atom,                 // Elixir-style atom (interned string, i64 ID)
-}
 
 pub struct Compiler<'a, 'ctx> {
     pub context: &'ctx Context,
@@ -269,7 +253,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         }
     }
 
-    // --- HELPER: Convert string type to BrixType ---
+    // --- TYPE SYSTEM HELPERS ---
+    // Note: These are kept in lib.rs because they need access to self.context
+    // The BrixType enum itself is defined in types.rs
+
     fn string_to_brix_type(&self, type_str: &str) -> BrixType {
         match type_str {
             "int" => BrixType::Int,
@@ -289,7 +276,6 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         }
     }
 
-    // --- HELPER: Convert BrixType to LLVM type ---
     fn brix_type_to_llvm(&self, brix_type: &BrixType) -> BasicTypeEnum<'ctx> {
         match brix_type {
             BrixType::Int | BrixType::Atom => self.context.i64_type().into(), // Atom = i64 (atom ID)
