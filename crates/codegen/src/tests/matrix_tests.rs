@@ -238,25 +238,6 @@ fn test_array_literal_all_ints_becomes_intmatrix() {
     assert!(result.is_ok());
 }
 
-#[test]
-#[ignore = "Nested arrays (arrays of arrays) not yet supported - requires multi-dimensional type system"]
-fn test_array_literal_nested() {
-    let program = Program {
-        statements: vec![Stmt::Expr(Expr::Array(vec![
-            Expr::Array(vec![
-                Expr::Literal(Literal::Int(1)),
-                Expr::Literal(Literal::Int(2)),
-            ]),
-            Expr::Array(vec![
-                Expr::Literal(Literal::Int(3)),
-                Expr::Literal(Literal::Int(4)),
-            ]),
-        ]))],
-    };
-    let result = compile_program(program);
-    assert!(result.is_ok());
-}
-
 // ==================== MATRIX FIELD ACCESS ====================
 
 #[test]
