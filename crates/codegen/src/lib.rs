@@ -15,9 +15,13 @@ mod builtins;
 mod operators;
 mod stmt;
 mod expr;
+mod error;
 
 // Re-export BrixType for public API
 pub use types::BrixType;
+
+// Re-export error types for public API
+pub use error::{CodegenError, CodegenResult};
 
 // Import helper trait to make functions available on Compiler
 use helpers::HelperFunctions;
