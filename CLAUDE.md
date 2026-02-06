@@ -76,6 +76,8 @@ brix/
 
 **2. Parser (`crates/parser`)**
 - Uses `chumsky` parser combinators
+- **Error reporting** via `Ariadne` - beautiful, colored error messages with source context
+- **Semantic checks**: detects invalid operator sequences (like `1 ++ 2`) before parsing
 - Operator precedence (lowest to highest, C-style):
   - Comparison/Logical: `<`, `<=`, `>`, `>=`, `==`, `!=`, `&&`, `||`
   - Bitwise: `&`, `|`, `^` (binds tighter than comparison - C-style)
@@ -229,14 +231,14 @@ brix/
 ## Development Workflow
 
 **Before Making Changes:**
-1. Run `cargo test --all` to verify baseline (should show 1001/1002 passing, 99.9%)
-   - Lexer: All tests passing
-   - Parser: 149 passing, 1 ignored (test_invalid_operator_sequence)
-   - Codegen: 560 passing, 0 ignored
+1. Run `cargo test --all` to verify baseline (should show 1001/1001 passing, 100% 🎉)
+   - Lexer: 292 passing, 0 ignored
+   - Parser: 150 passing, 0 ignored
+   - Codegen: 559 passing, 0 ignored
 2. Check which crate needs modification (lexer, parser, or codegen)
 3. Review recent commits with `git log --oneline -10`
 4. For new features: follow the Lexer → Parser → Codegen → Runtime order
-5. See FIX_BUGS.md for bug fix history and remaining ignored tests
+5. See FIX_BUGS.md for bug fix history
 
 **Debugging Checklist:**
 1. Linking errors? Run clean build: `rm -f *.o program && cargo clean && cargo build`
@@ -280,7 +282,7 @@ brix/
 
 ## Testing
 
-**Automated Unit Tests:** 1002 tests total, **1001 passing (99.9%), 1 ignored**
+**Automated Unit Tests:** 1001 tests total, **1001 passing (100%)** 🎉
 ```bash
 cargo test --all              # Run all tests
 cargo test <pattern>          # Run tests matching pattern
@@ -305,10 +307,11 @@ cargo test -- --nocapture     # Show output from tests
   - edge_cases.rs (50 tests) - Overflow, precedence, division, boolean, negative numbers
   - integration_tests.rs (15 tests) - Complex feature combinations
 
-**Remaining Ignored Tests (1/1002):**
-- `test_invalid_operator_sequence` (parser/error_recovery.rs) - Deferred to v1.2 with Ariadne
+**Remaining Ignored Tests:** None! 🎉 All 1001 tests passing (100%)
 
 **Recently Fixed (Feb 2026):**
+- ✅ **Ariadne error reporting** (beautiful error messages with source context)
+- ✅ Invalid operator sequence detection (`1 ++ 2` now properly detected)
 - ✅ Power operator right-associativity (`2**3**2 = 512`)
 - ✅ Range with variables (`start : end` with required spaces)
 - ✅ Postfix operation chaining (`.field`, `[index]`, `(args)` in any order)
@@ -320,7 +323,6 @@ cargo test -- --nocapture     # Show output from tests
 
 - **595 unwrap() calls** - needs proper error handling with `Result<>`
 - **Monolithic codegen** - 7,154-line lib.rs needs modularization into types.rs, builtins.rs, expr.rs, stmt.rs
-- **Parse errors** - shown via debug output, Ariadne integration pending
 - **No LLVM optimizations** - runs with `OptimizationLevel::None`
 - **Single-file compilation** - multi-file imports not yet implemented
 - **No integration tests** - only unit tests exist, need end-to-end `.bx` execution tests
@@ -395,18 +397,18 @@ cargo test -- --nocapture     # Show output from tests
 
 ## Development Roadmap
 
-**Current Focus (Feb 2026):** Test Infrastructure + Bug Fixes
+**Current Focus (Feb 2026):** ✅ **v1.2 COMPLETE!**
 - ✅ Phase 1: Lexer unit tests (completed)
-- ✅ Phase 2: Parser unit tests (completed - 149 passing, 1 ignored)
-- ✅ Phase 3: Codegen unit tests (completed - 1000/1002 passing, 99.8%!)
+- ✅ Phase 2: Parser unit tests (completed - 150 passing, 0 ignored)
+- ✅ Phase 3: Codegen unit tests (completed - 1001/1001 passing, 100%!)
 - ✅ Phase 3.5: Bug fix sprint (completed - fixed 8/10 issues, see FIX_BUGS.md)
-- 🚧 Phase 4: Integration/golden tests (next - end-to-end .bx execution)
-- Phase 5: Property-based tests (~20 tests)
+- ✅ Phase 4: Ariadne integration (completed - beautiful error messages!)
+- 🚧 Phase 5: Integration/golden tests (next - end-to-end .bx execution)
+- Phase 6: Property-based tests (~20 tests)
 
 **After Testing:**
 - Refactor codegen into modules (types.rs, builtins.rs, expr.rs, stmt.rs)
 - Replace unwrap() with proper error handling
-- Ariadne integration for beautiful error messages
 - LLVM optimizations (-O2, -O3)
 
 **Future Features:**
