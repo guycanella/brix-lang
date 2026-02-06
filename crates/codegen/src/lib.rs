@@ -7,6 +7,15 @@ use inkwell::{AddressSpace, FloatPredicate, IntPredicate};
 use parser::ast::{BinaryOp, Expr, Literal, Program, Stmt, UnaryOp};
 use std::collections::HashMap;
 
+// --- MODULE DECLARATIONS ---
+// These modules will be gradually populated during refactoring
+mod types;
+mod helpers;
+mod builtins;
+mod operators;
+mod stmt;
+mod expr;
+
 #[cfg(test)]
 mod tests;
 
