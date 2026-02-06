@@ -7,6 +7,7 @@ use inkwell::module::Linkage;
 use inkwell::AddressSpace;
 
 /// Trait for statistics function declarations
+#[allow(dead_code)]
 pub trait StatsFunctions<'ctx> {
     /// Declare a statistics function with signature: f64 function(Matrix*)
     fn declare_stats_function(&self, name: &str) -> inkwell::values::FunctionValue<'ctx>;

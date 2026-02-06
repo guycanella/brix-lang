@@ -7,6 +7,7 @@ use inkwell::module::Linkage;
 use inkwell::AddressSpace;
 
 /// Trait for linear algebra function declarations
+#[allow(dead_code)]
 pub trait LinalgFunctions<'ctx> {
     /// Declare a linear algebra function with signature: Matrix* function(Matrix*)
     fn declare_linalg_function(&self, name: &str) -> inkwell::values::FunctionValue<'ctx>;

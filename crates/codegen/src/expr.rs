@@ -19,7 +19,7 @@
 // - Array, Match, Increment/Decrement, FString (complex logic)
 // - ListComprehension (has dedicated method)
 
-use crate::{BrixType, Compiler};
+use crate::{BrixType, Compiler, CodegenError, CodegenResult};
 use inkwell::module::Linkage;
 use inkwell::types::BasicTypeEnum;
 use inkwell::values::BasicValueEnum;
@@ -30,10 +30,10 @@ use parser::ast::{Expr, Literal};
 /// Trait for expression compilation helper methods
 pub trait ExpressionCompiler<'ctx> {
     /// Compile literal expression (Int, Float, String, Bool, Complex, Nil, Atom)
-    fn compile_literal_expr(&self, lit: &Literal) -> Option<(BasicValueEnum<'ctx>, BrixType)>;
+    fn compile_literal_expr(&self, lit: &Literal) -> CodegenResult<(BasicValueEnum<'ctx>, BrixType)>;
 
     /// Compile range expression (error, only valid in for loops)
-    fn compile_range_expr(&self) -> Option<(BasicValueEnum<'ctx>, BrixType)>;
+    fn compile_range_expr(&self) -> CodegenResult<(BasicValueEnum<'ctx>, BrixType)>;
 
     /// Compile ternary expression (condition ? then : else)
     fn compile_ternary_expr(
@@ -41,29 +41,33 @@ pub trait ExpressionCompiler<'ctx> {
         condition: &Expr,
         then_expr: &Expr,
         else_expr: &Expr,
-    ) -> Option<(BasicValueEnum<'ctx>, BrixType)>;
+    ) -> CodegenResult<(BasicValueEnum<'ctx>, BrixType)>;
 
     /// Compile static initialization (int[5], float[2,3])
     fn compile_static_init_expr(
         &mut self,
         element_type: &str,
         dimensions: &[Expr],
-    ) -> Option<(BasicValueEnum<'ctx>, BrixType)>;
+    ) -> CodegenResult<(BasicValueEnum<'ctx>, BrixType)>;
 }
 
 impl<'a, 'ctx> ExpressionCompiler<'ctx> for Compiler<'a, 'ctx> {
-    fn compile_literal_expr(&self, lit: &Literal) -> Option<(BasicValueEnum<'ctx>, BrixType)> {
+    fn compile_literal_expr(&self, lit: &Literal) -> CodegenResult<(BasicValueEnum<'ctx>, BrixType)> {
         match lit {
             Literal::Int(n) => {
                 let val = self.context.i64_type().const_int(*n as u64, false);
-                Some((val.into(), BrixType::Int))
+                Ok((val.into(), BrixType::Int))
             }
             Literal::Float(n) => {
                 let val = self.context.f64_type().const_float(*n);
-                Some((val.into(), BrixType::Float))
+                Ok((val.into(), BrixType::Float))
             }
             Literal::String(s) => {
-                let raw_str = self.builder.build_global_string_ptr(s, "raw_str").unwrap();
+                let raw_str = self.builder.build_global_string_ptr(s, "raw_str")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_global_string_ptr".to_string(),
+                        details: format!("Failed to create global string for '{}'", s),
+                    })?;
 
                 let ptr_type = self.context.ptr_type(AddressSpace::default());
                 let fn_type = ptr_type.fn_type(&[ptr_type.into()], false);
@@ -75,17 +79,29 @@ impl<'a, 'ctx> ExpressionCompiler<'ctx> for Compiler<'a, 'ctx> {
                 let call = self
                     .builder
                     .build_call(str_new_fn, &[raw_str.as_pointer_value().into()], "new_str")
-                    .unwrap();
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: "Failed to call str_new".to_string(),
+                    })?;
 
-                Some((call.try_as_basic_value().left().unwrap(), BrixType::String))
+                let value = call.try_as_basic_value().left()
+                    .ok_or_else(|| CodegenError::LLVMError {
+                        operation: "try_as_basic_value".to_string(),
+                        details: "str_new call did not return a value".to_string(),
+                    })?;
+
+                Ok((value, BrixType::String))
             }
             Literal::Bool(b) => {
                 let bool_val = self.context.bool_type().const_int(*b as u64, false);
                 let int_val = self
                     .builder
                     .build_int_z_extend(bool_val, self.context.i64_type(), "bool_ext")
-                    .unwrap();
-                Some((int_val.into(), BrixType::Int))
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_int_z_extend".to_string(),
+                        details: "Failed to extend boolean to i64".to_string(),
+                    })?;
+                Ok((int_val.into(), BrixType::Int))
             }
             Literal::Complex(real, imag) => {
                 // Create complex number as struct { f64, f64 }
@@ -99,13 +115,13 @@ impl<'a, 'ctx> ExpressionCompiler<'ctx> for Compiler<'a, 'ctx> {
                 let complex_val =
                     complex_type.const_named_struct(&[real_val.into(), imag_val.into()]);
 
-                Some((complex_val.into(), BrixType::Complex))
+                Ok((complex_val.into(), BrixType::Complex))
             }
             Literal::Nil => {
                 // Nil is represented as a null pointer
                 let ptr_type = self.context.ptr_type(AddressSpace::default());
                 let null_ptr = ptr_type.const_null();
-                Some((null_ptr.into(), BrixType::Nil))
+                Ok((null_ptr.into(), BrixType::Nil))
             }
             Literal::Atom(name) => {
                 // Atom: call atom_intern() to get unique ID
@@ -126,32 +142,40 @@ impl<'a, 'ctx> ExpressionCompiler<'ctx> for Compiler<'a, 'ctx> {
                 let name_cstr = self
                     .builder
                     .build_global_string_ptr(name, "atom_name_str")
-                    .unwrap();
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_global_string_ptr".to_string(),
+                        details: format!("Failed to create global string for atom '{}'", name),
+                    })?;
 
                 // Call atom_intern(name)
-                let atom_id = self
+                let call_site = self
                     .builder
                     .build_call(
                         atom_intern_fn,
                         &[name_cstr.as_pointer_value().into()],
                         "atom_id",
                     )
-                    .unwrap()
-                    .try_as_basic_value()
-                    .left()
-                    .unwrap()
-                    .into_int_value();
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: format!("Failed to call atom_intern for '{}'", name),
+                    })?;
 
-                Some((atom_id.into(), BrixType::Atom))
+                let atom_val = call_site.try_as_basic_value().left()
+                    .ok_or_else(|| CodegenError::LLVMError {
+                        operation: "try_as_basic_value".to_string(),
+                        details: "atom_intern did not return a value".to_string(),
+                    })?;
+
+                Ok((atom_val, BrixType::Atom))
             }
         }
     }
 
-    fn compile_range_expr(&self) -> Option<(BasicValueEnum<'ctx>, BrixType)> {
-        eprintln!(
-            "Error: Ranges cannot be assigned to variables, use only inside 'for' loops."
-        );
-        None
+    fn compile_range_expr(&self) -> CodegenResult<(BasicValueEnum<'ctx>, BrixType)> {
+        Err(CodegenError::InvalidOperation {
+            operation: "Range".to_string(),
+            reason: "Ranges cannot be assigned to variables, use only inside 'for' loops".to_string(),
+        })
     }
 
     fn compile_ternary_expr(
@@ -159,7 +183,7 @@ impl<'a, 'ctx> ExpressionCompiler<'ctx> for Compiler<'a, 'ctx> {
         condition: &Expr,
         then_expr: &Expr,
         else_expr: &Expr,
-    ) -> Option<(BasicValueEnum<'ctx>, BrixType)> {
+    ) -> CodegenResult<(BasicValueEnum<'ctx>, BrixType)> {
         // Compile condition
         let (cond_val, _) = self.compile_expr(condition)?;
         let cond_int = cond_val.into_int_value();
@@ -170,15 +194,23 @@ impl<'a, 'ctx> ExpressionCompiler<'ctx> for Compiler<'a, 'ctx> {
         let cond_bool = self
             .builder
             .build_int_compare(IntPredicate::NE, cond_int, zero, "terncond")
-            .unwrap();
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_int_compare".to_string(),
+                details: "Failed to compare ternary condition with zero".to_string(),
+            })?;
 
         // Get parent function
-        let parent_fn = self
-            .builder
-            .get_insert_block()
-            .unwrap()
-            .get_parent()
-            .unwrap();
+        let block = self.builder.get_insert_block()
+            .ok_or_else(|| CodegenError::LLVMError {
+                operation: "get_insert_block".to_string(),
+                details: "No current basic block for ternary expression".to_string(),
+            })?;
+
+        let parent_fn = block.get_parent()
+            .ok_or_else(|| CodegenError::LLVMError {
+                operation: "get_parent".to_string(),
+                details: "Basic block has no parent function".to_string(),
+            })?;
 
         // Create basic blocks
         let then_bb = self.context.append_basic_block(parent_fn, "tern_then");
@@ -188,19 +220,38 @@ impl<'a, 'ctx> ExpressionCompiler<'ctx> for Compiler<'a, 'ctx> {
         // Conditional branch
         self.builder
             .build_conditional_branch(cond_bool, then_bb, else_bb)
-            .unwrap();
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_conditional_branch".to_string(),
+                details: "Failed to build conditional branch for ternary".to_string(),
+            })?;
 
         // Compile then branch
         self.builder.position_at_end(then_bb);
         let (then_val, then_type) = self.compile_expr(then_expr)?;
-        self.builder.build_unconditional_branch(merge_bb).unwrap();
-        let then_end_bb = self.builder.get_insert_block().unwrap();
+        self.builder.build_unconditional_branch(merge_bb)
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_unconditional_branch".to_string(),
+                details: "Failed to build branch from then block".to_string(),
+            })?;
+        let then_end_bb = self.builder.get_insert_block()
+            .ok_or_else(|| CodegenError::LLVMError {
+                operation: "get_insert_block".to_string(),
+                details: "No insert block after then expression".to_string(),
+            })?;
 
         // Compile else branch
         self.builder.position_at_end(else_bb);
         let (else_val, else_type) = self.compile_expr(else_expr)?;
-        self.builder.build_unconditional_branch(merge_bb).unwrap();
-        let else_end_bb = self.builder.get_insert_block().unwrap();
+        self.builder.build_unconditional_branch(merge_bb)
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_unconditional_branch".to_string(),
+                details: "Failed to build branch from else block".to_string(),
+            })?;
+        let else_end_bb = self.builder.get_insert_block()
+            .ok_or_else(|| CodegenError::LLVMError {
+                operation: "get_insert_block".to_string(),
+                details: "No insert block after else expression".to_string(),
+            })?;
 
         // Merge with PHI node
         self.builder.position_at_end(merge_bb);
@@ -223,7 +274,10 @@ impl<'a, 'ctx> ExpressionCompiler<'ctx> for Compiler<'a, 'ctx> {
                     self.context.f64_type(),
                     "then_cast",
                 )
-                .unwrap()
+                .map_err(|_| CodegenError::LLVMError {
+                    operation: "build_signed_int_to_float".to_string(),
+                    details: "Failed to cast then value to float".to_string(),
+                })?
                 .into()
         } else {
             then_val
@@ -237,7 +291,10 @@ impl<'a, 'ctx> ExpressionCompiler<'ctx> for Compiler<'a, 'ctx> {
                     self.context.f64_type(),
                     "else_cast",
                 )
-                .unwrap()
+                .map_err(|_| CodegenError::LLVMError {
+                    operation: "build_signed_int_to_float".to_string(),
+                    details: "Failed to cast else value to float".to_string(),
+                })?
                 .into()
         } else {
             else_val
@@ -254,32 +311,39 @@ impl<'a, 'ctx> ExpressionCompiler<'ctx> for Compiler<'a, 'ctx> {
             _ => self.context.i64_type().into(),
         };
 
-        let phi = self.builder.build_phi(phi_type, "tern_result").unwrap();
+        let phi = self.builder.build_phi(phi_type, "tern_result")
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_phi".to_string(),
+                details: "Failed to build PHI node for ternary result".to_string(),
+            })?;
 
         phi.add_incoming(&[
             (&final_then_val, then_end_bb),
             (&final_else_val, else_end_bb),
         ]);
 
-        Some((phi.as_basic_value(), result_type))
+        Ok((phi.as_basic_value(), result_type))
     }
 
     fn compile_static_init_expr(
         &mut self,
         element_type: &str,
         dimensions: &[Expr],
-    ) -> Option<(BasicValueEnum<'ctx>, BrixType)> {
+    ) -> CodegenResult<(BasicValueEnum<'ctx>, BrixType)> {
         // Static initialization: int[5], float[2,3]
         // This is syntactic sugar for zeros() and izeros()
         if element_type == "int" {
             let val = self.compile_izeros(dimensions)?;
-            Some((val, BrixType::IntMatrix))
+            Ok((val, BrixType::IntMatrix))
         } else if element_type == "float" {
             let val = self.compile_zeros(dimensions)?;
-            Some((val, BrixType::Matrix))
+            Ok((val, BrixType::Matrix))
         } else {
-            eprintln!("Error: StaticInit only supports 'int' and 'float' types.");
-            None
+            Err(CodegenError::TypeError {
+                expected: "int or float".to_string(),
+                found: element_type.to_string(),
+                context: "StaticInit".to_string(),
+            })
         }
     }
 }
