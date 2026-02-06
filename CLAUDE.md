@@ -62,13 +62,14 @@ brix/
 │   │   └── src/token.rs     # Token enum
 │   ├── parser/              # AST construction (chumsky)
 │   │   └── src/{ast.rs, parser.rs, error.rs}
-│   └── codegen/             # LLVM code generation (inkwell) - REFACTORED v1.2
+│   └── codegen/             # LLVM code generation (inkwell) - REFACTORED v1.2 + ERROR HANDLING
 │       └── src/
 │           ├── lib.rs       # Core compiler (6,499 lines, was 7,338)
-│           ├── types.rs     # BrixType enum (25 lines)
-│           ├── helpers.rs   # LLVM helpers (119 lines)
-│           ├── stmt.rs      # Statement compilation (512 lines)
-│           ├── expr.rs      # Expression compilation (268 lines)
+│           ├── error.rs     # Error types (CodegenError, CodegenResult) (61 lines)
+│           ├── types.rs     # BrixType enum (33 lines)
+│           ├── helpers.rs   # LLVM helpers with Result types (146 lines)
+│           ├── stmt.rs      # Statement compilation with Result (528 lines)
+│           ├── expr.rs      # Expression compilation with Result (285 lines)
 │           ├── operators.rs # Operator logic (postponed, annotated)
 │           └── builtins/    # Built-in function declarations
 │               ├── mod.rs, math.rs, stats.rs, linalg.rs
@@ -106,6 +107,14 @@ brix/
 - Control flow uses LLVM basic blocks (if/else, loops, match)
 - **No PHI nodes for if/else** - values stored in alloca'd variables
 - **PHI nodes used for**: ternary operator (`? :`), match expressions, logical short-circuit (`&&`, `||`)
+- **Error Handling** (v1.2.1 - Feb 2026):
+  - `CodegenError` enum with 6 variants: LLVMError, TypeError, UndefinedSymbol, InvalidOperation, MissingValue, General
+  - `CodegenResult<T>` = `Result<T, CodegenError>` used throughout compilation pipeline
+  - All expression compilation returns `CodegenResult<(BasicValueEnum, BrixType)>`
+  - All statement compilation returns `CodegenResult<()>`
+  - Proper error propagation with `?` operator instead of `.unwrap()`
+  - LLVM operations use `.map_err()` for descriptive error messages
+  - **Modules converted**: error.rs, expr.rs, stmt.rs, helpers.rs, parts of lib.rs (~2000 lines)
 
 **4. Runtime (`runtime.c`)**
 - Provides C implementations of built-in functions (~1,500 lines)
@@ -330,7 +339,8 @@ cargo test -- --nocapture     # Show output from tests
 
 ## Current Limitations & Known Issues
 
-- **~595 unwrap() calls** - needs proper error handling with `Result<>`
+- **~350-400 unwrap() calls remaining** - Core modules converted (expr.rs, stmt.rs, helpers.rs), auxiliary functions in lib.rs still need conversion (was ~595)
+- **Error messages not user-facing yet** - Errors propagate but not integrated with Ariadne for pretty printing
 - **No LLVM optimizations** - runs with `OptimizationLevel::None`
 - **Single-file compilation** - multi-file imports not yet implemented
 - **No integration tests** - only unit tests exist, need end-to-end `.bx` execution tests
@@ -406,7 +416,7 @@ cargo test -- --nocapture     # Show output from tests
 
 ## Development Roadmap
 
-**Current Focus (Feb 2026):** ✅ **v1.2 COMPLETE + REFACTORING COMPLETE!**
+**Current Focus (Feb 2026):** 🚧 **v1.2.1 - Error Handling Implementation (IN PROGRESS)**
 - ✅ Phase 1: Lexer unit tests (completed)
 - ✅ Phase 2: Parser unit tests (completed - 150 passing, 0 ignored)
 - ✅ Phase 3: Codegen unit tests (completed - 1001/1001 passing, 100%!)
@@ -419,11 +429,34 @@ cargo test -- --nocapture     # Show output from tests
   - ✅ Statements module (10/12 statements)
   - ✅ Expressions module (literals, ternary, etc.)
   - ⏸️ Operators module (postponed - annotated for future work)
-- 🚧 Phase 5: Integration/golden tests (next - end-to-end .bx execution)
+- 🚧 **Phase E: Error Handling (IN PROGRESS)** - Replace unwrap() with Result types
+  - ✅ **E1: Core error infrastructure** (completed)
+    - Created `error.rs` with `CodegenError` enum (6 variants)
+    - Created `CodegenResult<T>` type alias
+  - ✅ **E2: Core module conversion** (completed - ~2000 lines)
+    - `expr.rs` - All expression methods return `CodegenResult`
+    - `stmt.rs` - All 12 statement methods return `CodegenResult`
+    - `helpers.rs` - LLVM helpers with proper error handling
+    - `lib.rs` - Main compilation methods (`compile_expr`, `compile_stmt`, `value_to_string`, etc.)
+    - **All 1001 tests passing!** ✅
+  - 🔲 **E3: Auxiliary function conversion** (next - ~350-400 unwrap() calls remaining)
+    - Binary/unary operators in lib.rs
+    - Built-in function compilation helpers
+    - Remaining LLVM builder operations
+  - 🔲 **E4: Ariadne integration** (after E3)
+    - Pretty error printing for codegen errors
+    - Source code context in error messages
+    - Similar to parser error reporting
+  - 🔲 **E5: Error propagation to main.rs** (after E4)
+    - User-friendly error messages in CLI
+    - Exit codes for different error types
+  - 🔲 **E6: Replace remaining eprintln!()** (after E5)
+    - Convert debug prints to structured errors
+    - Remove all unwrap() calls
+- Phase 5: Integration/golden tests (after Phase E - end-to-end .bx execution)
 - Phase 6: Property-based tests (~20 tests)
 
-**After Testing:**
-- Replace unwrap() with proper error handling
+**After Error Handling & Testing:**
 - LLVM optimizations (-O2, -O3)
 - Complete operator refactoring (see operators.rs TODOs)
 
@@ -433,6 +466,21 @@ cargo test -- --nocapture     # Show output from tests
 - v1.4+: Concurrency, pipe operator, optional types, LSP, REPL
 
 ## Version Summary
+
+**v1.2.1 (IN PROGRESS - Feb 2026):**
+- 🚧 **Error Handling with Result types** (Phase E1-E2 complete)
+  - ✅ CodegenError enum with 6 error variants
+  - ✅ Core modules converted: expr.rs, stmt.rs, helpers.rs, lib.rs main methods
+  - ✅ All 1001 tests passing after conversion
+  - 🔲 Remaining auxiliary functions (~350-400 unwrap() calls)
+  - 🔲 Ariadne integration for pretty error printing
+  - 🔲 Error propagation to main.rs
+  - 🔲 Replace all eprintln!() with structured errors
+
+**v1.2 (COMPLETE - Feb 2026):**
+- ✅ Codegen refactoring - modular architecture (7,338 → 6,499 lines)
+- ✅ error.rs, types.rs, helpers.rs, stmt.rs, expr.rs, builtins/ modules
+- ✅ Comprehensive unit tests (1001/1001 passing - 100%)
 
 **v1.1 (COMPLETE - Feb 2026):**
 - ✅ Atoms (Elixir-style: `:ok`, `:error`)

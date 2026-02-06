@@ -2352,10 +2352,83 @@ math.sum(arr), math.mean(arr), math.median(arr), math.std(arr)
 - **Features Implementadas:** ~118 (v1.1 100% completo ✅)
 - **Features v1.1:** Lexer fix + 10 type checkers + 7 string functions + atoms + escape sequences = 18 features
 - **Features Planejadas v1.2+:** ~150+
-- **Versão Atual:** v1.1 ✅ **COMPLETO (03/02/2026)**
-- **Progresso MVP:** 99.5%
-- **Próxima Versão:** v1.2 (@doc, panic, modules, advanced strings)
-- **Última Atualização:** 03/02/2026
+- **Versão Atual:** v1.2.1 🚧 **EM PROGRESSO (06/02/2026)**
+- **Versão Anterior:** v1.2 ✅ **COMPLETO (05/02/2026)**
+- **Progresso MVP:** 99.9%
+- **Próxima Versão:** v1.3 (generics, structs, closures)
+- **Última Atualização:** 06/02/2026
+
+---
+
+### 🚧 Resumo v1.2.1 (Em Progresso - 06/02/2026)
+
+A versão 1.2.1 está implementando error handling robusto com Result types no compilador:
+
+**✅ Phase E1-E2: Core Error Infrastructure & Module Conversion (Completo):**
+- `CodegenError` enum com 6 variantes de erro:
+  - `LLVMError` - Falhas em operações LLVM
+  - `TypeError` - Incompatibilidade de tipos
+  - `UndefinedSymbol` - Variável/função não encontrada
+  - `InvalidOperation` - Operação inválida (ex: range fora de for loop)
+  - `MissingValue` - Valor ausente/compilação falhou
+  - `General` - Erros gerais com mensagem
+- `CodegenResult<T>` = `Result<T, CodegenError>` usado em toda pipeline
+- **Módulos convertidos (~2000 linhas):**
+  - `error.rs` (61 linhas) - Infraestrutura de erros
+  - `expr.rs` (285 linhas) - Compilação de expressões com Result
+  - `stmt.rs` (528 linhas) - Compilação de statements com Result (12 métodos)
+  - `helpers.rs` (146 linhas) - LLVM helpers com error handling
+  - `lib.rs` - Métodos principais (`compile_expr`, `compile_stmt`, `value_to_string`)
+- **Todos os 1001 testes passando!** ✅
+- Redução de ~595 → ~350-400 unwrap() calls
+
+**🔲 Phase E3-E6: Próximos Passos:**
+- E3: Converter funções auxiliares restantes (~350-400 unwrap() calls)
+- E4: Integrar Ariadne para pretty error printing
+- E5: Propagar erros até main.rs para mensagens user-friendly
+- E6: Substituir todos eprintln!() por erros estruturados
+
+**📊 Impacto até agora:**
+- ~2000 linhas convertidas de Option/() para Result
+- Error propagation com `?` operator
+- Mensagens de erro descritivas em cada LLVM operation
+- Base sólida para error reporting user-facing
+
+---
+
+### 🎯 Resumo v1.2 (Completo - 05/02/2026)
+
+A versão 1.2 realizou uma grande refatoração do codegen para arquitetura modular:
+
+**✅ Codegen Refactoring (Phase R - Completo):**
+- Divisão do monólito lib.rs (7,338 linhas) em módulos especializados
+- **Redução de 11.4% no tamanho** (7,338 → 6,499 linhas)
+- **Novos módulos criados:**
+  - `types.rs` (33 linhas) - BrixType enum
+  - `helpers.rs` (146 linhas) - LLVM helper functions
+  - `stmt.rs` (528 linhas) - Statement compilation (12 métodos)
+  - `expr.rs` (285 linhas) - Expression compilation (4 métodos)
+  - `builtins/` (357 linhas) - Built-in function declarations
+    - `math.rs`, `stats.rs`, `linalg.rs`, `string.rs`, `io.rs`, `matrix.rs`
+  - `operators.rs` - Annotations (refactoring postponed)
+- **Pattern de organização:** Trait-based separation
+- **1001/1001 testes passando durante toda refatoração** ✅
+
+**✅ Bug Fixes & Improvements:**
+- 8/10 bugs críticos resolvidos (ver FIX_BUGS.md)
+- Ariadne integration - Beautiful error messages no parser
+- Invalid operator sequence detection (`1 ++ 2`)
+- Matrix arithmetic - 28 runtime functions
+- IntMatrix → Matrix automatic promotion
+- Postfix operation chaining (`.field`, `[index]`, `(args)`)
+- Right-associative power operator (`2**3**2 = 512`)
+- C-style bitwise precedence
+
+**📊 Impacto:**
+- Arquitetura mais limpa e manutenível
+- Melhor separação de responsabilidades
+- Base sólida para error handling (v1.2.1)
+- Zero regressões - 100% backward compatible
 
 ---
 
