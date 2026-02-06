@@ -22,6 +22,12 @@ pub use types::BrixType;
 // Import helper trait to make functions available on Compiler
 use helpers::HelperFunctions;
 
+// Import builtin function traits
+use builtins::math::MathFunctions;
+use builtins::stats::StatsFunctions;
+use builtins::linalg::LinalgFunctions;
+use builtins::string::StringFunctions;
+
 #[cfg(test)]
 mod tests;
 
@@ -52,166 +58,13 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         }
     }
 
-    // --- AUXILIARY LLVM FUNCTIONS ---
-    // Moved to helpers.rs (available via HelperFunctions trait)
-
-    // --- MATH LIBRARY FUNCTIONS ---
-
-    fn declare_math_function_f64_f64(&self, name: &str) -> inkwell::values::FunctionValue<'ctx> {
-        if let Some(fn_val) = self.module.get_function(name) {
-            return fn_val;
-        }
-        let f64_type = self.context.f64_type();
-        let fn_type = f64_type.fn_type(&[f64_type.into()], false);
-        self.module
-            .add_function(name, fn_type, Some(Linkage::External))
-    }
-
-    fn declare_math_function_f64_f64_f64(
-        &self,
-        name: &str,
-    ) -> inkwell::values::FunctionValue<'ctx> {
-        if let Some(fn_val) = self.module.get_function(name) {
-            return fn_val;
-        }
-        let f64_type = self.context.f64_type();
-        let fn_type = f64_type.fn_type(&[f64_type.into(), f64_type.into()], false);
-        self.module
-            .add_function(name, fn_type, Some(Linkage::External))
-    }
-
-    // Statistics functions: f64 function(Matrix*)
-    fn declare_stats_function(&self, name: &str) -> inkwell::values::FunctionValue<'ctx> {
-        if let Some(fn_val) = self.module.get_function(name) {
-            return fn_val;
-        }
-        let f64_type = self.context.f64_type();
-        let ptr_type = self.context.ptr_type(AddressSpace::default());
-        let fn_type = f64_type.fn_type(&[ptr_type.into()], false);
-        self.module
-            .add_function(name, fn_type, Some(Linkage::External))
-    }
-
-    // Linear algebra functions: Matrix* function(Matrix*)
-    fn declare_linalg_function(&self, name: &str) -> inkwell::values::FunctionValue<'ctx> {
-        if let Some(fn_val) = self.module.get_function(name) {
-            return fn_val;
-        }
-        let ptr_type = self.context.ptr_type(AddressSpace::default());
-        let fn_type = ptr_type.fn_type(&[ptr_type.into()], false);
-        self.module
-            .add_function(name, fn_type, Some(Linkage::External))
-    }
-
-    // Matrix constructor: Matrix* function(i64) - for eye(n)
-    fn declare_matrix_constructor(&self, name: &str) -> inkwell::values::FunctionValue<'ctx> {
-        if let Some(fn_val) = self.module.get_function(name) {
-            return fn_val;
-        }
-        let ptr_type = self.context.ptr_type(AddressSpace::default());
-        let i64_type = self.context.i64_type();
-        let fn_type = ptr_type.fn_type(&[i64_type.into()], false);
-        self.module
-            .add_function(name, fn_type, Some(Linkage::External))
-    }
-
-    // Eigenvalue functions: ComplexMatrix* function(Matrix*)
-    fn declare_eigen_function(&self, name: &str) -> inkwell::values::FunctionValue<'ctx> {
-        if let Some(fn_val) = self.module.get_function(name) {
-            return fn_val;
-        }
-        let ptr_type = self.context.ptr_type(AddressSpace::default());
-        // ComplexMatrix* function(Matrix* A)
-        let fn_type = ptr_type.fn_type(&[ptr_type.into()], false);
-        self.module
-            .add_function(name, fn_type, Some(Linkage::External))
-    }
-
-    fn register_math_functions(&mut self, prefix: &str) {
-        // Trigonometric functions (7)
-        self.declare_math_function_f64_f64("sin");
-        self.declare_math_function_f64_f64("cos");
-        self.declare_math_function_f64_f64("tan");
-        self.declare_math_function_f64_f64("asin");
-        self.declare_math_function_f64_f64("acos");
-        self.declare_math_function_f64_f64("atan");
-        self.declare_math_function_f64_f64_f64("atan2");
-
-        // Hyperbolic functions (3)
-        self.declare_math_function_f64_f64("sinh");
-        self.declare_math_function_f64_f64("cosh");
-        self.declare_math_function_f64_f64("tanh");
-
-        // Exponential and logarithmic functions (4)
-        self.declare_math_function_f64_f64("exp");
-        self.declare_math_function_f64_f64("log");
-        self.declare_math_function_f64_f64("log10");
-        self.declare_math_function_f64_f64("log2");
-
-        // Root functions (2)
-        self.declare_math_function_f64_f64("sqrt");
-        self.declare_math_function_f64_f64("cbrt");
-
-        // Rounding functions (3)
-        self.declare_math_function_f64_f64("floor");
-        self.declare_math_function_f64_f64("ceil");
-        self.declare_math_function_f64_f64("round");
-
-        // Utility functions (5)
-        self.declare_math_function_f64_f64("fabs"); // abs for float
-        self.declare_math_function_f64_f64_f64("fmod");
-        self.declare_math_function_f64_f64_f64("hypot");
-        self.declare_math_function_f64_f64_f64("fmin"); // min
-        self.declare_math_function_f64_f64_f64("fmax"); // max
-
-        // Statistics functions (5)
-        self.declare_stats_function("brix_sum");
-        self.declare_stats_function("brix_mean");
-        self.declare_stats_function("brix_median");
-        self.declare_stats_function("brix_std");
-        self.declare_stats_function("brix_variance");
-
-        // Linear algebra functions (6)
-        self.declare_stats_function("brix_det"); // det returns f64
-        self.declare_linalg_function("brix_tr"); // tr returns Matrix*
-        self.declare_linalg_function("brix_inv"); // inv returns Matrix*
-        self.declare_matrix_constructor("brix_eye"); // eye(n) returns Matrix*
-        self.declare_eigen_function("brix_eigvals"); // eigvals returns ComplexMatrix*
-        self.declare_eigen_function("brix_eigvecs"); // eigvecs returns ComplexMatrix*
-
-        // Register math constants as variables
-        self.register_math_constants(prefix);
-    }
-
-    fn register_math_constants(&mut self, prefix: &str) {
-        let f64_type = self.context.f64_type();
-
-        // Mathematical constants with high precision
-        let constants = [
-            ("pi", 3.14159265358979323846),
-            ("e", 2.71828182845904523536),
-            ("tau", 6.28318530717958647692),
-            ("phi", 1.61803398874989484820),
-            ("sqrt2", 1.41421356237309504880),
-            ("ln2", 0.69314718055994530942),
-        ];
-
-        for (name, value) in constants.iter() {
-            let const_name = format!("{}.{}", prefix, name);
-            let const_val = f64_type.const_float(*value);
-
-            // Allocate as global constant
-            let global =
-                self.module
-                    .add_global(f64_type, Some(AddressSpace::default()), &const_name);
-            global.set_initializer(&const_val);
-            global.set_constant(true);
-
-            // Store in variables map as FloatPtr (pointer to constant)
-            self.variables
-                .insert(const_name, (global.as_pointer_value(), BrixType::Float));
-        }
-    }
+    // --- HELPER & BUILTIN FUNCTIONS ---
+    // Moved to respective modules (available via traits):
+    // - helpers.rs: HelperFunctions trait (create_entry_block_alloca, get_printf, etc.)
+    // - builtins/math.rs: MathFunctions trait (math library + constants)
+    // - builtins/stats.rs: StatsFunctions trait (statistics functions)
+    // - builtins/linalg.rs: LinalgFunctions trait (linear algebra functions)
+    // - builtins/string.rs: StringFunctions trait (string manipulation)
 
     // --- TYPE SYSTEM HELPERS ---
     // Note: These are kept in lib.rs because they need access to self.context
@@ -5467,108 +5320,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     }
 
     // get_sprintf, get_atoi, get_atof moved to helpers.rs
-
-    // ===== STRING FUNCTION HELPERS (v1.1) =====
-
-    fn get_uppercase(&self) -> inkwell::values::FunctionValue<'ctx> {
-        if let Some(func) = self.module.get_function("brix_uppercase") {
-            return func;
-        }
-
-        let ptr_type = self.context.ptr_type(AddressSpace::default());
-
-        // BrixString* brix_uppercase(BrixString* str)
-        let fn_type = ptr_type.fn_type(&[ptr_type.into()], false);
-
-        self.module
-            .add_function("brix_uppercase", fn_type, Some(Linkage::External))
-    }
-
-    fn get_lowercase(&self) -> inkwell::values::FunctionValue<'ctx> {
-        if let Some(func) = self.module.get_function("brix_lowercase") {
-            return func;
-        }
-
-        let ptr_type = self.context.ptr_type(AddressSpace::default());
-
-        // BrixString* brix_lowercase(BrixString* str)
-        let fn_type = ptr_type.fn_type(&[ptr_type.into()], false);
-
-        self.module
-            .add_function("brix_lowercase", fn_type, Some(Linkage::External))
-    }
-
-    fn get_capitalize(&self) -> inkwell::values::FunctionValue<'ctx> {
-        if let Some(func) = self.module.get_function("brix_capitalize") {
-            return func;
-        }
-
-        let ptr_type = self.context.ptr_type(AddressSpace::default());
-
-        // BrixString* brix_capitalize(BrixString* str)
-        let fn_type = ptr_type.fn_type(&[ptr_type.into()], false);
-
-        self.module
-            .add_function("brix_capitalize", fn_type, Some(Linkage::External))
-    }
-
-    fn get_byte_size(&self) -> inkwell::values::FunctionValue<'ctx> {
-        if let Some(func) = self.module.get_function("brix_byte_size") {
-            return func;
-        }
-
-        let ptr_type = self.context.ptr_type(AddressSpace::default());
-        let i64_type = self.context.i64_type();
-
-        // long brix_byte_size(BrixString* str)
-        let fn_type = i64_type.fn_type(&[ptr_type.into()], false);
-
-        self.module
-            .add_function("brix_byte_size", fn_type, Some(Linkage::External))
-    }
-
-    fn get_length(&self) -> inkwell::values::FunctionValue<'ctx> {
-        if let Some(func) = self.module.get_function("brix_length") {
-            return func;
-        }
-
-        let ptr_type = self.context.ptr_type(AddressSpace::default());
-        let i64_type = self.context.i64_type();
-
-        // long brix_length(BrixString* str)
-        let fn_type = i64_type.fn_type(&[ptr_type.into()], false);
-
-        self.module
-            .add_function("brix_length", fn_type, Some(Linkage::External))
-    }
-
-    fn get_replace(&self) -> inkwell::values::FunctionValue<'ctx> {
-        if let Some(func) = self.module.get_function("brix_replace") {
-            return func;
-        }
-
-        let ptr_type = self.context.ptr_type(AddressSpace::default());
-
-        // BrixString* brix_replace(BrixString* str, BrixString* old, BrixString* new)
-        let fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into(), ptr_type.into()], false);
-
-        self.module
-            .add_function("brix_replace", fn_type, Some(Linkage::External))
-    }
-
-    fn get_replace_all(&self) -> inkwell::values::FunctionValue<'ctx> {
-        if let Some(func) = self.module.get_function("brix_replace_all") {
-            return func;
-        }
-
-        let ptr_type = self.context.ptr_type(AddressSpace::default());
-
-        // BrixString* brix_replace_all(BrixString* str, BrixString* old, BrixString* new)
-        let fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into(), ptr_type.into()], false);
-
-        self.module
-            .add_function("brix_replace_all", fn_type, Some(Linkage::External))
-    }
+    // String functions moved to builtins/string.rs (available via StringFunctions trait)
 
     fn compile_input_int(&self) -> Option<BasicValueEnum<'ctx>> {
         let scanf_fn = self.get_scanf();
