@@ -1,6 +1,13 @@
 // Type system for Brix
 //
 // This module contains the BrixType enum and type-related utilities.
+//
+// REFACTORING NOTE (v1.2):
+// - Extracted from lib.rs (originally part of 7,338-line monolith)
+// - Type helper methods remain in lib.rs (need LLVM Context access):
+//   * string_to_brix_type() - Parse type strings
+//   * brix_type_to_llvm() - Convert to LLVM types
+//   * are_types_compatible() - Type compatibility checking
 
 /// Brix type system
 #[derive(Debug, Clone, PartialEq)]

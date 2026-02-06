@@ -23,9 +23,8 @@ pub use types::BrixType;
 use helpers::HelperFunctions;
 
 // Import builtin function traits
-use builtins::math::MathFunctions;
-use builtins::stats::StatsFunctions;
-use builtins::linalg::LinalgFunctions;
+// Note: These traits are imported in respective modules (stmt.rs, expr.rs)
+// and made available on Compiler via trait implementations
 use builtins::string::StringFunctions;
 
 // Import statement compiler trait
