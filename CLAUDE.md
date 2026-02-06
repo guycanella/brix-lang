@@ -61,9 +61,18 @@ brix/
 │   ├── lexer/               # Tokenization (logos)
 │   │   └── src/token.rs     # Token enum
 │   ├── parser/              # AST construction (chumsky)
-│   │   └── src/{ast.rs, parser.rs}
-│   └── codegen/             # LLVM code generation (inkwell)
-│       └── src/lib.rs       # Main codegen (7,154 lines - needs refactoring)
+│   │   └── src/{ast.rs, parser.rs, error.rs}
+│   └── codegen/             # LLVM code generation (inkwell) - REFACTORED v1.2
+│       └── src/
+│           ├── lib.rs       # Core compiler (6,499 lines, was 7,338)
+│           ├── types.rs     # BrixType enum (25 lines)
+│           ├── helpers.rs   # LLVM helpers (119 lines)
+│           ├── stmt.rs      # Statement compilation (512 lines)
+│           ├── expr.rs      # Expression compilation (268 lines)
+│           ├── operators.rs # Operator logic (postponed, annotated)
+│           └── builtins/    # Built-in function declarations
+│               ├── mod.rs, math.rs, stats.rs, linalg.rs
+│               └── string.rs, io.rs, matrix.rs
 ```
 
 ### Key Components
@@ -321,11 +330,11 @@ cargo test -- --nocapture     # Show output from tests
 
 ## Current Limitations & Known Issues
 
-- **595 unwrap() calls** - needs proper error handling with `Result<>`
-- **Monolithic codegen** - 7,154-line lib.rs needs modularization into types.rs, builtins.rs, expr.rs, stmt.rs
+- **~595 unwrap() calls** - needs proper error handling with `Result<>`
 - **No LLVM optimizations** - runs with `OptimizationLevel::None`
 - **Single-file compilation** - multi-file imports not yet implemented
 - **No integration tests** - only unit tests exist, need end-to-end `.bx` execution tests
+- **Operator refactoring postponed** - Binary/Unary operators still in lib.rs (see operators.rs annotations)
 
 ## Intentional Limitations (Design Decisions)
 
@@ -397,19 +406,26 @@ cargo test -- --nocapture     # Show output from tests
 
 ## Development Roadmap
 
-**Current Focus (Feb 2026):** ✅ **v1.2 COMPLETE!**
+**Current Focus (Feb 2026):** ✅ **v1.2 COMPLETE + REFACTORING COMPLETE!**
 - ✅ Phase 1: Lexer unit tests (completed)
 - ✅ Phase 2: Parser unit tests (completed - 150 passing, 0 ignored)
 - ✅ Phase 3: Codegen unit tests (completed - 1001/1001 passing, 100%!)
 - ✅ Phase 3.5: Bug fix sprint (completed - fixed 8/10 issues, see FIX_BUGS.md)
 - ✅ Phase 4: Ariadne integration (completed - beautiful error messages!)
+- ✅ **Phase R: Codegen refactoring (COMPLETED!)** - 7,338 → 6,499 lines (-11.4%)
+  - ✅ Types module (BrixType enum)
+  - ✅ Helpers module (LLVM utilities)
+  - ✅ Builtins modules (math, stats, linalg, string)
+  - ✅ Statements module (10/12 statements)
+  - ✅ Expressions module (literals, ternary, etc.)
+  - ⏸️ Operators module (postponed - annotated for future work)
 - 🚧 Phase 5: Integration/golden tests (next - end-to-end .bx execution)
 - Phase 6: Property-based tests (~20 tests)
 
 **After Testing:**
-- Refactor codegen into modules (types.rs, builtins.rs, expr.rs, stmt.rs)
 - Replace unwrap() with proper error handling
 - LLVM optimizations (-O2, -O3)
+- Complete operator refactoring (see operators.rs TODOs)
 
 **Future Features:**
 - v1.2: Documentation system (@doc), panic(), advanced string functions
