@@ -19,6 +19,9 @@ mod expr;
 // Re-export BrixType for public API
 pub use types::BrixType;
 
+// Import helper trait to make functions available on Compiler
+use helpers::HelperFunctions;
+
 #[cfg(test)]
 mod tests;
 
@@ -50,50 +53,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     }
 
     // --- AUXILIARY LLVM FUNCTIONS ---
-
-    fn create_entry_block_alloca(&self, ty: BasicTypeEnum<'ctx>, name: &str) -> PointerValue<'ctx> {
-        let builder = self.context.create_builder();
-
-        let entry = self
-            .builder
-            .get_insert_block()
-            .unwrap()
-            .get_parent()
-            .unwrap()
-            .get_first_basic_block()
-            .unwrap();
-
-        match entry.get_first_instruction() {
-            Some(first_instr) => builder.position_before(&first_instr),
-            None => builder.position_at_end(entry),
-        }
-
-        builder.build_alloca(ty, name).unwrap()
-    }
-
-    // --- EXTERNAL FUNCTIONS (LibC) ---
-
-    fn get_printf(&self) -> inkwell::values::FunctionValue<'ctx> {
-        if let Some(fn_val) = self.module.get_function("printf") {
-            return fn_val;
-        }
-        let i32_type = self.context.i32_type();
-        let ptr_type = self.context.ptr_type(AddressSpace::default());
-        let fn_type = i32_type.fn_type(&[ptr_type.into()], true);
-        self.module
-            .add_function("printf", fn_type, Some(Linkage::External))
-    }
-
-    fn get_scanf(&self) -> inkwell::values::FunctionValue<'ctx> {
-        if let Some(fn_val) = self.module.get_function("scanf") {
-            return fn_val;
-        }
-        let i32_type = self.context.i32_type();
-        let ptr_type = self.context.ptr_type(AddressSpace::default());
-        let fn_type = i32_type.fn_type(&[ptr_type.into()], true);
-        self.module
-            .add_function("scanf", fn_type, Some(Linkage::External))
-    }
+    // Moved to helpers.rs (available via HelperFunctions trait)
 
     // --- MATH LIBRARY FUNCTIONS ---
 
@@ -5506,50 +5466,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         }
     }
 
-    fn get_sprintf(&self) -> inkwell::values::FunctionValue<'ctx> {
-        if let Some(func) = self.module.get_function("sprintf") {
-            return func;
-        }
-
-        let ptr_type = self.context.ptr_type(AddressSpace::default());
-        let i32_type = self.context.i32_type();
-
-        // int sprintf(char *str, const char *format, ...)
-        let fn_type = i32_type.fn_type(&[ptr_type.into(), ptr_type.into()], true); // variadic
-
-        self.module
-            .add_function("sprintf", fn_type, Some(Linkage::External))
-    }
-
-    fn get_atoi(&self) -> inkwell::values::FunctionValue<'ctx> {
-        if let Some(func) = self.module.get_function("atoi") {
-            return func;
-        }
-
-        let ptr_type = self.context.ptr_type(AddressSpace::default());
-        let i32_type = self.context.i32_type();
-
-        // int atoi(const char *str)
-        let fn_type = i32_type.fn_type(&[ptr_type.into()], false);
-
-        self.module
-            .add_function("atoi", fn_type, Some(Linkage::External))
-    }
-
-    fn get_atof(&self) -> inkwell::values::FunctionValue<'ctx> {
-        if let Some(func) = self.module.get_function("atof") {
-            return func;
-        }
-
-        let ptr_type = self.context.ptr_type(AddressSpace::default());
-        let f64_type = self.context.f64_type();
-
-        // double atof(const char *str)
-        let fn_type = f64_type.fn_type(&[ptr_type.into()], false);
-
-        self.module
-            .add_function("atof", fn_type, Some(Linkage::External))
-    }
+    // get_sprintf, get_atoi, get_atof moved to helpers.rs
 
     // ===== STRING FUNCTION HELPERS (v1.1) =====
 
