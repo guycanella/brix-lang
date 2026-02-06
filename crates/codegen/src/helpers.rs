@@ -1,6 +1,16 @@
 // LLVM helper functions
 //
 // This module contains utility functions for LLVM code generation.
+//
+// REFACTORING NOTE (v1.2):
+// - Extracted from lib.rs (originally 88 lines)
+// - Uses trait pattern for clean separation
+// - All functions available on Compiler via HelperFunctions trait
+//
+// Functions provided:
+// - create_entry_block_alloca() - Allocate in function entry block
+// - get_printf(), get_scanf(), get_sprintf() - C stdio functions
+// - get_atoi(), get_atof() - String conversion functions
 
 use crate::Compiler;
 use inkwell::module::Linkage;

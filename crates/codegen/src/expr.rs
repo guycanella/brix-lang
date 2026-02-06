@@ -1,6 +1,23 @@
 // Expression compilation
 //
 // This module contains logic for compiling Brix expressions.
+//
+// REFACTORING NOTE (v1.2):
+// - Extracted from lib.rs (originally ~263 lines)
+// - Uses trait pattern (ExpressionCompiler) for organization
+// - Handles self-contained, low-dependency expressions
+//
+// Refactored expressions:
+// - Literal - All literal types (Int, Float, String, Bool, Complex, Nil, Atom)
+// - Ternary - Conditional operator with PHI nodes
+// - StaticInit - Syntactic sugar for zeros()/izeros()
+// - Range - Error handler (only valid in for loops)
+//
+// Still in lib.rs:
+// - Binary/Unary operators (postponed to Phase 5, see operators.rs)
+// - Call, Identifier, FieldAccess, Index (highly coupled with symbol table)
+// - Array, Match, Increment/Decrement, FString (complex logic)
+// - ListComprehension (has dedicated method)
 
 use crate::{BrixType, Compiler};
 use inkwell::module::Linkage;

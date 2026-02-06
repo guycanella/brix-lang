@@ -1,6 +1,22 @@
 // Statement compilation
 //
 // This module contains logic for compiling Brix statements (if, while, for, etc.).
+//
+// REFACTORING NOTE (v1.2):
+// - Extracted from lib.rs (originally ~630 lines)
+// - Uses trait pattern (StatementCompiler) for organization
+// - Handles 10 out of 12 statement types
+//
+// Refactored statements:
+// - Print/Println/Printf - Output statements
+// - If/While - Control flow
+// - Block/Expr - Basic statements
+// - Import/Return - Module and function control
+// - VariableDecl/DestructuringDecl/Assignment - Variable management
+//
+// Still in lib.rs:
+// - For loops (complex, ~500 lines with range/iterator/zip support)
+// - FunctionDef (has dedicated compile_function_def method)
 
 use crate::Compiler;
 use crate::helpers::HelperFunctions;
