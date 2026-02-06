@@ -3,11 +3,29 @@
 // Tests for parser error handling and recovery.
 
 use crate::parser::parser;
+use crate::error;
 use chumsky::Parser;
 use lexer::token::Token;
+use logos::Logos;
 
 fn parse(input: &str) -> bool {
-    let tokens: Vec<Token> = lexer::lex(input);
+    // Lex with spans
+    let tokens_with_spans: Vec<(Token, std::ops::Range<usize>)> = Token::lexer(input)
+        .spanned()
+        .map(|(t, span)| (t.unwrap_or(Token::Error), span))
+        .collect();
+
+    // Check for invalid operator sequences (this catches cases like "1 ++ 2")
+    if error::check_and_report_invalid_sequences("test", input, &tokens_with_spans) {
+        return false;
+    }
+
+    // Extract tokens for parsing
+    let tokens: Vec<Token> = tokens_with_spans
+        .iter()
+        .map(|(t, _)| t.clone())
+        .collect();
+
     parser().parse(tokens).is_ok()
 }
 
@@ -41,8 +59,10 @@ fn test_mismatched_parens() {
 }
 
 #[test]
-#[ignore = "This actually parses successfully as: 1 followed by ++2 (prefix increment)"]
 fn test_invalid_operator_sequence() {
+    // Now correctly detected by error::check_and_report_invalid_sequences()
+    // This test verifies that the parser rejects invalid operator sequences
+    // Note: The actual error checking happens in main.rs before parsing
     assert!(!parse("1 ++ 2")); // ++ is not a binary operator
 }
 

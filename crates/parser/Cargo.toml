@@ -6,3 +6,5 @@ edition = "2024"
 [dependencies]
 lexer = { path = "../lexer" }
 chumsky = "0.9.3"
+ariadne = "0.4"
+logos = "0.16"
