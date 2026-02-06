@@ -12,7 +12,7 @@
 // - get_printf(), get_scanf(), get_sprintf() - C stdio functions
 // - get_atoi(), get_atof() - String conversion functions
 
-use crate::Compiler;
+use crate::{Compiler, CodegenError, CodegenResult};
 use inkwell::module::Linkage;
 use inkwell::types::BasicTypeEnum;
 use inkwell::values::PointerValue;
@@ -21,7 +21,7 @@ use inkwell::AddressSpace;
 /// Trait for LLVM helper functions
 pub trait HelperFunctions<'ctx> {
     /// Create an alloca instruction in the entry block of the current function
-    fn create_entry_block_alloca(&self, ty: BasicTypeEnum<'ctx>, name: &str) -> PointerValue<'ctx>;
+    fn create_entry_block_alloca(&self, ty: BasicTypeEnum<'ctx>, name: &str) -> CodegenResult<PointerValue<'ctx>>;
 
     /// Get or declare printf function
     fn get_printf(&self) -> inkwell::values::FunctionValue<'ctx>;
@@ -40,24 +40,40 @@ pub trait HelperFunctions<'ctx> {
 }
 
 impl<'a, 'ctx> HelperFunctions<'ctx> for Compiler<'a, 'ctx> {
-    fn create_entry_block_alloca(&self, ty: BasicTypeEnum<'ctx>, name: &str) -> PointerValue<'ctx> {
+    fn create_entry_block_alloca(&self, ty: BasicTypeEnum<'ctx>, name: &str) -> CodegenResult<PointerValue<'ctx>> {
         let builder = self.context.create_builder();
 
-        let entry = self
+        let block = self
             .builder
             .get_insert_block()
-            .unwrap()
+            .ok_or_else(|| CodegenError::LLVMError {
+                operation: "get_insert_block".to_string(),
+                details: "No current basic block".to_string(),
+            })?;
+
+        let parent = block
             .get_parent()
-            .unwrap()
+            .ok_or_else(|| CodegenError::LLVMError {
+                operation: "get_parent".to_string(),
+                details: "Basic block has no parent function".to_string(),
+            })?;
+
+        let entry = parent
             .get_first_basic_block()
-            .unwrap();
+            .ok_or_else(|| CodegenError::LLVMError {
+                operation: "get_first_basic_block".to_string(),
+                details: "Function has no entry block".to_string(),
+            })?;
 
         match entry.get_first_instruction() {
             Some(first_instr) => builder.position_before(&first_instr),
             None => builder.position_at_end(entry),
         }
 
-        builder.build_alloca(ty, name).unwrap()
+        builder.build_alloca(ty, name).map_err(|_| CodegenError::LLVMError {
+            operation: "build_alloca".to_string(),
+            details: format!("Failed to allocate variable '{}'", name),
+        })
     }
 
     fn get_printf(&self) -> inkwell::values::FunctionValue<'ctx> {

@@ -137,7 +137,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         return_type: &Option<Vec<String>>,
         body: &Stmt,
         _parent_function: inkwell::values::FunctionValue<'ctx>,
-    ) {
+    ) -> CodegenResult<()> {
         // 1. Parse return type
         let ret_types: Vec<BrixType> = match return_type {
             None => vec![], // void
@@ -204,21 +204,29 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             let param_type = self.string_to_brix_type(param_type_str);
             let llvm_type = self.brix_type_to_llvm(&param_type);
 
-            let alloca = self.create_entry_block_alloca(llvm_type, param_name);
-            self.builder.build_store(alloca, param_value).unwrap();
+            let alloca = self.create_entry_block_alloca(llvm_type, param_name)?;
+            self.builder.build_store(alloca, param_value)
+                .map_err(|_| CodegenError::LLVMError {
+                    operation: "build_store".to_string(),
+                    details: format!("Failed to store parameter '{}'", param_name),
+                })?;
             self.variables
                 .insert(param_name.clone(), (alloca, param_type));
         }
 
         // 8. Compile function body
-        self.compile_stmt(body, llvm_function);
+        self.compile_stmt(body, llvm_function)?;
 
         // 9. Add implicit return for void functions if missing
         if ret_types.is_empty() {
             // Check if last instruction is already a return
             if let Some(block) = self.builder.get_insert_block() {
                 if block.get_terminator().is_none() {
-                    self.builder.build_return(None).unwrap();
+                    self.builder.build_return(None)
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_return".to_string(),
+                            details: "Failed to build implicit void return".to_string(),
+                        })?;
                 }
             }
         }
@@ -231,6 +239,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         if let Some(block) = _parent_function.get_last_basic_block() {
             self.builder.position_at_end(block);
         }
+
+        Ok(())
     }
 
     // --- MAIN COMPILATION ---
@@ -245,7 +255,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         self.current_function = Some(function);
 
         for stmt in &program.statements {
-            self.compile_stmt(stmt, function);
+            let _ = self.compile_stmt(stmt, function);
         }
 
         let _ = self
@@ -253,14 +263,16 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             .build_return(Some(&i64_type.const_int(0, false)));
     }
 
-    fn compile_lvalue_addr(&mut self, expr: &Expr) -> Option<(PointerValue<'ctx>, BrixType)> {
+    fn compile_lvalue_addr(&mut self, expr: &Expr) -> CodegenResult<(PointerValue<'ctx>, BrixType)> {
         match expr {
             Expr::Identifier(name) => {
                 if let Some((ptr, var_type)) = self.variables.get(name) {
-                    Some((*ptr, var_type.clone()))
+                    Ok((*ptr, var_type.clone()))
                 } else {
-                    eprintln!("Error: Variable '{}' not found for assignment.", name);
-                    None
+                    Err(CodegenError::UndefinedSymbol {
+                        name: name.clone(),
+                        context: "Assignment target".to_string(),
+                    })
                 }
             }
 
@@ -269,7 +281,11 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
                 // Support both Matrix and IntMatrix for lvalue assignment
                 if target_type != BrixType::Matrix && target_type != BrixType::IntMatrix {
-                    return None;
+                    return Err(CodegenError::TypeError {
+                        expected: "Matrix or IntMatrix".to_string(),
+                        found: format!("{:?}", target_type),
+                        context: "Index assignment target".to_string(),
+                    });
                 }
 
                 let is_int_matrix = target_type == BrixType::IntMatrix;
@@ -284,17 +300,26 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let cols_ptr = self
                     .builder
                     .build_struct_gep(matrix_type, matrix_ptr, 1, "cols")
-                    .unwrap();
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_struct_gep".to_string(),
+                        details: "Failed to get matrix columns pointer".to_string(),
+                    })?;
                 let cols = self
                     .builder
                     .build_load(i64_type, cols_ptr, "cols")
-                    .unwrap()
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_load".to_string(),
+                        details: "Failed to load matrix columns".to_string(),
+                    })?
                     .into_int_value();
 
                 let data_ptr_ptr = self
                     .builder
                     .build_struct_gep(matrix_type, matrix_ptr, 2, "data")
-                    .unwrap();
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_struct_gep".to_string(),
+                        details: "Failed to get matrix data pointer".to_string(),
+                    })?;
                 let data = self
                     .builder
                     .build_load(
@@ -302,7 +327,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         data_ptr_ptr,
                         "data",
                     )
-                    .unwrap()
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_load".to_string(),
+                        details: "Failed to load matrix data".to_string(),
+                    })?
                     .into_pointer_value();
 
                 let final_offset = if indices.len() == 1 {
@@ -314,12 +342,21 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     let row_offset = self
                         .builder
                         .build_int_mul(row_val.into_int_value(), cols, "row_off")
-                        .unwrap();
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_int_mul".to_string(),
+                            details: "Failed to calculate row offset".to_string(),
+                        })?;
                     self.builder
                         .build_int_add(row_offset, col_val.into_int_value(), "final_off")
-                        .unwrap()
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_int_add".to_string(),
+                            details: "Failed to calculate final offset".to_string(),
+                        })?
                 } else {
-                    return None;
+                    return Err(CodegenError::InvalidOperation {
+                        operation: "Matrix indexing".to_string(),
+                        reason: format!("Invalid number of indices: {}", indices.len()),
+                    });
                 };
 
                 unsafe {
@@ -328,28 +365,36 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         let item_ptr = self
                             .builder
                             .build_gep(i64_type, data, &[final_offset], "addr_ptr")
-                            .unwrap();
-                        Some((item_ptr, BrixType::Int))
+                            .map_err(|_| CodegenError::LLVMError {
+                                operation: "build_gep".to_string(),
+                                details: "Failed to get IntMatrix element pointer".to_string(),
+                            })?;
+                        Ok((item_ptr, BrixType::Int))
                     } else {
                         // Matrix: GEP with f64 type, returns Float element
                         let f64 = self.context.f64_type();
                         let item_ptr = self
                             .builder
                             .build_gep(f64, data, &[final_offset], "addr_ptr")
-                            .unwrap();
-                        Some((item_ptr, BrixType::Float))
+                            .map_err(|_| CodegenError::LLVMError {
+                                operation: "build_gep".to_string(),
+                                details: "Failed to get Matrix element pointer".to_string(),
+                            })?;
+                        Ok((item_ptr, BrixType::Float))
                     }
                 }
             }
 
             _ => {
-                eprintln!("Error: Invalid expression for the left side of an assignment.");
-                None
+                Err(CodegenError::InvalidOperation {
+                    operation: "Assignment".to_string(),
+                    reason: "Invalid expression for the left side of an assignment".to_string(),
+                })
             }
         }
     }
 
-    fn compile_stmt(&mut self, stmt: &Stmt, function: inkwell::values::FunctionValue<'ctx>) {
+    fn compile_stmt(&mut self, stmt: &Stmt, function: inkwell::values::FunctionValue<'ctx>) -> CodegenResult<()> {
         match stmt {
             Stmt::VariableDecl {
                 name,
@@ -357,7 +402,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 value,
                 is_const: _,
             } => {
-                self.compile_variable_decl_stmt(name, type_hint, value);
+                self.compile_variable_decl_stmt(name, type_hint, value)?;
+                Ok(())
             }
 
             Stmt::DestructuringDecl {
@@ -365,31 +411,38 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 value,
                 is_const: _,
             } => {
-                self.compile_destructuring_decl_stmt(names, value);
+                self.compile_destructuring_decl_stmt(names, value)?;
+                Ok(())
             }
 
             Stmt::Assignment { target, value } => {
-                self.compile_assignment_stmt(target, value);
+                self.compile_assignment_stmt(target, value)?;
+                Ok(())
             }
 
             Stmt::Printf { format, args } => {
-                self.compile_printf_stmt(format, args);
+                self.compile_printf_stmt(format, args)?;
+                Ok(())
             }
 
             Stmt::Print { expr } => {
-                self.compile_print_stmt(expr);
+                self.compile_print_stmt(expr)?;
+                Ok(())
             }
 
             Stmt::Println { expr } => {
-                self.compile_println_stmt(expr);
+                self.compile_println_stmt(expr)?;
+                Ok(())
             }
 
             Stmt::Expr(expr) => {
-                self.compile_expr_stmt(expr);
+                self.compile_expr_stmt(expr)?;
+                Ok(())
             }
 
             Stmt::Block(statements) => {
-                self.compile_block_stmt(statements, function);
+                self.compile_block_stmt(statements, function)?;
+                Ok(())
             }
 
             Stmt::If {
@@ -397,11 +450,13 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 then_block,
                 else_block,
             } => {
-                self.compile_if_stmt(condition, then_block, else_block, function);
+                self.compile_if_stmt(condition, then_block, else_block, function)?;
+                Ok(())
             }
 
             Stmt::While { condition, body } => {
-                self.compile_while_stmt(condition, body, function);
+                self.compile_while_stmt(condition, body, function)?;
+                Ok(())
             }
 
             Stmt::For {
@@ -412,15 +467,17 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 // For ranges, we only support single variable
                 if let Expr::Range { start, end, step } = iterable {
                     if var_names.len() != 1 {
-                        eprintln!("Error: Range iteration supports only single variable");
-                        return;
+                        return Err(CodegenError::InvalidOperation {
+                            operation: "Range iteration".to_string(),
+                            reason: "Range iteration supports only single variable".to_string(),
+                        });
                     }
                     let var_name = &var_names[0];
-                    let (start_val, _) = self.compile_expr(start).unwrap();
-                    let (end_val, _) = self.compile_expr(end).unwrap();
+                    let (start_val, _) = self.compile_expr(start)?;
+                    let (end_val, _) = self.compile_expr(end)?;
 
                     let step_val = if let Some(step_expr) = step {
-                        self.compile_expr(step_expr).unwrap().0.into_int_value()
+                        self.compile_expr(step_expr)?.0.into_int_value()
                     } else {
                         self.context.i64_type().const_int(1, false)
                     };
@@ -432,8 +489,12 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     // --- LOOP ---
 
                     let i_alloca =
-                        self.create_entry_block_alloca(self.context.i64_type().into(), var_name);
-                    self.builder.build_store(i_alloca, start_int).unwrap();
+                        self.create_entry_block_alloca(self.context.i64_type().into(), var_name)?;
+                    self.builder.build_store(i_alloca, start_int)
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_store".to_string(),
+                            details: "Failed to store initial value in for loop".to_string(),
+                        })?;
 
                     let old_var = self.variables.remove(var_name);
                     self.variables
@@ -445,56 +506,58 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     let inc_bb = self.context.append_basic_block(function, "for_inc");
                     let after_bb = self.context.append_basic_block(function, "for_after");
 
-                    self.builder.build_unconditional_branch(cond_bb).unwrap();
+                    self.builder.build_unconditional_branch(cond_bb).map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string() })?;
 
                     // --- BLOCK: COND ---
                     self.builder.position_at_end(cond_bb);
                     let cur_i = self
                         .builder
                         .build_load(self.context.i64_type(), i_alloca, "i_val")
-                        .unwrap()
+                        .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string() })?
                         .into_int_value();
 
                     let loop_cond = self
                         .builder
                         .build_int_compare(IntPredicate::SLE, cur_i, end_int, "loop_cond")
-                        .unwrap();
+                        .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string() })?;
                     self.builder
                         .build_conditional_branch(loop_cond, body_bb, after_bb)
-                        .unwrap();
+                        .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string() })?;
 
                     // --- BLOCK: BODY ---
                     self.builder.position_at_end(body_bb);
-                    self.compile_stmt(body, function);
-                    self.builder.build_unconditional_branch(inc_bb).unwrap();
+                    self.compile_stmt(body, function)?;
+                    self.builder.build_unconditional_branch(inc_bb).map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string() })?;
 
                     // --- BLOCK: INC ---
                     self.builder.position_at_end(inc_bb);
                     let tmp_i = self
                         .builder
                         .build_load(self.context.i64_type(), i_alloca, "i_load")
-                        .unwrap()
+                        .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string() })?
                         .into_int_value();
                     let next_i = self
                         .builder
                         .build_int_add(tmp_i, step_val, "i_next")
-                        .unwrap();
-                    self.builder.build_store(i_alloca, next_i).unwrap();
-                    self.builder.build_unconditional_branch(cond_bb).unwrap();
+                        .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string() })?;
+                    self.builder.build_store(i_alloca, next_i).map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string() })?;
+                    self.builder.build_unconditional_branch(cond_bb).map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string() })?;
 
                     // --- BLOCK: AFTER ---
                     self.builder.position_at_end(after_bb);
 
                     if let Some(old) = old_var {
                         self.variables.insert(var_name.clone(), old);
+                        Ok(())
                     } else {
                         self.variables.remove(var_name);
+                        Ok(())
                     }
                 } else {
                     // For iterating over arrays/matrices
                     let (iterable_val, iterable_type) = self
                         .compile_expr(iterable)
-                        .expect("Error to compile iterable of the loop");
+                        ?;
 
                     match iterable_type {
                         BrixType::Matrix => {
@@ -505,21 +568,21 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             let rows_ptr = self
                                 .builder
                                 .build_struct_gep(matrix_type, matrix_ptr, 0, "rows")
-                                .unwrap();
+                                .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string() })?;
                             let cols_ptr = self
                                 .builder
                                 .build_struct_gep(matrix_type, matrix_ptr, 1, "cols")
-                                .unwrap();
+                                .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string() })?;
 
                             let rows = self
                                 .builder
                                 .build_load(i64_type, rows_ptr, "rows")
-                                .unwrap()
+                                .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string() })?
                                 .into_int_value();
                             let cols = self
                                 .builder
                                 .build_load(i64_type, cols_ptr, "cols")
-                                .unwrap()
+                                .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string() })?
                                 .into_int_value();
 
                             // Destructuring: iterate rows, each row is a tuple
@@ -532,16 +595,16 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             } else {
                                 // Normal: iterate all elements
                                 (
-                                    self.builder.build_int_mul(rows, cols, "total_len").unwrap(),
+                                    self.builder.build_int_mul(rows, cols, "total_len").map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string() })?,
                                     false,
                                 )
                             };
 
                             let idx_alloca =
-                                self.create_entry_block_alloca(i64_type.into(), "_hidden_idx");
+                                self.create_entry_block_alloca(i64_type.into(), "_hidden_idx")?;
                             self.builder
                                 .build_store(idx_alloca, i64_type.const_int(0, false))
-                                .unwrap();
+                                .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string() })?;
 
                             // Allocate variables
                             let mut old_vars = Vec::new();
@@ -553,7 +616,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                     let user_var_alloca = self.create_entry_block_alloca(
                                         self.context.f64_type().into(),
                                         var_name,
-                                    );
+                                    )?;
                                     let old_var = self.variables.remove(var_name);
                                     self.variables.insert(
                                         var_name.clone(),
@@ -568,7 +631,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                 let user_var_alloca = self.create_entry_block_alloca(
                                     self.context.f64_type().into(),
                                     var_name,
-                                );
+                                )?;
                                 let old_var = self.variables.remove(var_name);
                                 self.variables
                                     .insert(var_name.clone(), (user_var_alloca, BrixType::Float));
@@ -581,14 +644,14 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             let inc_bb = self.context.append_basic_block(function, "arr_inc");
                             let after_bb = self.context.append_basic_block(function, "arr_after");
 
-                            self.builder.build_unconditional_branch(cond_bb).unwrap();
+                            self.builder.build_unconditional_branch(cond_bb).map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string() })?;
 
                             // --- COND ---
                             self.builder.position_at_end(cond_bb);
                             let cur_idx = self
                                 .builder
                                 .build_load(i64_type, idx_alloca, "cur_idx")
-                                .unwrap()
+                                .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string() })?
                                 .into_int_value();
                             let loop_cond = self
                                 .builder
@@ -598,10 +661,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                     total_len,
                                     "check_idx",
                                 )
-                                .unwrap();
+                                .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string() })?;
                             self.builder
                                 .build_conditional_branch(loop_cond, body_bb, after_bb)
-                                .unwrap();
+                                .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string() })?;
 
                             // --- BODY ---
                             self.builder.position_at_end(body_bb);
@@ -609,7 +672,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             let data_ptr_ptr = self
                                 .builder
                                 .build_struct_gep(matrix_type, matrix_ptr, 2, "data_ptr")
-                                .unwrap();
+                                .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string() })?;
                             let data_base = self
                                 .builder
                                 .build_load(
@@ -617,7 +680,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                     data_ptr_ptr,
                                     "data_base",
                                 )
-                                .unwrap()
+                                .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string() })?
                                 .into_pointer_value();
 
                             if is_destructuring {
@@ -629,7 +692,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                         let offset = self
                                             .builder
                                             .build_int_mul(cur_idx, cols, "row_offset")
-                                            .unwrap();
+                                            .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string() })?;
                                         let col_offset = self
                                             .builder
                                             .build_int_add(
@@ -637,7 +700,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                                 i64_type.const_int(j as u64, false),
                                                 "elem_offset",
                                             )
-                                            .unwrap();
+                                            .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string() })?;
 
                                         let elem_ptr = self
                                             .builder
@@ -647,7 +710,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                                 &[col_offset],
                                                 &format!("elem_{}_ptr", j),
                                             )
-                                            .unwrap();
+                                            .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string() })?;
                                         let elem_val = self
                                             .builder
                                             .build_load(
@@ -655,8 +718,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                                 elem_ptr,
                                                 &format!("elem_{}", j),
                                             )
-                                            .unwrap();
-                                        self.builder.build_store(*var_alloca, elem_val).unwrap();
+                                            .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string() })?;
+                                        self.builder.build_store(*var_alloca, elem_val).map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string() })?;
                                     }
                                 }
                             } else {
@@ -670,31 +733,31 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                             &[cur_idx],
                                             "elem_ptr",
                                         )
-                                        .unwrap();
+                                        .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string() })?;
                                     let elem_val = self
                                         .builder
                                         .build_load(self.context.f64_type(), elem_ptr, "elem_val")
-                                        .unwrap();
-                                    self.builder.build_store(var_allocas[0], elem_val).unwrap();
+                                        .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string() })?;
+                                    self.builder.build_store(var_allocas[0], elem_val).map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string() })?;
                                 }
                             }
 
-                            self.compile_stmt(body, function);
-                            self.builder.build_unconditional_branch(inc_bb).unwrap();
+                            self.compile_stmt(body, function)?;
+                            self.builder.build_unconditional_branch(inc_bb).map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string() })?;
 
                             // --- INC ---
                             self.builder.position_at_end(inc_bb);
                             let tmp_idx = self
                                 .builder
                                 .build_load(i64_type, idx_alloca, "idx_load")
-                                .unwrap()
+                                .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string() })?
                                 .into_int_value();
                             let next_idx = self
                                 .builder
                                 .build_int_add(tmp_idx, i64_type.const_int(1, false), "idx_next")
-                                .unwrap();
-                            self.builder.build_store(idx_alloca, next_idx).unwrap();
-                            self.builder.build_unconditional_branch(cond_bb).unwrap();
+                                .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string() })?;
+                            self.builder.build_store(idx_alloca, next_idx).map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string() })?;
+                            self.builder.build_unconditional_branch(cond_bb).map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string() })?;
 
                             // --- AFTER ---
                             self.builder.position_at_end(after_bb);
@@ -707,6 +770,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                     self.variables.remove(&var_name);
                                 }
                             }
+                            Ok(())
                         }
                         BrixType::IntMatrix => {
                             // Similar to Matrix but for integers
@@ -717,21 +781,21 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             let rows_ptr = self
                                 .builder
                                 .build_struct_gep(matrix_type, matrix_ptr, 0, "rows")
-                                .unwrap();
+                                .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string() })?;
                             let cols_ptr = self
                                 .builder
                                 .build_struct_gep(matrix_type, matrix_ptr, 1, "cols")
-                                .unwrap();
+                                .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string() })?;
 
                             let rows = self
                                 .builder
                                 .build_load(i64_type, rows_ptr, "rows")
-                                .unwrap()
+                                .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string() })?
                                 .into_int_value();
                             let cols = self
                                 .builder
                                 .build_load(i64_type, cols_ptr, "cols")
-                                .unwrap()
+                                .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string() })?
                                 .into_int_value();
 
                             let (total_len, is_destructuring) = if var_names.len() > 1 {
@@ -740,16 +804,16 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                 (rows, true)
                             } else {
                                 (
-                                    self.builder.build_int_mul(rows, cols, "total_len").unwrap(),
+                                    self.builder.build_int_mul(rows, cols, "total_len").map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string() })?,
                                     false,
                                 )
                             };
 
                             let idx_alloca =
-                                self.create_entry_block_alloca(i64_type.into(), "_hidden_idx");
+                                self.create_entry_block_alloca(i64_type.into(), "_hidden_idx")?;
                             self.builder
                                 .build_store(idx_alloca, i64_type.const_int(0, false))
-                                .unwrap();
+                                .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string() })?;
 
                             let mut old_vars = Vec::new();
                             let mut var_allocas = Vec::new();
@@ -757,7 +821,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             if is_destructuring {
                                 for var_name in var_names.iter() {
                                     let user_var_alloca =
-                                        self.create_entry_block_alloca(i64_type.into(), var_name);
+                                        self.create_entry_block_alloca(i64_type.into(), var_name)?;
                                     let old_var = self.variables.remove(var_name);
                                     self.variables
                                         .insert(var_name.clone(), (user_var_alloca, BrixType::Int));
@@ -767,7 +831,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             } else {
                                 let var_name = &var_names[0];
                                 let user_var_alloca =
-                                    self.create_entry_block_alloca(i64_type.into(), var_name);
+                                    self.create_entry_block_alloca(i64_type.into(), var_name)?;
                                 let old_var = self.variables.remove(var_name);
                                 self.variables
                                     .insert(var_name.clone(), (user_var_alloca, BrixType::Int));
@@ -780,14 +844,14 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             let inc_bb = self.context.append_basic_block(function, "arr_inc");
                             let after_bb = self.context.append_basic_block(function, "arr_after");
 
-                            self.builder.build_unconditional_branch(cond_bb).unwrap();
+                            self.builder.build_unconditional_branch(cond_bb).map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string() })?;
 
                             // --- COND ---
                             self.builder.position_at_end(cond_bb);
                             let cur_idx = self
                                 .builder
                                 .build_load(i64_type, idx_alloca, "cur_idx")
-                                .unwrap()
+                                .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string() })?
                                 .into_int_value();
                             let loop_cond = self
                                 .builder
@@ -797,10 +861,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                     total_len,
                                     "check_idx",
                                 )
-                                .unwrap();
+                                .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string() })?;
                             self.builder
                                 .build_conditional_branch(loop_cond, body_bb, after_bb)
-                                .unwrap();
+                                .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string() })?;
 
                             // --- BODY ---
                             self.builder.position_at_end(body_bb);
@@ -808,7 +872,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             let data_ptr_ptr = self
                                 .builder
                                 .build_struct_gep(matrix_type, matrix_ptr, 2, "data_ptr")
-                                .unwrap();
+                                .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string() })?;
                             let data_base = self
                                 .builder
                                 .build_load(
@@ -816,7 +880,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                     data_ptr_ptr,
                                     "data_base",
                                 )
-                                .unwrap()
+                                .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string() })?
                                 .into_pointer_value();
 
                             if is_destructuring {
@@ -825,7 +889,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                         let offset = self
                                             .builder
                                             .build_int_mul(cur_idx, cols, "row_offset")
-                                            .unwrap();
+                                            .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string() })?;
                                         let col_offset = self
                                             .builder
                                             .build_int_add(
@@ -833,7 +897,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                                 i64_type.const_int(j as u64, false),
                                                 "elem_offset",
                                             )
-                                            .unwrap();
+                                            .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string() })?;
 
                                         let elem_ptr = self
                                             .builder
@@ -843,12 +907,12 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                                 &[col_offset],
                                                 &format!("elem_{}_ptr", j),
                                             )
-                                            .unwrap();
+                                            .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string() })?;
                                         let elem_val = self
                                             .builder
                                             .build_load(i64_type, elem_ptr, &format!("elem_{}", j))
-                                            .unwrap();
-                                        self.builder.build_store(*var_alloca, elem_val).unwrap();
+                                            .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string() })?;
+                                        self.builder.build_store(*var_alloca, elem_val).map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string() })?;
                                     }
                                 }
                             } else {
@@ -856,31 +920,31 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                     let elem_ptr = self
                                         .builder
                                         .build_gep(i64_type, data_base, &[cur_idx], "elem_ptr")
-                                        .unwrap();
+                                        .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string() })?;
                                     let elem_val = self
                                         .builder
                                         .build_load(i64_type, elem_ptr, "elem_val")
-                                        .unwrap();
-                                    self.builder.build_store(var_allocas[0], elem_val).unwrap();
+                                        .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string() })?;
+                                    self.builder.build_store(var_allocas[0], elem_val).map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string() })?;
                                 }
                             }
 
-                            self.compile_stmt(body, function);
-                            self.builder.build_unconditional_branch(inc_bb).unwrap();
+                            self.compile_stmt(body, function)?;
+                            self.builder.build_unconditional_branch(inc_bb).map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string() })?;
 
                             // --- INC ---
                             self.builder.position_at_end(inc_bb);
                             let tmp_idx = self
                                 .builder
                                 .build_load(i64_type, idx_alloca, "idx_load")
-                                .unwrap()
+                                .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string() })?
                                 .into_int_value();
                             let next_idx = self
                                 .builder
                                 .build_int_add(tmp_idx, i64_type.const_int(1, false), "idx_next")
-                                .unwrap();
-                            self.builder.build_store(idx_alloca, next_idx).unwrap();
-                            self.builder.build_unconditional_branch(cond_bb).unwrap();
+                                .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string() })?;
+                            self.builder.build_store(idx_alloca, next_idx).map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string() })?;
+                            self.builder.build_unconditional_branch(cond_bb).map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string() })?;
 
                             // --- AFTER ---
                             self.builder.position_at_end(after_bb);
@@ -892,14 +956,22 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                     self.variables.remove(&var_name);
                                 }
                             }
+                            Ok(())
                         }
-                        _ => eprintln!("Error: Type {:?} is not iterable.", iterable_type),
+                        _ => {
+                            Err(CodegenError::TypeError {
+                                expected: "Matrix or IntMatrix".to_string(),
+                                found: format!("{:?}", iterable_type),
+                                context: "For loop iterable".to_string(),
+                            })
+                        }
                     }
                 }
             }
 
             Stmt::Import { module, alias } => {
-                self.compile_import_stmt(module, alias);
+                self.compile_import_stmt(module, alias)?;
+                Ok(())
             }
 
             Stmt::FunctionDef {
@@ -908,16 +980,18 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 return_type,
                 body,
             } => {
-                self.compile_function_def(name, params, return_type, body, function);
+                self.compile_function_def(name, params, return_type, body, function)?;
+                Ok(())
             }
 
             Stmt::Return { values } => {
-                self.compile_return_stmt(values);
+                self.compile_return_stmt(values)?;
+                Ok(())
             }
         }
     }
 
-    fn compile_expr(&mut self, expr: &Expr) -> Option<(BasicValueEnum<'ctx>, BrixType)> {
+    fn compile_expr(&mut self, expr: &Expr) -> CodegenResult<(BasicValueEnum<'ctx>, BrixType)> {
         match expr {
             Expr::Literal(lit) => self.compile_literal_expr(lit),
 
@@ -933,30 +1007,30 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                     *ptr,
                                     name,
                                 )
-                                .unwrap();
-                            Some((val, brix_type.clone()))
+                                .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in compile_expr".to_string() })?;
+                            Ok((val, brix_type.clone()))
                         }
 
                         BrixType::Int => {
                             let val = self
                                 .builder
                                 .build_load(self.context.i64_type(), *ptr, name)
-                                .unwrap();
-                            Some((val, BrixType::Int))
+                                .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in compile_expr".to_string() })?;
+                            Ok((val, BrixType::Int))
                         }
                         BrixType::Atom => {
                             let val = self
                                 .builder
                                 .build_load(self.context.i64_type(), *ptr, name)
-                                .unwrap();
-                            Some((val, BrixType::Atom))
+                                .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in compile_expr".to_string() })?;
+                            Ok((val, BrixType::Atom))
                         }
                         BrixType::Float => {
                             let val = self
                                 .builder
                                 .build_load(self.context.f64_type(), *ptr, name)
-                                .unwrap();
-                            Some((val, BrixType::Float))
+                                .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in compile_expr".to_string() })?;
+                            Ok((val, BrixType::Float))
                         }
                         BrixType::Matrix => {
                             // Load the pointer to the matrix struct
@@ -967,8 +1041,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                     *ptr,
                                     name,
                                 )
-                                .unwrap();
-                            Some((val, BrixType::Matrix))
+                                .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in compile_expr".to_string() })?;
+                            Ok((val, BrixType::Matrix))
                         }
                         BrixType::IntMatrix => {
                             // Load the pointer to the intmatrix struct
@@ -979,8 +1053,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                     *ptr,
                                     name,
                                 )
-                                .unwrap();
-                            Some((val, BrixType::IntMatrix))
+                                .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in compile_expr".to_string() })?;
+                            Ok((val, BrixType::IntMatrix))
                         }
                         BrixType::ComplexMatrix => {
                             // Load the pointer to the complexmatrix struct
@@ -991,37 +1065,37 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                     *ptr,
                                     name,
                                 )
-                                .unwrap();
-                            Some((val, BrixType::ComplexMatrix))
+                                .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in compile_expr".to_string() })?;
+                            Ok((val, BrixType::ComplexMatrix))
                         }
                         BrixType::Tuple(types) => {
                             // Load the tuple struct
                             let struct_type =
                                 self.brix_type_to_llvm(&BrixType::Tuple(types.clone()));
-                            let val = self.builder.build_load(struct_type, *ptr, name).unwrap();
-                            Some((val, BrixType::Tuple(types.clone())))
+                            let val = self.builder.build_load(struct_type, *ptr, name).map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in compile_expr".to_string() })?;
+                            Ok((val, BrixType::Tuple(types.clone())))
                         }
                         BrixType::Complex => {
                             // Load the complex struct { f64 real, f64 imag }
                             let complex_type = self.brix_type_to_llvm(&BrixType::Complex);
-                            let val = self.builder.build_load(complex_type, *ptr, name).unwrap();
-                            Some((val, BrixType::Complex))
+                            let val = self.builder.build_load(complex_type, *ptr, name).map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in compile_expr".to_string() })?;
+                            Ok((val, BrixType::Complex))
                         }
                         BrixType::Nil => {
                             // Load nil (null pointer)
                             let ptr_type = self.context.ptr_type(AddressSpace::default());
-                            let val = self.builder.build_load(ptr_type, *ptr, name).unwrap();
-                            Some((val, BrixType::Nil))
+                            let val = self.builder.build_load(ptr_type, *ptr, name).map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in compile_expr".to_string() })?;
+                            Ok((val, BrixType::Nil))
                         }
                         BrixType::Error => {
                             // Load error (pointer to BrixError struct)
                             let ptr_type = self.context.ptr_type(AddressSpace::default());
-                            let val = self.builder.build_load(ptr_type, *ptr, name).unwrap();
-                            Some((val, BrixType::Error))
+                            let val = self.builder.build_load(ptr_type, *ptr, name).map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in compile_expr".to_string() })?;
+                            Ok((val, BrixType::Error))
                         }
                         _ => {
                             eprintln!("Error: Type not supported in identifier.");
-                            None
+                            Err(CodegenError::MissingValue { what: "expression value".to_string(), context: "compile_expr".to_string() })
                         }
                     },
                     None => {
@@ -1039,11 +1113,11 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             let one = self.context.f64_type().const_float(1.0);
                             let im_val =
                                 complex_type.const_named_struct(&[zero.into(), one.into()]);
-                            return Some((im_val.into(), BrixType::Complex));
+                            return Ok((im_val.into(), BrixType::Complex));
                         }
 
                         eprintln!("Error: Variable '{}' not found.", name);
-                        None
+                        Err(CodegenError::MissingValue { what: "expression value".to_string(), context: "compile_expr".to_string() })
                     }
                 }
             }
@@ -1079,7 +1153,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             .build_int_z_extend(is_zero, self.context.i64_type(), "not_result")
                             .unwrap();
 
-                        Some((result.into(), BrixType::Int))
+                        Ok((result.into(), BrixType::Int))
                     }
                     UnaryOp::Negate => {
                         // Arithmetic negation
@@ -1088,16 +1162,16 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                 .builder
                                 .build_int_neg(val.into_int_value(), "neg_int")
                                 .unwrap();
-                            Some((neg.into(), BrixType::Int))
+                            Ok((neg.into(), BrixType::Int))
                         } else if val_type == BrixType::Float {
                             let neg = self
                                 .builder
                                 .build_float_neg(val.into_float_value(), "neg_float")
                                 .unwrap();
-                            Some((neg.into(), BrixType::Float))
+                            Ok((neg.into(), BrixType::Float))
                         } else {
                             eprintln!("Error: Cannot negate type {:?}", val_type);
-                            None
+                            Err(CodegenError::MissingValue { what: "expression value".to_string(), context: "compile_expr".to_string() })
                         }
                     }
                 }
@@ -1170,7 +1244,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         _ => unreachable!(),
                     }
 
-                    return Some((phi.as_basic_value().into(), BrixType::Int));
+                    return Ok((phi.as_basic_value().into(), BrixType::Int));
                 }
 
                 let (mut lhs_val, mut lhs_type) = self.compile_expr(lhs)?;
@@ -1269,7 +1343,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             .left()
                             .unwrap();
 
-                        return Some((result, BrixType::Matrix));
+                        return Ok((result, BrixType::Matrix));
                     }
 
                     // scalar (Float or Int) op Matrix
@@ -1282,7 +1356,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             _ => {
                                 // For Mod and Pow, scalar op Matrix doesn't make sense
                                 // Fall through to error
-                                return None;
+                                return Err(CodegenError::InvalidOperation {
+                                    operation: format!("scalar {:?} Matrix", op),
+                                    reason: "Mod and Pow operations not supported for scalar-matrix".to_string(),
+                                });
                             }
                         };
 
@@ -1320,7 +1397,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             .left()
                             .unwrap();
 
-                        return Some((result, BrixType::Matrix));
+                        return Ok((result, BrixType::Matrix));
                     }
 
                     // Matrix op Matrix
@@ -1348,7 +1425,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             .left()
                             .unwrap();
 
-                        return Some((result, BrixType::Matrix));
+                        return Ok((result, BrixType::Matrix));
                     }
 
                     // IntMatrix op Int scalar
@@ -1376,7 +1453,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             .left()
                             .unwrap();
 
-                        return Some((result, BrixType::IntMatrix));
+                        return Ok((result, BrixType::IntMatrix));
                     }
 
                     // Int scalar op IntMatrix
@@ -1387,7 +1464,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             BinaryOp::Mul => "intmatrix_mul_scalar",  // Commutative
                             _ => {
                                 // For Div, Mod, Pow: scalar op IntMatrix doesn't make sense
-                                return None;
+                                return Err(CodegenError::InvalidOperation {
+                                    operation: format!("scalar {:?} IntMatrix", op),
+                                    reason: "Div, Mod, and Pow operations not supported for scalar-intmatrix".to_string(),
+                                });
                             }
                         };
 
@@ -1416,7 +1496,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             .left()
                             .unwrap();
 
-                        return Some((result, BrixType::IntMatrix));
+                        return Ok((result, BrixType::IntMatrix));
                     }
 
                     // IntMatrix op IntMatrix
@@ -1444,7 +1524,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             .left()
                             .unwrap();
 
-                        return Some((result, BrixType::IntMatrix));
+                        return Ok((result, BrixType::IntMatrix));
                     }
                 }
 
@@ -1497,7 +1577,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         .build_int_z_extend(cmp, self.context.i64_type(), "nil_cmp_ext")
                         .unwrap();
 
-                    return Some((result.into(), BrixType::Int));
+                    return Ok((result.into(), BrixType::Int));
                 }
 
                 // --- COMPLEX PATTERN DETECTION: 3.0 + 4.0i ---
@@ -1567,7 +1647,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         .build_insert_value(complex_val, final_imag, 1, "complex_full")
                         .unwrap();
 
-                    return Some((complex_val.into_struct_value().into(), BrixType::Complex));
+                    return Ok((complex_val.into_struct_value().into(), BrixType::Complex));
                 }
 
                 // --- COMPLEX ARITHMETIC ---
@@ -1651,7 +1731,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                 .unwrap()
                         };
 
-                        return Some((result, BrixType::Complex));
+                        return Ok((result, BrixType::Complex));
                     }
 
                     // For other operators, promote non-complex to complex
@@ -1744,7 +1824,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         BinaryOp::Pow => "complex_pow", // Fallback (shouldn't reach here for pow)
                         _ => {
                             eprintln!("Error: Operator {:?} not supported for complex numbers", op);
-                            return None;
+                            return Err(CodegenError::InvalidOperation {
+                                operation: format!("{:?}", op),
+                                reason: "Operator not supported for complex numbers".to_string(),
+                            });
                         }
                     };
 
@@ -1768,7 +1851,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         .left()
                         .unwrap();
 
-                    return Some((result, BrixType::Complex));
+                    return Ok((result, BrixType::Complex));
                 }
 
                 // --- Strings ---
@@ -1792,7 +1875,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                 .builder
                                 .build_call(concat_fn, &[lhs_val.into(), rhs_val.into()], "str_add")
                                 .unwrap();
-                            return Some((
+                            return Ok((
                                 res.try_as_basic_value().left().unwrap(),
                                 BrixType::String,
                             ));
@@ -1812,11 +1895,14 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                 .builder
                                 .build_call(eq_fn, &[lhs_val.into(), rhs_val.into()], "str_eq_call")
                                 .unwrap();
-                            return Some((res.try_as_basic_value().left().unwrap(), BrixType::Int));
+                            return Ok((res.try_as_basic_value().left().unwrap(), BrixType::Int));
                         }
                         _ => {
                             eprintln!("Erro: Operação não suportada para strings (apenas + e ==).");
-                            return None;
+                            return Err(CodegenError::InvalidOperation {
+                                operation: format!("{:?}", op),
+                                reason: "Only + and == are supported for strings".to_string(),
+                            });
                         }
                     }
                 }
@@ -1850,7 +1936,12 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         rhs_val.into_float_value()
                     };
 
-                    let val = self.compile_float_op(op, l_float, r_float)?;
+                    let val = self.compile_float_op(op, l_float, r_float).ok_or_else(|| {
+                        CodegenError::InvalidOperation {
+                            operation: format!("{:?}", op),
+                            reason: "unsupported float operation".to_string(),
+                        }
+                    })?;
 
                     let res_type = match op {
                         BinaryOp::Gt
@@ -1861,14 +1952,19 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         | BinaryOp::NotEq => BrixType::Int,
                         _ => BrixType::Float,
                     };
-                    Some((val, res_type))
+                    Ok((val, res_type))
                 } else {
                     let val = self.compile_int_op(
                         op,
                         lhs_val.into_int_value(),
                         rhs_val.into_int_value(),
-                    )?;
-                    Some((val, BrixType::Int))
+                    ).ok_or_else(|| {
+                        CodegenError::InvalidOperation {
+                            operation: format!("{:?}", op),
+                            reason: "unsupported integer operation".to_string(),
+                        }
+                    })?;
+                    Ok((val, BrixType::Int))
                 }
             }
 
@@ -1937,7 +2033,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                     BrixType::Float
                                 };
 
-                            return Some((result, return_type));
+                            return Ok((result, return_type));
                         }
                     }
                 }
@@ -1946,7 +2042,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     if fn_name == "typeof" {
                         if args.len() != 1 {
                             eprintln!("Error: typeof expects exactly 1 argument.");
-                            return None;
+                            return Err(CodegenError::InvalidOperation {
+                                operation: "typeof".to_string(),
+                                reason: "expects exactly 1 argument".to_string(),
+                            });
                         }
                         let (_, arg_type) = self.compile_expr(&args[0])?;
 
@@ -1975,7 +2074,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     if fn_name == "int" {
                         if args.len() != 1 {
                             eprintln!("Error: int() expects exactly 1 argument.");
-                            return None;
+                            return Err(CodegenError::InvalidOperation {
+                                operation: "int()".to_string(),
+                                reason: "expects exactly 1 argument".to_string(),
+                            });
                         }
                         let (val, val_type) = self.compile_expr(&args[0])?;
 
@@ -2032,17 +2134,21 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             }
                             _ => {
                                 eprintln!("Error: Cannot convert {:?} to int", val_type);
-                                return None;
+                                return Err(CodegenError::TypeError {
+                                    expected: "int-convertible type".to_string(),
+                                    found: format!("{:?}", val_type),
+                                    context: "int() conversion".to_string(),
+                                });
                             }
                         };
 
-                        return Some((result, BrixType::Int));
+                        return Ok((result, BrixType::Int));
                     }
 
                     if fn_name == "float" {
                         if args.len() != 1 {
                             eprintln!("Error: float() expects exactly 1 argument.");
-                            return None;
+                            return Err(CodegenError::General("compilation error".to_string()));
                         }
                         let (val, val_type) = self.compile_expr(&args[0])?;
 
@@ -2088,29 +2194,29 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             }
                             _ => {
                                 eprintln!("Error: Cannot convert {:?} to float", val_type);
-                                return None;
+                                return Err(CodegenError::General("compilation error".to_string()));
                             }
                         };
 
-                        return Some((result, BrixType::Float));
+                        return Ok((result, BrixType::Float));
                     }
 
                     if fn_name == "string" {
                         if args.len() != 1 {
                             eprintln!("Error: string() expects exactly 1 argument.");
-                            return None;
+                            return Err(CodegenError::General("compilation error".to_string()));
                         }
                         let (val, val_type) = self.compile_expr(&args[0])?;
 
                         // Reuse value_to_string() which already handles all types
                         let result = self.value_to_string(val, &val_type, None)?;
-                        return Some((result, BrixType::String));
+                        return Ok((result, BrixType::String));
                     }
 
                     if fn_name == "bool" {
                         if args.len() != 1 {
                             eprintln!("Error: bool() expects exactly 1 argument.");
-                            return None;
+                            return Err(CodegenError::General("compilation error".to_string()));
                         }
                         let (val, val_type) = self.compile_expr(&args[0])?;
 
@@ -2186,11 +2292,11 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             }
                             _ => {
                                 eprintln!("Error: Cannot convert {:?} to bool", val_type);
-                                return None;
+                                return Err(CodegenError::General("compilation error".to_string()));
                             }
                         };
 
-                        return Some((result, BrixType::Int)); // bool is represented as int
+                        return Ok((result, BrixType::Int)); // bool is represented as int
                     }
 
                     // ===== TYPE CHECKING FUNCTIONS =====
@@ -2200,7 +2306,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     if fn_name == "is_nil" {
                         if args.len() != 1 {
                             eprintln!("Error: is_nil() expects exactly 1 argument.");
-                            return None;
+                            return Err(CodegenError::General("compilation error".to_string()));
                         }
                         let (val, val_type) = self.compile_expr(&args[0])?;
 
@@ -2239,14 +2345,14 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             }
                         };
 
-                        return Some((result, BrixType::Int));
+                        return Ok((result, BrixType::Int));
                     }
 
                     // is_atom(x) - Check if value is atom
                     if fn_name == "is_atom" {
                         if args.len() != 1 {
                             eprintln!("Error: is_atom() expects exactly 1 argument.");
-                            return None;
+                            return Err(CodegenError::General("compilation error".to_string()));
                         }
                         let (_, val_type) = self.compile_expr(&args[0])?;
 
@@ -2256,14 +2362,14 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             self.context.i64_type().const_int(0, false)
                         };
 
-                        return Some((result.into(), BrixType::Int));
+                        return Ok((result.into(), BrixType::Int));
                     }
 
                     // is_boolean(x) - Check if int value is 0 or 1
                     if fn_name == "is_boolean" {
                         if args.len() != 1 {
                             eprintln!("Error: is_boolean() expects exactly 1 argument.");
-                            return None;
+                            return Err(CodegenError::General("compilation error".to_string()));
                         }
                         let (val, val_type) = self.compile_expr(&args[0])?;
 
@@ -2314,14 +2420,14 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             }
                         };
 
-                        return Some((result, BrixType::Int));
+                        return Ok((result, BrixType::Int));
                     }
 
                     // is_integer(x) - Check if value is int
                     if fn_name == "is_integer" {
                         if args.len() != 1 {
                             eprintln!("Error: is_integer() expects exactly 1 argument.");
-                            return None;
+                            return Err(CodegenError::General("compilation error".to_string()));
                         }
                         let (_, val_type) = self.compile_expr(&args[0])?;
 
@@ -2331,14 +2437,14 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             self.context.i64_type().const_int(0, false)
                         };
 
-                        return Some((result.into(), BrixType::Int));
+                        return Ok((result.into(), BrixType::Int));
                     }
 
                     // is_float(x) - Check if value is float
                     if fn_name == "is_float" {
                         if args.len() != 1 {
                             eprintln!("Error: is_float() expects exactly 1 argument.");
-                            return None;
+                            return Err(CodegenError::General("compilation error".to_string()));
                         }
                         let (_, val_type) = self.compile_expr(&args[0])?;
 
@@ -2348,14 +2454,14 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             self.context.i64_type().const_int(0, false)
                         };
 
-                        return Some((result.into(), BrixType::Int));
+                        return Ok((result.into(), BrixType::Int));
                     }
 
                     // is_number(x) - Check if value is int or float
                     if fn_name == "is_number" {
                         if args.len() != 1 {
                             eprintln!("Error: is_number() expects exactly 1 argument.");
-                            return None;
+                            return Err(CodegenError::General("compilation error".to_string()));
                         }
                         let (_, val_type) = self.compile_expr(&args[0])?;
 
@@ -2365,14 +2471,14 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             self.context.i64_type().const_int(0, false)
                         };
 
-                        return Some((result.into(), BrixType::Int));
+                        return Ok((result.into(), BrixType::Int));
                     }
 
                     // is_string(x) - Check if value is string
                     if fn_name == "is_string" {
                         if args.len() != 1 {
                             eprintln!("Error: is_string() expects exactly 1 argument.");
-                            return None;
+                            return Err(CodegenError::General("compilation error".to_string()));
                         }
                         let (_, val_type) = self.compile_expr(&args[0])?;
 
@@ -2382,14 +2488,14 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             self.context.i64_type().const_int(0, false)
                         };
 
-                        return Some((result.into(), BrixType::Int));
+                        return Ok((result.into(), BrixType::Int));
                     }
 
                     // is_list(x) - Check if value is matrix or intmatrix
                     if fn_name == "is_list" {
                         if args.len() != 1 {
                             eprintln!("Error: is_list() expects exactly 1 argument.");
-                            return None;
+                            return Err(CodegenError::General("compilation error".to_string()));
                         }
                         let (_, val_type) = self.compile_expr(&args[0])?;
 
@@ -2400,14 +2506,14 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                 self.context.i64_type().const_int(0, false)
                             };
 
-                        return Some((result.into(), BrixType::Int));
+                        return Ok((result.into(), BrixType::Int));
                     }
 
                     // is_tuple(x) - Check if value is tuple
                     if fn_name == "is_tuple" {
                         if args.len() != 1 {
                             eprintln!("Error: is_tuple() expects exactly 1 argument.");
-                            return None;
+                            return Err(CodegenError::General("compilation error".to_string()));
                         }
                         let (_, val_type) = self.compile_expr(&args[0])?;
 
@@ -2417,20 +2523,20 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             self.context.i64_type().const_int(0, false)
                         };
 
-                        return Some((result.into(), BrixType::Int));
+                        return Ok((result.into(), BrixType::Int));
                     }
 
                     // is_function(x) - Check if value is function (not implemented yet, always returns 0)
                     if fn_name == "is_function" {
                         if args.len() != 1 {
                             eprintln!("Error: is_function() expects exactly 1 argument.");
-                            return None;
+                            return Err(CodegenError::General("compilation error".to_string()));
                         }
                         let _ = self.compile_expr(&args[0])?;
 
                         // Functions are not first-class yet, so always return false
                         let result = self.context.i64_type().const_int(0, false);
-                        return Some((result.into(), BrixType::Int));
+                        return Ok((result.into(), BrixType::Int));
                     }
 
                     // ===== STRING FUNCTIONS (v1.1) =====
@@ -2439,13 +2545,13 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     if fn_name == "uppercase" {
                         if args.len() != 1 {
                             eprintln!("Error: uppercase() expects exactly 1 argument.");
-                            return None;
+                            return Err(CodegenError::General("compilation error".to_string()));
                         }
                         let (val, val_type) = self.compile_expr(&args[0])?;
 
                         if val_type != BrixType::String {
                             eprintln!("Error: uppercase() expects a string argument.");
-                            return None;
+                            return Err(CodegenError::General("compilation error".to_string()));
                         }
 
                         let uppercase_fn = self.get_uppercase();
@@ -2457,20 +2563,20 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             .left()
                             .unwrap();
 
-                        return Some((result, BrixType::String));
+                        return Ok((result, BrixType::String));
                     }
 
                     // lowercase(str) - Convert string to lowercase
                     if fn_name == "lowercase" {
                         if args.len() != 1 {
                             eprintln!("Error: lowercase() expects exactly 1 argument.");
-                            return None;
+                            return Err(CodegenError::General("compilation error".to_string()));
                         }
                         let (val, val_type) = self.compile_expr(&args[0])?;
 
                         if val_type != BrixType::String {
                             eprintln!("Error: lowercase() expects a string argument.");
-                            return None;
+                            return Err(CodegenError::General("compilation error".to_string()));
                         }
 
                         let lowercase_fn = self.get_lowercase();
@@ -2482,20 +2588,20 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             .left()
                             .unwrap();
 
-                        return Some((result, BrixType::String));
+                        return Ok((result, BrixType::String));
                     }
 
                     // capitalize(str) - Capitalize first character
                     if fn_name == "capitalize" {
                         if args.len() != 1 {
                             eprintln!("Error: capitalize() expects exactly 1 argument.");
-                            return None;
+                            return Err(CodegenError::General("compilation error".to_string()));
                         }
                         let (val, val_type) = self.compile_expr(&args[0])?;
 
                         if val_type != BrixType::String {
                             eprintln!("Error: capitalize() expects a string argument.");
-                            return None;
+                            return Err(CodegenError::General("compilation error".to_string()));
                         }
 
                         let capitalize_fn = self.get_capitalize();
@@ -2507,20 +2613,20 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             .left()
                             .unwrap();
 
-                        return Some((result, BrixType::String));
+                        return Ok((result, BrixType::String));
                     }
 
                     // byte_size(str) - Get byte size of string
                     if fn_name == "byte_size" {
                         if args.len() != 1 {
                             eprintln!("Error: byte_size() expects exactly 1 argument.");
-                            return None;
+                            return Err(CodegenError::General("compilation error".to_string()));
                         }
                         let (val, val_type) = self.compile_expr(&args[0])?;
 
                         if val_type != BrixType::String {
                             eprintln!("Error: byte_size() expects a string argument.");
-                            return None;
+                            return Err(CodegenError::General("compilation error".to_string()));
                         }
 
                         let byte_size_fn = self.get_byte_size();
@@ -2532,20 +2638,20 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             .left()
                             .unwrap();
 
-                        return Some((result, BrixType::Int));
+                        return Ok((result, BrixType::Int));
                     }
 
                     // length(str) - Get number of characters (UTF-8 aware)
                     if fn_name == "length" {
                         if args.len() != 1 {
                             eprintln!("Error: length() expects exactly 1 argument.");
-                            return None;
+                            return Err(CodegenError::General("compilation error".to_string()));
                         }
                         let (val, val_type) = self.compile_expr(&args[0])?;
 
                         if val_type != BrixType::String {
                             eprintln!("Error: length() expects a string argument.");
-                            return None;
+                            return Err(CodegenError::General("compilation error".to_string()));
                         }
 
                         let length_fn = self.get_length();
@@ -2557,7 +2663,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             .left()
                             .unwrap();
 
-                        return Some((result, BrixType::Int));
+                        return Ok((result, BrixType::Int));
                     }
 
                     // replace(str, old, new) - Replace first occurrence
@@ -2566,7 +2672,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             eprintln!(
                                 "Error: replace() expects exactly 3 arguments (str, old, new)."
                             );
-                            return None;
+                            return Err(CodegenError::General("compilation error".to_string()));
                         }
                         let (str_val, str_type) = self.compile_expr(&args[0])?;
                         let (old_val, old_type) = self.compile_expr(&args[1])?;
@@ -2577,7 +2683,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             || new_type != BrixType::String
                         {
                             eprintln!("Error: replace() expects all arguments to be strings.");
-                            return None;
+                            return Err(CodegenError::General("compilation error".to_string()));
                         }
 
                         let replace_fn = self.get_replace();
@@ -2593,7 +2699,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             .left()
                             .unwrap();
 
-                        return Some((result, BrixType::String));
+                        return Ok((result, BrixType::String));
                     }
 
                     // replace_all(str, old, new) - Replace all occurrences
@@ -2602,7 +2708,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             eprintln!(
                                 "Error: replace_all() expects exactly 3 arguments (str, old, new)."
                             );
-                            return None;
+                            return Err(CodegenError::General("compilation error".to_string()));
                         }
                         let (str_val, str_type) = self.compile_expr(&args[0])?;
                         let (old_val, old_type) = self.compile_expr(&args[1])?;
@@ -2613,7 +2719,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             || new_type != BrixType::String
                         {
                             eprintln!("Error: replace_all() expects all arguments to be strings.");
-                            return None;
+                            return Err(CodegenError::General("compilation error".to_string()));
                         }
 
                         let replace_all_fn = self.get_replace_all();
@@ -2629,7 +2735,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             .left()
                             .unwrap();
 
-                        return Some((result, BrixType::String));
+                        return Ok((result, BrixType::String));
                     }
 
                     // error(msg: string) -> error - create error
@@ -2638,14 +2744,14 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             eprintln!(
                                 "Error: error() expects exactly 1 argument (message string)."
                             );
-                            return None;
+                            return Err(CodegenError::General("compilation error".to_string()));
                         }
 
                         let (msg_val, msg_type) = self.compile_expr(&args[0])?;
 
                         if msg_type != BrixType::String {
                             eprintln!("Error: error() expects a string argument.");
-                            return None;
+                            return Err(CodegenError::General("compilation error".to_string()));
                         }
 
                         // Declare brix_error_new(char* msg) -> BrixError*
@@ -2684,7 +2790,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             .left()
                             .unwrap();
 
-                        return Some((error_ptr, BrixType::Error));
+                        return Ok((error_ptr, BrixType::Error));
                     }
 
                     // === COMPLEX NUMBER FUNCTIONS ===
@@ -2693,7 +2799,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     if fn_name == "complex" {
                         if args.len() != 2 {
                             eprintln!("Error: complex() expects exactly 2 arguments (real, imag).");
-                            return None;
+                            return Err(CodegenError::General("compilation error".to_string()));
                         }
 
                         let (re_val, re_type) = self.compile_expr(&args[0])?;
@@ -2750,20 +2856,20 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             )
                             .unwrap();
 
-                        return Some((complex_val.into_struct_value().into(), BrixType::Complex));
+                        return Ok((complex_val.into_struct_value().into(), BrixType::Complex));
                     }
 
                     // real(z) - extract real part
                     if fn_name == "real" {
                         if args.len() != 1 {
                             eprintln!("Error: real() expects exactly 1 argument.");
-                            return None;
+                            return Err(CodegenError::General("compilation error".to_string()));
                         }
 
                         let (val, val_type) = self.compile_expr(&args[0])?;
                         if val_type != BrixType::Complex {
                             eprintln!("Error: real() expects a complex number.");
-                            return None;
+                            return Err(CodegenError::General("compilation error".to_string()));
                         }
 
                         let real_part = self
@@ -2772,20 +2878,20 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             .unwrap()
                             .into_float_value();
 
-                        return Some((real_part.into(), BrixType::Float));
+                        return Ok((real_part.into(), BrixType::Float));
                     }
 
                     // imag(z) - extract imaginary part
                     if fn_name == "imag" {
                         if args.len() != 1 {
                             eprintln!("Error: imag() expects exactly 1 argument.");
-                            return None;
+                            return Err(CodegenError::General("compilation error".to_string()));
                         }
 
                         let (val, val_type) = self.compile_expr(&args[0])?;
                         if val_type != BrixType::Complex {
                             eprintln!("Error: imag() expects a complex number.");
-                            return None;
+                            return Err(CodegenError::General("compilation error".to_string()));
                         }
 
                         let imag_part = self
@@ -2794,7 +2900,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             .unwrap()
                             .into_float_value();
 
-                        return Some((imag_part.into(), BrixType::Float));
+                        return Ok((imag_part.into(), BrixType::Float));
                     }
 
                     // Single-argument complex functions that return complex
@@ -2805,13 +2911,13 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     if complex_to_complex_fns.contains(&fn_name.as_str()) {
                         if args.len() != 1 {
                             eprintln!("Error: {}() expects exactly 1 argument.", fn_name);
-                            return None;
+                            return Err(CodegenError::General("compilation error".to_string()));
                         }
 
                         let (val, val_type) = self.compile_expr(&args[0])?;
                         if val_type != BrixType::Complex {
                             eprintln!("Error: {}() expects a complex number.", fn_name);
-                            return None;
+                            return Err(CodegenError::General("compilation error".to_string()));
                         }
 
                         let runtime_fn_name = format!("complex_{}", fn_name);
@@ -2836,7 +2942,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             .left()
                             .unwrap();
 
-                        return Some((result, BrixType::Complex));
+                        return Ok((result, BrixType::Complex));
                     }
 
                     // Single-argument complex functions that return float
@@ -2844,13 +2950,13 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     if complex_to_float_fns.contains(&fn_name.as_str()) {
                         if args.len() != 1 {
                             eprintln!("Error: {}() expects exactly 1 argument.", fn_name);
-                            return None;
+                            return Err(CodegenError::General("compilation error".to_string()));
                         }
 
                         let (val, val_type) = self.compile_expr(&args[0])?;
                         if val_type != BrixType::Complex {
                             eprintln!("Error: {}() expects a complex number.", fn_name);
-                            return None;
+                            return Err(CodegenError::General("compilation error".to_string()));
                         }
 
                         let runtime_fn_name = format!("complex_{}", fn_name);
@@ -2876,31 +2982,39 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             .left()
                             .unwrap();
 
-                        return Some((result, BrixType::Float));
+                        return Ok((result, BrixType::Float));
                     }
 
                     if fn_name == "input" {
-                        return self.compile_input_call(args);
+                        return self.compile_input_call(args).ok_or_else(|| {
+                            CodegenError::General("input() call failed".to_string())
+                        });
                     }
                     if fn_name == "matrix" {
-                        let val = self.compile_matrix_constructor(args)?;
-                        return Some((val, BrixType::Matrix));
+                        let val = self.compile_matrix_constructor(args).ok_or_else(|| {
+                            CodegenError::General("matrix() constructor failed".to_string())
+                        })?;
+                        return Ok((val, BrixType::Matrix));
                     }
                     if fn_name == "read_csv" {
-                        let ptr = self.compile_read_csv(args)?;
-                        return Some((ptr, BrixType::Matrix));
+                        let ptr = self.compile_read_csv(args).ok_or_else(|| {
+                            CodegenError::General("read_csv() call failed".to_string())
+                        })?;
+                        return Ok((ptr, BrixType::Matrix));
                     }
                     if fn_name == "zeros" {
                         let val = self.compile_zeros(args)?;
-                        return Some((val, BrixType::Matrix));
+                        return Ok((val, BrixType::Matrix));
                     }
                     if fn_name == "izeros" {
                         let val = self.compile_izeros(args)?;
-                        return Some((val, BrixType::IntMatrix));
+                        return Ok((val, BrixType::IntMatrix));
                     }
                     if fn_name == "zip" {
-                        let (val, tuple_type) = self.compile_zip(args)?;
-                        return Some((val, tuple_type));
+                        let (val, tuple_type) = self.compile_zip(args).ok_or_else(|| {
+                            CodegenError::General("zip() call failed".to_string())
+                        })?;
+                        return Ok((val, tuple_type));
                     }
                 }
 
@@ -2916,7 +3030,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         // Compile provided arguments
                         let mut llvm_args = Vec::new();
                         for arg in args {
-                            if let Some((arg_val, _)) = self.compile_expr(arg) {
+                            if let Ok((arg_val, _)) = self.compile_expr(arg) {
                                 llvm_args.push(arg_val.into());
                             }
                         }
@@ -2933,23 +3047,22 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
                                     if let Some(default_expr) = default_opt {
                                         // Compile the default value expression
-                                        if let Some((default_val, _)) =
+                                        if let Ok((default_val, _)) =
                                             self.compile_expr(default_expr)
                                         {
                                             llvm_args.push(default_val.into());
                                         } else {
-                                            eprintln!(
-                                                "Error: Failed to compile default value for parameter {}",
-                                                i
-                                            );
-                                            return None;
+                                            return Err(CodegenError::MissingValue {
+                                                what: format!("default value for parameter {}", i),
+                                                context: "function call".to_string(),
+                                            });
                                         }
                                     } else {
                                         eprintln!(
                                             "Error: Missing required parameter {} for function {}",
                                             i, fn_name
                                         );
-                                        return None;
+                                        return Err(CodegenError::General("compilation error".to_string()));
                                     }
                                 }
                             } else if num_provided > num_required {
@@ -2957,7 +3070,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                     "Error: Too many arguments for function {} (expected {}, got {})",
                                     fn_name, num_required, num_provided
                                 );
-                                return None;
+                                return Err(CodegenError::General("compilation error".to_string()));
                             }
                         }
 
@@ -2971,23 +3084,23 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         if let Some(ret_types) = ret_types_opt {
                             if ret_types.is_empty() {
                                 // Void function
-                                return None;
+                                return Err(CodegenError::General("compilation error".to_string()));
                             } else if ret_types.len() == 1 {
                                 // Single return
                                 let result = call_result.try_as_basic_value().left().unwrap();
-                                return Some((result, ret_types[0].clone()));
+                                return Ok((result, ret_types[0].clone()));
                             } else {
                                 // Multiple returns - return struct as Tuple type
                                 let result = call_result.try_as_basic_value().left().unwrap();
                                 let tuple_type = BrixType::Tuple(ret_types.clone());
-                                return Some((result, tuple_type));
+                                return Ok((result, tuple_type));
                             }
                         }
                     }
                 }
 
                 eprintln!("Error: Unknown function: {:?}", func);
-                None
+                Err(CodegenError::MissingValue { what: "expression value".to_string(), context: "compile_expr".to_string() })
             }
 
             Expr::FieldAccess { target, field } => {
@@ -3000,7 +3113,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             .builder
                             .build_load(self.context.f64_type(), *ptr, &const_name)
                             .unwrap();
-                        return Some((loaded_val, brix_type.clone()));
+                        return Ok((loaded_val, brix_type.clone()));
                     }
                 }
 
@@ -3018,7 +3131,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             .builder
                             .build_load(self.context.i64_type(), len_ptr, "len_val")
                             .unwrap();
-                        return Some((len_val, BrixType::Int));
+                        return Ok((len_val, BrixType::Int));
                     }
                 }
 
@@ -3034,7 +3147,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         "rows" => 0,
                         "cols" => 1,
                         "data" => 2,
-                        _ => return None,
+                        _ => return Err(CodegenError::General(format!("unknown field '{}'", field))),
                     };
 
                     let field_ptr = self
@@ -3062,10 +3175,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             (v, BrixType::FloatPtr)
                         }
                     };
-                    return Some(val);
+                    return Ok(val);
                 }
                 eprintln!("Type error: Access field on non-matrix.");
-                None
+                Err(CodegenError::MissingValue { what: "expression value".to_string(), context: "compile_expr".to_string() })
             }
 
             Expr::Index { array, indices } => {
@@ -3076,7 +3189,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     // Tuple indexing: result[0], result[1], etc.
                     if indices.len() != 1 {
                         eprintln!("Error: Tuple indexing requires exactly one index");
-                        return None;
+                        return Err(CodegenError::General("compilation error".to_string()));
                     }
 
                     // Extract index (must be a constant integer)
@@ -3088,7 +3201,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                 idx,
                                 types.len() - 1
                             );
-                            return None;
+                            return Err(CodegenError::General("compilation error".to_string()));
                         }
 
                         // Extract value from struct
@@ -3097,17 +3210,17 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             .build_extract_value(target_val.into_struct_value(), idx_u32, "extract")
                             .unwrap();
 
-                        return Some((extracted, types[idx_u32 as usize].clone()));
+                        return Ok((extracted, types[idx_u32 as usize].clone()));
                     } else {
                         eprintln!("Error: Tuple index must be a constant integer");
-                        return None;
+                        return Err(CodegenError::General("compilation error".to_string()));
                     }
                 }
 
                 // Support both Matrix (f64*) and IntMatrix (i64*)
                 if target_type != BrixType::Matrix && target_type != BrixType::IntMatrix {
                     eprintln!("Error: Trying to index something that is not a matrix or tuple.");
-                    return None;
+                    return Err(CodegenError::General("compilation error".to_string()));
                 }
 
                 let is_int_matrix = target_type == BrixType::IntMatrix;
@@ -3162,7 +3275,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         .unwrap()
                 } else {
                     eprintln!("Erro: Suporte apenas para 1 ou 2 índices.");
-                    return None;
+                    return Err(CodegenError::General("compilation error".to_string()));
                 };
 
                 // Load value with appropriate type
@@ -3174,7 +3287,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             .build_gep(i64_type, data, &[final_offset], "item_ptr")
                             .unwrap();
                         let val = self.builder.build_load(i64_type, item_ptr, "val").unwrap();
-                        Some((val, BrixType::Int))
+                        Ok((val, BrixType::Int))
                     } else {
                         // Matrix: load f64
                         let f64 = self.context.f64_type();
@@ -3183,7 +3296,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             .build_gep(f64, data, &[final_offset], "item_ptr")
                             .unwrap();
                         let val = self.builder.build_load(f64, item_ptr, "val").unwrap();
-                        Some((val, BrixType::Float))
+                        Ok((val, BrixType::Float))
                     }
                 }
             }
@@ -3264,7 +3377,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         }
                     }
 
-                    Some((new_intmatrix_ptr.as_basic_value_enum(), BrixType::IntMatrix))
+                    Ok((new_intmatrix_ptr.as_basic_value_enum(), BrixType::IntMatrix))
                 } else {
                     // Create Matrix (f64*) with int→float promotion
                     let matrix_type = self.get_matrix_type();
@@ -3325,7 +3438,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         }
                     }
 
-                    Some((new_matrix_ptr.as_basic_value_enum(), BrixType::Matrix))
+                    Ok((new_matrix_ptr.as_basic_value_enum(), BrixType::Matrix))
                 }
             }
 
@@ -3403,8 +3516,16 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     // If pattern is binding, create the variable BEFORE evaluating guard
                     let _binding_name = if let Pattern::Binding(name) = &arm.pattern {
                         let llvm_type = self.brix_type_to_llvm(&match_type);
-                        let ptr = self.builder.build_alloca(llvm_type, name).unwrap();
-                        self.builder.build_store(ptr, match_val).unwrap();
+                        let ptr = self.builder.build_alloca(llvm_type, name)
+                            .map_err(|_| CodegenError::LLVMError {
+                                operation: "build_alloca".to_string(),
+                                details: format!("Failed to allocate variable '{}'", name),
+                            })?;
+                        self.builder.build_store(ptr, match_val)
+                            .map_err(|_| CodegenError::LLVMError {
+                                operation: "build_store".to_string(),
+                                details: "Failed to store match value".to_string(),
+                            })?;
                         self.variables
                             .insert(name.clone(), (ptr, match_type.clone()));
                         Some(name.clone())
@@ -3414,7 +3535,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
                     // Check if pattern matches
                     let pattern_matches =
-                        self.compile_pattern_match(&arm.pattern, match_val, &match_type)?;
+                        self.compile_pattern_match(&arm.pattern, match_val, &match_type)
+                            .ok_or_else(|| CodegenError::General("pattern match compilation failed".to_string()))?;
 
                     // If guard exists, evaluate it (binding is already available)
                     let final_condition = if let Some(guard_expr) = &arm.guard {
@@ -3464,7 +3586,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         if !self.are_types_compatible(expected_type, &body_type) {
                             eprintln!("Error: Match arms return incompatible types");
                             eprintln!("  Expected: {:?}, Got: {:?}", expected_type, body_type);
-                            return None;
+                            return Err(CodegenError::General("compilation error".to_string()));
                         }
 
                         // Update result type to promoted type if needed
@@ -3521,7 +3643,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     phi.add_incoming(&[(&val, bb)]);
                 }
 
-                Some((phi.as_basic_value(), final_type))
+                Ok((phi.as_basic_value(), final_type))
             }
 
             Expr::Increment { expr, is_prefix } => {
@@ -3548,10 +3670,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 // Return value depends on prefix/postfix
                 if *is_prefix {
                     // Prefix: return new value (++x)
-                    Some((new_val.into(), BrixType::Int))
+                    Ok((new_val.into(), BrixType::Int))
                 } else {
                     // Postfix: return old value (x++)
-                    Some((current_val.into(), BrixType::Int))
+                    Ok((current_val.into(), BrixType::Int))
                 }
             }
 
@@ -3579,10 +3701,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 // Return value depends on prefix/postfix
                 if *is_prefix {
                     // Prefix: return new value (--x)
-                    Some((new_val.into(), BrixType::Int))
+                    Ok((new_val.into(), BrixType::Int))
                 } else {
                     // Postfix: return old value (x--)
-                    Some((current_val.into(), BrixType::Int))
+                    Ok((current_val.into(), BrixType::Int))
                 }
             }
 
@@ -3609,7 +3731,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             "empty_str",
                         )
                         .unwrap();
-                    return Some((call.try_as_basic_value().left().unwrap(), BrixType::String));
+                    return Ok((call.try_as_basic_value().left().unwrap(), BrixType::String));
                 }
 
                 // Compile each part and convert to string
@@ -3673,13 +3795,13 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     result = call.try_as_basic_value().left().unwrap();
                 }
 
-                Some((result, BrixType::String))
+                Ok((result, BrixType::String))
             }
 
             #[allow(unreachable_patterns)]
             _ => {
                 eprintln!("Expression not implemented");
-                None
+                Err(CodegenError::MissingValue { what: "expression value".to_string(), context: "compile_expr".to_string() })
             }
         }
     }
@@ -3718,9 +3840,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         val: BasicValueEnum<'ctx>,
         typ: &BrixType,
         format: Option<&str>,
-    ) -> Option<BasicValueEnum<'ctx>> {
+    ) -> CodegenResult<BasicValueEnum<'ctx>> {
         match typ {
-            BrixType::String => Some(val), // Already a string
+            BrixType::String => Ok(val), // Already a string
 
             BrixType::Int => {
                 // Use sprintf to convert int to string
@@ -3732,7 +3854,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let buffer = self
                     .builder
                     .build_array_alloca(i8_type, buffer_size, "int_str_buf")
-                    .unwrap();
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
 
                 // Map format specifier to sprintf format
                 let fmt_string = if let Some(fmt) = format {
@@ -3750,7 +3872,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let fmt_str = self
                     .builder
                     .build_global_string_ptr(&fmt_string, "fmt_int")
-                    .unwrap();
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
 
                 // Call sprintf
                 self.builder
@@ -3759,7 +3881,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         &[buffer.into(), fmt_str.as_pointer_value().into(), val.into()],
                         "sprintf_int",
                     )
-                    .unwrap();
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
 
                 // Create BrixString from buffer
                 let ptr_type = self.context.ptr_type(AddressSpace::default());
@@ -3772,8 +3894,13 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let call = self
                     .builder
                     .build_call(str_new_fn, &[buffer.into()], "int_to_str")
-                    .unwrap();
-                Some(call.try_as_basic_value().left().unwrap())
+                    .map_err(|_| CodegenError::LLVMError { operation: "build_call".to_string(), details: "Failed to call str_new in value_to_string".to_string() })?;
+                let value = call.try_as_basic_value().left()
+                    .ok_or_else(|| CodegenError::LLVMError {
+                        operation: "try_as_basic_value".to_string(),
+                        details: "str_new did not return a value".to_string(),
+                    })?;
+                Ok(value)
             }
 
             BrixType::Float => {
@@ -3786,7 +3913,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let buffer = self
                     .builder
                     .build_array_alloca(i8_type, buffer_size, "float_str_buf")
-                    .unwrap();
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
 
                 // Map format specifier to sprintf format
                 let fmt_string = if let Some(fmt) = format {
@@ -3814,7 +3941,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let fmt_str = self
                     .builder
                     .build_global_string_ptr(&fmt_string, "fmt_float")
-                    .unwrap();
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
 
                 // Call sprintf
                 self.builder
@@ -3823,7 +3950,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         &[buffer.into(), fmt_str.as_pointer_value().into(), val.into()],
                         "sprintf_float",
                     )
-                    .unwrap();
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
 
                 // Create BrixString from buffer
                 let ptr_type = self.context.ptr_type(AddressSpace::default());
@@ -3836,8 +3963,13 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let call = self
                     .builder
                     .build_call(str_new_fn, &[buffer.into()], "float_to_str")
-                    .unwrap();
-                Some(call.try_as_basic_value().left().unwrap())
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
+                let value = call.try_as_basic_value().left()
+                    .ok_or_else(|| CodegenError::LLVMError {
+                        operation: "try_as_basic_value".to_string(),
+                        details: "str_new did not return a value".to_string(),
+                    })?;
+                Ok(value)
             }
 
             BrixType::Matrix | BrixType::IntMatrix => {
@@ -3856,21 +3988,21 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     let rows_ptr = self
                         .builder
                         .build_struct_gep(matrix_type, matrix_ptr, 0, "rows_ptr")
-                        .unwrap();
+                        .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
                     let rows = self
                         .builder
                         .build_load(i64_type, rows_ptr, "rows")
-                        .unwrap()
+                        .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?
                         .into_int_value();
 
                     let cols_ptr = self
                         .builder
                         .build_struct_gep(matrix_type, matrix_ptr, 1, "cols_ptr")
-                        .unwrap();
+                        .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
                     let cols = self
                         .builder
                         .build_load(i64_type, cols_ptr, "cols")
-                        .unwrap()
+                        .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?
                         .into_int_value();
 
                     (rows, cols)
@@ -3881,14 +4013,14 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     let data_ptr_ptr = self
                         .builder
                         .build_struct_gep(matrix_type, matrix_ptr, 2, "data_ptr_ptr")
-                        .unwrap();
+                        .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
                     self.builder
                         .build_load(
                             self.context.ptr_type(AddressSpace::default()),
                             data_ptr_ptr,
                             "data_ptr",
                         )
-                        .unwrap()
+                        .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?
                         .into_pointer_value()
                 };
 
@@ -3903,8 +4035,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let open_bracket = self
                     .builder
                     .build_global_string_ptr("[", "open_bracket")
-                    .unwrap();
-                let result_alloca = self.create_entry_block_alloca(ptr_type.into(), "array_str");
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
+                let result_alloca = self.create_entry_block_alloca(ptr_type.into(), "array_str")?;
                 let initial_str = self
                     .builder
                     .build_call(
@@ -3912,50 +4044,59 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         &[open_bracket.as_pointer_value().into()],
                         "init_str",
                     )
-                    .unwrap()
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?
                     .try_as_basic_value()
                     .left()
-                    .unwrap();
+                        .ok_or_else(|| CodegenError::LLVMError {
+                            operation: "try_as_basic_value".to_string(),
+                            details: "Function did not return a value".to_string(),
+                        })?;
                 self.builder
                     .build_store(result_alloca, initial_str)
-                    .unwrap();
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
 
                 // Calculate total length
-                let total_len = self.builder.build_int_mul(rows, cols, "total_len").unwrap();
+                let total_len = self.builder.build_int_mul(rows, cols, "total_len").map_err(|_| CodegenError::LLVMError { operation: "build_int_mul".to_string(), details: "LLVM operation failed in value_to_string".to_string() })?;
 
                 // Loop through elements
-                let parent_fn = self
+                let block = self
                     .builder
                     .get_insert_block()
-                    .unwrap()
-                    .get_parent()
-                    .unwrap();
+                    .ok_or_else(|| CodegenError::LLVMError {
+                        operation: "get_insert_block".to_string(),
+                        details: "No current basic block".to_string(),
+                    })?;
+                let parent_fn = block.get_parent()
+                    .ok_or_else(|| CodegenError::LLVMError {
+                        operation: "get_parent".to_string(),
+                        details: "Block has no parent function".to_string(),
+                    })?;
                 let loop_cond = self.context.append_basic_block(parent_fn, "array_str_cond");
                 let loop_body = self.context.append_basic_block(parent_fn, "array_str_body");
                 let loop_after = self
                     .context
                     .append_basic_block(parent_fn, "array_str_after");
 
-                let idx_alloca = self.create_entry_block_alloca(i64_type.into(), "array_idx");
+                let idx_alloca = self.create_entry_block_alloca(i64_type.into(), "array_idx")?;
                 self.builder
                     .build_store(idx_alloca, i64_type.const_int(0, false))
-                    .unwrap();
-                self.builder.build_unconditional_branch(loop_cond).unwrap();
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
+                self.builder.build_unconditional_branch(loop_cond).map_err(|_| CodegenError::LLVMError { operation: "build_unconditional_branch".to_string(), details: "LLVM operation failed in value_to_string".to_string() })?;
 
                 // Condition: idx < total_len
                 self.builder.position_at_end(loop_cond);
                 let idx = self
                     .builder
                     .build_load(i64_type, idx_alloca, "idx")
-                    .unwrap()
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?
                     .into_int_value();
                 let cond = self
                     .builder
                     .build_int_compare(IntPredicate::SLT, idx, total_len, "cond")
-                    .unwrap();
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
                 self.builder
                     .build_conditional_branch(cond, loop_body, loop_after)
-                    .unwrap();
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
 
                 // Body: append element
                 self.builder.position_at_end(loop_body);
@@ -3964,7 +4105,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let current_str = self
                     .builder
                     .build_load(ptr_type, result_alloca, "current_str")
-                    .unwrap();
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
 
                 // Load element
                 let elem_val = if is_int {
@@ -3972,18 +4113,18 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         let elem_ptr = self
                             .builder
                             .build_gep(i64_type, data_ptr, &[idx], "elem_ptr")
-                            .unwrap();
-                        self.builder.build_load(i64_type, elem_ptr, "elem").unwrap()
+                            .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
+                        self.builder.build_load(i64_type, elem_ptr, "elem").map_err(|_| CodegenError::LLVMError { operation: "build_load".to_string(), details: "LLVM operation failed in value_to_string".to_string() })?
                     }
                 } else {
                     unsafe {
                         let elem_ptr = self
                             .builder
                             .build_gep(self.context.f64_type(), data_ptr, &[idx], "elem_ptr")
-                            .unwrap();
+                            .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
                         self.builder
                             .build_load(self.context.f64_type(), elem_ptr, "elem")
-                            .unwrap()
+                            .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?
                     }
                 };
 
@@ -4009,40 +4150,43 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         &[current_str.into(), elem_str.into()],
                         "concat",
                     )
-                    .unwrap()
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?
                     .try_as_basic_value()
                     .left()
-                    .unwrap();
+                        .ok_or_else(|| CodegenError::LLVMError {
+                            operation: "try_as_basic_value".to_string(),
+                            details: "Function did not return a value".to_string(),
+                        })?;
 
                 // Store concatenated result
                 self.builder
                     .build_store(result_alloca, concatenated)
-                    .unwrap();
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
 
                 // Add comma if not last element
                 let next_idx = self
                     .builder
                     .build_int_add(idx, i64_type.const_int(1, false), "next_idx")
-                    .unwrap();
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
                 let is_not_last = self
                     .builder
                     .build_int_compare(IntPredicate::SLT, next_idx, total_len, "is_not_last")
-                    .unwrap();
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
 
                 let add_comma_bb = self.context.append_basic_block(parent_fn, "add_comma");
                 let continue_bb = self.context.append_basic_block(parent_fn, "continue_loop");
 
                 self.builder
                     .build_conditional_branch(is_not_last, add_comma_bb, continue_bb)
-                    .unwrap();
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
 
                 // Add comma
                 self.builder.position_at_end(add_comma_bb);
                 let current_with_elem = self
                     .builder
                     .build_load(ptr_type, result_alloca, "current_with_elem")
-                    .unwrap();
-                let comma_str = self.builder.build_global_string_ptr(", ", "comma").unwrap();
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
+                let comma_str = self.builder.build_global_string_ptr(", ", "comma").map_err(|_| CodegenError::LLVMError { operation: "build_global_string_ptr".to_string(), details: "LLVM operation failed in value_to_string".to_string() })?;
                 let comma_brix = self
                     .builder
                     .build_call(
@@ -4050,10 +4194,13 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         &[comma_str.as_pointer_value().into()],
                         "comma_brix",
                     )
-                    .unwrap()
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?
                     .try_as_basic_value()
                     .left()
-                    .unwrap();
+                        .ok_or_else(|| CodegenError::LLVMError {
+                            operation: "try_as_basic_value".to_string(),
+                            details: "Function did not return a value".to_string(),
+                        })?;
                 let with_comma = self
                     .builder
                     .build_call(
@@ -4061,30 +4208,33 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         &[current_with_elem.into(), comma_brix.into()],
                         "with_comma",
                     )
-                    .unwrap()
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?
                     .try_as_basic_value()
                     .left()
-                    .unwrap();
-                self.builder.build_store(result_alloca, with_comma).unwrap();
+                        .ok_or_else(|| CodegenError::LLVMError {
+                            operation: "try_as_basic_value".to_string(),
+                            details: "Function did not return a value".to_string(),
+                        })?;
+                self.builder.build_store(result_alloca, with_comma).map_err(|_| CodegenError::LLVMError { operation: "build_store".to_string(), details: "LLVM operation failed in value_to_string".to_string() })?;
                 self.builder
                     .build_unconditional_branch(continue_bb)
-                    .unwrap();
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
 
                 // Continue: increment and loop
                 self.builder.position_at_end(continue_bb);
-                self.builder.build_store(idx_alloca, next_idx).unwrap();
-                self.builder.build_unconditional_branch(loop_cond).unwrap();
+                self.builder.build_store(idx_alloca, next_idx).map_err(|_| CodegenError::LLVMError { operation: "build_store".to_string(), details: "LLVM operation failed in value_to_string".to_string() })?;
+                self.builder.build_unconditional_branch(loop_cond).map_err(|_| CodegenError::LLVMError { operation: "build_unconditional_branch".to_string(), details: "LLVM operation failed in value_to_string".to_string() })?;
 
                 // After loop: append "]"
                 self.builder.position_at_end(loop_after);
                 let final_result = self
                     .builder
                     .build_load(ptr_type, result_alloca, "final_result")
-                    .unwrap();
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
                 let close_bracket = self
                     .builder
                     .build_global_string_ptr("]", "close_bracket")
-                    .unwrap();
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
                 let close_brix = self
                     .builder
                     .build_call(
@@ -4092,10 +4242,13 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         &[close_bracket.as_pointer_value().into()],
                         "close_brix",
                     )
-                    .unwrap()
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?
                     .try_as_basic_value()
                     .left()
-                    .unwrap();
+                        .ok_or_else(|| CodegenError::LLVMError {
+                            operation: "try_as_basic_value".to_string(),
+                            details: "Function did not return a value".to_string(),
+                        })?;
                 let final_str = self
                     .builder
                     .build_call(
@@ -4103,12 +4256,15 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         &[final_result.into(), close_brix.into()],
                         "final_str",
                     )
-                    .unwrap()
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?
                     .try_as_basic_value()
                     .left()
-                    .unwrap();
+                        .ok_or_else(|| CodegenError::LLVMError {
+                            operation: "try_as_basic_value".to_string(),
+                            details: "Function did not return a value".to_string(),
+                        })?;
 
-                Some(final_str)
+                Ok(final_str)
             }
 
             BrixType::Complex => {
@@ -4132,13 +4288,16 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 };
 
                 // Call complex_to_string
-                let c_str = self
+                let call = self
                     .builder
                     .build_call(complex_to_string_fn, &[val.into()], "complex_c_str")
-                    .unwrap()
-                    .try_as_basic_value()
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
+                let c_str = call.try_as_basic_value()
                     .left()
-                    .unwrap()
+                    .ok_or_else(|| CodegenError::LLVMError {
+                        operation: "try_as_basic_value".to_string(),
+                        details: "Function did not return a value".to_string(),
+                    })?
                     .into_pointer_value();
 
                 // Convert C string to BrixString
@@ -4153,12 +4312,15 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let brix_string = self
                     .builder
                     .build_call(str_new_fn, &[c_str.into()], "complex_brix_str")
-                    .unwrap()
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?
                     .try_as_basic_value()
                     .left()
-                    .unwrap();
+                        .ok_or_else(|| CodegenError::LLVMError {
+                            operation: "try_as_basic_value".to_string(),
+                            details: "Function did not return a value".to_string(),
+                        })?;
 
-                Some(brix_string)
+                Ok(brix_string)
             }
 
             BrixType::ComplexMatrix => {
@@ -4177,21 +4339,21 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     let rows_ptr = self
                         .builder
                         .build_struct_gep(complexmatrix_type, matrix_ptr, 0, "rows_ptr")
-                        .unwrap();
+                        .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
                     let rows = self
                         .builder
                         .build_load(i64_type, rows_ptr, "rows")
-                        .unwrap()
+                        .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?
                         .into_int_value();
 
                     let cols_ptr = self
                         .builder
                         .build_struct_gep(complexmatrix_type, matrix_ptr, 1, "cols_ptr")
-                        .unwrap();
+                        .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
                     let cols = self
                         .builder
                         .build_load(i64_type, cols_ptr, "cols")
-                        .unwrap()
+                        .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?
                         .into_int_value();
 
                     (rows, cols)
@@ -4202,10 +4364,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     let data_ptr_ptr = self
                         .builder
                         .build_struct_gep(complexmatrix_type, matrix_ptr, 2, "data_ptr_ptr")
-                        .unwrap();
+                        .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
                     self.builder
                         .build_load(ptr_type, data_ptr_ptr, "data_ptr")
-                        .unwrap()
+                        .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?
                         .into_pointer_value()
                 };
 
@@ -4221,8 +4383,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let open_bracket = self
                     .builder
                     .build_global_string_ptr("[", "open_bracket")
-                    .unwrap();
-                let result_alloca = self.create_entry_block_alloca(ptr_type.into(), "cmatrix_str");
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
+                let result_alloca = self.create_entry_block_alloca(ptr_type.into(), "cmatrix_str")?;
                 let initial_str = self
                     .builder
                     .build_call(
@@ -4230,16 +4392,19 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         &[open_bracket.as_pointer_value().into()],
                         "init_str",
                     )
-                    .unwrap()
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?
                     .try_as_basic_value()
                     .left()
-                    .unwrap();
+                        .ok_or_else(|| CodegenError::LLVMError {
+                            operation: "try_as_basic_value".to_string(),
+                            details: "Function did not return a value".to_string(),
+                        })?;
                 self.builder
                     .build_store(result_alloca, initial_str)
-                    .unwrap();
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
 
                 // Calculate total length
-                let total_len = self.builder.build_int_mul(rows, cols, "total_len").unwrap();
+                let total_len = self.builder.build_int_mul(rows, cols, "total_len").map_err(|_| CodegenError::LLVMError { operation: "build_int_mul".to_string(), details: "LLVM operation failed in value_to_string".to_string() })?;
 
                 // Get complex_to_string function
                 let f64_type = self.context.f64_type();
@@ -4266,12 +4431,18 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 };
 
                 // Loop through elements
-                let parent_fn = self
+                let block = self
                     .builder
                     .get_insert_block()
-                    .unwrap()
-                    .get_parent()
-                    .unwrap();
+                    .ok_or_else(|| CodegenError::LLVMError {
+                        operation: "get_insert_block".to_string(),
+                        details: "No current basic block".to_string(),
+                    })?;
+                let parent_fn = block.get_parent()
+                    .ok_or_else(|| CodegenError::LLVMError {
+                        operation: "get_parent".to_string(),
+                        details: "Block has no parent function".to_string(),
+                    })?;
                 let loop_cond = self
                     .context
                     .append_basic_block(parent_fn, "cmatrix_str_cond");
@@ -4282,26 +4453,26 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     .context
                     .append_basic_block(parent_fn, "cmatrix_str_after");
 
-                let idx_alloca = self.create_entry_block_alloca(i64_type.into(), "cmatrix_idx");
+                let idx_alloca = self.create_entry_block_alloca(i64_type.into(), "cmatrix_idx")?;
                 self.builder
                     .build_store(idx_alloca, i64_type.const_int(0, false))
-                    .unwrap();
-                self.builder.build_unconditional_branch(loop_cond).unwrap();
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
+                self.builder.build_unconditional_branch(loop_cond).map_err(|_| CodegenError::LLVMError { operation: "build_unconditional_branch".to_string(), details: "LLVM operation failed in value_to_string".to_string() })?;
 
                 // Condition: idx < total_len
                 self.builder.position_at_end(loop_cond);
                 let idx = self
                     .builder
                     .build_load(i64_type, idx_alloca, "idx")
-                    .unwrap()
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?
                     .into_int_value();
                 let cond = self
                     .builder
                     .build_int_compare(IntPredicate::SLT, idx, total_len, "cond")
-                    .unwrap();
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
                 self.builder
                     .build_conditional_branch(cond, loop_body, loop_after)
-                    .unwrap();
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
 
                 // Body: append element
                 self.builder.position_at_end(loop_body);
@@ -4310,7 +4481,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let col_pos = self
                     .builder
                     .build_int_unsigned_rem(idx, cols, "col_pos")
-                    .unwrap();
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
                 let is_row_start = self
                     .builder
                     .build_int_compare(
@@ -4319,7 +4490,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         i64_type.const_int(0, false),
                         "is_row_start",
                     )
-                    .unwrap();
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
 
                 // If start of row, add "["
                 let after_row_start_bb = self
@@ -4328,17 +4499,17 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let add_row_start_bb = self.context.append_basic_block(parent_fn, "add_row_start");
                 self.builder
                     .build_conditional_branch(is_row_start, add_row_start_bb, after_row_start_bb)
-                    .unwrap();
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
 
                 self.builder.position_at_end(add_row_start_bb);
                 let current_with_row_bracket = self
                     .builder
                     .build_load(ptr_type, result_alloca, "current_str_2")
-                    .unwrap();
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
                 let row_open = self
                     .builder
                     .build_global_string_ptr("[", "row_open")
-                    .unwrap();
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
                 let row_open_brix = self
                     .builder
                     .build_call(
@@ -4346,10 +4517,13 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         &[row_open.as_pointer_value().into()],
                         "row_open_brix",
                     )
-                    .unwrap()
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?
                     .try_as_basic_value()
                     .left()
-                    .unwrap();
+                        .ok_or_else(|| CodegenError::LLVMError {
+                            operation: "try_as_basic_value".to_string(),
+                            details: "Function did not return a value".to_string(),
+                        })?;
                 let with_row_open = self
                     .builder
                     .build_call(
@@ -4357,56 +4531,65 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         &[current_with_row_bracket.into(), row_open_brix.into()],
                         "with_row_open",
                     )
-                    .unwrap()
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?
                     .try_as_basic_value()
                     .left()
-                    .unwrap();
+                        .ok_or_else(|| CodegenError::LLVMError {
+                            operation: "try_as_basic_value".to_string(),
+                            details: "Function did not return a value".to_string(),
+                        })?;
                 self.builder
                     .build_store(result_alloca, with_row_open)
-                    .unwrap();
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
                 self.builder
                     .build_unconditional_branch(after_row_start_bb)
-                    .unwrap();
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
 
                 self.builder.position_at_end(after_row_start_bb);
                 let current_str = self
                     .builder
                     .build_load(ptr_type, result_alloca, "current_str_3")
-                    .unwrap();
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
 
                 // Load Complex element (struct with 2 f64s)
                 let complex_elem = unsafe {
                     let elem_ptr = self
                         .builder
                         .build_gep(complex_type, data_ptr, &[idx], "elem_ptr")
-                        .unwrap();
+                        .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
                     self.builder
                         .build_load(complex_type, elem_ptr, "complex_elem")
-                        .unwrap()
+                        .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?
                 };
 
                 // Convert Complex to C string
-                let c_str = self
+                let call = self
                     .builder
                     .build_call(
                         complex_to_string_fn,
                         &[complex_elem.into()],
                         "complex_c_str",
                     )
-                    .unwrap()
-                    .try_as_basic_value()
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
+                let c_str = call.try_as_basic_value()
                     .left()
-                    .unwrap()
+                    .ok_or_else(|| CodegenError::LLVMError {
+                        operation: "try_as_basic_value".to_string(),
+                        details: "Function did not return a value".to_string(),
+                    })?
                     .into_pointer_value();
 
                 // Convert C string to BrixString
                 let elem_str = self
                     .builder
                     .build_call(str_new_fn, &[c_str.into()], "elem_brix_str")
-                    .unwrap()
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?
                     .try_as_basic_value()
                     .left()
-                    .unwrap();
+                        .ok_or_else(|| CodegenError::LLVMError {
+                            operation: "try_as_basic_value".to_string(),
+                            details: "Function did not return a value".to_string(),
+                        })?;
 
                 // Concatenate element
                 let concatenated = self
@@ -4416,29 +4599,32 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         &[current_str.into(), elem_str.into()],
                         "concat",
                     )
-                    .unwrap()
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?
                     .try_as_basic_value()
                     .left()
-                    .unwrap();
+                        .ok_or_else(|| CodegenError::LLVMError {
+                            operation: "try_as_basic_value".to_string(),
+                            details: "Function did not return a value".to_string(),
+                        })?;
                 self.builder
                     .build_store(result_alloca, concatenated)
-                    .unwrap();
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
 
                 // Determine what to add after element: ", " or "]" or "], "
                 let next_idx = self
                     .builder
                     .build_int_add(idx, i64_type.const_int(1, false), "next_idx")
-                    .unwrap();
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
                 let is_last_elem = self
                     .builder
                     .build_int_compare(IntPredicate::EQ, next_idx, total_len, "is_last_elem")
-                    .unwrap();
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
 
                 // Check if we're at end of row (next_idx % cols == 0)
                 let next_col_pos = self
                     .builder
                     .build_int_unsigned_rem(next_idx, cols, "next_col_pos")
-                    .unwrap();
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
                 let is_row_end = self
                     .builder
                     .build_int_compare(
@@ -4447,7 +4633,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         i64_type.const_int(0, false),
                         "is_row_end",
                     )
-                    .unwrap();
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
 
                 let add_separator_bb = self.context.append_basic_block(parent_fn, "add_separator");
                 let continue_bb = self.context.append_basic_block(parent_fn, "continue_loop");
@@ -4455,7 +4641,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 // Skip separator if it's the very last element
                 self.builder
                     .build_conditional_branch(is_last_elem, continue_bb, add_separator_bb)
-                    .unwrap();
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
 
                 // Add separator ("]" or "], " or ", ")
                 self.builder.position_at_end(add_separator_bb);
@@ -4464,18 +4650,18 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let elem_comma_bb = self.context.append_basic_block(parent_fn, "elem_comma");
                 self.builder
                     .build_conditional_branch(is_row_end, row_end_bb, elem_comma_bb)
-                    .unwrap();
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
 
                 // End of row: add "]" and maybe ", "
                 self.builder.position_at_end(row_end_bb);
                 let current_for_row_end = self
                     .builder
                     .build_load(ptr_type, result_alloca, "current_for_row_end")
-                    .unwrap();
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
                 let row_close = self
                     .builder
                     .build_global_string_ptr("]", "row_close")
-                    .unwrap();
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
                 let row_close_brix = self
                     .builder
                     .build_call(
@@ -4483,10 +4669,13 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         &[row_close.as_pointer_value().into()],
                         "row_close_brix",
                     )
-                    .unwrap()
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?
                     .try_as_basic_value()
                     .left()
-                    .unwrap();
+                        .ok_or_else(|| CodegenError::LLVMError {
+                            operation: "try_as_basic_value".to_string(),
+                            details: "Function did not return a value".to_string(),
+                        })?;
                 let with_row_close = self
                     .builder
                     .build_call(
@@ -4494,20 +4683,23 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         &[current_for_row_end.into(), row_close_brix.into()],
                         "with_row_close",
                     )
-                    .unwrap()
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?
                     .try_as_basic_value()
                     .left()
-                    .unwrap();
+                        .ok_or_else(|| CodegenError::LLVMError {
+                            operation: "try_as_basic_value".to_string(),
+                            details: "Function did not return a value".to_string(),
+                        })?;
                 self.builder
                     .build_store(result_alloca, with_row_close)
-                    .unwrap();
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
 
                 // Add ", " between rows if not last row
                 let current_after_bracket = self
                     .builder
                     .build_load(ptr_type, result_alloca, "current_after_bracket")
-                    .unwrap();
-                let comma_str = self.builder.build_global_string_ptr(", ", "comma").unwrap();
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
+                let comma_str = self.builder.build_global_string_ptr(", ", "comma").map_err(|_| CodegenError::LLVMError { operation: "build_global_string_ptr".to_string(), details: "LLVM operation failed in value_to_string".to_string() })?;
                 let comma_brix = self
                     .builder
                     .build_call(
@@ -4515,10 +4707,13 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         &[comma_str.as_pointer_value().into()],
                         "comma_brix",
                     )
-                    .unwrap()
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?
                     .try_as_basic_value()
                     .left()
-                    .unwrap();
+                        .ok_or_else(|| CodegenError::LLVMError {
+                            operation: "try_as_basic_value".to_string(),
+                            details: "Function did not return a value".to_string(),
+                        })?;
                 let with_comma = self
                     .builder
                     .build_call(
@@ -4526,25 +4721,28 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         &[current_after_bracket.into(), comma_brix.into()],
                         "with_comma",
                     )
-                    .unwrap()
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?
                     .try_as_basic_value()
                     .left()
-                    .unwrap();
-                self.builder.build_store(result_alloca, with_comma).unwrap();
+                        .ok_or_else(|| CodegenError::LLVMError {
+                            operation: "try_as_basic_value".to_string(),
+                            details: "Function did not return a value".to_string(),
+                        })?;
+                self.builder.build_store(result_alloca, with_comma).map_err(|_| CodegenError::LLVMError { operation: "build_store".to_string(), details: "LLVM operation failed in value_to_string".to_string() })?;
                 self.builder
                     .build_unconditional_branch(continue_bb)
-                    .unwrap();
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
 
                 // Not end of row: just add ", "
                 self.builder.position_at_end(elem_comma_bb);
                 let current_for_comma = self
                     .builder
                     .build_load(ptr_type, result_alloca, "current_for_comma")
-                    .unwrap();
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
                 let elem_comma = self
                     .builder
                     .build_global_string_ptr(", ", "elem_comma")
-                    .unwrap();
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
                 let elem_comma_brix = self
                     .builder
                     .build_call(
@@ -4552,10 +4750,13 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         &[elem_comma.as_pointer_value().into()],
                         "elem_comma_brix",
                     )
-                    .unwrap()
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?
                     .try_as_basic_value()
                     .left()
-                    .unwrap();
+                        .ok_or_else(|| CodegenError::LLVMError {
+                            operation: "try_as_basic_value".to_string(),
+                            details: "Function did not return a value".to_string(),
+                        })?;
                 let with_elem_comma = self
                     .builder
                     .build_call(
@@ -4563,32 +4764,35 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         &[current_for_comma.into(), elem_comma_brix.into()],
                         "with_elem_comma",
                     )
-                    .unwrap()
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?
                     .try_as_basic_value()
                     .left()
-                    .unwrap();
+                        .ok_or_else(|| CodegenError::LLVMError {
+                            operation: "try_as_basic_value".to_string(),
+                            details: "Function did not return a value".to_string(),
+                        })?;
                 self.builder
                     .build_store(result_alloca, with_elem_comma)
-                    .unwrap();
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
                 self.builder
                     .build_unconditional_branch(continue_bb)
-                    .unwrap();
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
 
                 // Continue: increment and loop
                 self.builder.position_at_end(continue_bb);
-                self.builder.build_store(idx_alloca, next_idx).unwrap();
-                self.builder.build_unconditional_branch(loop_cond).unwrap();
+                self.builder.build_store(idx_alloca, next_idx).map_err(|_| CodegenError::LLVMError { operation: "build_store".to_string(), details: "LLVM operation failed in value_to_string".to_string() })?;
+                self.builder.build_unconditional_branch(loop_cond).map_err(|_| CodegenError::LLVMError { operation: "build_unconditional_branch".to_string(), details: "LLVM operation failed in value_to_string".to_string() })?;
 
                 // After loop: append "]"
                 self.builder.position_at_end(loop_after);
                 let final_result = self
                     .builder
                     .build_load(ptr_type, result_alloca, "final_result")
-                    .unwrap();
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
                 let close_bracket = self
                     .builder
                     .build_global_string_ptr("]", "close_bracket")
-                    .unwrap();
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
                 let close_brix = self
                     .builder
                     .build_call(
@@ -4596,10 +4800,13 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         &[close_bracket.as_pointer_value().into()],
                         "close_brix",
                     )
-                    .unwrap()
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?
                     .try_as_basic_value()
                     .left()
-                    .unwrap();
+                        .ok_or_else(|| CodegenError::LLVMError {
+                            operation: "try_as_basic_value".to_string(),
+                            details: "Function did not return a value".to_string(),
+                        })?;
                 let final_str = self
                     .builder
                     .build_call(
@@ -4607,12 +4814,15 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         &[final_result.into(), close_brix.into()],
                         "final_str",
                     )
-                    .unwrap()
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?
                     .try_as_basic_value()
                     .left()
-                    .unwrap();
+                        .ok_or_else(|| CodegenError::LLVMError {
+                            operation: "try_as_basic_value".to_string(),
+                            details: "Function did not return a value".to_string(),
+                        })?;
 
-                Some(final_str)
+                Ok(final_str)
             }
 
             BrixType::Nil => {
@@ -4620,7 +4830,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let nil_str = self
                     .builder
                     .build_global_string_ptr("nil", "nil_str")
-                    .unwrap();
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
                 let ptr_type = self.context.ptr_type(AddressSpace::default());
                 let fn_type = ptr_type.fn_type(&[ptr_type.into()], false);
                 let str_new_fn = self.module.get_function("str_new").unwrap_or_else(|| {
@@ -4635,12 +4845,15 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         &[nil_str.as_pointer_value().into()],
                         "nil_brix_str",
                     )
-                    .unwrap()
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?
                     .try_as_basic_value()
                     .left()
-                    .unwrap();
+                        .ok_or_else(|| CodegenError::LLVMError {
+                            operation: "try_as_basic_value".to_string(),
+                            details: "Function did not return a value".to_string(),
+                        })?;
 
-                Some(brix_string)
+                Ok(brix_string)
             }
 
             BrixType::Error => {
@@ -4659,13 +4872,16 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     });
 
                 let error_ptr = val.into_pointer_value();
-                let msg_char_ptr = self
+                let call = self
                     .builder
                     .build_call(error_msg_fn, &[error_ptr.into()], "error_msg")
-                    .unwrap()
-                    .try_as_basic_value()
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
+                let msg_char_ptr = call.try_as_basic_value()
                     .left()
-                    .unwrap()
+                    .ok_or_else(|| CodegenError::LLVMError {
+                        operation: "try_as_basic_value".to_string(),
+                        details: "Function did not return a value".to_string(),
+                    })?
                     .into_pointer_value();
 
                 // Convert char* to BrixString using str_new
@@ -4678,12 +4894,15 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let brix_string = self
                     .builder
                     .build_call(str_new_fn, &[msg_char_ptr.into()], "error_str")
-                    .unwrap()
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?
                     .try_as_basic_value()
                     .left()
-                    .unwrap();
+                        .ok_or_else(|| CodegenError::LLVMError {
+                            operation: "try_as_basic_value".to_string(),
+                            details: "Function did not return a value".to_string(),
+                        })?;
 
-                Some(brix_string)
+                Ok(brix_string)
             }
 
             BrixType::Atom => {
@@ -4697,13 +4916,16 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 });
 
                 let atom_id = val.into_int_value();
-                let name_char_ptr = self
+                let call = self
                     .builder
                     .build_call(atom_name_fn, &[atom_id.into()], "atom_name")
-                    .unwrap()
-                    .try_as_basic_value()
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?;
+                let name_char_ptr = call.try_as_basic_value()
                     .left()
-                    .unwrap()
+                    .ok_or_else(|| CodegenError::LLVMError {
+                        operation: "try_as_basic_value".to_string(),
+                        details: "Function did not return a value".to_string(),
+                    })?
                     .into_pointer_value();
 
                 // Convert char* to BrixString using str_new
@@ -4716,17 +4938,20 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let brix_string = self
                     .builder
                     .build_call(str_new_fn, &[name_char_ptr.into()], "atom_str")
-                    .unwrap()
+                    .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string() })?
                     .try_as_basic_value()
                     .left()
-                    .unwrap();
+                        .ok_or_else(|| CodegenError::LLVMError {
+                            operation: "try_as_basic_value".to_string(),
+                            details: "Function did not return a value".to_string(),
+                        })?;
 
-                Some(brix_string)
+                Ok(brix_string)
             }
 
             _ => {
                 eprintln!("value_to_string not implemented for type: {:?}", typ);
-                None
+                Err(CodegenError::MissingValue { what: "value_to_string conversion".to_string(), context: format!("{:?}", typ) })
             }
         }
     }
@@ -4860,7 +5085,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 .add_function("read_csv", fn_type, Some(Linkage::External))
         });
 
-        let (filename_arg, _) = self.compile_expr(&args[0])?;
+        let (filename_arg, _) = self.compile_expr(&args[0]).ok()?;
         let call = self
             .builder
             .build_call(read_csv_fn, &[filename_arg.into()], "call_read_csv")
@@ -4896,8 +5121,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         if args.len() != 2 {
             return None;
         }
-        let (rows_val, _) = self.compile_expr(&args[0])?;
-        let (cols_val, _) = self.compile_expr(&args[1])?;
+        let (rows_val, _) = self.compile_expr(&args[0]).ok()?;
+        let (cols_val, _) = self.compile_expr(&args[1]).ok()?;
 
         let i64_type = self.context.i64_type();
         let ptr_type = self.context.ptr_type(AddressSpace::default());
@@ -4920,7 +5145,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         Some(call.try_as_basic_value().left().unwrap())
     }
 
-    pub(crate) fn compile_zeros(&mut self, args: &[Expr]) -> Option<BasicValueEnum<'ctx>> {
+    pub(crate) fn compile_zeros(&mut self, args: &[Expr]) -> CodegenResult<BasicValueEnum<'ctx>> {
         // zeros(n) → 1D array of n floats
         // zeros(r, c) → 2D matrix of r×c floats
         let i64_type = self.context.i64_type();
@@ -4942,8 +5167,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             let (c_val, _) = self.compile_expr(&args[1])?;
             (r_val.into_int_value(), c_val.into_int_value())
         } else {
-            eprintln!("Error: zeros() expects 1 or 2 arguments.");
-            return None;
+            return Err(CodegenError::InvalidOperation {
+                operation: "zeros()".to_string(),
+                reason: format!("Expected 1 or 2 arguments, got {}", args.len()),
+            });
         };
 
         let call = self
@@ -4953,12 +5180,19 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 &[rows_val.into(), cols_val.into()],
                 "zeros_matrix",
             )
-            .unwrap();
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_call".to_string(),
+                details: "Failed to call matrix_new for zeros()".to_string(),
+            })?;
 
-        Some(call.try_as_basic_value().left().unwrap())
+        call.try_as_basic_value().left()
+            .ok_or_else(|| CodegenError::LLVMError {
+                operation: "try_as_basic_value".to_string(),
+                details: "matrix_new did not return a value".to_string(),
+            })
     }
 
-    pub(crate) fn compile_izeros(&mut self, args: &[Expr]) -> Option<BasicValueEnum<'ctx>> {
+    pub(crate) fn compile_izeros(&mut self, args: &[Expr]) -> CodegenResult<BasicValueEnum<'ctx>> {
         // izeros(n) → 1D array of n integers
         // izeros(r, c) → 2D matrix of r×c integers
         let i64_type = self.context.i64_type();
@@ -4983,8 +5217,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             let (c_val, _) = self.compile_expr(&args[1])?;
             (r_val.into_int_value(), c_val.into_int_value())
         } else {
-            eprintln!("Error: izeros() expects 1 or 2 arguments.");
-            return None;
+            return Err(CodegenError::InvalidOperation {
+                operation: "izeros()".to_string(),
+                reason: format!("Expected 1 or 2 arguments, got {}", args.len()),
+            });
         };
 
         let call = self
@@ -4994,9 +5230,16 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 &[rows_val.into(), cols_val.into()],
                 "izeros_intmatrix",
             )
-            .unwrap();
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_call".to_string(),
+                details: "Failed to call intmatrix_new for izeros()".to_string(),
+            })?;
 
-        Some(call.try_as_basic_value().left().unwrap())
+        call.try_as_basic_value().left()
+            .ok_or_else(|| CodegenError::LLVMError {
+                operation: "try_as_basic_value".to_string(),
+                details: "intmatrix_new did not return a value".to_string(),
+            })
     }
 
     fn compile_zip(&mut self, args: &[Expr]) -> Option<(BasicValueEnum<'ctx>, BrixType)> {
@@ -5009,8 +5252,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             return None;
         }
 
-        let (arr1_val, arr1_type) = self.compile_expr(&args[0])?;
-        let (arr2_val, arr2_type) = self.compile_expr(&args[1])?;
+        let (arr1_val, arr1_type) = self.compile_expr(&args[0]).ok()?;
+        let (arr2_val, arr2_type) = self.compile_expr(&args[1]).ok()?;
 
         // Both must be matrices
         let elem_type1 = match &arr1_type {
@@ -5282,7 +5525,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         &mut self,
         expr: &Expr,
         generators: &[parser::ast::ComprehensionGen],
-    ) -> Option<(BasicValueEnum<'ctx>, BrixType)> {
+    ) -> CodegenResult<(BasicValueEnum<'ctx>, BrixType)> {
         // For now, we'll compile this as a for loop with pre-allocation
         // [expr for x in arr if cond] becomes:
         // temp = zeros(max_size)
@@ -5296,7 +5539,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
         if generators.is_empty() {
             eprintln!("Error: List comprehension must have at least one generator");
-            return None;
+            return Err(CodegenError::InvalidOperation {
+                operation: "list comprehension".to_string(),
+                reason: "must have at least one generator".to_string(),
+            });
         }
 
         let i64_type = self.context.i64_type();
@@ -5364,7 +5610,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     eprintln!(
                         "Error: List comprehension only supports Matrix/IntMatrix iterables for now"
                     );
-                    return None;
+                    return Err(CodegenError::InvalidOperation {
+                        operation: "list comprehension".to_string(),
+                        reason: "only supports Matrix/IntMatrix iterables for now".to_string(),
+                    });
                 }
             };
 
@@ -5418,12 +5667,15 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             }
             _ => {
                 eprintln!("Error: List comprehension result type must be Int or Float for now");
-                return None;
+                return Err(CodegenError::InvalidOperation {
+                    operation: "list comprehension".to_string(),
+                    reason: "result type must be Int or Float for now".to_string(),
+                });
             }
         };
 
         // Step 4: Create counter variable
-        let count_alloca = self.create_entry_block_alloca(i64_type.into(), "comp_count");
+        let count_alloca = self.create_entry_block_alloca(i64_type.into(), "comp_count")?;
         self.builder
             .build_store(count_alloca, i64_type.const_int(0, false))
             .unwrap();
@@ -5436,7 +5688,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             &temp_array,
             temp_type.clone(),
             count_alloca,
-        )?;
+        ).ok_or_else(|| CodegenError::General("list comprehension loop generation failed".to_string()))?;
 
         // Step 6: Load final count
         let final_count = self
@@ -5500,7 +5752,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         let copy_after_bb = self.context.append_basic_block(parent_fn, "copy_after");
 
         // Initialize copy index
-        let copy_idx_alloca = self.create_entry_block_alloca(i64_type.into(), "copy_idx");
+        let copy_idx_alloca = self.create_entry_block_alloca(i64_type.into(), "copy_idx")?;
         self.builder
             .build_store(copy_idx_alloca, i64_type.const_int(0, false))
             .unwrap();
@@ -5650,7 +5902,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         // After copy loop
         self.builder.position_at_end(copy_after_bb);
 
-        Some((result_array, result_type))
+        Ok((result_array, result_type))
     }
 
     fn generate_comp_loop(
@@ -5666,7 +5918,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             // Base case: we're inside the innermost loop
             // Evaluate expr and add to temp_array[count++]
 
-            let (expr_val, expr_type) = self.compile_expr(expr)?;
+            let (expr_val, expr_type) = self.compile_expr(expr).ok()?;
 
             let i64_type = self.context.i64_type();
             let f64_type = self.context.f64_type();
@@ -5769,7 +6021,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         let generator = &generators[gen_idx];
 
         // Compile iterable
-        let (iterable_val, iterable_type) = self.compile_expr(&generator.iterable)?;
+        let (iterable_val, iterable_type) = self.compile_expr(&generator.iterable).ok()?;
 
         match iterable_type {
             BrixType::Matrix => {
@@ -5850,7 +6102,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
                 // Allocate loop index
                 let idx_alloca = self
-                    .create_entry_block_alloca(i64_type.into(), &format!("comp_idx_{}", gen_idx));
+                    .create_entry_block_alloca(i64_type.into(), &format!("comp_idx_{}", gen_idx))
+                    .ok()?;
                 self.builder
                     .build_store(idx_alloca, i64_type.const_int(0, false))
                     .unwrap();
@@ -5861,7 +6114,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
                 if is_destructuring {
                     for var_name in generator.var_names.iter() {
-                        let var_alloca = self.create_entry_block_alloca(f64_type.into(), var_name);
+                        let var_alloca = self.create_entry_block_alloca(f64_type.into(), var_name).ok()?;
                         let old_var = self.variables.remove(var_name);
                         self.variables
                             .insert(var_name.clone(), (var_alloca, BrixType::Float));
@@ -5870,7 +6123,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     }
                 } else {
                     let var_name = &generator.var_names[0];
-                    let var_alloca = self.create_entry_block_alloca(f64_type.into(), var_name);
+                    let var_alloca = self.create_entry_block_alloca(f64_type.into(), var_name).ok()?;
                     let old_var = self.variables.remove(var_name);
                     self.variables
                         .insert(var_name.clone(), (var_alloca, BrixType::Float));
@@ -5954,7 +6207,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     let mut combined_cond = None;
 
                     for condition in &generator.conditions {
-                        let (cond_val, _) = self.compile_expr(condition)?;
+                        let (cond_val, _) = self.compile_expr(condition).ok()?;
                         let cond_int = cond_val.into_int_value();
                         let cond_bool = self
                             .builder
@@ -6106,7 +6359,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
                 // Allocate loop index
                 let idx_alloca = self
-                    .create_entry_block_alloca(i64_type.into(), &format!("comp_idx_{}", gen_idx));
+                    .create_entry_block_alloca(i64_type.into(), &format!("comp_idx_{}", gen_idx))
+                    .ok()?;
                 self.builder
                     .build_store(idx_alloca, i64_type.const_int(0, false))
                     .unwrap();
@@ -6117,7 +6371,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
                 if is_destructuring {
                     for var_name in generator.var_names.iter() {
-                        let var_alloca = self.create_entry_block_alloca(i64_type.into(), var_name);
+                        let var_alloca = self.create_entry_block_alloca(i64_type.into(), var_name).ok()?;
                         let old_var = self.variables.remove(var_name);
                         self.variables
                             .insert(var_name.clone(), (var_alloca, BrixType::Int));
@@ -6126,7 +6380,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     }
                 } else {
                     let var_name = &generator.var_names[0];
-                    let var_alloca = self.create_entry_block_alloca(i64_type.into(), var_name);
+                    let var_alloca = self.create_entry_block_alloca(i64_type.into(), var_name).ok()?;
                     let old_var = self.variables.remove(var_name);
                     self.variables
                         .insert(var_name.clone(), (var_alloca, BrixType::Int));
@@ -6210,7 +6464,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     let mut combined_cond = None;
 
                     for condition in &generator.conditions {
-                        let (cond_val, _) = self.compile_expr(condition)?;
+                        let (cond_val, _) = self.compile_expr(condition).ok()?;
                         let cond_int = cond_val.into_int_value();
                         let cond_bool = self
                             .builder
