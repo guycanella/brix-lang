@@ -16,12 +16,14 @@ mod operators;
 mod stmt;
 mod expr;
 mod error;
+mod error_report;
 
 // Re-export BrixType for public API
 pub use types::BrixType;
 
 // Re-export error types for public API
-pub use error::{CodegenError, CodegenResult};
+pub use error::{CodegenError, CodegenResult, Span};
+pub use error_report::{report_codegen_error, report_codegen_errors};
 
 // Import helper trait to make functions available on Compiler
 use helpers::HelperFunctions;
@@ -48,6 +50,8 @@ pub struct Compiler<'a, 'ctx> {
     pub functions: HashMap<String, (inkwell::values::FunctionValue<'ctx>, Option<Vec<BrixType>>)>, // (function, return_types)
     pub function_params: HashMap<String, Vec<(String, BrixType, Option<Expr>)>>, // (param_name, type, default_value)
     pub current_function: Option<inkwell::values::FunctionValue<'ctx>>, // Track current function being compiled
+    pub filename: String,    // Source filename for error reporting
+    pub source: String,      // Source code for error reporting
 }
 
 impl<'a, 'ctx> Compiler<'a, 'ctx> {
@@ -55,6 +59,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         context: &'ctx Context,
         builder: &'a Builder<'ctx>,
         module: &'a Module<'ctx>,
+        filename: String,
+        source: String,
     ) -> Self {
         Self {
             context,
@@ -64,6 +70,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             functions: HashMap::new(),
             function_params: HashMap::new(),
             current_function: None,
+            filename,
+            source,
         }
     }
 

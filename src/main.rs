@@ -73,36 +73,11 @@ fn main() {
     let module = context.create_module("brix_program");
     let builder = context.create_builder();
 
-    let mut compiler = Compiler::new(&context, &builder, &module);
+    let mut compiler = Compiler::new(&context, &builder, &module, cli.file_path.clone(), code.clone());
     if let Err(e) = compiler.compile_program(&ast) {
-        eprintln!("\n❌ Erro durante geração de código LLVM:\n");
-        match e {
-            codegen::CodegenError::LLVMError { operation, details, .. } => {
-                eprintln!("  🔴 Operação LLVM falhou: {}", operation);
-                eprintln!("  📝 Detalhes: {}", details);
-            }
-            codegen::CodegenError::TypeError { expected, found, context, .. } => {
-                eprintln!("  🔴 Erro de tipo no contexto: {}", context);
-                eprintln!("  📝 Esperado: {}", expected);
-                eprintln!("  📝 Encontrado: {}", found);
-            }
-            codegen::CodegenError::UndefinedSymbol { name, context, .. } => {
-                eprintln!("  🔴 Símbolo indefinido: {}", name);
-                eprintln!("  📝 Contexto: {}", context);
-            }
-            codegen::CodegenError::InvalidOperation { operation, reason, .. } => {
-                eprintln!("  🔴 Operação inválida: {}", operation);
-                eprintln!("  📝 Razão: {}", reason);
-            }
-            codegen::CodegenError::MissingValue { what, context, .. } => {
-                eprintln!("  🔴 Valor faltando: {}", what);
-                eprintln!("  📝 Contexto: {}", context);
-            }
-            codegen::CodegenError::General(msg) => {
-                eprintln!("  🔴 Erro: {}", msg);
-            }
-        }
-        eprintln!("\n💡 Dica: Verifique os tipos das variáveis e funções usadas.\n");
+        eprintln!("\n❌ Codegen Error:\n");
+        // Use Ariadne for beautiful error reporting
+        codegen::report_codegen_error(&cli.file_path, &code, &e);
         return;
     }
 
