@@ -1,5 +1,39 @@
 # Brix Language (Design Document v1.0)
 
+> ⚠️ **Status do Projeto (Fev 2026):** O compilador Brix está em desenvolvimento ativo (v1.2.1). O core está funcional mas alguns testes estão temporariamente desabilitados durante migração da AST. Veja seção "Status Atual" abaixo.
+
+## Status Atual (Fevereiro 2026)
+
+### ✅ **Funcionalidades Implementadas (v1.0-v1.2):**
+- Compilação completa `.bx` → binário nativo via LLVM
+- 14 tipos core (Int, Float, String, Matrix, IntMatrix, Complex, ComplexMatrix, Atom, Nil, Error, etc.)
+- Operadores completos (aritméticos, lógicos, bitwise, power operator `**`)
+- Funções definidas pelo usuário com múltiplos retornos
+- Pattern matching com guards
+- List comprehensions
+- Import system (zero-overhead)
+- 38 funções matemáticas (math module)
+- Integração LAPACK (eigvals, eigvecs)
+- Atoms estilo Elixir (`:ok`, `:error`)
+- F-strings com format specifiers
+- Ariadne error reporting (parser)
+
+### 🚧 **Em Andamento (v1.2.1 - Phase E4b):**
+- **AST Migration with Spans:** Estrutura AST mudou para incluir informação de posição
+  - ✅ Parser completamente convertido
+  - ✅ Codegen completamente convertido
+  - ⚠️ Testes temporariamente desabilitados (necessitam conversão manual)
+  - **Status:** Compila sem testes, funcionalidade core intacta
+
+### 🔮 **Planejado (v1.3+):**
+- Generics
+- Structs com métodos
+- Result<T,E> type
+- Closures
+- Concurrency (goroutines-style)
+
+---
+
 ## Identidade
 
 - **Nome:** Brix
