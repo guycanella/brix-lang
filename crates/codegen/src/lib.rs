@@ -2954,8 +2954,11 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     // is_tuple(x) - Check if value is tuple
                     if fn_name == "is_tuple" {
                         if args.len() != 1 {
-                            eprintln!("Error: is_tuple() expects exactly 1 argument.");
-                            return Err(CodegenError::General("compilation error".to_string()));
+                            return Err(CodegenError::InvalidOperation {
+                                operation: "is_tuple()".to_string(),
+                                reason: format!("Expected 1 argument, got {}", args.len()),
+                                span: None,
+                            });
                         }
                         let (_, val_type) = self.compile_expr(&args[0])?;
 
@@ -2971,8 +2974,11 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     // is_function(x) - Check if value is function (not implemented yet, always returns 0)
                     if fn_name == "is_function" {
                         if args.len() != 1 {
-                            eprintln!("Error: is_function() expects exactly 1 argument.");
-                            return Err(CodegenError::General("compilation error".to_string()));
+                            return Err(CodegenError::InvalidOperation {
+                                operation: "is_function()".to_string(),
+                                reason: format!("Expected 1 argument, got {}", args.len()),
+                                span: None,
+                            });
                         }
                         let _ = self.compile_expr(&args[0])?;
 
@@ -2986,14 +2992,21 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     // uppercase(str) - Convert string to uppercase
                     if fn_name == "uppercase" {
                         if args.len() != 1 {
-                            eprintln!("Error: uppercase() expects exactly 1 argument.");
-                            return Err(CodegenError::General("compilation error".to_string()));
+                            return Err(CodegenError::InvalidOperation {
+                                operation: "uppercase()".to_string(),
+                                reason: format!("Expected 1 argument, got {}", args.len()),
+                                span: None,
+                            });
                         }
                         let (val, val_type) = self.compile_expr(&args[0])?;
 
                         if val_type != BrixType::String {
-                            eprintln!("Error: uppercase() expects a string argument.");
-                            return Err(CodegenError::General("compilation error".to_string()));
+                            return Err(CodegenError::TypeError {
+                                expected: "String".to_string(),
+                                found: format!("{:?}", val_type),
+                                context: "uppercase()".to_string(),
+                                span: None,
+                            });
                         }
 
                         let uppercase_fn = self.get_uppercase();
@@ -3019,14 +3032,21 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     // lowercase(str) - Convert string to lowercase
                     if fn_name == "lowercase" {
                         if args.len() != 1 {
-                            eprintln!("Error: lowercase() expects exactly 1 argument.");
-                            return Err(CodegenError::General("compilation error".to_string()));
+                            return Err(CodegenError::InvalidOperation {
+                                operation: "lowercase()".to_string(),
+                                reason: format!("Expected 1 argument, got {}", args.len()),
+                                span: None,
+                            });
                         }
                         let (val, val_type) = self.compile_expr(&args[0])?;
 
                         if val_type != BrixType::String {
-                            eprintln!("Error: lowercase() expects a string argument.");
-                            return Err(CodegenError::General("compilation error".to_string()));
+                            return Err(CodegenError::TypeError {
+                                expected: "String".to_string(),
+                                found: format!("{:?}", val_type),
+                                context: "lowercase()".to_string(),
+                                span: None,
+                            });
                         }
 
                         let lowercase_fn = self.get_lowercase();
@@ -3052,14 +3072,21 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     // capitalize(str) - Capitalize first character
                     if fn_name == "capitalize" {
                         if args.len() != 1 {
-                            eprintln!("Error: capitalize() expects exactly 1 argument.");
-                            return Err(CodegenError::General("compilation error".to_string()));
+                            return Err(CodegenError::InvalidOperation {
+                                operation: "capitalize()".to_string(),
+                                reason: format!("Expected 1 argument, got {}", args.len()),
+                                span: None,
+                            });
                         }
                         let (val, val_type) = self.compile_expr(&args[0])?;
 
                         if val_type != BrixType::String {
-                            eprintln!("Error: capitalize() expects a string argument.");
-                            return Err(CodegenError::General("compilation error".to_string()));
+                            return Err(CodegenError::TypeError {
+                                expected: "String".to_string(),
+                                found: format!("{:?}", val_type),
+                                context: "capitalize()".to_string(),
+                                span: None,
+                            });
                         }
 
                         let capitalize_fn = self.get_capitalize();
@@ -3085,14 +3112,21 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     // byte_size(str) - Get byte size of string
                     if fn_name == "byte_size" {
                         if args.len() != 1 {
-                            eprintln!("Error: byte_size() expects exactly 1 argument.");
-                            return Err(CodegenError::General("compilation error".to_string()));
+                            return Err(CodegenError::InvalidOperation {
+                                operation: "byte_size()".to_string(),
+                                reason: format!("Expected 1 argument, got {}", args.len()),
+                                span: None,
+                            });
                         }
                         let (val, val_type) = self.compile_expr(&args[0])?;
 
                         if val_type != BrixType::String {
-                            eprintln!("Error: byte_size() expects a string argument.");
-                            return Err(CodegenError::General("compilation error".to_string()));
+                            return Err(CodegenError::TypeError {
+                                expected: "String".to_string(),
+                                found: format!("{:?}", val_type),
+                                context: "byte_size()".to_string(),
+                                span: None,
+                            });
                         }
 
                         let byte_size_fn = self.get_byte_size();
@@ -3118,14 +3152,21 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     // length(str) - Get number of characters (UTF-8 aware)
                     if fn_name == "length" {
                         if args.len() != 1 {
-                            eprintln!("Error: length() expects exactly 1 argument.");
-                            return Err(CodegenError::General("compilation error".to_string()));
+                            return Err(CodegenError::InvalidOperation {
+                                operation: "length()".to_string(),
+                                reason: format!("Expected 1 argument, got {}", args.len()),
+                                span: None,
+                            });
                         }
                         let (val, val_type) = self.compile_expr(&args[0])?;
 
                         if val_type != BrixType::String {
-                            eprintln!("Error: length() expects a string argument.");
-                            return Err(CodegenError::General("compilation error".to_string()));
+                            return Err(CodegenError::TypeError {
+                                expected: "String".to_string(),
+                                found: format!("{:?}", val_type),
+                                context: "length()".to_string(),
+                                span: None,
+                            });
                         }
 
                         let length_fn = self.get_length();
@@ -3164,8 +3205,12 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             || old_type != BrixType::String
                             || new_type != BrixType::String
                         {
-                            eprintln!("Error: replace() expects all arguments to be strings.");
-                            return Err(CodegenError::General("compilation error".to_string()));
+                            return Err(CodegenError::TypeError {
+                                expected: "String for all arguments".to_string(),
+                                found: "Mixed types".to_string(),
+                                context: "replace()".to_string(),
+                                span: None,
+                            });
                         }
 
                         let replace_fn = self.get_replace();
@@ -3208,8 +3253,12 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             || old_type != BrixType::String
                             || new_type != BrixType::String
                         {
-                            eprintln!("Error: replace_all() expects all arguments to be strings.");
-                            return Err(CodegenError::General("compilation error".to_string()));
+                            return Err(CodegenError::TypeError {
+                                expected: "String for all arguments".to_string(),
+                                found: "Mixed types".to_string(),
+                                context: "replace_all()".to_string(),
+                                span: None,
+                            });
                         }
 
                         let replace_all_fn = self.get_replace_all();
@@ -3248,8 +3297,12 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         let (msg_val, msg_type) = self.compile_expr(&args[0])?;
 
                         if msg_type != BrixType::String {
-                            eprintln!("Error: error() expects a string argument.");
-                            return Err(CodegenError::General("compilation error".to_string()));
+                            return Err(CodegenError::TypeError {
+                                expected: "String".to_string(),
+                                found: format!("{:?}", msg_type),
+                                context: "error()".to_string(),
+                                span: None,
+                            });
                         }
 
                         // Declare brix_error_new(char* msg) -> BrixError*
@@ -3312,8 +3365,11 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     // complex(re, im) - constructor
                     if fn_name == "complex" {
                         if args.len() != 2 {
-                            eprintln!("Error: complex() expects exactly 2 arguments (real, imag).");
-                            return Err(CodegenError::General("compilation error".to_string()));
+                            return Err(CodegenError::InvalidOperation {
+                                operation: "complex()".to_string(),
+                                reason: format!("Expected 2 arguments, got {}", args.len()),
+                                span: None,
+                            });
                         }
 
                         let (re_val, re_type) = self.compile_expr(&args[0])?;
@@ -3400,8 +3456,12 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
                         let (val, val_type) = self.compile_expr(&args[0])?;
                         if val_type != BrixType::Complex {
-                            eprintln!("Error: real() expects a complex number.");
-                            return Err(CodegenError::General("compilation error".to_string()));
+                            return Err(CodegenError::TypeError {
+                                expected: "Complex".to_string(),
+                                found: format!("{:?}", val_type),
+                                context: "real()".to_string(),
+                                span: None,
+                            });
                         }
 
                         let real_part = self
@@ -3426,8 +3486,12 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
                         let (val, val_type) = self.compile_expr(&args[0])?;
                         if val_type != BrixType::Complex {
-                            eprintln!("Error: imag() expects a complex number.");
-                            return Err(CodegenError::General("compilation error".to_string()));
+                            return Err(CodegenError::TypeError {
+                                expected: "Complex".to_string(),
+                                found: format!("{:?}", val_type),
+                                context: "imag()".to_string(),
+                                span: None,
+                            });
                         }
 
                         let imag_part = self
@@ -3450,14 +3514,21 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     ];
                     if complex_to_complex_fns.contains(&fn_name.as_str()) {
                         if args.len() != 1 {
-                            eprintln!("Error: {}() expects exactly 1 argument.", fn_name);
-                            return Err(CodegenError::General("compilation error".to_string()));
+                            return Err(CodegenError::InvalidOperation {
+                                operation: format!("{}()", fn_name),
+                                reason: format!("Expected 1 argument, got {}", args.len()),
+                                span: None,
+                            });
                         }
 
                         let (val, val_type) = self.compile_expr(&args[0])?;
                         if val_type != BrixType::Complex {
-                            eprintln!("Error: {}() expects a complex number.", fn_name);
-                            return Err(CodegenError::General("compilation error".to_string()));
+                            return Err(CodegenError::TypeError {
+                                expected: "Complex".to_string(),
+                                found: format!("{:?}", val_type),
+                                context: format!("{}()", fn_name),
+                                span: None,
+                            });
                         }
 
                         let runtime_fn_name = format!("complex_{}", fn_name);
@@ -3498,14 +3569,21 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     let complex_to_float_fns = ["abs", "abs2", "angle"];
                     if complex_to_float_fns.contains(&fn_name.as_str()) {
                         if args.len() != 1 {
-                            eprintln!("Error: {}() expects exactly 1 argument.", fn_name);
-                            return Err(CodegenError::General("compilation error".to_string()));
+                            return Err(CodegenError::InvalidOperation {
+                                operation: format!("{}()", fn_name),
+                                reason: format!("Expected 1 argument, got {}", args.len()),
+                                span: None,
+                            });
                         }
 
                         let (val, val_type) = self.compile_expr(&args[0])?;
                         if val_type != BrixType::Complex {
-                            eprintln!("Error: {}() expects a complex number.", fn_name);
-                            return Err(CodegenError::General("compilation error".to_string()));
+                            return Err(CodegenError::TypeError {
+                                expected: "Complex".to_string(),
+                                found: format!("{:?}", val_type),
+                                context: format!("{}()", fn_name),
+                                span: None,
+                            });
                         }
 
                         let runtime_fn_name = format!("complex_{}", fn_name);
