@@ -10,7 +10,7 @@ fn compile_program(program: Program) -> Result<String, String> {
         let context = Context::create();
         let module = context.create_module("test");
         let builder = context.create_builder();
-        let mut compiler = Compiler::new(&context, &builder, &module);
+        let mut compiler = Compiler::new(&context, &builder, &module, "test.bx".to_string(), "".to_string());
         compiler.compile_program(&program);
         module.print_to_string().to_string()
     });
