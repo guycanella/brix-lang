@@ -2491,3 +2491,335 @@ Para não ficarmos paralisados tentando fazer tudo, vamos definir o que NÃO vai
 - ❌ Sem Otimizador: O código gerado vai ser "feio" (não otimizado), mas vai funcionar. Deixamos o LLVM limpar a sujeira depois.
 - Compilação baseada em **Arquivo Único** para o MVP.
 - Suporte a múltiplos arquivos e imports será adicionado na v0.2.
+
+---
+
+## 15. AI-Native Features 🤖 (Planejado v2.0+)
+
+**Data Engineering + AI Era**
+
+Com o boom de RAG, LLMs e Vector Databases, Brix visa se tornar **a linguagem nativa para Data Engineering e AI**. As features abaixo aproveitarão a arquitetura existente (Matrix, BLAS/LAPACK, SIMD) para entregar performance brutal em workflows de AI.
+
+---
+
+### 15.1. Native Vector/Embedding Operations ⭐ (Mais Promissor)
+
+**Motivação:**
+- RAG e LLMs explodiram em 2024-2025
+- Trabalhar com embeddings é crucial para semantic search, vector databases, similarity search
+- Nenhuma linguagem tem embeddings como tipo de primeira classe
+- Python é lento para isso (~10-100x), Rust é verbose demais
+
+**Sintaxe Proposta:**
+
+```brix
+// Tipo nativo para embeddings (vetores de alta dimensão)
+var embedding1 := embed[1536]([0.1, 0.2, ...])  // OpenAI ada-002 dimension
+var embedding2 := embed[1536]([0.3, 0.4, ...])
+
+// Operações built-in otimizadas (SIMD, AVX-512)
+var similarity := embedding1 @ embedding2  // cosine similarity (operador @)
+var distance := embedding1 <-> embedding2  // euclidean distance
+
+// Batch operations (Fortran-level performance)
+var batch := EmbeddingBatch(1000, 1536)  // 1000 embeddings de dimensão 1536
+var top_k := batch.find_nearest(query, k=10)  // SIMD-optimized nearest neighbors
+```
+
+**Características:**
+- ✅ **Tipo de primeira classe:** `Embedding[DIM]` com dimensão fixa
+- ✅ **Operadores nativos:** `@` (cosine sim), `<->` (euclidean distance), `<=>` (dot product)
+- ✅ **SIMD-optimized:** AVX-512, ARM NEON para performance brutal
+- ✅ **Batch operations:** Processa milhares de embeddings em paralelo
+- ✅ **Zero-copy:** Compatível com BLAS/LAPACK existente
+
+**Performance esperada:**
+- Cosine similarity: ~10-100x mais rápido que Python/NumPy
+- Batch search (1M embeddings): Sub-segundo com SIMD
+- Integração nativa com vector databases
+
+**Por que é diferencial:**
+- Nenhuma linguagem tem embeddings nativos
+- Sinérgico com Data Engineering: Dados → Embeddings → Vector DB → Analytics
+- Aproveita arquitetura existente: Matrix, BLAS/LAPACK, forte em numérico
+- Timing perfeito: RAG é o futuro de LLMs
+
+---
+
+### 15.2. Native Vector Database Integration 🔥
+
+**Motivação:**
+- Brix já terá SQL nativo (planejado)
+- Por que não ter Vector DB nativo também?
+- Vector search é tão importante quanto SQL para AI/ML pipelines
+
+**Sintaxe Proposta:**
+
+```brix
+// Conectar a vector databases (Pinecone, Weaviate, Milvus)
+connect vectordb "pinecone://api-key@environment/index"
+
+// Query semântica com sintaxe nativa
+var results := query vectordb {
+    similar_to: user_query_embedding,
+    limit: 10,
+    filter: { category: "docs", year: 2024 }
+}
+
+// Upsert de embeddings
+vectordb.upsert([
+    { id: "doc1", values: emb1, metadata: { title: "..." } },
+    { id: "doc2", values: emb2, metadata: { title: "..." } }
+])
+
+// Hybrid search (vector + metadata filtering)
+var hybrid := query vectordb {
+    similar_to: query_emb,
+    filter: { price: { $gt: 100, $lt: 500 } },
+    limit: 20
+}
+```
+
+**Características:**
+- ✅ **Type-safe queries:** Compile-time validation de schemas
+- ✅ **Zero-overhead bindings:** Chamadas diretas via LLVM (como math.h)
+- ✅ **Multi-provider support:** Pinecone, Weaviate, Milvus, Chroma
+- ✅ **Streaming results:** Lazy evaluation para datasets grandes
+- ✅ **Built-in batching:** Otimiza automaticamente upserts em lote
+
+**Performance esperada:**
+- Latência de query: ~10-50ms (network-bound, mas sem overhead de Python)
+- Batch upserts: 10,000+ vectors/segundo
+
+**Por que é diferencial:**
+- Mesma importância de SQL para AI/ML
+- Sintaxe declarativa, type-safe
+- Zero-overhead como SQL nativo
+- First-class citizen ao lado de SQL
+
+---
+
+### 15.3. Native ONNX Runtime Integration
+
+**Motivação:**
+- Executar modelos de ML sem overhead de Python
+- Latência 10-100x menor para inferência
+- Essencial para edge computing, real-time AI
+
+**Sintaxe Proposta:**
+
+```brix
+import onnx
+
+// Carregar modelo ONNX
+var model := onnx.load("model.onnx")
+
+// Inferência (zero-copy, compiled code)
+var input := [1.0, 2.0, 3.0]
+var output := model.infer(input)
+
+// Batch inference
+var batch := [[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]]
+var predictions := model.batch_infer(batch)  // Parallelized
+
+// GPU support (futuro)
+var gpu_model := onnx.load("model.onnx", device="cuda:0")
+```
+
+**Características:**
+- ✅ **Zero-copy inference:** Dados passados diretamente via ponteiros
+- ✅ **Multi-threading:** Batch inference paralelo automático
+- ✅ **CPU optimizations:** AVX-512, ARM NEON
+- ✅ **Type-safe:** Input/output shapes validados em compile-time
+
+**Performance esperada:**
+- Inferência single: 10-100x mais rápido que Python
+- Batch inference: Near-linear scaling com threads
+
+**Por que é diferencial:**
+- Python é gargalo para inferência real-time
+- Perfeito para edge computing
+- Complementa embeddings nativos
+
+---
+
+### 15.4. Type-Safe Tensor Operations
+
+**Motivação:**
+- Expandir Matrix para Tensors N-dimensionais
+- Type safety em compile-time (evitar shape mismatches)
+- Essencial para Deep Learning pipelines
+
+**Sintaxe Proposta:**
+
+```brix
+// Dimensões checadas em compile-time
+var image := Tensor[28, 28, 3]  // Height, Width, Channels
+var batch := Tensor[32, 28, 28, 3]  // Batch de 32 imagens
+
+// Operações verificadas em tempo de compilação
+var conv := batch.conv2d(kernel)  // Type error se dimensões incompatíveis
+
+// Broadcasting automático (NumPy-style)
+var normalized := (batch - mean) / std  // Broadcasting aplicado corretamente
+
+// Reshape com type checking
+var flattened := batch.reshape([32, 2352])  // 28*28*3 = 2352
+
+// Error de compilação se shape inválido
+// var invalid := batch.reshape([32, 1000])  // ❌ Error: Shape mismatch
+```
+
+**Características:**
+- ✅ **Compile-time shape checking:** Zero runtime errors de shape mismatch
+- ✅ **Automatic broadcasting:** Como NumPy, mas type-safe
+- ✅ **SIMD-optimized:** Mesma performance de Matrix existente
+- ✅ **Interop com Matrix:** Tensors são extensão de Matrix
+
+**Performance esperada:**
+- Mesma performance de Matrix (BLAS/LAPACK)
+- Compile-time checking = zero overhead
+
+**Por que é diferencial:**
+- Python/NumPy: runtime errors frequentes
+- TensorFlow/PyTorch: verbose, dynamic typing
+- Brix: type-safe, compile-time validation
+
+---
+
+### 15.5. Built-in Prompt Engineering (Inovador!)
+
+**Motivação:**
+- LLMs dominam desenvolvimento de apps
+- Prompt engineering é skill crítica
+- Prompts são code, merecem type safety
+
+**Sintaxe Proposta:**
+
+```brix
+// Templates type-safe para LLMs
+template UserQuery {
+    system: String,
+    context: String[],  // Array de strings
+    question: String,
+
+    function render() -> String {
+        return f"""
+        System: {self.system}
+
+        Context:
+        {self.context.join("\n\n")}
+
+        Question: {self.question}
+        """
+    }
+}
+
+// Uso type-safe
+var prompt := UserQuery{
+    system: "You are a helpful assistant",
+    context: retrieved_docs,
+    question: user_input
+}
+
+// Validação em compile-time
+var rendered := prompt.render()
+
+// LLM call (futuro)
+var response := llm.generate(rendered, max_tokens=500)
+```
+
+**Características:**
+- ✅ **Type-safe templates:** Compile-time validation de fields
+- ✅ **Modular prompts:** Composição de templates
+- ✅ **Versioning:** Prompts como código (Git, diff, review)
+- ✅ **Testing:** Unit tests para prompt rendering
+
+**Performance esperada:**
+- Compile-time template validation
+- Zero overhead vs string concatenation
+
+**Por que é diferencial:**
+- Prompts são code, merecem tooling
+- Type safety evita erros de runtime
+- Modular, testável, versionável
+
+---
+
+### 15.6. Recomendação: Combo Killer 🎯
+
+**Se tivesse que escolher um diferencial killer para v2.0:**
+
+1. **Embedding/Vector como tipo nativo com operações otimizadas (SIMD)**
+2. **Vector Database integration no mesmo nível de SQL**
+3. **Performance brutal (Fortran-level) para operações vetoriais**
+
+**Por que isso seria revolucionário:**
+
+✅ **Timing perfeito:** RAG e vector search explodiram em 2024-2025
+✅ **Gap real:** Python é lento para isso, Rust é verbose demais
+✅ **Sinérgico com Data Engineering:** Dados → Embeddings → Vector DB → Analytics
+✅ **Aproveita arquitetura existente:** Matrix, BLAS/LAPACK, forte em numérico
+✅ **Diferencial único:** Nenhuma linguagem tem isso nativo
+
+**Marketing tagline:**
+> "A linguagem nativa para RAG e Data Engineering"
+> "Write embeddings like Python, execute like Fortran, scale like Go"
+
+---
+
+### Roadmap de Implementação (v2.0+)
+
+**Phase 1: Embedding Type (v2.0):**
+- `Embedding[DIM]` como novo tipo primitivo
+- Operadores `@` (cosine), `<->` (euclidean), `<=>` (dot product)
+- SIMD optimization (AVX-512, ARM NEON)
+- Batch operations básicas
+
+**Phase 2: Vector DB Integration (v2.1):**
+- Bindings para Pinecone, Weaviate, Milvus
+- Query syntax nativa
+- Type-safe schemas
+- Streaming results
+
+**Phase 3: ONNX Runtime (v2.2):**
+- Zero-copy inference
+- Batch processing paralelo
+- GPU support (CUDA, Metal)
+
+**Phase 4: Advanced Features (v2.3+):**
+- Type-safe Tensors
+- Prompt engineering templates
+- LLM integrations (OpenAI, Anthropic, local models)
+
+---
+
+### Performance Targets (Benchmarks futuros)
+
+**Embedding Operations:**
+- Cosine similarity (1M pairs): < 100ms (vs Python ~1-2s)
+- Batch nearest neighbor (10k queries, 1M corpus): < 1s (vs Python ~10-30s)
+
+**Vector DB:**
+- Query latency: Network-bound + <5ms overhead (vs Python +50-100ms)
+- Upsert throughput: 10,000+ vectors/sec (vs Python ~1,000/sec)
+
+**ONNX Inference:**
+- Single inference: <1ms (vs Python ~10-50ms)
+- Batch inference (1000 samples): <100ms (vs Python ~1-5s)
+
+---
+
+### Conclusão
+
+Essas features transformariam Brix em **THE language for AI-powered Data Engineering**:
+
+- ✅ Zero-overhead native performance
+- ✅ Type safety em toda pipeline
+- ✅ Sinérgico com features existentes (Matrix, BLAS, SQL)
+- ✅ Timing perfeito com boom de RAG/LLMs
+- ✅ Diferencial competitivo único no mercado
+
+**Status:** Planejado para v2.0+ (após v1.3 - Generics, Structs, Closures)
+
+**Prioridade:** Alta - Alinhado com tendências de mercado e filosofia da linguagem

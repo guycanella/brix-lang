@@ -23,7 +23,7 @@ cargo build --release
 
 **Run tests:**
 ```bash
-cargo test --all              # Run all unit tests (1002 tests total)
+cargo test --all              # Run all unit tests (1001 tests total)
 cargo test <pattern>          # Run tests matching pattern
 cargo test -- --nocapture     # Show println! output
 ```
@@ -64,7 +64,7 @@ brix/
 │   │   └── src/{ast.rs, parser.rs, error.rs}
 │   └── codegen/             # LLVM code generation (inkwell) - REFACTORED v1.2 + ERROR HANDLING
 │       └── src/
-│           ├── lib.rs       # Core compiler (6,499 lines, was 7,338)
+│           ├── lib.rs       # Core compiler (6,756 lines, was 7,338)
 │           ├── error.rs     # Error types (CodegenError, CodegenResult) (61 lines)
 │           ├── types.rs     # BrixType enum (33 lines)
 │           ├── helpers.rs   # LLVM helpers with Result types (146 lines)
