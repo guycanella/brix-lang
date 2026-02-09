@@ -18,12 +18,12 @@
 - F-strings com format specifiers
 - Ariadne error reporting (parser)
 
-### 🚧 **Em Andamento (v1.2.1 - Phase E4b):**
-- **AST Migration with Spans:** Estrutura AST mudou para incluir informação de posição
-  - ✅ Parser completamente convertido
+### ✅ **Completado (v1.2.1 - Phase E4b):**
+- **AST Migration with Spans:** Estrutura AST inclui informação de posição no código fonte
+  - ✅ Parser completamente convertido com `.map_with_span()`
   - ✅ Codegen completamente convertido
-  - ⚠️ Testes temporariamente desabilitados (necessitam conversão manual)
-  - **Status:** Compila sem testes, funcionalidade core intacta
+  - ✅ CodegenError com `span: Option<Span>` em todos os variants
+  - ✅ **1001/1001 testes passando** (Lexer: 292, Parser: 150, Codegen: 559)
 
 ### 🔮 **Planejado (v1.3+):**
 - Generics
