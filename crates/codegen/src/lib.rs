@@ -295,7 +295,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     Err(CodegenError::UndefinedSymbol {
                         name: name.clone(),
                         context: "Assignment target".to_string(),
-                                            span: None,
+                        span: Some(expr.span.clone()),
                     })
                 }
             }
@@ -1161,7 +1161,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         Err(CodegenError::UndefinedSymbol {
                             name: name.clone(),
                             context: "Variable lookup in expression".to_string(),
-                            span: None,
+                            span: Some(expr.span.clone()),
                         })
                     }
                 }
