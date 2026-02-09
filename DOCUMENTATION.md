@@ -1,6 +1,6 @@
 # Brix Language (Design Document v1.0)
 
-> ⚠️ **Status do Projeto (Fev 2026):** O compilador Brix está em desenvolvimento ativo (v1.2.1). Core funcional com sistema de error handling robusto - 1001/1001 testes passando (100%). Ariadne integration para codegen completa, aguardando integração final no main.rs.
+> ⚠️ **Status do Projeto (Fev 2026):** O compilador Brix está em desenvolvimento ativo (v1.2.1). Core funcional com sistema de error handling robusto - 1001/1001 testes passando (100%). Ariadne integration completa para parser e codegen, com mensagens de erro lindas e contextuais para o usuário final.
 
 ## Status Atual (Fevereiro 2026)
 
@@ -18,8 +18,8 @@
 - F-strings com format specifiers
 - Ariadne error reporting (parser)
 
-### ✅ **Completado (v1.2.1 - Phase E4c):**
-- **Error Handling with Result Types (95% complete):**
+### ✅ **Completado (v1.2.1 - Phase E4d):**
+- **Error Handling with Result Types (98% complete):**
   - ✅ All core compilation functions use `CodegenResult<T>`
   - ✅ CodegenError enum with 6 variants + span information
   - ✅ AST Migration with Spans (Expr/Stmt structs with source positions)
@@ -27,8 +27,9 @@
     - `error_report.rs` module with beautiful error formatting
     - Error codes (E100-E105) with colored labels
     - Source code context in error messages
+    - **Integrated in main.rs** - end users see beautiful errors
   - ✅ **1001/1001 testes passando** (Lexer: 292, Parser: 150, Codegen: 559)
-  - 🔲 Remaining: Integrate Ariadne in main.rs for end-user visibility
+  - 🔲 Remaining: Cleanup ~54 eprintln!() calls, convert 14 unwrap() in I/O functions
 
 ### 🔮 **Planejado (v1.3+):**
 - Generics
