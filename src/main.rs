@@ -77,24 +77,24 @@ fn main() {
     if let Err(e) = compiler.compile_program(&ast) {
         eprintln!("\n❌ Erro durante geração de código LLVM:\n");
         match e {
-            codegen::CodegenError::LLVMError { operation, details } => {
+            codegen::CodegenError::LLVMError { operation, details, .. } => {
                 eprintln!("  🔴 Operação LLVM falhou: {}", operation);
                 eprintln!("  📝 Detalhes: {}", details);
             }
-            codegen::CodegenError::TypeError { expected, found, context } => {
+            codegen::CodegenError::TypeError { expected, found, context, .. } => {
                 eprintln!("  🔴 Erro de tipo no contexto: {}", context);
                 eprintln!("  📝 Esperado: {}", expected);
                 eprintln!("  📝 Encontrado: {}", found);
             }
-            codegen::CodegenError::UndefinedSymbol { name, context } => {
+            codegen::CodegenError::UndefinedSymbol { name, context, .. } => {
                 eprintln!("  🔴 Símbolo indefinido: {}", name);
                 eprintln!("  📝 Contexto: {}", context);
             }
-            codegen::CodegenError::InvalidOperation { operation, reason } => {
+            codegen::CodegenError::InvalidOperation { operation, reason, .. } => {
                 eprintln!("  🔴 Operação inválida: {}", operation);
                 eprintln!("  📝 Razão: {}", reason);
             }
-            codegen::CodegenError::MissingValue { what, context } => {
+            codegen::CodegenError::MissingValue { what, context, .. } => {
                 eprintln!("  🔴 Valor faltando: {}", what);
                 eprintln!("  📝 Contexto: {}", context);
             }

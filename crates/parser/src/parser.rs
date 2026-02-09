@@ -1,4 +1,4 @@
-use crate::ast::{BinaryOp, Expr, FStringPart, Literal, MatchArm, Pattern, Program, Stmt, UnaryOp};
+use crate::ast::{BinaryOp, Expr, ExprKind, FStringPart, Literal, MatchArm, Pattern, Program, Stmt, StmtKind, UnaryOp};
 use chumsky::prelude::*;
 use lexer::token::Token;
 
@@ -155,13 +155,13 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
                     .or(just(Token::ColonEq).to(None)),
             )
             .then(expr_parser())
-            .map(
-                |(((is_const, name), type_hint), value)| Stmt::VariableDecl {
+            .map_with_span(
+                |(((is_const, name), type_hint), value), span| Stmt::new(StmtKind::VariableDecl {
                     name,
                     type_hint,
                     value,
                     is_const,
-                },
+                }, span)
             );
 
         // Destructuring declaration: var { a, b, c } := expr
@@ -176,39 +176,41 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
             )
             .then_ignore(just(Token::ColonEq))
             .then(expr_parser())
-            .map(|((is_const, names), value)| Stmt::DestructuringDecl {
+            .map_with_span(|((is_const, names), value), span| Stmt::new(StmtKind::DestructuringDecl {
                 names,
                 value,
                 is_const,
-            });
+            }, span));
 
-        let lvalue = select! { Token::Identifier(name) => Expr::Identifier(name) }
+        let lvalue = select! { Token::Identifier(name) => name }
+            .map_with_span(|name, span| Expr::new(ExprKind::Identifier(name), span))
             .then(
                 expr_parser()
                     .delimited_by(just(Token::LBracket), just(Token::RBracket))
                     .map(|idx| (true, idx, String::new()))
                     .or(just(Token::Dot)
                         .ignore_then(select! { Token::Identifier(name) => name })
-                        .map(|name| (false, Expr::Identifier("dummy".to_string()), name)))
+                        .map(|name| (false, Expr::new(ExprKind::Identifier("dummy".to_string()), 0..0), name)))
                     .repeated(),
             )
             .foldl(|lhs, (is_index, index_expr, field_name)| {
+                let span = lhs.span.start..if is_index { index_expr.span.end } else { lhs.span.end };
                 if is_index {
-                    match lhs {
-                        Expr::Index { array, mut indices } => {
+                    match lhs.kind {
+                        ExprKind::Index { array, mut indices } => {
                             indices.push(index_expr);
-                            Expr::Index { array, indices }
+                            Expr::new(ExprKind::Index { array, indices }, span)
                         }
-                        _ => Expr::Index {
+                        _ => Expr::new(ExprKind::Index {
                             array: Box::new(lhs),
                             indices: vec![index_expr],
-                        },
+                        }, span),
                     }
                 } else {
-                    Expr::FieldAccess {
+                    Expr::new(ExprKind::FieldAccess {
                         target: Box::new(lhs),
                         field: field_name,
-                    }
+                    }, span)
                 }
             });
 
@@ -223,39 +225,44 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
                     .or(just(Token::SlashEq).to(Some(BinaryOp::Div))),
             )
             .then(expr_parser())
-            .map(|((target, maybe_op), value)| match maybe_op {
-                None => Stmt::Assignment { target, value },
-                Some(op) => Stmt::Assignment {
-                    target: target.clone(),
-                    value: Expr::Binary {
-                        op,
-                        lhs: Box::new(target),
-                        rhs: Box::new(value),
-                    },
-                },
+            .map_with_span(|((target, maybe_op), value), span| match maybe_op {
+                None => Stmt::new(StmtKind::Assignment { target, value }, span),
+                Some(op) => {
+                    let target_span = target.span.clone();
+                    let value_span = value.span.clone();
+                    let binary_span = target_span.start..value_span.end;
+                    Stmt::new(StmtKind::Assignment {
+                        target: target.clone(),
+                        value: Expr::new(ExprKind::Binary {
+                            op,
+                            lhs: Box::new(target),
+                            rhs: Box::new(value),
+                        }, binary_span),
+                    }, span)
+                }
             });
 
         let block = stmt
             .clone()
             .repeated()
             .delimited_by(just(Token::LBrace), just(Token::RBrace))
-            .map(Stmt::Block);
+            .map_with_span(|stmts, span| Stmt::new(StmtKind::Block(stmts), span));
         let if_stmt = just(Token::If)
             .ignore_then(expr_parser())
             .then(block.clone())
             .then(just(Token::Else).ignore_then(block.clone()).or_not())
-            .map(|((c, t), e)| Stmt::If {
+            .map_with_span(|((c, t), e), span| Stmt::new(StmtKind::If {
                 condition: c,
                 then_block: Box::new(t),
                 else_block: e.map(Box::new),
-            });
+            }, span));
         let while_stmt = just(Token::While)
             .ignore_then(expr_parser())
             .then(block.clone())
-            .map(|(c, b)| Stmt::While {
+            .map_with_span(|(c, b), span| Stmt::new(StmtKind::While {
                 condition: c,
                 body: Box::new(b),
-            });
+            }, span));
         let for_stmt = just(Token::For)
             .ignore_then(
                 select! { Token::Identifier(n) => n }
@@ -265,11 +272,11 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
             .then_ignore(just(Token::In))
             .then(expr_parser())
             .then(block.clone())
-            .map(|((names, i), b)| Stmt::For {
+            .map_with_span(|((names, i), b), span| Stmt::new(StmtKind::For {
                 var_names: names,
                 iterable: i,
                 body: Box::new(b),
-            });
+            }, span));
 
         let import_stmt = just(Token::Import)
             .ignore_then(select! { Token::Identifier(module) => module })
@@ -278,7 +285,7 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
                     .ignore_then(select! { Token::Identifier(alias) => alias })
                     .or_not(),
             )
-            .map(|(module, alias)| Stmt::Import { module, alias });
+            .map_with_span(|(module, alias), span| Stmt::new(StmtKind::Import { module, alias }, span));
 
         let printf_stmt = just(Token::Printf)
             .ignore_then(
@@ -294,20 +301,20 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
                 )
                 .delimited_by(just(Token::LParen), just(Token::RParen)),
             )
-            .map(|(f, a)| {
-                Stmt::Printf {
+            .map_with_span(|(f, a), span| {
+                Stmt::new(StmtKind::Printf {
                     format: f, // Already processed by process_escape_sequences
                     args: a.unwrap_or_default(),
-                }
+                }, span)
             });
 
         let print_stmt = just(Token::Print)
             .ignore_then(expr_parser().delimited_by(just(Token::LParen), just(Token::RParen)))
-            .map(|expr| Stmt::Print { expr });
+            .map_with_span(|expr, span| Stmt::new(StmtKind::Print { expr }, span));
 
         let println_stmt = just(Token::Println)
             .ignore_then(expr_parser().delimited_by(just(Token::LParen), just(Token::RParen)))
-            .map(|expr| Stmt::Println { expr });
+            .map_with_span(|expr, span| Stmt::new(StmtKind::Println { expr }, span));
 
         // Function definition
         let function_def = just(Token::Function)
@@ -337,12 +344,12 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
                     .or_not(), // Optional for void functions
             )
             .then(block.clone())
-            .map(|(((name, params), return_type), body)| Stmt::FunctionDef {
+            .map_with_span(|(((name, params), return_type), body), span| Stmt::new(StmtKind::FunctionDef {
                 name,
                 params,
                 return_type,
                 body: Box::new(body),
-            });
+            }, span));
 
         // Return statement
         // Supports: return, return x, return (x), return (x, y, z)
@@ -359,11 +366,11 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
                         .allow_trailing())
                     .or_not(),
             )
-            .map(|values| Stmt::Return {
+            .map_with_span(|values, span| Stmt::new(StmtKind::Return {
                 values: values.unwrap_or_default(),
-            });
+            }, span));
 
-        let expr_stmt = expr_parser().map(Stmt::Expr);
+        let expr_stmt = expr_parser().map_with_span(|expr, span| Stmt::new(StmtKind::Expr(expr), span));
 
         destructuring_decl
             .or(decl)
@@ -386,25 +393,27 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
 fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
     recursive(|expr| {
         let val = select! {
-            Token::Int(n) => Expr::Literal(Literal::Int(n)),
-            Token::Float(s) => Expr::Literal(Literal::Float(s.parse().unwrap())),
+            Token::Int(n) => Literal::Int(n),
+            Token::Float(s) => Literal::Float(s.parse().unwrap()),
             Token::String(s) => {
                 let raw = s.trim_matches('"');
                 let processed = process_escape_sequences(raw);
-                Expr::Literal(Literal::String(processed))
+                Literal::String(processed)
             },
-            Token::True => Expr::Literal(Literal::Bool(true)),
-            Token::False => Expr::Literal(Literal::Bool(false)),
-            Token::Nil => Expr::Literal(Literal::Nil),
-            Token::Atom(name) => Expr::Literal(Literal::Atom(name)),
+            Token::True => Literal::Bool(true),
+            Token::False => Literal::Bool(false),
+            Token::Nil => Literal::Nil,
+            Token::Atom(name) => Literal::Atom(name),
             Token::ImaginaryLiteral(s) => {
                 // Parse imaginary literal: "4.0i" or "2i"
                 let imag_str = s.trim_end_matches('i');
                 let imag_val: f64 = imag_str.parse().unwrap();
-                Expr::Literal(Literal::Complex(0.0, imag_val))
+                Literal::Complex(0.0, imag_val)
             },
-            Token::Identifier(s) => Expr::Identifier(s),
-        };
+        }
+        .map_with_span(|lit, span| Expr::new(ExprKind::Literal(lit), span))
+        .or(select! { Token::Identifier(s) => s }
+            .map_with_span(|s, span| Expr::new(ExprKind::Identifier(s), span)));
 
         let expr_for_fstring = expr.clone();
         let fstring = select! {
@@ -440,7 +449,7 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
                 }
             }
 
-            Ok::<Expr, Simple<Token>>(Expr::FString { parts })
+            Ok::<Expr, Simple<Token>>(Expr::new(ExprKind::FString { parts }, span))
         });
 
         // Pattern parser
@@ -506,10 +515,10 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
                     .at_least(1)
                     .delimited_by(just(Token::LBrace), just(Token::RBrace)),
             )
-            .map(|(value, arms)| Expr::Match {
+            .map_with_span(|(value, arms), span| Expr::new(ExprKind::Match {
                 value: Box::new(value),
                 arms,
-            });
+            }, span));
 
         // List comprehension: [expr for var in iterable if cond]
         let list_comp = just(Token::LBracket)
@@ -537,31 +546,31 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
                     .at_least(1),
             )
             .then_ignore(just(Token::RBracket))
-            .map(|(expr, generators)| Expr::ListComprehension {
+            .map_with_span(|(expr, generators), span| Expr::new(ExprKind::ListComprehension {
                 expr: Box::new(expr),
                 generators,
-            });
+            }, span));
 
         let array_literal = expr
             .clone()
             .separated_by(just(Token::Comma))
             .allow_trailing()
             .delimited_by(just(Token::LBracket), just(Token::RBracket))
-            .map(Expr::Array);
+            .map_with_span(|exprs, span| Expr::new(ExprKind::Array(exprs), span));
 
         // Parse expressions in parentheses, with optional 'im' suffix for implicit multiplication
         let paren_expr = expr
             .clone()
             .delimited_by(just(Token::LParen), just(Token::RParen))
             .then(select! { Token::Identifier(s) if s == "im" => s }.or_not())
-            .map(|(e, im_suffix)| {
+            .map_with_span(|(e, im_suffix), span| {
                 if im_suffix.is_some() {
                     // (expr)im → expr * im
-                    Expr::Binary {
+                    Expr::new(ExprKind::Binary {
                         op: BinaryOp::Mul,
                         lhs: Box::new(e),
-                        rhs: Box::new(Expr::Identifier("im".to_string())),
-                    }
+                        rhs: Box::new(Expr::new(ExprKind::Identifier("im".to_string()), 0..0)),
+                    }, span)
                 } else {
                     e
                 }
@@ -584,10 +593,10 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
                     .at_most(2)
                     .delimited_by(just(Token::LBracket), just(Token::RBracket)),
             )
-            .map(|(element_type, dimensions)| Expr::StaticInit {
+            .map_with_span(|(element_type, dimensions), span| Expr::new(ExprKind::StaticInit {
                 element_type,
                 dimensions,
-            });
+            }, span));
 
         // Postfix operations: field access, indexing, and function calls
         // Can be chained in any order: get_matrix().rows, arr[0].len, get_func()()
@@ -617,27 +626,30 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
                         .map(PostfixOp::Call))
                     .repeated(),
             )
-            .foldl(|lhs, op| match op {
-                PostfixOp::Field(field_name) => Expr::FieldAccess {
-                    target: Box::new(lhs),
-                    field: field_name,
-                },
-                PostfixOp::Index(index_expr) => {
-                    match lhs {
-                        Expr::Index { array, mut indices } => {
-                            indices.push(index_expr);
-                            Expr::Index { array, indices }
+            .foldl(|lhs, op| {
+                let span = lhs.span.clone();
+                match op {
+                    PostfixOp::Field(field_name) => Expr::new(ExprKind::FieldAccess {
+                        target: Box::new(lhs),
+                        field: field_name,
+                    }, span),
+                    PostfixOp::Index(index_expr) => {
+                        match lhs.kind {
+                            ExprKind::Index { array, mut indices } => {
+                                indices.push(index_expr);
+                                Expr::new(ExprKind::Index { array, indices }, span)
+                            }
+                            _ => Expr::new(ExprKind::Index {
+                                array: Box::new(lhs),
+                                indices: vec![index_expr],
+                            }, span),
                         }
-                        _ => Expr::Index {
-                            array: Box::new(lhs),
-                            indices: vec![index_expr],
-                        },
-                    }
-                },
-                PostfixOp::Call(args) => Expr::Call {
-                    func: Box::new(lhs),
-                    args,
-                },
+                    },
+                    PostfixOp::Call(args) => Expr::new(ExprKind::Call {
+                        func: Box::new(lhs),
+                        args,
+                    }, span),
+                }
             })
             .boxed();
 
@@ -650,18 +662,18 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
                     .or(just(Token::MinusMinus).to(false))
                     .or_not(),
             )
-            .map(|(expr, maybe_op)| match maybe_op {
+            .map_with_span(|(expr, maybe_op), span| match maybe_op {
                 Some(is_increment) => {
                     if is_increment {
-                        Expr::Increment {
+                        Expr::new(ExprKind::Increment {
                             expr: Box::new(expr),
                             is_prefix: false,
-                        }
+                        }, span)
                     } else {
-                        Expr::Decrement {
+                        Expr::new(ExprKind::Decrement {
                             expr: Box::new(expr),
                             is_prefix: false,
-                        }
+                        }, span)
                     }
                 }
                 None => expr,
@@ -683,29 +695,32 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
             .or(just(Token::Minus).to(PrefixOp::Neg))
             .repeated()
             .then(postfix_inc_dec.clone())
-            .foldr(|op, expr| match op {
-                PrefixOp::Inc => Expr::Increment {
-                    expr: Box::new(expr),
-                    is_prefix: true,
-                },
-                PrefixOp::Dec => Expr::Decrement {
-                    expr: Box::new(expr),
-                    is_prefix: true,
-                },
-                PrefixOp::Not => Expr::Unary {
-                    op: UnaryOp::Not,
-                    expr: Box::new(expr),
-                },
-                PrefixOp::Neg => Expr::Unary {
-                    op: UnaryOp::Negate,
-                    expr: Box::new(expr),
-                },
+            .foldr(|op, expr| {
+                let span = expr.span.clone();
+                match op {
+                    PrefixOp::Inc => Expr::new(ExprKind::Increment {
+                        expr: Box::new(expr),
+                        is_prefix: true,
+                    }, span),
+                    PrefixOp::Dec => Expr::new(ExprKind::Decrement {
+                        expr: Box::new(expr),
+                        is_prefix: true,
+                    }, span),
+                    PrefixOp::Not => Expr::new(ExprKind::Unary {
+                        op: UnaryOp::Not,
+                        expr: Box::new(expr),
+                    }, span),
+                    PrefixOp::Neg => Expr::new(ExprKind::Unary {
+                        op: UnaryOp::Negate,
+                        expr: Box::new(expr),
+                    }, span),
+                }
             });
 
         let power = unary
             .clone()
             .then(just(Token::Pow).to(BinaryOp::Pow).then(unary).repeated())
-            .map(|(first, rest)| {
+            .map_with_span(|(first, rest), _span| {
                 // Right-associative: build tree from right to left
                 // 2**3**4 should be 2**(3**4), not (2**3)**4
                 if rest.is_empty() {
@@ -723,11 +738,13 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
                     let mut result = operands.pop().unwrap();
                     while let Some(lhs) = operands.pop() {
                         let op = operators.pop().unwrap();
-                        result = Expr::Binary {
+                        let lhs_span = lhs.span.clone();
+                        let rhs_span = result.span.clone();
+                        result = Expr::new(ExprKind::Binary {
                             op,
                             lhs: Box::new(lhs),
                             rhs: Box::new(result),
-                        };
+                        }, lhs_span.start..rhs_span.end);
                     }
                     result
                 }
@@ -744,10 +761,14 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
                     .then(power)
                     .repeated(),
             )
-            .foldl(|lhs, (op, rhs)| Expr::Binary {
-                op,
-                lhs: Box::new(lhs),
-                rhs: Box::new(rhs),
+            .foldl(|lhs, (op, rhs)| {
+                let lhs_span = lhs.span.clone();
+                let rhs_span = rhs.span.clone();
+                Expr::new(ExprKind::Binary {
+                    op,
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                }, lhs_span.start..rhs_span.end)
             })
             .boxed();
 
@@ -760,10 +781,14 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
                     .then(product)
                     .repeated(),
             )
-            .foldl(|lhs, (op, rhs)| Expr::Binary {
-                op,
-                lhs: Box::new(lhs),
-                rhs: Box::new(rhs),
+            .foldl(|lhs, (op, rhs)| {
+                let lhs_span = lhs.span.clone();
+                let rhs_span = rhs.span.clone();
+                Expr::new(ExprKind::Binary {
+                    op,
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                }, lhs_span.start..rhs_span.end)
             })
             .boxed();
 
@@ -777,10 +802,14 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
                     .then(sum)
                     .repeated(),
             )
-            .foldl(|lhs, (op, rhs)| Expr::Binary {
-                op,
-                lhs: Box::new(lhs),
-                rhs: Box::new(rhs),
+            .foldl(|lhs, (op, rhs)| {
+                let lhs_span = lhs.span.clone();
+                let rhs_span = rhs.span.clone();
+                Expr::new(ExprKind::Binary {
+                    op,
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                }, lhs_span.start..rhs_span.end)
             })
             .boxed();
 
@@ -798,43 +827,51 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
                 .then(bitwise.clone())
                 .repeated(),
             )
-            .map(|(lhs, pairs)| {
+            .map_with_span(|(lhs, pairs), _span| {
                 if pairs.is_empty() {
                     return lhs;
                 }
 
                 if pairs.len() == 1 {
                     let (op, rhs) = pairs[0].clone();
-                    return Expr::Binary {
+                    let lhs_span = lhs.span.clone();
+                    let rhs_span = rhs.span.clone();
+                    return Expr::new(ExprKind::Binary {
                         op,
                         lhs: Box::new(lhs),
                         rhs: Box::new(rhs),
-                    };
+                    }, lhs_span.start..rhs_span.end);
                 }
 
                 // Chained Comparison: 1 <= n <= 10  ->  (1 <= n) && (n <= 10)
                 let (first_op, first_rhs) = pairs[0].clone();
+                let lhs_span = lhs.span.clone();
+                let first_rhs_span = first_rhs.span.clone();
 
-                let mut final_expr = Expr::Binary {
+                let mut final_expr = Expr::new(ExprKind::Binary {
                     op: first_op,
                     lhs: Box::new(lhs),
                     rhs: Box::new(first_rhs.clone()),
-                };
+                }, lhs_span.start..first_rhs_span.end);
 
                 let mut prev_rhs = first_rhs;
 
                 for (op, rhs) in pairs.into_iter().skip(1) {
-                    let next_comparison = Expr::Binary {
+                    let prev_span = prev_rhs.span.clone();
+                    let rhs_span = rhs.span.clone();
+                    let next_comparison = Expr::new(ExprKind::Binary {
                         op,
                         lhs: Box::new(prev_rhs.clone()),
                         rhs: Box::new(rhs.clone()),
-                    };
+                    }, prev_span.start..rhs_span.end);
 
-                    final_expr = Expr::Binary {
+                    let final_span = final_expr.span.clone();
+                    let next_span = next_comparison.span.clone();
+                    final_expr = Expr::new(ExprKind::Binary {
                         op: BinaryOp::LogicalAnd,
                         lhs: Box::new(final_expr),
                         rhs: Box::new(next_comparison),
-                    };
+                    }, final_span.start..next_span.end);
 
                     prev_rhs = rhs;
                 }
@@ -852,10 +889,14 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
                     .then(comparison)
                     .repeated(),
             )
-            .foldl(|lhs, (op, rhs)| Expr::Binary {
-                op,
-                lhs: Box::new(lhs),
-                rhs: Box::new(rhs),
+            .foldl(|lhs, (op, rhs)| {
+                let lhs_span = lhs.span.clone();
+                let rhs_span = rhs.span.clone();
+                Expr::new(ExprKind::Binary {
+                    op,
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                }, lhs_span.start..rhs_span.end)
             })
             .boxed();
 
@@ -868,10 +909,14 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
                     .then(logic_and)
                     .repeated(),
             )
-            .foldl(|lhs, (op, rhs)| Expr::Binary {
-                op,
-                lhs: Box::new(lhs),
-                rhs: Box::new(rhs),
+            .foldl(|lhs, (op, rhs)| {
+                let lhs_span = lhs.span.clone();
+                let rhs_span = rhs.span.clone();
+                Expr::new(ExprKind::Binary {
+                    op,
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                }, lhs_span.start..rhs_span.end)
             })
             .boxed();
 
@@ -887,21 +932,21 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
                     .then(just(Token::Colon).ignore_then(range_step_parser).or_not())
                     .or_not(),
             )
-            .map(|(start, maybe_rest)| match maybe_rest {
+            .map_with_span(|(start, maybe_rest), span| match maybe_rest {
                 None => start, // Is not range
                 Some((second, third_opt)) => match third_opt {
                     // start:end
-                    None => Expr::Range {
+                    None => Expr::new(ExprKind::Range {
                         start: Box::new(start),
                         end: Box::new(second),
                         step: None,
-                    },
+                    }, span),
                     // start:step:end
-                    Some(end) => Expr::Range {
+                    Some(end) => Expr::new(ExprKind::Range {
                         start: Box::new(start),
                         end: Box::new(end),
                         step: Some(Box::new(second)),
-                    },
+                    }, span),
                 },
             });
 
@@ -916,13 +961,13 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
                     .then(logic_or.clone())
                     .or_not(),
             )
-            .map(|(condition, maybe_branches)| match maybe_branches {
+            .map_with_span(|(condition, maybe_branches), span| match maybe_branches {
                 None => condition,
-                Some((then_expr, else_expr)) => Expr::Ternary {
+                Some((then_expr, else_expr)) => Expr::new(ExprKind::Ternary {
                     condition: Box::new(condition),
                     then_expr: Box::new(then_expr),
                     else_expr: Box::new(else_expr),
-                },
+                }, span),
             });
 
         ternary.boxed()

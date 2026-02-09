@@ -67,6 +67,7 @@ impl<'a, 'ctx> ExpressionCompiler<'ctx> for Compiler<'a, 'ctx> {
                     .map_err(|_| CodegenError::LLVMError {
                         operation: "build_global_string_ptr".to_string(),
                         details: format!("Failed to create global string for '{}'", s),
+                                            span: None,
                     })?;
 
                 let ptr_type = self.context.ptr_type(AddressSpace::default());
@@ -82,12 +83,14 @@ impl<'a, 'ctx> ExpressionCompiler<'ctx> for Compiler<'a, 'ctx> {
                     .map_err(|_| CodegenError::LLVMError {
                         operation: "build_call".to_string(),
                         details: "Failed to call str_new".to_string(),
+                                            span: None,
                     })?;
 
                 let value = call.try_as_basic_value().left()
                     .ok_or_else(|| CodegenError::LLVMError {
                         operation: "try_as_basic_value".to_string(),
                         details: "str_new call did not return a value".to_string(),
+                                            span: None,
                     })?;
 
                 Ok((value, BrixType::String))
@@ -100,6 +103,7 @@ impl<'a, 'ctx> ExpressionCompiler<'ctx> for Compiler<'a, 'ctx> {
                     .map_err(|_| CodegenError::LLVMError {
                         operation: "build_int_z_extend".to_string(),
                         details: "Failed to extend boolean to i64".to_string(),
+                                            span: None,
                     })?;
                 Ok((int_val.into(), BrixType::Int))
             }
@@ -145,6 +149,7 @@ impl<'a, 'ctx> ExpressionCompiler<'ctx> for Compiler<'a, 'ctx> {
                     .map_err(|_| CodegenError::LLVMError {
                         operation: "build_global_string_ptr".to_string(),
                         details: format!("Failed to create global string for atom '{}'", name),
+                                            span: None,
                     })?;
 
                 // Call atom_intern(name)
@@ -158,12 +163,14 @@ impl<'a, 'ctx> ExpressionCompiler<'ctx> for Compiler<'a, 'ctx> {
                     .map_err(|_| CodegenError::LLVMError {
                         operation: "build_call".to_string(),
                         details: format!("Failed to call atom_intern for '{}'", name),
+                                            span: None,
                     })?;
 
                 let atom_val = call_site.try_as_basic_value().left()
                     .ok_or_else(|| CodegenError::LLVMError {
                         operation: "try_as_basic_value".to_string(),
                         details: "atom_intern did not return a value".to_string(),
+                                            span: None,
                     })?;
 
                 Ok((atom_val, BrixType::Atom))
@@ -175,6 +182,7 @@ impl<'a, 'ctx> ExpressionCompiler<'ctx> for Compiler<'a, 'ctx> {
         Err(CodegenError::InvalidOperation {
             operation: "Range".to_string(),
             reason: "Ranges cannot be assigned to variables, use only inside 'for' loops".to_string(),
+                    span: None,
         })
     }
 
@@ -197,6 +205,7 @@ impl<'a, 'ctx> ExpressionCompiler<'ctx> for Compiler<'a, 'ctx> {
             .map_err(|_| CodegenError::LLVMError {
                 operation: "build_int_compare".to_string(),
                 details: "Failed to compare ternary condition with zero".to_string(),
+                            span: None,
             })?;
 
         // Get parent function
@@ -204,12 +213,14 @@ impl<'a, 'ctx> ExpressionCompiler<'ctx> for Compiler<'a, 'ctx> {
             .ok_or_else(|| CodegenError::LLVMError {
                 operation: "get_insert_block".to_string(),
                 details: "No current basic block for ternary expression".to_string(),
+                            span: None,
             })?;
 
         let parent_fn = block.get_parent()
             .ok_or_else(|| CodegenError::LLVMError {
                 operation: "get_parent".to_string(),
                 details: "Basic block has no parent function".to_string(),
+                            span: None,
             })?;
 
         // Create basic blocks
@@ -223,6 +234,7 @@ impl<'a, 'ctx> ExpressionCompiler<'ctx> for Compiler<'a, 'ctx> {
             .map_err(|_| CodegenError::LLVMError {
                 operation: "build_conditional_branch".to_string(),
                 details: "Failed to build conditional branch for ternary".to_string(),
+                            span: None,
             })?;
 
         // Compile then branch
@@ -232,11 +244,13 @@ impl<'a, 'ctx> ExpressionCompiler<'ctx> for Compiler<'a, 'ctx> {
             .map_err(|_| CodegenError::LLVMError {
                 operation: "build_unconditional_branch".to_string(),
                 details: "Failed to build branch from then block".to_string(),
+                            span: None,
             })?;
         let then_end_bb = self.builder.get_insert_block()
             .ok_or_else(|| CodegenError::LLVMError {
                 operation: "get_insert_block".to_string(),
                 details: "No insert block after then expression".to_string(),
+                            span: None,
             })?;
 
         // Compile else branch
@@ -246,11 +260,13 @@ impl<'a, 'ctx> ExpressionCompiler<'ctx> for Compiler<'a, 'ctx> {
             .map_err(|_| CodegenError::LLVMError {
                 operation: "build_unconditional_branch".to_string(),
                 details: "Failed to build branch from else block".to_string(),
+                            span: None,
             })?;
         let else_end_bb = self.builder.get_insert_block()
             .ok_or_else(|| CodegenError::LLVMError {
                 operation: "get_insert_block".to_string(),
                 details: "No insert block after else expression".to_string(),
+                            span: None,
             })?;
 
         // Merge with PHI node
@@ -277,6 +293,7 @@ impl<'a, 'ctx> ExpressionCompiler<'ctx> for Compiler<'a, 'ctx> {
                 .map_err(|_| CodegenError::LLVMError {
                     operation: "build_signed_int_to_float".to_string(),
                     details: "Failed to cast then value to float".to_string(),
+                                    span: None,
                 })?
                 .into()
         } else {
@@ -294,6 +311,7 @@ impl<'a, 'ctx> ExpressionCompiler<'ctx> for Compiler<'a, 'ctx> {
                 .map_err(|_| CodegenError::LLVMError {
                     operation: "build_signed_int_to_float".to_string(),
                     details: "Failed to cast else value to float".to_string(),
+                                    span: None,
                 })?
                 .into()
         } else {
@@ -315,6 +333,7 @@ impl<'a, 'ctx> ExpressionCompiler<'ctx> for Compiler<'a, 'ctx> {
             .map_err(|_| CodegenError::LLVMError {
                 operation: "build_phi".to_string(),
                 details: "Failed to build PHI node for ternary result".to_string(),
+                            span: None,
             })?;
 
         phi.add_incoming(&[
@@ -343,6 +362,7 @@ impl<'a, 'ctx> ExpressionCompiler<'ctx> for Compiler<'a, 'ctx> {
                 expected: "int or float".to_string(),
                 found: element_type.to_string(),
                 context: "StaticInit".to_string(),
+                            span: None,
             })
         }
     }
