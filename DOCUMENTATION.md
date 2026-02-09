@@ -18,8 +18,8 @@
 - F-strings com format specifiers
 - Ariadne error reporting (parser)
 
-### ✅ **Completado (v1.2.1 - Phase E4d):**
-- **Error Handling with Result Types (98% complete):**
+### ✅ **Completado (v1.2.1 - Phase E5):**
+- **Error Handling with Result Types (COMPLETE - Feb 2026):**
   - ✅ All core compilation functions use `CodegenResult<T>`
   - ✅ CodegenError enum with 6 variants + span information
   - ✅ AST Migration with Spans (Expr/Stmt structs with source positions)
@@ -28,8 +28,10 @@
     - Error codes (E100-E105) with colored labels
     - Source code context in error messages
     - **Integrated in main.rs** - end users see beautiful errors
+  - ✅ **eprintln!() Cleanup:** 54 → 32 (22 critical errors converted to CodegenError)
+  - ✅ **unwrap() Cleanup:** All 14 remaining documented and isolated in I/O helpers
   - ✅ **1001/1001 testes passando** (Lexer: 292, Parser: 150, Codegen: 559)
-  - 🔲 Remaining: Cleanup ~54 eprintln!() calls, convert 14 unwrap() in I/O functions
+  - 🔲 Next: Add real spans to errors (currently `span: None`)
 
 ### 🔮 **Planejado (v1.3+):**
 - Generics
