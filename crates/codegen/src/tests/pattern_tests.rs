@@ -2,7 +2,7 @@
 
 use crate::Compiler;
 use inkwell::context::Context;
-use parser::ast::{BinaryOp, Expr, Literal, MatchArm, Pattern, Program, Stmt};
+use parser::ast::{BinaryOp, Expr, Literal, MatchArm, Pattern, Program, Stmt, ExprKind, StmtKind};
 
 fn compile_program(program: Program) -> Result<String, String> {
     let result = std::panic::catch_unwind(|| {
@@ -21,11 +21,11 @@ fn compile_program(program: Program) -> Result<String, String> {
 
 // Helper function to create binary operations
 fn binary(op: BinaryOp, lhs: Expr, rhs: Expr) -> Expr {
-    Expr::Binary {
+    Expr::dummy(ExprKind::Binary {
         op,
         lhs: Box::new(lhs),
         rhs: Box::new(rhs),
-    }
+    })
 }
 
 // ==================== PATTERN MATCHING - TYPE COERCION ====================
@@ -38,26 +38,26 @@ fn test_match_int_float_coercion() {
     //     _ -> 0.0
     // }
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Match {
-            value: Box::new(Expr::Literal(Literal::Int(5))),
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Match {
+            value: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(5)))),
             arms: vec![
                 MatchArm {
                     pattern: Pattern::Literal(Literal::Int(1)),
                     guard: None,
-                    body: Box::new(Expr::Literal(Literal::Int(1))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(1)))),
                 },
                 MatchArm {
                     pattern: Pattern::Literal(Literal::Int(2)),
                     guard: None,
-                    body: Box::new(Expr::Literal(Literal::Float(2.5))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Float(2.5)))),
                 },
                 MatchArm {
                     pattern: Pattern::Wildcard,
                     guard: None,
-                    body: Box::new(Expr::Literal(Literal::Float(0.0))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Float(0.0)))),
                 },
             ],
-        })],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -73,32 +73,32 @@ fn test_match_type_promotion_in_arms() {
     // }
     let program = Program {
         statements: vec![
-            Stmt::VariableDecl {
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "x".to_string(),
                 type_hint: None,
-                value: Expr::Literal(Literal::Int(10)),
+                value: Expr::dummy(ExprKind::Literal(Literal::Int(10))),
                 is_const: false,
-            },
-            Stmt::Expr(Expr::Match {
-                value: Box::new(Expr::Identifier("x".to_string())),
+            }),
+            Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Match {
+                value: Box::new(Expr::dummy(ExprKind::Identifier("x".to_string()))),
                 arms: vec![
                     MatchArm {
                         pattern: Pattern::Literal(Literal::Int(5)),
                         guard: None,
-                        body: Box::new(Expr::Literal(Literal::Int(100))),
+                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(100)))),
                     },
                     MatchArm {
                         pattern: Pattern::Literal(Literal::Int(10)),
                         guard: None,
-                        body: Box::new(Expr::Literal(Literal::Float(3.14))),
+                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Float(3.14)))),
                     },
                     MatchArm {
                         pattern: Pattern::Wildcard,
                         guard: None,
-                        body: Box::new(Expr::Literal(Literal::Float(0.0))),
+                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Float(0.0)))),
                     },
                 ],
-            }),
+            }))),
         ],
     };
     let result = compile_program(program);
@@ -113,26 +113,26 @@ fn test_match_complex_and_float_coercion() {
     //     _ -> Complex(0.0, 0.0)
     // }
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Match {
-            value: Box::new(Expr::Literal(Literal::Int(1))),
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Match {
+            value: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(1)))),
             arms: vec![
                 MatchArm {
                     pattern: Pattern::Literal(Literal::Int(0)),
                     guard: None,
-                    body: Box::new(Expr::Literal(Literal::Float(1.0))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Float(1.0)))),
                 },
                 MatchArm {
                     pattern: Pattern::Literal(Literal::Int(1)),
                     guard: None,
-                    body: Box::new(Expr::Literal(Literal::Complex(2.0, 3.0))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Complex(2.0, 3.0)))),
                 },
                 MatchArm {
                     pattern: Pattern::Wildcard,
                     guard: None,
-                    body: Box::new(Expr::Literal(Literal::Complex(0.0, 0.0))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Complex(0.0, 0.0)))),
                 },
             ],
-        })],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -146,30 +146,30 @@ fn test_match_implicit_cast_in_computation() {
     //     _ -> 0.0
     // }
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Match {
-            value: Box::new(Expr::Literal(Literal::Int(5))),
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Match {
+            value: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(5)))),
             arms: vec![
                 MatchArm {
                     pattern: Pattern::Literal(Literal::Int(1)),
                     guard: None,
-                    body: Box::new(Expr::Literal(Literal::Int(10))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(10)))),
                 },
                 MatchArm {
                     pattern: Pattern::Literal(Literal::Int(2)),
                     guard: None,
                     body: Box::new(binary(
                         BinaryOp::Add,
-                        Expr::Literal(Literal::Int(20)),
-                        Expr::Literal(Literal::Float(2.5)),
+                        Expr::dummy(ExprKind::Literal(Literal::Int(20))),
+                        Expr::dummy(ExprKind::Literal(Literal::Float(2.5))),
                     )),
                 },
                 MatchArm {
                     pattern: Pattern::Wildcard,
                     guard: None,
-                    body: Box::new(Expr::Literal(Literal::Float(0.0))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Float(0.0)))),
                 },
             ],
-        })],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -184,26 +184,26 @@ fn test_match_all_int_arms() {
     // }
     // All int arms -> result should be int
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Match {
-            value: Box::new(Expr::Literal(Literal::Int(5))),
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Match {
+            value: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(5)))),
             arms: vec![
                 MatchArm {
                     pattern: Pattern::Literal(Literal::Int(1)),
                     guard: None,
-                    body: Box::new(Expr::Literal(Literal::Int(10))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(10)))),
                 },
                 MatchArm {
                     pattern: Pattern::Literal(Literal::Int(2)),
                     guard: None,
-                    body: Box::new(Expr::Literal(Literal::Int(20))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(20)))),
                 },
                 MatchArm {
                     pattern: Pattern::Wildcard,
                     guard: None,
-                    body: Box::new(Expr::Literal(Literal::Int(0))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(0)))),
                 },
             ],
-        })],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -217,26 +217,26 @@ fn test_match_all_float_arms() {
     //     _ -> 0.0
     // }
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Match {
-            value: Box::new(Expr::Literal(Literal::Float(5.5))),
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Match {
+            value: Box::new(Expr::dummy(ExprKind::Literal(Literal::Float(5.5)))),
             arms: vec![
                 MatchArm {
                     pattern: Pattern::Literal(Literal::Float(1.0)),
                     guard: None,
-                    body: Box::new(Expr::Literal(Literal::Float(10.0))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Float(10.0)))),
                 },
                 MatchArm {
                     pattern: Pattern::Literal(Literal::Float(2.0)),
                     guard: None,
-                    body: Box::new(Expr::Literal(Literal::Float(20.0))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Float(20.0)))),
                 },
                 MatchArm {
                     pattern: Pattern::Wildcard,
                     guard: None,
-                    body: Box::new(Expr::Literal(Literal::Float(0.0))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Float(0.0)))),
                 },
             ],
-        })],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -254,30 +254,30 @@ fn test_match_typeof_int() {
     // }
     let program = Program {
         statements: vec![
-            Stmt::VariableDecl {
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "x".to_string(),
                 type_hint: None,
-                value: Expr::Literal(Literal::Int(42)),
+                value: Expr::dummy(ExprKind::Literal(Literal::Int(42))),
                 is_const: false,
-            },
-            Stmt::Expr(Expr::Match {
-                value: Box::new(Expr::Call {
-                    func: Box::new(Expr::Identifier("typeof".to_string())),
-                    args: vec![Expr::Identifier("x".to_string())],
-                }),
+            }),
+            Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Match {
+                value: Box::new(Expr::dummy(ExprKind::Call {
+                    func: Box::new(Expr::dummy(ExprKind::Identifier("typeof".to_string()))),
+                    args: vec![Expr::dummy(ExprKind::Identifier("x".to_string()))],
+                })),
                 arms: vec![
                     MatchArm {
                         pattern: Pattern::Literal(Literal::String("int".to_string())),
                         guard: None,
-                        body: Box::new(Expr::Literal(Literal::Int(1))),
+                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(1)))),
                     },
                     MatchArm {
                         pattern: Pattern::Wildcard,
                         guard: None,
-                        body: Box::new(Expr::Literal(Literal::Int(0))),
+                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(0)))),
                     },
                 ],
-            }),
+            }))),
         ],
     };
     let result = compile_program(program);
@@ -293,30 +293,30 @@ fn test_match_typeof_float() {
     // }
     let program = Program {
         statements: vec![
-            Stmt::VariableDecl {
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "x".to_string(),
                 type_hint: None,
-                value: Expr::Literal(Literal::Float(3.14)),
+                value: Expr::dummy(ExprKind::Literal(Literal::Float(3.14))),
                 is_const: false,
-            },
-            Stmt::Expr(Expr::Match {
-                value: Box::new(Expr::Call {
-                    func: Box::new(Expr::Identifier("typeof".to_string())),
-                    args: vec![Expr::Identifier("x".to_string())],
-                }),
+            }),
+            Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Match {
+                value: Box::new(Expr::dummy(ExprKind::Call {
+                    func: Box::new(Expr::dummy(ExprKind::Identifier("typeof".to_string()))),
+                    args: vec![Expr::dummy(ExprKind::Identifier("x".to_string()))],
+                })),
                 arms: vec![
                     MatchArm {
                         pattern: Pattern::Literal(Literal::String("float".to_string())),
                         guard: None,
-                        body: Box::new(Expr::Literal(Literal::Int(1))),
+                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(1)))),
                     },
                     MatchArm {
                         pattern: Pattern::Wildcard,
                         guard: None,
-                        body: Box::new(Expr::Literal(Literal::Int(0))),
+                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(0)))),
                     },
                 ],
-            }),
+            }))),
         ],
     };
     let result = compile_program(program);
@@ -332,30 +332,30 @@ fn test_match_typeof_string() {
     // }
     let program = Program {
         statements: vec![
-            Stmt::VariableDecl {
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "x".to_string(),
                 type_hint: None,
-                value: Expr::Literal(Literal::String("hello".to_string())),
+                value: Expr::dummy(ExprKind::Literal(Literal::String("hello".to_string()))),
                 is_const: false,
-            },
-            Stmt::Expr(Expr::Match {
-                value: Box::new(Expr::Call {
-                    func: Box::new(Expr::Identifier("typeof".to_string())),
-                    args: vec![Expr::Identifier("x".to_string())],
-                }),
+            }),
+            Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Match {
+                value: Box::new(Expr::dummy(ExprKind::Call {
+                    func: Box::new(Expr::dummy(ExprKind::Identifier("typeof".to_string()))),
+                    args: vec![Expr::dummy(ExprKind::Identifier("x".to_string()))],
+                })),
                 arms: vec![
                     MatchArm {
                         pattern: Pattern::Literal(Literal::String("string".to_string())),
                         guard: None,
-                        body: Box::new(Expr::Literal(Literal::Int(1))),
+                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(1)))),
                     },
                     MatchArm {
                         pattern: Pattern::Wildcard,
                         guard: None,
-                        body: Box::new(Expr::Literal(Literal::Int(0))),
+                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(0)))),
                     },
                 ],
-            }),
+            }))),
         ],
     };
     let result = compile_program(program);
@@ -371,30 +371,30 @@ fn test_match_typeof_atom() {
     // }
     let program = Program {
         statements: vec![
-            Stmt::VariableDecl {
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "x".to_string(),
                 type_hint: None,
-                value: Expr::Literal(Literal::Atom("ok".to_string())),
+                value: Expr::dummy(ExprKind::Literal(Literal::Atom("ok".to_string()))),
                 is_const: false,
-            },
-            Stmt::Expr(Expr::Match {
-                value: Box::new(Expr::Call {
-                    func: Box::new(Expr::Identifier("typeof".to_string())),
-                    args: vec![Expr::Identifier("x".to_string())],
-                }),
+            }),
+            Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Match {
+                value: Box::new(Expr::dummy(ExprKind::Call {
+                    func: Box::new(Expr::dummy(ExprKind::Identifier("typeof".to_string()))),
+                    args: vec![Expr::dummy(ExprKind::Identifier("x".to_string()))],
+                })),
                 arms: vec![
                     MatchArm {
                         pattern: Pattern::Literal(Literal::String("atom".to_string())),
                         guard: None,
-                        body: Box::new(Expr::Literal(Literal::Int(1))),
+                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(1)))),
                     },
                     MatchArm {
                         pattern: Pattern::Wildcard,
                         guard: None,
-                        body: Box::new(Expr::Literal(Literal::Int(0))),
+                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(0)))),
                     },
                 ],
-            }),
+            }))),
         ],
     };
     let result = compile_program(program);
@@ -410,30 +410,30 @@ fn test_match_typeof_nil() {
     // }
     let program = Program {
         statements: vec![
-            Stmt::VariableDecl {
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "x".to_string(),
                 type_hint: None,
-                value: Expr::Literal(Literal::Nil),
+                value: Expr::dummy(ExprKind::Literal(Literal::Nil)),
                 is_const: false,
-            },
-            Stmt::Expr(Expr::Match {
-                value: Box::new(Expr::Call {
-                    func: Box::new(Expr::Identifier("typeof".to_string())),
-                    args: vec![Expr::Identifier("x".to_string())],
-                }),
+            }),
+            Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Match {
+                value: Box::new(Expr::dummy(ExprKind::Call {
+                    func: Box::new(Expr::dummy(ExprKind::Identifier("typeof".to_string()))),
+                    args: vec![Expr::dummy(ExprKind::Identifier("x".to_string()))],
+                })),
                 arms: vec![
                     MatchArm {
                         pattern: Pattern::Literal(Literal::String("nil".to_string())),
                         guard: None,
-                        body: Box::new(Expr::Literal(Literal::Int(1))),
+                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(1)))),
                     },
                     MatchArm {
                         pattern: Pattern::Wildcard,
                         guard: None,
-                        body: Box::new(Expr::Literal(Literal::Int(0))),
+                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(0)))),
                     },
                 ],
-            }),
+            }))),
         ],
     };
     let result = compile_program(program);
@@ -451,40 +451,40 @@ fn test_match_typeof_with_multiple_types() {
     // }
     let program = Program {
         statements: vec![
-            Stmt::VariableDecl {
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "x".to_string(),
                 type_hint: None,
-                value: Expr::Literal(Literal::Int(42)),
+                value: Expr::dummy(ExprKind::Literal(Literal::Int(42))),
                 is_const: false,
-            },
-            Stmt::Expr(Expr::Match {
-                value: Box::new(Expr::Call {
-                    func: Box::new(Expr::Identifier("typeof".to_string())),
-                    args: vec![Expr::Identifier("x".to_string())],
-                }),
+            }),
+            Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Match {
+                value: Box::new(Expr::dummy(ExprKind::Call {
+                    func: Box::new(Expr::dummy(ExprKind::Identifier("typeof".to_string()))),
+                    args: vec![Expr::dummy(ExprKind::Identifier("x".to_string()))],
+                })),
                 arms: vec![
                     MatchArm {
                         pattern: Pattern::Literal(Literal::String("int".to_string())),
                         guard: None,
-                        body: Box::new(Expr::Literal(Literal::Int(1))),
+                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(1)))),
                     },
                     MatchArm {
                         pattern: Pattern::Literal(Literal::String("float".to_string())),
                         guard: None,
-                        body: Box::new(Expr::Literal(Literal::Int(2))),
+                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(2)))),
                     },
                     MatchArm {
                         pattern: Pattern::Literal(Literal::String("string".to_string())),
                         guard: None,
-                        body: Box::new(Expr::Literal(Literal::Int(3))),
+                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(3)))),
                     },
                     MatchArm {
                         pattern: Pattern::Wildcard,
                         guard: None,
-                        body: Box::new(Expr::Literal(Literal::Int(0))),
+                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(0)))),
                     },
                 ],
-            }),
+            }))),
         ],
     };
     let result = compile_program(program);
@@ -503,31 +503,31 @@ fn test_match_with_float_patterns() {
     //     _ -> "other"
     // }
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Match {
-            value: Box::new(Expr::Literal(Literal::Float(3.14))),
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Match {
+            value: Box::new(Expr::dummy(ExprKind::Literal(Literal::Float(3.14)))),
             arms: vec![
                 MatchArm {
                     pattern: Pattern::Literal(Literal::Float(1.0)),
                     guard: None,
-                    body: Box::new(Expr::Literal(Literal::String("one".to_string()))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("one".to_string())))),
                 },
                 MatchArm {
                     pattern: Pattern::Literal(Literal::Float(2.5)),
                     guard: None,
-                    body: Box::new(Expr::Literal(Literal::String("two and half".to_string()))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("two and half".to_string())))),
                 },
                 MatchArm {
                     pattern: Pattern::Literal(Literal::Float(3.14)),
                     guard: None,
-                    body: Box::new(Expr::Literal(Literal::String("pi".to_string()))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("pi".to_string())))),
                 },
                 MatchArm {
                     pattern: Pattern::Wildcard,
                     guard: None,
-                    body: Box::new(Expr::Literal(Literal::String("other".to_string()))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("other".to_string())))),
                 },
             ],
-        })],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -540,21 +540,21 @@ fn test_match_with_boolean_patterns() {
     //     false -> 0
     // }
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Match {
-            value: Box::new(Expr::Literal(Literal::Bool(true))),
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Match {
+            value: Box::new(Expr::dummy(ExprKind::Literal(Literal::Bool(true)))),
             arms: vec![
                 MatchArm {
                     pattern: Pattern::Literal(Literal::Bool(true)),
                     guard: None,
-                    body: Box::new(Expr::Literal(Literal::Int(1))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(1)))),
                 },
                 MatchArm {
                     pattern: Pattern::Literal(Literal::Bool(false)),
                     guard: None,
-                    body: Box::new(Expr::Literal(Literal::Int(0))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(0)))),
                 },
             ],
-        })],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -569,27 +569,27 @@ fn test_match_with_nil_pattern() {
     // }
     let program = Program {
         statements: vec![
-            Stmt::VariableDecl {
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "x".to_string(),
                 type_hint: None,
-                value: Expr::Literal(Literal::Nil),
+                value: Expr::dummy(ExprKind::Literal(Literal::Nil)),
                 is_const: false,
-            },
-            Stmt::Expr(Expr::Match {
-                value: Box::new(Expr::Identifier("x".to_string())),
+            }),
+            Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Match {
+                value: Box::new(Expr::dummy(ExprKind::Identifier("x".to_string()))),
                 arms: vec![
                     MatchArm {
                         pattern: Pattern::Literal(Literal::Nil),
                         guard: None,
-                        body: Box::new(Expr::Literal(Literal::Int(1))),
+                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(1)))),
                     },
                     MatchArm {
                         pattern: Pattern::Wildcard,
                         guard: None,
-                        body: Box::new(Expr::Literal(Literal::Int(0))),
+                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(0)))),
                     },
                 ],
-            }),
+            }))),
         ],
     };
     let result = compile_program(program);
@@ -604,26 +604,26 @@ fn test_match_with_complex_patterns() {
     //     _ -> "other"
     // }
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Match {
-            value: Box::new(Expr::Literal(Literal::Complex(1.0, 2.0))),
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Match {
+            value: Box::new(Expr::dummy(ExprKind::Literal(Literal::Complex(1.0, 2.0)))),
             arms: vec![
                 MatchArm {
                     pattern: Pattern::Literal(Literal::Complex(0.0, 0.0)),
                     guard: None,
-                    body: Box::new(Expr::Literal(Literal::String("zero".to_string()))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("zero".to_string())))),
                 },
                 MatchArm {
                     pattern: Pattern::Literal(Literal::Complex(1.0, 0.0)),
                     guard: None,
-                    body: Box::new(Expr::Literal(Literal::String("real".to_string()))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("real".to_string())))),
                 },
                 MatchArm {
                     pattern: Pattern::Wildcard,
                     guard: None,
-                    body: Box::new(Expr::Literal(Literal::String("other".to_string()))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("other".to_string())))),
                 },
             ],
-        })],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -639,39 +639,39 @@ fn test_match_with_negative_numbers() {
     //     _ -> "other"
     // }
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Match {
-            value: Box::new(Expr::Unary {
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Match {
+            value: Box::new(Expr::dummy(ExprKind::Unary {
                 op: parser::ast::UnaryOp::Negate,
-                expr: Box::new(Expr::Literal(Literal::Int(5))),
-            }),
+                expr: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(5)))),
+            })),
             arms: vec![
                 MatchArm {
                     pattern: Pattern::Literal(Literal::Int(-10)),
                     guard: None,
-                    body: Box::new(Expr::Literal(Literal::String("minus ten".to_string()))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("minus ten".to_string())))),
                 },
                 MatchArm {
                     pattern: Pattern::Literal(Literal::Int(-5)),
                     guard: None,
-                    body: Box::new(Expr::Literal(Literal::String("minus five".to_string()))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("minus five".to_string())))),
                 },
                 MatchArm {
                     pattern: Pattern::Literal(Literal::Int(0)),
                     guard: None,
-                    body: Box::new(Expr::Literal(Literal::String("zero".to_string()))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("zero".to_string())))),
                 },
                 MatchArm {
                     pattern: Pattern::Literal(Literal::Int(5)),
                     guard: None,
-                    body: Box::new(Expr::Literal(Literal::String("five".to_string()))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("five".to_string())))),
                 },
                 MatchArm {
                     pattern: Pattern::Wildcard,
                     guard: None,
-                    body: Box::new(Expr::Literal(Literal::String("other".to_string()))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("other".to_string())))),
                 },
             ],
-        })],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -684,21 +684,21 @@ fn test_match_with_zero() {
     //     _ -> "non-zero"
     // }
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Match {
-            value: Box::new(Expr::Literal(Literal::Int(0))),
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Match {
+            value: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(0)))),
             arms: vec![
                 MatchArm {
                     pattern: Pattern::Literal(Literal::Int(0)),
                     guard: None,
-                    body: Box::new(Expr::Literal(Literal::String("zero".to_string()))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("zero".to_string())))),
                 },
                 MatchArm {
                     pattern: Pattern::Wildcard,
                     guard: None,
-                    body: Box::new(Expr::Literal(Literal::String("non-zero".to_string()))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("non-zero".to_string())))),
                 },
             ],
-        })],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -717,14 +717,14 @@ fn test_match_with_complex_guard() {
     // }
     let program = Program {
         statements: vec![
-            Stmt::VariableDecl {
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "x".to_string(),
                 type_hint: None,
-                value: Expr::Literal(Literal::Int(10)),
+                value: Expr::dummy(ExprKind::Literal(Literal::Int(10))),
                 is_const: false,
-            },
-            Stmt::Expr(Expr::Match {
-                value: Box::new(Expr::Identifier("x".to_string())),
+            }),
+            Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Match {
+                value: Box::new(Expr::dummy(ExprKind::Identifier("x".to_string()))),
                 arms: vec![
                     MatchArm {
                         pattern: Pattern::Binding("n".to_string()),
@@ -732,33 +732,33 @@ fn test_match_with_complex_guard() {
                             BinaryOp::LogicalAnd,
                             binary(
                                 BinaryOp::Gt,
-                                Expr::Identifier("n".to_string()),
-                                Expr::Literal(Literal::Int(0)),
+                                Expr::dummy(ExprKind::Identifier("n".to_string())),
+                                Expr::dummy(ExprKind::Literal(Literal::Int(0))),
                             ),
                             binary(
                                 BinaryOp::Lt,
-                                Expr::Identifier("n".to_string()),
-                                Expr::Literal(Literal::Int(10)),
+                                Expr::dummy(ExprKind::Identifier("n".to_string())),
+                                Expr::dummy(ExprKind::Literal(Literal::Int(10))),
                             ),
                         ))),
-                        body: Box::new(Expr::Literal(Literal::String("small positive".to_string()))),
+                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("small positive".to_string())))),
                     },
                     MatchArm {
                         pattern: Pattern::Binding("n".to_string()),
                         guard: Some(Box::new(binary(
                             BinaryOp::GtEq,
-                            Expr::Identifier("n".to_string()),
-                            Expr::Literal(Literal::Int(10)),
+                            Expr::dummy(ExprKind::Identifier("n".to_string())),
+                            Expr::dummy(ExprKind::Literal(Literal::Int(10))),
                         ))),
-                        body: Box::new(Expr::Literal(Literal::String("large".to_string()))),
+                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("large".to_string())))),
                     },
                     MatchArm {
                         pattern: Pattern::Wildcard,
                         guard: None,
-                        body: Box::new(Expr::Literal(Literal::String("other".to_string()))),
+                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("other".to_string())))),
                     },
                 ],
-            }),
+            }))),
         ],
     };
     let result = compile_program(program);
@@ -773,8 +773,8 @@ fn test_match_or_pattern_many_options() {
     //     _ -> "large"
     // }
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Match {
-            value: Box::new(Expr::Literal(Literal::Int(3))),
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Match {
+            value: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(3)))),
             arms: vec![
                 MatchArm {
                     pattern: Pattern::Or(vec![
@@ -785,7 +785,7 @@ fn test_match_or_pattern_many_options() {
                         Pattern::Literal(Literal::Int(5)),
                     ]),
                     guard: None,
-                    body: Box::new(Expr::Literal(Literal::String("small".to_string()))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("small".to_string())))),
                 },
                 MatchArm {
                     pattern: Pattern::Or(vec![
@@ -796,15 +796,15 @@ fn test_match_or_pattern_many_options() {
                         Pattern::Literal(Literal::Int(10)),
                     ]),
                     guard: None,
-                    body: Box::new(Expr::Literal(Literal::String("medium".to_string()))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("medium".to_string())))),
                 },
                 MatchArm {
                     pattern: Pattern::Wildcard,
                     guard: None,
-                    body: Box::new(Expr::Literal(Literal::String("large".to_string()))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("large".to_string())))),
                 },
             ],
-        })],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -824,52 +824,52 @@ fn test_nested_match_expression() {
     // }
     let program = Program {
         statements: vec![
-            Stmt::VariableDecl {
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "x".to_string(),
                 type_hint: None,
-                value: Expr::Literal(Literal::Int(1)),
+                value: Expr::dummy(ExprKind::Literal(Literal::Int(1))),
                 is_const: false,
-            },
-            Stmt::VariableDecl {
+            }),
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "y".to_string(),
                 type_hint: None,
-                value: Expr::Literal(Literal::Int(2)),
+                value: Expr::dummy(ExprKind::Literal(Literal::Int(2))),
                 is_const: false,
-            },
-            Stmt::Expr(Expr::Match {
-                value: Box::new(Expr::Identifier("x".to_string())),
+            }),
+            Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Match {
+                value: Box::new(Expr::dummy(ExprKind::Identifier("x".to_string()))),
                 arms: vec![
                     MatchArm {
                         pattern: Pattern::Literal(Literal::Int(1)),
                         guard: None,
-                        body: Box::new(Expr::Match {
-                            value: Box::new(Expr::Identifier("y".to_string())),
+                        body: Box::new(Expr::dummy(ExprKind::Match {
+                            value: Box::new(Expr::dummy(ExprKind::Identifier("y".to_string()))),
                             arms: vec![
                                 MatchArm {
                                     pattern: Pattern::Literal(Literal::Int(1)),
                                     guard: None,
-                                    body: Box::new(Expr::Literal(Literal::String("one-one".to_string()))),
+                                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("one-one".to_string())))),
                                 },
                                 MatchArm {
                                     pattern: Pattern::Literal(Literal::Int(2)),
                                     guard: None,
-                                    body: Box::new(Expr::Literal(Literal::String("one-two".to_string()))),
+                                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("one-two".to_string())))),
                                 },
                                 MatchArm {
                                     pattern: Pattern::Wildcard,
                                     guard: None,
-                                    body: Box::new(Expr::Literal(Literal::String("one-other".to_string()))),
+                                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("one-other".to_string())))),
                                 },
                             ],
-                        }),
+                        })),
                     },
                     MatchArm {
                         pattern: Pattern::Wildcard,
                         guard: None,
-                        body: Box::new(Expr::Literal(Literal::String("other".to_string()))),
+                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("other".to_string())))),
                     },
                 ],
-            }),
+            }))),
         ],
     };
     let result = compile_program(program);
@@ -884,36 +884,36 @@ fn test_match_in_if_condition() {
     // }
     let program = Program {
         statements: vec![
-            Stmt::VariableDecl {
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "x".to_string(),
                 type_hint: None,
-                value: Expr::Literal(Literal::Int(5)),
+                value: Expr::dummy(ExprKind::Literal(Literal::Int(5))),
                 is_const: false,
-            },
-            Stmt::If {
-                condition: Expr::Match {
-                    value: Box::new(Expr::Identifier("x".to_string())),
+            }),
+            Stmt::dummy(StmtKind::If {
+                condition: Expr::dummy(ExprKind::Match {
+                    value: Box::new(Expr::dummy(ExprKind::Identifier("x".to_string()))),
                     arms: vec![
                         MatchArm {
                             pattern: Pattern::Literal(Literal::Int(5)),
                             guard: None,
-                            body: Box::new(Expr::Literal(Literal::Bool(true))),
+                            body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Bool(true)))),
                         },
                         MatchArm {
                             pattern: Pattern::Wildcard,
                             guard: None,
-                            body: Box::new(Expr::Literal(Literal::Bool(false))),
+                            body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Bool(false)))),
                         },
                     ],
-                },
-                then_block: Box::new(Stmt::Block(vec![Stmt::VariableDecl {
+                }),
+                then_block: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::VariableDecl {
                     name: "result".to_string(),
                     type_hint: None,
-                    value: Expr::Literal(Literal::Int(1)),
+                    value: Expr::dummy(ExprKind::Literal(Literal::Int(1))),
                     is_const: false,
-                }])),
+                })]))),
                 else_block: None,
-            },
+            }),
         ],
     };
     let result = compile_program(program);
@@ -930,33 +930,33 @@ fn test_match_in_return() {
     //     };
     // }
     let program = Program {
-        statements: vec![Stmt::FunctionDef {
+        statements: vec![Stmt::dummy(StmtKind::FunctionDef {
             name: "classify".to_string(),
             params: vec![("x".to_string(), "int".to_string(), None)],
             return_type: Some(vec!["string".to_string()]),
-            body: Box::new(Stmt::Block(vec![Stmt::Return {
-                values: vec![Expr::Match {
-                    value: Box::new(Expr::Identifier("x".to_string())),
+            body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Return {
+                values: vec![Expr::dummy(ExprKind::Match {
+                    value: Box::new(Expr::dummy(ExprKind::Identifier("x".to_string()))),
                     arms: vec![
                         MatchArm {
                             pattern: Pattern::Literal(Literal::Int(0)),
                             guard: None,
-                            body: Box::new(Expr::Literal(Literal::String("zero".to_string()))),
+                            body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("zero".to_string())))),
                         },
                         MatchArm {
                             pattern: Pattern::Literal(Literal::Int(1)),
                             guard: None,
-                            body: Box::new(Expr::Literal(Literal::String("one".to_string()))),
+                            body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("one".to_string())))),
                         },
                         MatchArm {
                             pattern: Pattern::Wildcard,
                             guard: None,
-                            body: Box::new(Expr::Literal(Literal::String("other".to_string()))),
+                            body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("other".to_string())))),
                         },
                     ],
-                }],
-            }])),
-        }],
+                })],
+            })]))),
+        })],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -968,32 +968,32 @@ fn test_match_in_function_argument() {
     // foo(match 5 { 5 -> 10, _ -> 0 })
     let program = Program {
         statements: vec![
-            Stmt::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef {
                 name: "foo".to_string(),
                 params: vec![("x".to_string(), "int".to_string(), None)],
                 return_type: Some(vec!["int".to_string()]),
-                body: Box::new(Stmt::Block(vec![Stmt::Return {
-                    values: vec![Expr::Identifier("x".to_string())],
-                }])),
-            },
-            Stmt::Expr(Expr::Call {
-                func: Box::new(Expr::Identifier("foo".to_string())),
-                args: vec![Expr::Match {
-                    value: Box::new(Expr::Literal(Literal::Int(5))),
+                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Return {
+                    values: vec![Expr::dummy(ExprKind::Identifier("x".to_string()))],
+                })]))),
+            }),
+            Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+                func: Box::new(Expr::dummy(ExprKind::Identifier("foo".to_string()))),
+                args: vec![Expr::dummy(ExprKind::Match {
+                    value: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(5)))),
                     arms: vec![
                         MatchArm {
                             pattern: Pattern::Literal(Literal::Int(5)),
                             guard: None,
-                            body: Box::new(Expr::Literal(Literal::Int(10))),
+                            body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(10)))),
                         },
                         MatchArm {
                             pattern: Pattern::Wildcard,
                             guard: None,
-                            body: Box::new(Expr::Literal(Literal::Int(0))),
+                            body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(0)))),
                         },
                     ],
-                }],
-            }),
+                })],
+            }))),
         ],
     };
     let result = compile_program(program);
@@ -1010,25 +1010,25 @@ fn test_match_with_expression_value() {
     //     _ -> "other"
     // }
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Match {
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Match {
             value: Box::new(binary(
                 BinaryOp::Add,
-                Expr::Literal(Literal::Int(2)),
-                Expr::Literal(Literal::Int(3)),
+                Expr::dummy(ExprKind::Literal(Literal::Int(2))),
+                Expr::dummy(ExprKind::Literal(Literal::Int(3))),
             )),
             arms: vec![
                 MatchArm {
                     pattern: Pattern::Literal(Literal::Int(5)),
                     guard: None,
-                    body: Box::new(Expr::Literal(Literal::String("five".to_string()))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("five".to_string())))),
                 },
                 MatchArm {
                     pattern: Pattern::Wildcard,
                     guard: None,
-                    body: Box::new(Expr::Literal(Literal::String("other".to_string()))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("other".to_string())))),
                 },
             ],
-        })],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -1043,32 +1043,32 @@ fn test_match_with_function_call_value() {
     // }
     let program = Program {
         statements: vec![
-            Stmt::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef {
                 name: "get_num".to_string(),
                 params: vec![],
                 return_type: Some(vec!["int".to_string()]),
-                body: Box::new(Stmt::Block(vec![Stmt::Return {
-                    values: vec![Expr::Literal(Literal::Int(5))],
-                }])),
-            },
-            Stmt::Expr(Expr::Match {
-                value: Box::new(Expr::Call {
-                    func: Box::new(Expr::Identifier("get_num".to_string())),
+                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Return {
+                    values: vec![Expr::dummy(ExprKind::Literal(Literal::Int(5)))],
+                })]))),
+            }),
+            Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Match {
+                value: Box::new(Expr::dummy(ExprKind::Call {
+                    func: Box::new(Expr::dummy(ExprKind::Identifier("get_num".to_string()))),
                     args: vec![],
-                }),
+                })),
                 arms: vec![
                     MatchArm {
                         pattern: Pattern::Literal(Literal::Int(5)),
                         guard: None,
-                        body: Box::new(Expr::Literal(Literal::String("five".to_string()))),
+                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("five".to_string())))),
                     },
                     MatchArm {
                         pattern: Pattern::Wildcard,
                         guard: None,
-                        body: Box::new(Expr::Literal(Literal::String("other".to_string()))),
+                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("other".to_string())))),
                     },
                 ],
-            }),
+            }))),
         ],
     };
     let result = compile_program(program);
@@ -1082,21 +1082,21 @@ fn test_match_all_wildcards() {
     //     _ -> "second"  // Unreachable but should compile
     // }
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Match {
-            value: Box::new(Expr::Literal(Literal::Int(42))),
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Match {
+            value: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(42)))),
             arms: vec![
                 MatchArm {
                     pattern: Pattern::Wildcard,
                     guard: None,
-                    body: Box::new(Expr::Literal(Literal::String("first".to_string()))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("first".to_string())))),
                 },
                 MatchArm {
                     pattern: Pattern::Wildcard,
                     guard: None,
-                    body: Box::new(Expr::Literal(Literal::String("second".to_string()))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("second".to_string())))),
                 },
             ],
-        })],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -1110,16 +1110,16 @@ fn test_match_with_computation_in_arm() {
     //     _ -> 0 - 1
     // }
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Match {
-            value: Box::new(Expr::Literal(Literal::Int(5))),
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Match {
+            value: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(5)))),
             arms: vec![
                 MatchArm {
                     pattern: Pattern::Literal(Literal::Int(1)),
                     guard: None,
                     body: Box::new(binary(
                         BinaryOp::Add,
-                        Expr::Literal(Literal::Int(10)),
-                        Expr::Literal(Literal::Int(20)),
+                        Expr::dummy(ExprKind::Literal(Literal::Int(10))),
+                        Expr::dummy(ExprKind::Literal(Literal::Int(20))),
                     )),
                 },
                 MatchArm {
@@ -1127,8 +1127,8 @@ fn test_match_with_computation_in_arm() {
                     guard: None,
                     body: Box::new(binary(
                         BinaryOp::Mul,
-                        Expr::Literal(Literal::Int(30)),
-                        Expr::Literal(Literal::Int(2)),
+                        Expr::dummy(ExprKind::Literal(Literal::Int(30))),
+                        Expr::dummy(ExprKind::Literal(Literal::Int(2))),
                     )),
                 },
                 MatchArm {
@@ -1136,12 +1136,12 @@ fn test_match_with_computation_in_arm() {
                     guard: None,
                     body: Box::new(binary(
                         BinaryOp::Sub,
-                        Expr::Literal(Literal::Int(0)),
-                        Expr::Literal(Literal::Int(1)),
+                        Expr::dummy(ExprKind::Literal(Literal::Int(0))),
+                        Expr::dummy(ExprKind::Literal(Literal::Int(1))),
                     )),
                 },
             ],
-        })],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -1156,37 +1156,37 @@ fn test_match_binding_same_name_in_arms() {
     // }
     // Same binding name 'x' in multiple arms
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Match {
-            value: Box::new(Expr::Literal(Literal::Int(5))),
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Match {
+            value: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(5)))),
             arms: vec![
                 MatchArm {
                     pattern: Pattern::Binding("x".to_string()),
                     guard: Some(Box::new(binary(
                         BinaryOp::Gt,
-                        Expr::Identifier("x".to_string()),
-                        Expr::Literal(Literal::Int(0)),
+                        Expr::dummy(ExprKind::Identifier("x".to_string())),
+                        Expr::dummy(ExprKind::Literal(Literal::Int(0))),
                     ))),
-                    body: Box::new(Expr::Identifier("x".to_string())),
+                    body: Box::new(Expr::dummy(ExprKind::Identifier("x".to_string()))),
                 },
                 MatchArm {
                     pattern: Pattern::Binding("x".to_string()),
                     guard: Some(Box::new(binary(
                         BinaryOp::Lt,
-                        Expr::Identifier("x".to_string()),
-                        Expr::Literal(Literal::Int(0)),
+                        Expr::dummy(ExprKind::Identifier("x".to_string())),
+                        Expr::dummy(ExprKind::Literal(Literal::Int(0))),
                     ))),
-                    body: Box::new(Expr::Unary {
+                    body: Box::new(Expr::dummy(ExprKind::Unary {
                         op: parser::ast::UnaryOp::Negate,
-                        expr: Box::new(Expr::Identifier("x".to_string())),
-                    }),
+                        expr: Box::new(Expr::dummy(ExprKind::Identifier("x".to_string()))),
+                    })),
                 },
                 MatchArm {
                     pattern: Pattern::Wildcard,
                     guard: None,
-                    body: Box::new(Expr::Literal(Literal::Int(0))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(0)))),
                 },
             ],
-        })],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -1199,33 +1199,33 @@ fn test_match_with_ternary_in_arm() {
     //     _ -> 0
     // }
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Match {
-            value: Box::new(Expr::Literal(Literal::Int(5))),
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Match {
+            value: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(5)))),
             arms: vec![
                 MatchArm {
                     pattern: Pattern::Binding("x".to_string()),
                     guard: Some(Box::new(binary(
                         BinaryOp::Gt,
-                        Expr::Identifier("x".to_string()),
-                        Expr::Literal(Literal::Int(0)),
+                        Expr::dummy(ExprKind::Identifier("x".to_string())),
+                        Expr::dummy(ExprKind::Literal(Literal::Int(0))),
                     ))),
-                    body: Box::new(Expr::Ternary {
+                    body: Box::new(Expr::dummy(ExprKind::Ternary {
                         condition: Box::new(binary(
                             BinaryOp::Gt,
-                            Expr::Identifier("x".to_string()),
-                            Expr::Literal(Literal::Int(10)),
+                            Expr::dummy(ExprKind::Identifier("x".to_string())),
+                            Expr::dummy(ExprKind::Literal(Literal::Int(10))),
                         )),
-                        then_expr: Box::new(Expr::Literal(Literal::Int(10))),
-                        else_expr: Box::new(Expr::Identifier("x".to_string())),
-                    }),
+                        then_expr: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(10)))),
+                        else_expr: Box::new(Expr::dummy(ExprKind::Identifier("x".to_string()))),
+                    })),
                 },
                 MatchArm {
                     pattern: Pattern::Wildcard,
                     guard: None,
-                    body: Box::new(Expr::Literal(Literal::Int(0))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(0)))),
                 },
             ],
-        })],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());

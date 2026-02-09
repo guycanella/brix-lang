@@ -2,7 +2,72 @@
 
 use crate::Compiler;
 use inkwell::context::Context;
-use parser::ast::{BinaryOp, Expr, Literal, Program, Stmt};
+use parser::ast::{BinaryOp, Expr, ExprKind, Literal, Program, Stmt, StmtKind};
+
+// Helper macros for creating AST nodes with dummy spans
+macro_rules! lit_int {
+    ($val:expr) => {
+        Expr::dummy(ExprKind::Literal(Literal::Int($val)))
+    };
+}
+
+macro_rules! lit_float {
+    ($val:expr) => {
+        Expr::dummy(ExprKind::Literal(Literal::Float($val)))
+    };
+}
+
+macro_rules! lit_str {
+    ($val:expr) => {
+        Expr::dummy(ExprKind::Literal(Literal::String($val.to_string())))
+    };
+}
+
+macro_rules! ident {
+    ($name:expr) => {
+        Expr::dummy(ExprKind::Identifier($name.to_string()))
+    };
+}
+
+macro_rules! var_decl {
+    ($name:expr, $value:expr) => {
+        Stmt::dummy(StmtKind::VariableDecl {
+            name: $name.to_string(),
+            type_hint: None,
+            value: $value,
+            is_const: false,
+        })
+    };
+    ($name:expr, $type_hint:expr, $value:expr) => {
+        Stmt::dummy(StmtKind::VariableDecl {
+            name: $name.to_string(),
+            type_hint: Some($type_hint.to_string()),
+            value: $value,
+            is_const: false,
+        })
+    };
+}
+
+macro_rules! assignment {
+    ($target:expr, $value:expr) => {
+        Stmt::dummy(StmtKind::Assignment {
+            target: $target,
+            value: $value,
+        })
+    };
+}
+
+macro_rules! expr_stmt {
+    ($expr:expr) => {
+        Stmt::dummy(StmtKind::Expr($expr))
+    };
+}
+
+macro_rules! block_stmt {
+    ($stmts:expr) => {
+        Stmt::dummy(StmtKind::Block($stmts))
+    };
+}
 
 fn compile_program(program: Program) -> Result<String, String> {
     let result = std::panic::catch_unwind(|| {
@@ -21,22 +86,22 @@ fn compile_program(program: Program) -> Result<String, String> {
 
 // Helper function to create binary operations
 fn binary(op: BinaryOp, lhs: Expr, rhs: Expr) -> Expr {
-    Expr::Binary {
+    Expr::dummy(ExprKind::Binary {
         op,
         lhs: Box::new(lhs),
         rhs: Box::new(rhs),
-    }
+    })
 }
 
 #[test]
 fn test_variable_decl_inferred() {
     let program = Program {
-        statements: vec![Stmt::VariableDecl {
+        statements: vec![Stmt::dummy(StmtKind::VariableDecl {
             name: "x".to_string(),
             type_hint: None,
-            value: Expr::Literal(Literal::Int(10)),
+            value: Expr::dummy(ExprKind::Literal(Literal::Int(10))),
             is_const: false,
-        }],
+        })],
     };
     let ir = compile_program(program).unwrap();
     assert!(ir.contains("alloca") || ir.contains("store"));
@@ -45,12 +110,12 @@ fn test_variable_decl_inferred() {
 #[test]
 fn test_variable_decl_explicit_type() {
     let program = Program {
-        statements: vec![Stmt::VariableDecl {
+        statements: vec![Stmt::dummy(StmtKind::VariableDecl {
             name: "x".to_string(),
             type_hint: Some("int".to_string()),
-            value: Expr::Literal(Literal::Int(42)),
+            value: Expr::dummy(ExprKind::Literal(Literal::Int(42))),
             is_const: false,
-        }],
+        })],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -60,16 +125,16 @@ fn test_variable_decl_explicit_type() {
 fn test_assignment() {
     let program = Program {
         statements: vec![
-            Stmt::VariableDecl {
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "x".to_string(),
                 type_hint: None,
-                value: Expr::Literal(Literal::Int(10)),
+                value: Expr::dummy(ExprKind::Literal(Literal::Int(10))),
                 is_const: false,
-            },
-            Stmt::Assignment {
-                target: Expr::Identifier("x".to_string()),
-                value: Expr::Literal(Literal::Int(20)),
-            },
+            }),
+            Stmt::dummy(StmtKind::Assignment {
+                target: Expr::dummy(ExprKind::Identifier("x".to_string())),
+                value: Expr::dummy(ExprKind::Literal(Literal::Int(20))),
+            }),
         ],
     };
     let ir = compile_program(program).unwrap();
@@ -79,10 +144,10 @@ fn test_assignment() {
 #[test]
 fn test_block_statement() {
     let program = Program {
-        statements: vec![Stmt::Block(vec![
-            Stmt::Expr(Expr::Literal(Literal::Int(1))),
-            Stmt::Expr(Expr::Literal(Literal::Int(2))),
-        ])],
+        statements: vec![Stmt::dummy(StmtKind::Block(vec![
+            Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Literal(Literal::Int(1))))),
+            Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Literal(Literal::Int(2))))),
+        ]))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -91,14 +156,14 @@ fn test_block_statement() {
 #[test]
 fn test_return_statement() {
     let program = Program {
-        statements: vec![Stmt::FunctionDef {
+        statements: vec![Stmt::dummy(StmtKind::FunctionDef {
             name: "test_fn".to_string(),
             params: vec![],
             return_type: Some(vec!["int".to_string()]),
-            body: Box::new(Stmt::Return {
-                values: vec![Expr::Literal(Literal::Int(42))],
-            }),
-        }],
+            body: Box::new(Stmt::dummy(StmtKind::Return {
+                values: vec![Expr::dummy(ExprKind::Literal(Literal::Int(42)))],
+            })),
+        })],
     };
     let ir = compile_program(program).unwrap();
     assert!(ir.contains("ret"));
@@ -108,12 +173,12 @@ fn test_return_statement() {
 #[test]
 fn test_var_decl_infer_float() {
     let program = Program {
-        statements: vec![Stmt::VariableDecl {
+        statements: vec![Stmt::dummy(StmtKind::VariableDecl {
             name: "pi".to_string(),
             type_hint: None,
-            value: Expr::Literal(Literal::Float(3.14)),
+            value: Expr::dummy(ExprKind::Literal(Literal::Float(3.14))),
             is_const: false,
-        }],
+        })],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -122,12 +187,12 @@ fn test_var_decl_infer_float() {
 #[test]
 fn test_var_decl_infer_string() {
     let program = Program {
-        statements: vec![Stmt::VariableDecl {
+        statements: vec![Stmt::dummy(StmtKind::VariableDecl {
             name: "msg".to_string(),
             type_hint: None,
-            value: Expr::Literal(Literal::String("hello".to_string())),
+            value: Expr::dummy(ExprKind::Literal(Literal::String("hello".to_string()))),
             is_const: false,
-        }],
+        })],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -136,16 +201,16 @@ fn test_var_decl_infer_string() {
 #[test]
 fn test_var_decl_infer_intmatrix() {
     let program = Program {
-        statements: vec![Stmt::VariableDecl {
+        statements: vec![Stmt::dummy(StmtKind::VariableDecl {
             name: "arr".to_string(),
             type_hint: None,
-            value: Expr::Array(vec![
-                Expr::Literal(Literal::Int(1)),
-                Expr::Literal(Literal::Int(2)),
-                Expr::Literal(Literal::Int(3)),
-            ]),
+            value: Expr::dummy(ExprKind::Array(vec![
+                Expr::dummy(ExprKind::Literal(Literal::Int(1))),
+                Expr::dummy(ExprKind::Literal(Literal::Int(2))),
+                Expr::dummy(ExprKind::Literal(Literal::Int(3))),
+            ])),
             is_const: false,
-        }],
+        })],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -154,15 +219,15 @@ fn test_var_decl_infer_intmatrix() {
 #[test]
 fn test_var_decl_infer_matrix() {
     let program = Program {
-        statements: vec![Stmt::VariableDecl {
+        statements: vec![Stmt::dummy(StmtKind::VariableDecl {
             name: "arr".to_string(),
             type_hint: None,
-            value: Expr::Array(vec![
-                Expr::Literal(Literal::Float(1.0)),
-                Expr::Literal(Literal::Float(2.0)),
-            ]),
+            value: Expr::dummy(ExprKind::Array(vec![
+                Expr::dummy(ExprKind::Literal(Literal::Float(1.0))),
+                Expr::dummy(ExprKind::Literal(Literal::Float(2.0))),
+            ])),
             is_const: false,
-        }],
+        })],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -171,12 +236,12 @@ fn test_var_decl_infer_matrix() {
 #[test]
 fn test_var_decl_infer_atom() {
     let program = Program {
-        statements: vec![Stmt::VariableDecl {
+        statements: vec![Stmt::dummy(StmtKind::VariableDecl {
             name: "status".to_string(),
             type_hint: None,
-            value: Expr::Literal(Literal::Atom("ok".to_string())),
+            value: Expr::dummy(ExprKind::Literal(Literal::Atom("ok".to_string()))),
             is_const: false,
-        }],
+        })],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -185,12 +250,12 @@ fn test_var_decl_infer_atom() {
 #[test]
 fn test_var_decl_infer_complex() {
     let program = Program {
-        statements: vec![Stmt::VariableDecl {
+        statements: vec![Stmt::dummy(StmtKind::VariableDecl {
             name: "z".to_string(),
             type_hint: None,
-            value: Expr::Literal(Literal::Complex(3.0, 4.0)),
+            value: Expr::dummy(ExprKind::Literal(Literal::Complex(3.0, 4.0))),
             is_const: false,
-        }],
+        })],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -201,12 +266,12 @@ fn test_var_decl_infer_complex() {
 #[test]
 fn test_var_decl_cast_int_to_float() {
     let program = Program {
-        statements: vec![Stmt::VariableDecl {
+        statements: vec![Stmt::dummy(StmtKind::VariableDecl {
             name: "x".to_string(),
             type_hint: Some("float".to_string()),
-            value: Expr::Literal(Literal::Int(10)),
+            value: Expr::dummy(ExprKind::Literal(Literal::Int(10))),
             is_const: false,
-        }],
+        })],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -215,12 +280,12 @@ fn test_var_decl_cast_int_to_float() {
 #[test]
 fn test_var_decl_cast_float_to_int() {
     let program = Program {
-        statements: vec![Stmt::VariableDecl {
+        statements: vec![Stmt::dummy(StmtKind::VariableDecl {
             name: "x".to_string(),
             type_hint: Some("int".to_string()),
-            value: Expr::Literal(Literal::Float(3.14)),
+            value: Expr::dummy(ExprKind::Literal(Literal::Float(3.14))),
             is_const: false,
-        }],
+        })],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -231,12 +296,12 @@ fn test_var_decl_cast_float_to_int() {
 #[test]
 fn test_const_declaration() {
     let program = Program {
-        statements: vec![Stmt::VariableDecl {
+        statements: vec![Stmt::dummy(StmtKind::VariableDecl {
             name: "MAX".to_string(),
             type_hint: None,
-            value: Expr::Literal(Literal::Int(100)),
+            value: Expr::dummy(ExprKind::Literal(Literal::Int(100))),
             is_const: true,
-        }],
+        })],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -248,20 +313,20 @@ fn test_const_declaration() {
 fn test_assignment_add_compound() {
     let program = Program {
         statements: vec![
-            Stmt::VariableDecl {
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "x".to_string(),
                 type_hint: None,
-                value: Expr::Literal(Literal::Int(10)),
+                value: Expr::dummy(ExprKind::Literal(Literal::Int(10))),
                 is_const: false,
-            },
-            Stmt::Assignment {
-                target: Expr::Identifier("x".to_string()),
-                value: Expr::Binary {
+            }),
+            Stmt::dummy(StmtKind::Assignment {
+                target: Expr::dummy(ExprKind::Identifier("x".to_string())),
+                value: Expr::dummy(ExprKind::Binary {
                     op: parser::ast::BinaryOp::Add,
-                    lhs: Box::new(Expr::Identifier("x".to_string())),
-                    rhs: Box::new(Expr::Literal(Literal::Int(5))),
-                },
-            },
+                    lhs: Box::new(Expr::dummy(ExprKind::Identifier("x".to_string()))),
+                    rhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(5)))),
+                }),
+            }),
         ],
     };
     let result = compile_program(program);
@@ -272,22 +337,22 @@ fn test_assignment_add_compound() {
 fn test_assignment_to_array_element() {
     let program = Program {
         statements: vec![
-            Stmt::VariableDecl {
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "arr".to_string(),
                 type_hint: None,
-                value: Expr::Array(vec![
-                    Expr::Literal(Literal::Int(1)),
-                    Expr::Literal(Literal::Int(2)),
-                ]),
+                value: Expr::dummy(ExprKind::Array(vec![
+                    Expr::dummy(ExprKind::Literal(Literal::Int(1))),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(2))),
+                ])),
                 is_const: false,
-            },
-            Stmt::Assignment {
-                target: Expr::Index {
-                    array: Box::new(Expr::Identifier("arr".to_string())),
-                    indices: vec!(Expr::Literal(Literal::Int(0))),
-                },
-                value: Expr::Literal(Literal::Int(10)),
-            },
+            }),
+            Stmt::dummy(StmtKind::Assignment {
+                target: Expr::dummy(ExprKind::Index {
+                    array: Box::new(Expr::dummy(ExprKind::Identifier("arr".to_string()))),
+                    indices: vec!(Expr::dummy(ExprKind::Literal(Literal::Int(0)))),
+                }),
+                value: Expr::dummy(ExprKind::Literal(Literal::Int(10))),
+            }),
         ],
     };
     let result = compile_program(program);
@@ -298,28 +363,28 @@ fn test_assignment_to_array_element() {
 fn test_assignment_to_matrix_element() {
     let program = Program {
         statements: vec![
-            Stmt::VariableDecl {
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "mat".to_string(),
                 type_hint: None,
-                value: Expr::Call {
-                    func: Box::new(Expr::Identifier("zeros".to_string())),
+                value: Expr::dummy(ExprKind::Call {
+                    func: Box::new(Expr::dummy(ExprKind::Identifier("zeros".to_string()))),
                     args: vec![
-                        Expr::Literal(Literal::Int(2)),
-                        Expr::Literal(Literal::Int(2)),
+                        Expr::dummy(ExprKind::Literal(Literal::Int(2))),
+                        Expr::dummy(ExprKind::Literal(Literal::Int(2))),
                     ],
-                },
+                }),
                 is_const: false,
-            },
-            Stmt::Assignment {
-                target: Expr::Index {
-                    array: Box::new(Expr::Index {
-                        array: Box::new(Expr::Identifier("mat".to_string())),
-                        indices: vec!(Expr::Literal(Literal::Int(0))),
-                    }),
-                    indices: vec!(Expr::Literal(Literal::Int(0))),
-                },
-                value: Expr::Literal(Literal::Float(5.5)),
-            },
+            }),
+            Stmt::dummy(StmtKind::Assignment {
+                target: Expr::dummy(ExprKind::Index {
+                    array: Box::new(Expr::dummy(ExprKind::Index {
+                        array: Box::new(Expr::dummy(ExprKind::Identifier("mat".to_string()))),
+                        indices: vec!(Expr::dummy(ExprKind::Literal(Literal::Int(0)))),
+                    })),
+                    indices: vec!(Expr::dummy(ExprKind::Literal(Literal::Int(0)))),
+                }),
+                value: Expr::dummy(ExprKind::Literal(Literal::Float(5.5))),
+            }),
         ],
     };
     let result = compile_program(program);
@@ -331,10 +396,10 @@ fn test_assignment_to_matrix_element() {
 #[test]
 fn test_import_statement() {
     let program = Program {
-        statements: vec![Stmt::Import {
+        statements: vec![Stmt::dummy(StmtKind::Import {
             module: "math".to_string(),
             alias: None,
-        }],
+        })],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -343,10 +408,10 @@ fn test_import_statement() {
 #[test]
 fn test_import_with_alias_stmt() {
     let program = Program {
-        statements: vec![Stmt::Import {
+        statements: vec![Stmt::dummy(StmtKind::Import {
             module: "math".to_string(),
             alias: Some("m".to_string()),
-        }],
+        })],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -356,14 +421,14 @@ fn test_import_with_alias_stmt() {
 fn test_multiple_imports() {
     let program = Program {
         statements: vec![
-            Stmt::Import {
+            Stmt::dummy(StmtKind::Import {
                 module: "math".to_string(),
                 alias: None,
-            },
-            Stmt::Import {
+            }),
+            Stmt::dummy(StmtKind::Import {
                 module: "math".to_string(),
                 alias: Some("m".to_string()),
-            },
+            }),
         ],
     };
     let result = compile_program(program);
@@ -375,10 +440,10 @@ fn test_multiple_imports() {
 #[test]
 fn test_function_call_as_statement() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::Identifier("print".to_string())),
-            args: vec![Expr::Literal(Literal::String("hello".to_string()))],
-        })],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("print".to_string()))),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::String("hello".to_string())))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -388,16 +453,16 @@ fn test_function_call_as_statement() {
 fn test_increment_as_statement() {
     let program = Program {
         statements: vec![
-            Stmt::VariableDecl {
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "x".to_string(),
                 type_hint: None,
-                value: Expr::Literal(Literal::Int(0)),
+                value: Expr::dummy(ExprKind::Literal(Literal::Int(0))),
                 is_const: false,
-            },
-            Stmt::Expr(Expr::Increment {
-                expr: Box::new(Expr::Identifier("x".to_string())),
-                is_prefix: true,
             }),
+            Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Increment {
+                expr: Box::new(Expr::dummy(ExprKind::Identifier("x".to_string()))),
+                is_prefix: true,
+            }))),
         ],
     };
     let result = compile_program(program);
@@ -408,16 +473,16 @@ fn test_increment_as_statement() {
 fn test_decrement_as_statement() {
     let program = Program {
         statements: vec![
-            Stmt::VariableDecl {
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "x".to_string(),
                 type_hint: None,
-                value: Expr::Literal(Literal::Int(10)),
+                value: Expr::dummy(ExprKind::Literal(Literal::Int(10))),
                 is_const: false,
-            },
-            Stmt::Expr(Expr::Decrement {
-                expr: Box::new(Expr::Identifier("x".to_string())),
-                is_prefix: false,
             }),
+            Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Decrement {
+                expr: Box::new(Expr::dummy(ExprKind::Identifier("x".to_string()))),
+                is_prefix: false,
+            }))),
         ],
     };
     let result = compile_program(program);
@@ -429,9 +494,9 @@ fn test_decrement_as_statement() {
 #[test]
 fn test_print_statement() {
     let program = Program {
-        statements: vec![Stmt::Print {
-            expr: Expr::Literal(Literal::String("test".to_string())),
-        }],
+        statements: vec![Stmt::dummy(StmtKind::Print {
+            expr: Expr::dummy(ExprKind::Literal(Literal::String("test".to_string()))),
+        })],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -440,9 +505,9 @@ fn test_print_statement() {
 #[test]
 fn test_println_statement() {
     let program = Program {
-        statements: vec![Stmt::Println {
-            expr: Expr::Literal(Literal::Int(42)),
-        }],
+        statements: vec![Stmt::dummy(StmtKind::Println {
+            expr: Expr::dummy(ExprKind::Literal(Literal::Int(42))),
+        })],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -454,24 +519,24 @@ fn test_println_statement() {
 fn test_multiple_variable_declarations() {
     let program = Program {
         statements: vec![
-            Stmt::VariableDecl {
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "x".to_string(),
                 type_hint: None,
-                value: Expr::Literal(Literal::Int(10)),
+                value: Expr::dummy(ExprKind::Literal(Literal::Int(10))),
                 is_const: false,
-            },
-            Stmt::VariableDecl {
+            }),
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "y".to_string(),
                 type_hint: None,
-                value: Expr::Literal(Literal::Int(20)),
+                value: Expr::dummy(ExprKind::Literal(Literal::Int(20))),
                 is_const: false,
-            },
-            Stmt::VariableDecl {
+            }),
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "z".to_string(),
                 type_hint: None,
-                value: Expr::Literal(Literal::Int(30)),
+                value: Expr::dummy(ExprKind::Literal(Literal::Int(30))),
                 is_const: false,
-            },
+            }),
         ],
     };
     let result = compile_program(program);
@@ -482,20 +547,20 @@ fn test_multiple_variable_declarations() {
 fn test_sequential_assignments() {
     let program = Program {
         statements: vec![
-            Stmt::VariableDecl {
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "x".to_string(),
                 type_hint: None,
-                value: Expr::Literal(Literal::Int(1)),
+                value: Expr::dummy(ExprKind::Literal(Literal::Int(1))),
                 is_const: false,
-            },
-            Stmt::Assignment {
-                target: Expr::Identifier("x".to_string()),
-                value: Expr::Literal(Literal::Int(2)),
-            },
-            Stmt::Assignment {
-                target: Expr::Identifier("x".to_string()),
-                value: Expr::Literal(Literal::Int(3)),
-            },
+            }),
+            Stmt::dummy(StmtKind::Assignment {
+                target: Expr::dummy(ExprKind::Identifier("x".to_string())),
+                value: Expr::dummy(ExprKind::Literal(Literal::Int(2))),
+            }),
+            Stmt::dummy(StmtKind::Assignment {
+                target: Expr::dummy(ExprKind::Identifier("x".to_string())),
+                value: Expr::dummy(ExprKind::Literal(Literal::Int(3))),
+            }),
         ],
     };
     let result = compile_program(program);
@@ -507,14 +572,14 @@ fn test_sequential_assignments() {
 #[test]
 fn test_nested_blocks() {
     let program = Program {
-        statements: vec![Stmt::Block(vec![
-            Stmt::Block(vec![
-                Stmt::Expr(Expr::Literal(Literal::Int(1))),
-            ]),
-            Stmt::Block(vec![
-                Stmt::Expr(Expr::Literal(Literal::Int(2))),
-            ]),
-        ])],
+        statements: vec![Stmt::dummy(StmtKind::Block(vec![
+            Stmt::dummy(StmtKind::Block(vec![
+                Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Literal(Literal::Int(1))))),
+            ])),
+            Stmt::dummy(StmtKind::Block(vec![
+                Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Literal(Literal::Int(2))))),
+            ])),
+        ]))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -526,25 +591,25 @@ fn test_nested_blocks() {
 fn test_destructuring_declaration() {
     let program = Program {
         statements: vec![
-            Stmt::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef {
                 name: "get_pair".to_string(),
                 params: vec![],
                 return_type: Some(vec!["int".to_string(), "int".to_string()]),
-                body: Box::new(Stmt::Return {
+                body: Box::new(Stmt::dummy(StmtKind::Return {
                     values: vec![
-                        Expr::Literal(Literal::Int(1)),
-                        Expr::Literal(Literal::Int(2)),
+                        Expr::dummy(ExprKind::Literal(Literal::Int(1))),
+                        Expr::dummy(ExprKind::Literal(Literal::Int(2))),
                     ],
-                }),
-            },
-            Stmt::DestructuringDecl {
+                })),
+            }),
+            Stmt::dummy(StmtKind::DestructuringDecl {
                 is_const: false,
                 names: vec!["a".to_string(), "b".to_string()],
-                value: Expr::Call {
-                    func: Box::new(Expr::Identifier("get_pair".to_string())),
+                value: Expr::dummy(ExprKind::Call {
+                    func: Box::new(Expr::dummy(ExprKind::Identifier("get_pair".to_string()))),
                     args: vec![],
-                },
-            },
+                }),
+            }),
         ],
     };
     let result = compile_program(program);
@@ -555,7 +620,7 @@ fn test_destructuring_declaration() {
 fn test_destructuring_with_ignore() {
     let program = Program {
         statements: vec![
-            Stmt::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef {
                 name: "get_triple".to_string(),
                 params: vec![],
                 return_type: Some(vec![
@@ -563,22 +628,22 @@ fn test_destructuring_with_ignore() {
                     "int".to_string(),
                     "int".to_string(),
                 ]),
-                body: Box::new(Stmt::Return {
+                body: Box::new(Stmt::dummy(StmtKind::Return {
                     values: vec![
-                        Expr::Literal(Literal::Int(1)),
-                        Expr::Literal(Literal::Int(2)),
-                        Expr::Literal(Literal::Int(3)),
+                        Expr::dummy(ExprKind::Literal(Literal::Int(1))),
+                        Expr::dummy(ExprKind::Literal(Literal::Int(2))),
+                        Expr::dummy(ExprKind::Literal(Literal::Int(3))),
                     ],
-                }),
-            },
-            Stmt::DestructuringDecl {
+                })),
+            }),
+            Stmt::dummy(StmtKind::DestructuringDecl {
                 is_const: false,
                 names: vec!["x".to_string(), "_".to_string(), "z".to_string()],
-                value: Expr::Call {
-                    func: Box::new(Expr::Identifier("get_triple".to_string())),
+                value: Expr::dummy(ExprKind::Call {
+                    func: Box::new(Expr::dummy(ExprKind::Identifier("get_triple".to_string()))),
                     args: vec![],
-                },
-            },
+                }),
+            }),
         ],
     };
     let result = compile_program(program);
@@ -591,12 +656,12 @@ fn test_destructuring_with_ignore() {
 fn test_var_decl_infer_nil() {
     // var x := nil;
     let program = Program {
-        statements: vec![Stmt::VariableDecl {
+        statements: vec![Stmt::dummy(StmtKind::VariableDecl {
             name: "x".to_string(),
             type_hint: None,
-            value: Expr::Literal(Literal::Nil),
+            value: Expr::dummy(ExprKind::Literal(Literal::Nil)),
             is_const: false,
-        }],
+        })],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -610,20 +675,20 @@ fn test_assignment_sub_compound() {
     // x -= 3;
     let program = Program {
         statements: vec![
-            Stmt::VariableDecl {
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "x".to_string(),
                 type_hint: None,
-                value: Expr::Literal(Literal::Int(10)),
+                value: Expr::dummy(ExprKind::Literal(Literal::Int(10))),
                 is_const: false,
-            },
-            Stmt::Assignment {
-                target: Expr::Identifier("x".to_string()),
+            }),
+            Stmt::dummy(StmtKind::Assignment {
+                target: Expr::dummy(ExprKind::Identifier("x".to_string())),
                 value: binary(
                     BinaryOp::Sub,
-                    Expr::Identifier("x".to_string()),
-                    Expr::Literal(Literal::Int(3)),
+                    Expr::dummy(ExprKind::Identifier("x".to_string())),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(3))),
                 ),
-            },
+            }),
         ],
     };
     let result = compile_program(program);
@@ -636,20 +701,20 @@ fn test_assignment_mul_compound() {
     // x *= 2;
     let program = Program {
         statements: vec![
-            Stmt::VariableDecl {
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "x".to_string(),
                 type_hint: None,
-                value: Expr::Literal(Literal::Int(5)),
+                value: Expr::dummy(ExprKind::Literal(Literal::Int(5))),
                 is_const: false,
-            },
-            Stmt::Assignment {
-                target: Expr::Identifier("x".to_string()),
+            }),
+            Stmt::dummy(StmtKind::Assignment {
+                target: Expr::dummy(ExprKind::Identifier("x".to_string())),
                 value: binary(
                     BinaryOp::Mul,
-                    Expr::Identifier("x".to_string()),
-                    Expr::Literal(Literal::Int(2)),
+                    Expr::dummy(ExprKind::Identifier("x".to_string())),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(2))),
                 ),
-            },
+            }),
         ],
     };
     let result = compile_program(program);
@@ -662,20 +727,20 @@ fn test_assignment_div_compound() {
     // x /= 4;
     let program = Program {
         statements: vec![
-            Stmt::VariableDecl {
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "x".to_string(),
                 type_hint: None,
-                value: Expr::Literal(Literal::Int(20)),
+                value: Expr::dummy(ExprKind::Literal(Literal::Int(20))),
                 is_const: false,
-            },
-            Stmt::Assignment {
-                target: Expr::Identifier("x".to_string()),
+            }),
+            Stmt::dummy(StmtKind::Assignment {
+                target: Expr::dummy(ExprKind::Identifier("x".to_string())),
                 value: binary(
                     BinaryOp::Div,
-                    Expr::Identifier("x".to_string()),
-                    Expr::Literal(Literal::Int(4)),
+                    Expr::dummy(ExprKind::Identifier("x".to_string())),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(4))),
                 ),
-            },
+            }),
         ],
     };
     let result = compile_program(program);
@@ -688,20 +753,20 @@ fn test_assignment_mod_compound() {
     // x %= 5;
     let program = Program {
         statements: vec![
-            Stmt::VariableDecl {
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "x".to_string(),
                 type_hint: None,
-                value: Expr::Literal(Literal::Int(17)),
+                value: Expr::dummy(ExprKind::Literal(Literal::Int(17))),
                 is_const: false,
-            },
-            Stmt::Assignment {
-                target: Expr::Identifier("x".to_string()),
+            }),
+            Stmt::dummy(StmtKind::Assignment {
+                target: Expr::dummy(ExprKind::Identifier("x".to_string())),
                 value: binary(
                     BinaryOp::Mod,
-                    Expr::Identifier("x".to_string()),
-                    Expr::Literal(Literal::Int(5)),
+                    Expr::dummy(ExprKind::Identifier("x".to_string())),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(5))),
                 ),
-            },
+            }),
         ],
     };
     let result = compile_program(program);
@@ -717,26 +782,26 @@ fn test_multiple_assignments_same_line() {
     // x = y = 5;  // Simulated as: y = 5; x = y;
     let program = Program {
         statements: vec![
-            Stmt::VariableDecl {
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "x".to_string(),
                 type_hint: None,
-                value: Expr::Literal(Literal::Int(10)),
+                value: Expr::dummy(ExprKind::Literal(Literal::Int(10))),
                 is_const: false,
-            },
-            Stmt::VariableDecl {
+            }),
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "y".to_string(),
                 type_hint: None,
-                value: Expr::Literal(Literal::Int(20)),
+                value: Expr::dummy(ExprKind::Literal(Literal::Int(20))),
                 is_const: false,
-            },
-            Stmt::Assignment {
-                target: Expr::Identifier("y".to_string()),
-                value: Expr::Literal(Literal::Int(5)),
-            },
-            Stmt::Assignment {
-                target: Expr::Identifier("x".to_string()),
-                value: Expr::Identifier("y".to_string()),
-            },
+            }),
+            Stmt::dummy(StmtKind::Assignment {
+                target: Expr::dummy(ExprKind::Identifier("y".to_string())),
+                value: Expr::dummy(ExprKind::Literal(Literal::Int(5))),
+            }),
+            Stmt::dummy(StmtKind::Assignment {
+                target: Expr::dummy(ExprKind::Identifier("x".to_string())),
+                value: Expr::dummy(ExprKind::Identifier("y".to_string())),
+            }),
         ],
     };
     let result = compile_program(program);
@@ -749,24 +814,24 @@ fn test_assignment_with_expression() {
     // x = x * 2 + 5;
     let program = Program {
         statements: vec![
-            Stmt::VariableDecl {
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "x".to_string(),
                 type_hint: None,
-                value: Expr::Literal(Literal::Int(10)),
+                value: Expr::dummy(ExprKind::Literal(Literal::Int(10))),
                 is_const: false,
-            },
-            Stmt::Assignment {
-                target: Expr::Identifier("x".to_string()),
+            }),
+            Stmt::dummy(StmtKind::Assignment {
+                target: Expr::dummy(ExprKind::Identifier("x".to_string())),
                 value: binary(
                     BinaryOp::Add,
                     binary(
                         BinaryOp::Mul,
-                        Expr::Identifier("x".to_string()),
-                        Expr::Literal(Literal::Int(2)),
+                        Expr::dummy(ExprKind::Identifier("x".to_string())),
+                        Expr::dummy(ExprKind::Literal(Literal::Int(2))),
                     ),
-                    Expr::Literal(Literal::Int(5)),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(5))),
                 ),
-            },
+            }),
         ],
     };
     let result = compile_program(program);
@@ -777,20 +842,20 @@ fn test_assignment_with_expression() {
 fn test_const_with_expression() {
     // const result := 2 + 3 * 4;
     let program = Program {
-        statements: vec![Stmt::VariableDecl {
+        statements: vec![Stmt::dummy(StmtKind::VariableDecl {
             name: "result".to_string(),
             type_hint: None,
             value: binary(
                 BinaryOp::Add,
-                Expr::Literal(Literal::Int(2)),
+                Expr::dummy(ExprKind::Literal(Literal::Int(2))),
                 binary(
                     BinaryOp::Mul,
-                    Expr::Literal(Literal::Int(3)),
-                    Expr::Literal(Literal::Int(4)),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(3))),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(4))),
                 ),
             ),
             is_const: true,
-        }],
+        })],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -803,20 +868,20 @@ fn test_variable_reassignment() {
     // x = 30;
     let program = Program {
         statements: vec![
-            Stmt::VariableDecl {
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "x".to_string(),
                 type_hint: None,
-                value: Expr::Literal(Literal::Int(10)),
+                value: Expr::dummy(ExprKind::Literal(Literal::Int(10))),
                 is_const: false,
-            },
-            Stmt::Assignment {
-                target: Expr::Identifier("x".to_string()),
-                value: Expr::Literal(Literal::Int(20)),
-            },
-            Stmt::Assignment {
-                target: Expr::Identifier("x".to_string()),
-                value: Expr::Literal(Literal::Int(30)),
-            },
+            }),
+            Stmt::dummy(StmtKind::Assignment {
+                target: Expr::dummy(ExprKind::Identifier("x".to_string())),
+                value: Expr::dummy(ExprKind::Literal(Literal::Int(20))),
+            }),
+            Stmt::dummy(StmtKind::Assignment {
+                target: Expr::dummy(ExprKind::Identifier("x".to_string())),
+                value: Expr::dummy(ExprKind::Literal(Literal::Int(30))),
+            }),
         ],
     };
     let result = compile_program(program);
@@ -829,23 +894,23 @@ fn test_assignment_from_function_result() {
     // var x := get_value();
     let program = Program {
         statements: vec![
-            Stmt::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef {
                 name: "get_value".to_string(),
                 params: vec![],
                 return_type: Some(vec!["int".to_string()]),
-                body: Box::new(Stmt::Block(vec![Stmt::Return {
-                    values: vec![Expr::Literal(Literal::Int(42))],
-                }])),
-            },
-            Stmt::VariableDecl {
+                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Return {
+                    values: vec![Expr::dummy(ExprKind::Literal(Literal::Int(42)))],
+                })]))),
+            }),
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "x".to_string(),
                 type_hint: None,
-                value: Expr::Call {
-                    func: Box::new(Expr::Identifier("get_value".to_string())),
+                value: Expr::dummy(ExprKind::Call {
+                    func: Box::new(Expr::dummy(ExprKind::Identifier("get_value".to_string()))),
                     args: vec![],
-                },
+                }),
                 is_const: false,
-            },
+            }),
         ],
     };
     let result = compile_program(program);

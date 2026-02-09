@@ -2,7 +2,7 @@
 
 use crate::Compiler;
 use inkwell::context::Context;
-use parser::ast::{BinaryOp, Expr, Literal, Program, Stmt};
+use parser::ast::{BinaryOp, Expr, Literal, Program, Stmt, ExprKind, StmtKind};
 
 fn compile_program(program: Program) -> Result<String, String> {
     let result = std::panic::catch_unwind(|| {
@@ -22,7 +22,7 @@ fn compile_program(program: Program) -> Result<String, String> {
 #[test]
 fn test_complex_literal() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Literal(Literal::Complex(3.0, 4.0)))],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Literal(Literal::Complex(3.0, 4.0)))))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -31,7 +31,7 @@ fn test_complex_literal() {
 #[test]
 fn test_imaginary_literal() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Literal(Literal::Complex(0.0, 2.0)))],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Literal(Literal::Complex(0.0, 2.0)))))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -40,11 +40,11 @@ fn test_imaginary_literal() {
 #[test]
 fn test_complex_addition() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Binary {
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Binary {
             op: BinaryOp::Add,
-            lhs: Box::new(Expr::Literal(Literal::Complex(1.0, 2.0))),
-            rhs: Box::new(Expr::Literal(Literal::Complex(3.0, 4.0))),
-        })],
+            lhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Complex(1.0, 2.0)))),
+            rhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Complex(3.0, 4.0)))),
+        })))],
     };
     let ir = compile_program(program).unwrap();
     assert!(ir.contains("complex_add") || ir.contains("call"));
@@ -53,11 +53,11 @@ fn test_complex_addition() {
 #[test]
 fn test_complex_multiplication() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Binary {
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Binary {
             op: BinaryOp::Mul,
-            lhs: Box::new(Expr::Literal(Literal::Complex(1.0, 1.0))),
-            rhs: Box::new(Expr::Literal(Literal::Complex(1.0, 1.0))),
-        })],
+            lhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Complex(1.0, 1.0)))),
+            rhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Complex(1.0, 1.0)))),
+        })))],
     };
     let ir = compile_program(program).unwrap();
     assert!(ir.contains("complex_mul") || ir.contains("call"));
@@ -67,11 +67,11 @@ fn test_complex_multiplication() {
 #[test]
 fn test_complex_subtraction() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Binary {
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Binary {
             op: BinaryOp::Sub,
-            lhs: Box::new(Expr::Literal(Literal::Complex(5.0, 6.0))),
-            rhs: Box::new(Expr::Literal(Literal::Complex(2.0, 3.0))),
-        })],
+            lhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Complex(5.0, 6.0)))),
+            rhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Complex(2.0, 3.0)))),
+        })))],
     };
     let ir = compile_program(program).unwrap();
     assert!(ir.contains("complex_sub") || ir.contains("call"));
@@ -80,11 +80,11 @@ fn test_complex_subtraction() {
 #[test]
 fn test_complex_division() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Binary {
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Binary {
             op: BinaryOp::Div,
-            lhs: Box::new(Expr::Literal(Literal::Complex(4.0, 2.0))),
-            rhs: Box::new(Expr::Literal(Literal::Complex(1.0, 1.0))),
-        })],
+            lhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Complex(4.0, 2.0)))),
+            rhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Complex(1.0, 1.0)))),
+        })))],
     };
     let ir = compile_program(program).unwrap();
     assert!(ir.contains("complex_div") || ir.contains("call"));
@@ -93,11 +93,11 @@ fn test_complex_division() {
 #[test]
 fn test_complex_power() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Binary {
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Binary {
             op: BinaryOp::Pow,
-            lhs: Box::new(Expr::Literal(Literal::Complex(2.0, 0.0))),
-            rhs: Box::new(Expr::Literal(Literal::Float(3.0))),
-        })],
+            lhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Complex(2.0, 0.0)))),
+            rhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Float(3.0)))),
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -108,11 +108,11 @@ fn test_complex_power() {
 #[test]
 fn test_float_plus_complex() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Binary {
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Binary {
             op: BinaryOp::Add,
-            lhs: Box::new(Expr::Literal(Literal::Float(5.0))),
-            rhs: Box::new(Expr::Literal(Literal::Complex(3.0, 4.0))),
-        })],
+            lhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Float(5.0)))),
+            rhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Complex(3.0, 4.0)))),
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -121,11 +121,11 @@ fn test_float_plus_complex() {
 #[test]
 fn test_complex_plus_float() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Binary {
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Binary {
             op: BinaryOp::Add,
-            lhs: Box::new(Expr::Literal(Literal::Complex(3.0, 4.0))),
-            rhs: Box::new(Expr::Literal(Literal::Float(5.0))),
-        })],
+            lhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Complex(3.0, 4.0)))),
+            rhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Float(5.0)))),
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -134,11 +134,11 @@ fn test_complex_plus_float() {
 #[test]
 fn test_int_plus_complex() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Binary {
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Binary {
             op: BinaryOp::Add,
-            lhs: Box::new(Expr::Literal(Literal::Int(10))),
-            rhs: Box::new(Expr::Literal(Literal::Complex(1.0, 2.0))),
-        })],
+            lhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(10)))),
+            rhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Complex(1.0, 2.0)))),
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -149,10 +149,10 @@ fn test_int_plus_complex() {
 #[test]
 fn test_complex_real() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::Identifier("real".to_string())),
-            args: vec![Expr::Literal(Literal::Complex(3.0, 4.0))],
-        })],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("real".to_string()))),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Complex(3.0, 4.0)))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -161,10 +161,10 @@ fn test_complex_real() {
 #[test]
 fn test_complex_imag() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::Identifier("imag".to_string())),
-            args: vec![Expr::Literal(Literal::Complex(3.0, 4.0))],
-        })],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("imag".to_string()))),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Complex(3.0, 4.0)))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -173,10 +173,10 @@ fn test_complex_imag() {
 #[test]
 fn test_complex_abs() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::Identifier("abs".to_string())),
-            args: vec![Expr::Literal(Literal::Complex(3.0, 4.0))],
-        })],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("abs".to_string()))),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Complex(3.0, 4.0)))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -185,10 +185,10 @@ fn test_complex_abs() {
 #[test]
 fn test_complex_angle() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::Identifier("angle".to_string())),
-            args: vec![Expr::Literal(Literal::Complex(1.0, 1.0))],
-        })],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("angle".to_string()))),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Complex(1.0, 1.0)))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -197,10 +197,10 @@ fn test_complex_angle() {
 #[test]
 fn test_complex_conj() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::Identifier("conj".to_string())),
-            args: vec![Expr::Literal(Literal::Complex(3.0, 4.0))],
-        })],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("conj".to_string()))),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Complex(3.0, 4.0)))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -209,10 +209,10 @@ fn test_complex_conj() {
 #[test]
 fn test_complex_abs2() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::Identifier("abs2".to_string())),
-            args: vec![Expr::Literal(Literal::Complex(3.0, 4.0))],
-        })],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("abs2".to_string()))),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Complex(3.0, 4.0)))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -223,10 +223,10 @@ fn test_complex_abs2() {
 #[test]
 fn test_complex_exp() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::Identifier("exp".to_string())),
-            args: vec![Expr::Literal(Literal::Complex(1.0, 0.0))],
-        })],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("exp".to_string()))),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Complex(1.0, 0.0)))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -235,10 +235,10 @@ fn test_complex_exp() {
 #[test]
 fn test_complex_log() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::Identifier("log".to_string())),
-            args: vec![Expr::Literal(Literal::Complex(2.718, 0.0))],
-        })],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("log".to_string()))),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Complex(2.718, 0.0)))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -247,10 +247,10 @@ fn test_complex_log() {
 #[test]
 fn test_complex_sqrt() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::Identifier("sqrt".to_string())),
-            args: vec![Expr::Literal(Literal::Complex(-1.0, 0.0))],
-        })],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("sqrt".to_string()))),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Complex(-1.0, 0.0)))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -261,10 +261,10 @@ fn test_complex_sqrt() {
 #[test]
 fn test_complex_csin() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::Identifier("csin".to_string())),
-            args: vec![Expr::Literal(Literal::Complex(1.0, 1.0))],
-        })],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("csin".to_string()))),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Complex(1.0, 1.0)))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -273,10 +273,10 @@ fn test_complex_csin() {
 #[test]
 fn test_complex_ccos() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::Identifier("ccos".to_string())),
-            args: vec![Expr::Literal(Literal::Complex(1.0, 1.0))],
-        })],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("ccos".to_string()))),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Complex(1.0, 1.0)))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -285,10 +285,10 @@ fn test_complex_ccos() {
 #[test]
 fn test_complex_ctan() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::Identifier("ctan".to_string())),
-            args: vec![Expr::Literal(Literal::Complex(1.0, 0.0))],
-        })],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("ctan".to_string()))),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Complex(1.0, 0.0)))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -299,10 +299,10 @@ fn test_complex_ctan() {
 #[test]
 fn test_complex_csinh() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::Identifier("csinh".to_string())),
-            args: vec![Expr::Literal(Literal::Complex(1.0, 0.0))],
-        })],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("csinh".to_string()))),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Complex(1.0, 0.0)))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -311,10 +311,10 @@ fn test_complex_csinh() {
 #[test]
 fn test_complex_ccosh() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::Identifier("ccosh".to_string())),
-            args: vec![Expr::Literal(Literal::Complex(1.0, 0.0))],
-        })],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("ccosh".to_string()))),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Complex(1.0, 0.0)))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -323,10 +323,10 @@ fn test_complex_ccosh() {
 #[test]
 fn test_complex_ctanh() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::Identifier("ctanh".to_string())),
-            args: vec![Expr::Literal(Literal::Complex(1.0, 0.0))],
-        })],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("ctanh".to_string()))),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Complex(1.0, 0.0)))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -337,13 +337,13 @@ fn test_complex_ctanh() {
 #[test]
 fn test_complex_cpow() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::Identifier("cpow".to_string())),
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("cpow".to_string()))),
             args: vec![
-                Expr::Literal(Literal::Complex(2.0, 0.0)),
-                Expr::Literal(Literal::Float(3.0)),
+                Expr::dummy(ExprKind::Literal(Literal::Complex(2.0, 0.0))),
+                Expr::dummy(ExprKind::Literal(Literal::Float(3.0))),
             ],
-        })],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -354,7 +354,7 @@ fn test_complex_cpow() {
 #[test]
 fn test_im_constant() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Identifier("im".to_string()))],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Identifier("im".to_string()))))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -363,13 +363,13 @@ fn test_im_constant() {
 #[test]
 fn test_complex_constructor() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::Identifier("complex".to_string())),
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("complex".to_string()))),
             args: vec![
-                Expr::Literal(Literal::Float(5.0)),
-                Expr::Literal(Literal::Float(12.0)),
+                Expr::dummy(ExprKind::Literal(Literal::Float(5.0))),
+                Expr::dummy(ExprKind::Literal(Literal::Float(12.0))),
             ],
-        })],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -381,33 +381,33 @@ fn test_complex_constructor() {
 fn test_complex_matrix_from_eigvals() {
     let program = Program {
         statements: vec![
-            Stmt::Import {
+            Stmt::dummy(StmtKind::Import {
                 module: "math".to_string(),
                 alias: None,
-            },
-            Stmt::VariableDecl {
+            }),
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "A".to_string(),
                 type_hint: None,
-                value: Expr::Array(vec![
-                    Expr::Literal(Literal::Float(1.0)),
-                    Expr::Literal(Literal::Float(2.0)),
-                    Expr::Literal(Literal::Float(3.0)),
-                    Expr::Literal(Literal::Float(4.0)),
-                ]),
+                value: Expr::dummy(ExprKind::Array(vec![
+                    Expr::dummy(ExprKind::Literal(Literal::Float(1.0))),
+                    Expr::dummy(ExprKind::Literal(Literal::Float(2.0))),
+                    Expr::dummy(ExprKind::Literal(Literal::Float(3.0))),
+                    Expr::dummy(ExprKind::Literal(Literal::Float(4.0))),
+                ])),
                 is_const: false,
-            },
-            Stmt::VariableDecl {
+            }),
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "evals".to_string(),
                 type_hint: None,
-                value: Expr::Call {
-                    func: Box::new(Expr::FieldAccess {
-                        target: Box::new(Expr::Identifier("math".to_string())),
+                value: Expr::dummy(ExprKind::Call {
+                    func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                        target: Box::new(Expr::dummy(ExprKind::Identifier("math".to_string()))),
                         field: "eigvals".to_string(),
-                    }),
-                    args: vec![Expr::Identifier("A".to_string())],
-                },
+                    })),
+                    args: vec![Expr::dummy(ExprKind::Identifier("A".to_string()))],
+                }),
                 is_const: false,
-            },
+            }),
         ],
     };
     let result = compile_program(program);
@@ -418,37 +418,37 @@ fn test_complex_matrix_from_eigvals() {
 fn test_complex_matrix_indexing() {
     let program = Program {
         statements: vec![
-            Stmt::Import {
+            Stmt::dummy(StmtKind::Import {
                 module: "math".to_string(),
                 alias: None,
-            },
-            Stmt::VariableDecl {
+            }),
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "A".to_string(),
                 type_hint: None,
-                value: Expr::Array(vec![
-                    Expr::Literal(Literal::Float(1.0)),
-                    Expr::Literal(Literal::Float(2.0)),
-                    Expr::Literal(Literal::Float(3.0)),
-                    Expr::Literal(Literal::Float(4.0)),
-                ]),
+                value: Expr::dummy(ExprKind::Array(vec![
+                    Expr::dummy(ExprKind::Literal(Literal::Float(1.0))),
+                    Expr::dummy(ExprKind::Literal(Literal::Float(2.0))),
+                    Expr::dummy(ExprKind::Literal(Literal::Float(3.0))),
+                    Expr::dummy(ExprKind::Literal(Literal::Float(4.0))),
+                ])),
                 is_const: false,
-            },
-            Stmt::VariableDecl {
+            }),
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "evals".to_string(),
                 type_hint: None,
-                value: Expr::Call {
-                    func: Box::new(Expr::FieldAccess {
-                        target: Box::new(Expr::Identifier("math".to_string())),
+                value: Expr::dummy(ExprKind::Call {
+                    func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                        target: Box::new(Expr::dummy(ExprKind::Identifier("math".to_string()))),
                         field: "eigvals".to_string(),
-                    }),
-                    args: vec![Expr::Identifier("A".to_string())],
-                },
+                    })),
+                    args: vec![Expr::dummy(ExprKind::Identifier("A".to_string()))],
+                }),
                 is_const: false,
-            },
-            Stmt::Expr(Expr::Index {
-                array: Box::new(Expr::Identifier("evals".to_string())),
-                indices: vec![Expr::Literal(Literal::Int(0))],
             }),
+            Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Index {
+                array: Box::new(Expr::dummy(ExprKind::Identifier("evals".to_string()))),
+                indices: vec![Expr::dummy(ExprKind::Literal(Literal::Int(0)))],
+            }))),
         ],
     };
     let result = compile_program(program);

@@ -4,7 +4,7 @@
 // Tests ensure correct AST construction for literals, operators, function calls,
 // array access, field access, and complex nested expressions.
 
-use crate::ast::{BinaryOp, Expr, FStringPart, Literal, UnaryOp};
+use crate::ast::{BinaryOp, Expr, ExprKind, FStringPart, Literal, StmtKind, UnaryOp};
 use crate::parser::parser;
 use chumsky::Parser;
 use lexer::token::Token;
@@ -19,7 +19,7 @@ fn parse_expr(input: &str) -> Result<Expr, String> {
 
     // Extract expression from first statement
     if let Some(stmt) = program.statements.first() {
-        if let crate::ast::Stmt::Expr(expr) = stmt {
+        if let StmtKind::Expr(expr) = &stmt.kind {
             Ok(expr.clone())
         } else {
             Err("First statement is not an expression".to_string())
@@ -34,43 +34,43 @@ fn parse_expr(input: &str) -> Result<Expr, String> {
 #[test]
 fn test_literal_int() {
     let expr = parse_expr("42").unwrap();
-    assert_eq!(expr, Expr::Literal(Literal::Int(42)));
+    assert_eq!(expr.kind, ExprKind::Literal(Literal::Int(42)));
 }
 
 #[test]
 fn test_literal_float() {
     let expr = parse_expr("3.14").unwrap();
-    assert_eq!(expr, Expr::Literal(Literal::Float(3.14)));
+    assert_eq!(expr.kind, ExprKind::Literal(Literal::Float(3.14)));
 }
 
 #[test]
 fn test_literal_string() {
     let expr = parse_expr(r#""hello""#).unwrap();
-    assert_eq!(expr, Expr::Literal(Literal::String("hello".to_string())));
+    assert_eq!(expr.kind, ExprKind::Literal(Literal::String("hello".to_string())));
 }
 
 #[test]
 fn test_literal_bool_true() {
     let expr = parse_expr("true").unwrap();
-    assert_eq!(expr, Expr::Literal(Literal::Bool(true)));
+    assert_eq!(expr.kind, ExprKind::Literal(Literal::Bool(true)));
 }
 
 #[test]
 fn test_literal_bool_false() {
     let expr = parse_expr("false").unwrap();
-    assert_eq!(expr, Expr::Literal(Literal::Bool(false)));
+    assert_eq!(expr.kind, ExprKind::Literal(Literal::Bool(false)));
 }
 
 #[test]
 fn test_literal_nil() {
     let expr = parse_expr("nil").unwrap();
-    assert_eq!(expr, Expr::Literal(Literal::Nil));
+    assert_eq!(expr.kind, ExprKind::Literal(Literal::Nil));
 }
 
 #[test]
 fn test_literal_atom() {
     let expr = parse_expr(":ok").unwrap();
-    assert_eq!(expr, Expr::Literal(Literal::Atom("ok".to_string())));
+    assert_eq!(expr.kind, ExprKind::Literal(Literal::Atom("ok".to_string())));
 }
 
 #[test]
@@ -78,8 +78,8 @@ fn test_literal_complex() {
     let expr = parse_expr("3.0 + 4.0i").unwrap();
     // This should parse as Binary(Add, Float(3.0), ImaginaryLiteral)
     // Complex literal is constructed during codegen, not parsing
-    match expr {
-        Expr::Binary {
+    match &expr.kind {
+        ExprKind::Binary {
             op: BinaryOp::Add, ..
         } => {} // OK
         _ => panic!("Expected binary addition for complex literal"),
@@ -91,19 +91,19 @@ fn test_literal_complex() {
 #[test]
 fn test_identifier_simple() {
     let expr = parse_expr("x").unwrap();
-    assert_eq!(expr, Expr::Identifier("x".to_string()));
+    assert_eq!(expr.kind, ExprKind::Identifier("x".to_string()));
 }
 
 #[test]
 fn test_identifier_snake_case() {
     let expr = parse_expr("my_variable").unwrap();
-    assert_eq!(expr, Expr::Identifier("my_variable".to_string()));
+    assert_eq!(expr.kind, ExprKind::Identifier("my_variable".to_string()));
 }
 
 #[test]
 fn test_identifier_camel_case() {
     let expr = parse_expr("myVariable").unwrap();
-    assert_eq!(expr, Expr::Identifier("myVariable".to_string()));
+    assert_eq!(expr.kind, ExprKind::Identifier("myVariable".to_string()));
 }
 
 // ==================== BINARY OPERATOR TESTS ====================
@@ -111,14 +111,14 @@ fn test_identifier_camel_case() {
 #[test]
 fn test_binary_add() {
     let expr = parse_expr("1 + 2").unwrap();
-    match expr {
-        Expr::Binary {
+    match &expr.kind {
+        ExprKind::Binary {
             op: BinaryOp::Add,
             lhs,
             rhs,
         } => {
-            assert_eq!(*lhs, Expr::Literal(Literal::Int(1)));
-            assert_eq!(*rhs, Expr::Literal(Literal::Int(2)));
+            assert_eq!(lhs.kind, ExprKind::Literal(Literal::Int(1)));
+            assert_eq!(rhs.kind, ExprKind::Literal(Literal::Int(2)));
         }
         _ => panic!("Expected binary add"),
     }
@@ -127,14 +127,14 @@ fn test_binary_add() {
 #[test]
 fn test_binary_sub() {
     let expr = parse_expr("5 - 3").unwrap();
-    match expr {
-        Expr::Binary {
+    match &expr.kind {
+        ExprKind::Binary {
             op: BinaryOp::Sub,
             lhs,
             rhs,
         } => {
-            assert_eq!(*lhs, Expr::Literal(Literal::Int(5)));
-            assert_eq!(*rhs, Expr::Literal(Literal::Int(3)));
+            assert_eq!(lhs.kind, ExprKind::Literal(Literal::Int(5)));
+            assert_eq!(rhs.kind, ExprKind::Literal(Literal::Int(3)));
         }
         _ => panic!("Expected binary sub"),
     }
@@ -143,8 +143,8 @@ fn test_binary_sub() {
 #[test]
 fn test_binary_mul() {
     let expr = parse_expr("2 * 3").unwrap();
-    match expr {
-        Expr::Binary {
+    match &expr.kind {
+        ExprKind::Binary {
             op: BinaryOp::Mul, ..
         } => {}
         _ => panic!("Expected binary mul"),
@@ -154,8 +154,8 @@ fn test_binary_mul() {
 #[test]
 fn test_binary_div() {
     let expr = parse_expr("10 / 2").unwrap();
-    match expr {
-        Expr::Binary {
+    match &expr.kind {
+        ExprKind::Binary {
             op: BinaryOp::Div, ..
         } => {}
         _ => panic!("Expected binary div"),
@@ -165,8 +165,8 @@ fn test_binary_div() {
 #[test]
 fn test_binary_mod() {
     let expr = parse_expr("10 % 3").unwrap();
-    match expr {
-        Expr::Binary {
+    match &expr.kind {
+        ExprKind::Binary {
             op: BinaryOp::Mod, ..
         } => {}
         _ => panic!("Expected binary mod"),
@@ -176,8 +176,8 @@ fn test_binary_mod() {
 #[test]
 fn test_binary_pow() {
     let expr = parse_expr("2 ** 3").unwrap();
-    match expr {
-        Expr::Binary {
+    match &expr.kind {
+        ExprKind::Binary {
             op: BinaryOp::Pow, ..
         } => {}
         _ => panic!("Expected binary pow"),
@@ -187,8 +187,8 @@ fn test_binary_pow() {
 #[test]
 fn test_binary_bit_and() {
     let expr = parse_expr("5 & 3").unwrap();
-    match expr {
-        Expr::Binary {
+    match &expr.kind {
+        ExprKind::Binary {
             op: BinaryOp::BitAnd,
             ..
         } => {}
@@ -199,8 +199,8 @@ fn test_binary_bit_and() {
 #[test]
 fn test_binary_bit_or() {
     let expr = parse_expr("5 | 3").unwrap();
-    match expr {
-        Expr::Binary {
+    match &expr.kind {
+        ExprKind::Binary {
             op: BinaryOp::BitOr,
             ..
         } => {}
@@ -211,8 +211,8 @@ fn test_binary_bit_or() {
 #[test]
 fn test_binary_bit_xor() {
     let expr = parse_expr("5 ^ 3").unwrap();
-    match expr {
-        Expr::Binary {
+    match &expr.kind {
+        ExprKind::Binary {
             op: BinaryOp::BitXor,
             ..
         } => {}
@@ -223,8 +223,8 @@ fn test_binary_bit_xor() {
 #[test]
 fn test_binary_eq() {
     let expr = parse_expr("x == 10").unwrap();
-    match expr {
-        Expr::Binary {
+    match &expr.kind {
+        ExprKind::Binary {
             op: BinaryOp::Eq, ..
         } => {}
         _ => panic!("Expected binary eq"),
@@ -234,8 +234,8 @@ fn test_binary_eq() {
 #[test]
 fn test_binary_not_eq() {
     let expr = parse_expr("x != 10").unwrap();
-    match expr {
-        Expr::Binary {
+    match &expr.kind {
+        ExprKind::Binary {
             op: BinaryOp::NotEq,
             ..
         } => {}
@@ -246,8 +246,8 @@ fn test_binary_not_eq() {
 #[test]
 fn test_binary_lt() {
     let expr = parse_expr("x < 10").unwrap();
-    match expr {
-        Expr::Binary {
+    match &expr.kind {
+        ExprKind::Binary {
             op: BinaryOp::Lt, ..
         } => {}
         _ => panic!("Expected binary lt"),
@@ -257,8 +257,8 @@ fn test_binary_lt() {
 #[test]
 fn test_binary_gt() {
     let expr = parse_expr("x > 10").unwrap();
-    match expr {
-        Expr::Binary {
+    match &expr.kind {
+        ExprKind::Binary {
             op: BinaryOp::Gt, ..
         } => {}
         _ => panic!("Expected binary gt"),
@@ -268,8 +268,8 @@ fn test_binary_gt() {
 #[test]
 fn test_binary_lteq() {
     let expr = parse_expr("x <= 10").unwrap();
-    match expr {
-        Expr::Binary {
+    match &expr.kind {
+        ExprKind::Binary {
             op: BinaryOp::LtEq, ..
         } => {}
         _ => panic!("Expected binary lteq"),
@@ -279,8 +279,8 @@ fn test_binary_lteq() {
 #[test]
 fn test_binary_gteq() {
     let expr = parse_expr("x >= 10").unwrap();
-    match expr {
-        Expr::Binary {
+    match &expr.kind {
+        ExprKind::Binary {
             op: BinaryOp::GtEq, ..
         } => {}
         _ => panic!("Expected binary gteq"),
@@ -290,8 +290,8 @@ fn test_binary_gteq() {
 #[test]
 fn test_binary_logical_and() {
     let expr = parse_expr("x && y").unwrap();
-    match expr {
-        Expr::Binary {
+    match &expr.kind {
+        ExprKind::Binary {
             op: BinaryOp::LogicalAnd,
             ..
         } => {}
@@ -302,8 +302,8 @@ fn test_binary_logical_and() {
 #[test]
 fn test_binary_logical_or() {
     let expr = parse_expr("x || y").unwrap();
-    match expr {
-        Expr::Binary {
+    match &expr.kind {
+        ExprKind::Binary {
             op: BinaryOp::LogicalOr,
             ..
         } => {}
@@ -316,12 +316,12 @@ fn test_binary_logical_or() {
 #[test]
 fn test_unary_not() {
     let expr = parse_expr("!x").unwrap();
-    match expr {
-        Expr::Unary {
+    match &expr.kind {
+        ExprKind::Unary {
             op: UnaryOp::Not,
             expr,
         } => {
-            assert_eq!(*expr, Expr::Identifier("x".to_string()));
+            assert_eq!(expr.kind, ExprKind::Identifier("x".to_string()));
         }
         _ => panic!("Expected unary not"),
     }
@@ -330,8 +330,8 @@ fn test_unary_not() {
 #[test]
 fn test_unary_not_word() {
     let expr = parse_expr("not x").unwrap();
-    match expr {
-        Expr::Unary {
+    match &expr.kind {
+        ExprKind::Unary {
             op: UnaryOp::Not, ..
         } => {}
         _ => panic!("Expected unary not"),
@@ -341,12 +341,12 @@ fn test_unary_not_word() {
 #[test]
 fn test_unary_negate() {
     let expr = parse_expr("-x").unwrap();
-    match expr {
-        Expr::Unary {
+    match &expr.kind {
+        ExprKind::Unary {
             op: UnaryOp::Negate,
             expr,
         } => {
-            assert_eq!(*expr, Expr::Identifier("x".to_string()));
+            assert_eq!(expr.kind, ExprKind::Identifier("x".to_string()));
         }
         _ => panic!("Expected unary negate"),
     }
@@ -355,12 +355,12 @@ fn test_unary_negate() {
 #[test]
 fn test_unary_negate_number() {
     let expr = parse_expr("-42").unwrap();
-    match expr {
-        Expr::Unary {
+    match &expr.kind {
+        ExprKind::Unary {
             op: UnaryOp::Negate,
             expr,
         } => {
-            assert_eq!(*expr, Expr::Literal(Literal::Int(42)));
+            assert_eq!(expr.kind, ExprKind::Literal(Literal::Int(42)));
         }
         _ => panic!("Expected unary negate"),
     }
@@ -371,10 +371,10 @@ fn test_unary_negate_number() {
 #[test]
 fn test_increment_prefix() {
     let expr = parse_expr("++x").unwrap();
-    match expr {
-        Expr::Increment { expr, is_prefix } => {
-            assert_eq!(*expr, Expr::Identifier("x".to_string()));
-            assert_eq!(is_prefix, true);
+    match &expr.kind {
+        ExprKind::Increment { expr, is_prefix } => {
+            assert_eq!(expr.kind, ExprKind::Identifier("x".to_string()));
+            assert_eq!(*is_prefix, true);
         }
         _ => panic!("Expected prefix increment"),
     }
@@ -383,10 +383,10 @@ fn test_increment_prefix() {
 #[test]
 fn test_increment_postfix() {
     let expr = parse_expr("x++").unwrap();
-    match expr {
-        Expr::Increment { expr, is_prefix } => {
-            assert_eq!(*expr, Expr::Identifier("x".to_string()));
-            assert_eq!(is_prefix, false);
+    match &expr.kind {
+        ExprKind::Increment { expr, is_prefix } => {
+            assert_eq!(expr.kind, ExprKind::Identifier("x".to_string()));
+            assert_eq!(*is_prefix, false);
         }
         _ => panic!("Expected postfix increment"),
     }
@@ -395,10 +395,10 @@ fn test_increment_postfix() {
 #[test]
 fn test_decrement_prefix() {
     let expr = parse_expr("--x").unwrap();
-    match expr {
-        Expr::Decrement { expr, is_prefix } => {
-            assert_eq!(*expr, Expr::Identifier("x".to_string()));
-            assert_eq!(is_prefix, true);
+    match &expr.kind {
+        ExprKind::Decrement { expr, is_prefix } => {
+            assert_eq!(expr.kind, ExprKind::Identifier("x".to_string()));
+            assert_eq!(*is_prefix, true);
         }
         _ => panic!("Expected prefix decrement"),
     }
@@ -407,10 +407,10 @@ fn test_decrement_prefix() {
 #[test]
 fn test_decrement_postfix() {
     let expr = parse_expr("x--").unwrap();
-    match expr {
-        Expr::Decrement { expr, is_prefix } => {
-            assert_eq!(*expr, Expr::Identifier("x".to_string()));
-            assert_eq!(is_prefix, false);
+    match &expr.kind {
+        ExprKind::Decrement { expr, is_prefix } => {
+            assert_eq!(expr.kind, ExprKind::Identifier("x".to_string()));
+            assert_eq!(*is_prefix, false);
         }
         _ => panic!("Expected postfix decrement"),
     }
@@ -421,21 +421,21 @@ fn test_decrement_postfix() {
 #[test]
 fn test_ternary_simple() {
     let expr = parse_expr("x > 0 ? 1 : 0").unwrap();
-    match expr {
-        Expr::Ternary {
+    match &expr.kind {
+        ExprKind::Ternary {
             condition,
             then_expr,
             else_expr,
         } => {
             // Condition should be binary comparison
-            match *condition {
-                Expr::Binary {
+            match &condition.kind {
+                ExprKind::Binary {
                     op: BinaryOp::Gt, ..
                 } => {}
                 _ => panic!("Expected gt comparison in condition"),
             }
-            assert_eq!(*then_expr, Expr::Literal(Literal::Int(1)));
-            assert_eq!(*else_expr, Expr::Literal(Literal::Int(0)));
+            assert_eq!(then_expr.kind, ExprKind::Literal(Literal::Int(1)));
+            assert_eq!(else_expr.kind, ExprKind::Literal(Literal::Int(0)));
         }
         _ => panic!("Expected ternary"),
     }
@@ -446,24 +446,35 @@ fn test_ternary_simple() {
 #[test]
 fn test_array_empty() {
     let expr = parse_expr("[]").unwrap();
-    assert_eq!(expr, Expr::Array(vec![]));
+    match &expr.kind {
+        ExprKind::Array(elements) => {
+            assert_eq!(elements.len(), 0);
+        }
+        _ => panic!("Expected empty array"),
+    }
 }
 
 #[test]
 fn test_array_single_element() {
     let expr = parse_expr("[1]").unwrap();
-    assert_eq!(expr, Expr::Array(vec![Expr::Literal(Literal::Int(1))]));
+    match &expr.kind {
+        ExprKind::Array(elements) => {
+            assert_eq!(elements.len(), 1);
+            assert_eq!(elements[0].kind, ExprKind::Literal(Literal::Int(1)));
+        }
+        _ => panic!("Expected array"),
+    }
 }
 
 #[test]
 fn test_array_multiple_elements() {
     let expr = parse_expr("[1, 2, 3]").unwrap();
-    match expr {
-        Expr::Array(elements) => {
+    match &expr.kind {
+        ExprKind::Array(elements) => {
             assert_eq!(elements.len(), 3);
-            assert_eq!(elements[0], Expr::Literal(Literal::Int(1)));
-            assert_eq!(elements[1], Expr::Literal(Literal::Int(2)));
-            assert_eq!(elements[2], Expr::Literal(Literal::Int(3)));
+            assert_eq!(elements[0].kind, ExprKind::Literal(Literal::Int(1)));
+            assert_eq!(elements[1].kind, ExprKind::Literal(Literal::Int(2)));
+            assert_eq!(elements[2].kind, ExprKind::Literal(Literal::Int(3)));
         }
         _ => panic!("Expected array"),
     }
@@ -472,8 +483,8 @@ fn test_array_multiple_elements() {
 #[test]
 fn test_array_mixed_types() {
     let expr = parse_expr("[1, 2.5, 3]").unwrap();
-    match expr {
-        Expr::Array(elements) => {
+    match &expr.kind {
+        ExprKind::Array(elements) => {
             assert_eq!(elements.len(), 3);
         }
         _ => panic!("Expected array"),
@@ -485,11 +496,11 @@ fn test_array_mixed_types() {
 #[test]
 fn test_index_1d() {
     let expr = parse_expr("arr[0]").unwrap();
-    match expr {
-        Expr::Index { array, indices } => {
-            assert_eq!(*array, Expr::Identifier("arr".to_string()));
+    match &expr.kind {
+        ExprKind::Index { array, indices } => {
+            assert_eq!(array.kind, ExprKind::Identifier("arr".to_string()));
             assert_eq!(indices.len(), 1);
-            assert_eq!(indices[0], Expr::Literal(Literal::Int(0)));
+            assert_eq!(indices[0].kind, ExprKind::Literal(Literal::Int(0)));
         }
         _ => panic!("Expected index"),
     }
@@ -498,9 +509,9 @@ fn test_index_1d() {
 #[test]
 fn test_index_2d() {
     let expr = parse_expr("matrix[0][1]").unwrap();
-    match expr {
-        Expr::Index { array, indices } => {
-            assert_eq!(*array, Expr::Identifier("matrix".to_string()));
+    match &expr.kind {
+        ExprKind::Index { array, indices } => {
+            assert_eq!(array.kind, ExprKind::Identifier("matrix".to_string()));
             assert_eq!(indices.len(), 2);
         }
         _ => panic!("Expected index"),
@@ -510,9 +521,9 @@ fn test_index_2d() {
 #[test]
 fn test_index_expression() {
     let expr = parse_expr("arr[i + 1]").unwrap();
-    match expr {
-        Expr::Index { indices, .. } => match &indices[0] {
-            Expr::Binary {
+    match &expr.kind {
+        ExprKind::Index { indices, .. } => match &indices[0].kind {
+            ExprKind::Binary {
                 op: BinaryOp::Add, ..
             } => {}
             _ => panic!("Expected binary add in index"),
@@ -526,9 +537,9 @@ fn test_index_expression() {
 #[test]
 fn test_call_no_args() {
     let expr = parse_expr("foo()").unwrap();
-    match expr {
-        Expr::Call { func, args } => {
-            assert_eq!(*func, Expr::Identifier("foo".to_string()));
+    match &expr.kind {
+        ExprKind::Call { func, args } => {
+            assert_eq!(func.kind, ExprKind::Identifier("foo".to_string()));
             assert_eq!(args.len(), 0);
         }
         _ => panic!("Expected call"),
@@ -538,11 +549,11 @@ fn test_call_no_args() {
 #[test]
 fn test_call_single_arg() {
     let expr = parse_expr("foo(42)").unwrap();
-    match expr {
-        Expr::Call { func, args } => {
-            assert_eq!(*func, Expr::Identifier("foo".to_string()));
+    match &expr.kind {
+        ExprKind::Call { func, args } => {
+            assert_eq!(func.kind, ExprKind::Identifier("foo".to_string()));
             assert_eq!(args.len(), 1);
-            assert_eq!(args[0], Expr::Literal(Literal::Int(42)));
+            assert_eq!(args[0].kind, ExprKind::Literal(Literal::Int(42)));
         }
         _ => panic!("Expected call"),
     }
@@ -551,9 +562,9 @@ fn test_call_single_arg() {
 #[test]
 fn test_call_multiple_args() {
     let expr = parse_expr("add(1, 2)").unwrap();
-    match expr {
-        Expr::Call { func, args } => {
-            assert_eq!(*func, Expr::Identifier("add".to_string()));
+    match &expr.kind {
+        ExprKind::Call { func, args } => {
+            assert_eq!(func.kind, ExprKind::Identifier("add".to_string()));
             assert_eq!(args.len(), 2);
         }
         _ => panic!("Expected call"),
@@ -563,12 +574,12 @@ fn test_call_multiple_args() {
 #[test]
 fn test_call_nested() {
     let expr = parse_expr("foo(bar(1))").unwrap();
-    match expr {
-        Expr::Call { func, args } => {
-            assert_eq!(*func, Expr::Identifier("foo".to_string()));
+    match &expr.kind {
+        ExprKind::Call { func, args } => {
+            assert_eq!(func.kind, ExprKind::Identifier("foo".to_string()));
             assert_eq!(args.len(), 1);
-            match &args[0] {
-                Expr::Call { .. } => {} // Nested call
+            match &args[0].kind {
+                ExprKind::Call { .. } => {} // Nested call
                 _ => panic!("Expected nested call"),
             }
         }
@@ -581,9 +592,9 @@ fn test_call_nested() {
 #[test]
 fn test_field_access_simple() {
     let expr = parse_expr("obj.field").unwrap();
-    match expr {
-        Expr::FieldAccess { target, field } => {
-            assert_eq!(*target, Expr::Identifier("obj".to_string()));
+    match &expr.kind {
+        ExprKind::FieldAccess { target, field } => {
+            assert_eq!(target.kind, ExprKind::Identifier("obj".to_string()));
             assert_eq!(field, "field");
         }
         _ => panic!("Expected field access"),
@@ -593,11 +604,11 @@ fn test_field_access_simple() {
 #[test]
 fn test_field_access_chained() {
     let expr = parse_expr("obj.field.subfield").unwrap();
-    match expr {
-        Expr::FieldAccess { target, field } => {
+    match &expr.kind {
+        ExprKind::FieldAccess { target, field } => {
             assert_eq!(field, "subfield");
-            match *target {
-                Expr::FieldAccess { .. } => {} // Chained access
+            match &target.kind {
+                ExprKind::FieldAccess { .. } => {} // Chained access
                 _ => panic!("Expected chained field access"),
             }
         }
@@ -610,10 +621,10 @@ fn test_field_access_chained() {
 #[test]
 fn test_range_simple() {
     let expr = parse_expr("1:10").unwrap();
-    match expr {
-        Expr::Range { start, end, step } => {
-            assert_eq!(*start, Expr::Literal(Literal::Int(1)));
-            assert_eq!(*end, Expr::Literal(Literal::Int(10)));
+    match &expr.kind {
+        ExprKind::Range { start, end, step } => {
+            assert_eq!(start.kind, ExprKind::Literal(Literal::Int(1)));
+            assert_eq!(end.kind, ExprKind::Literal(Literal::Int(10)));
             assert!(step.is_none());
         }
         _ => panic!("Expected range"),
@@ -623,11 +634,11 @@ fn test_range_simple() {
 #[test]
 fn test_range_with_step() {
     let expr = parse_expr("0:2:10").unwrap();
-    match expr {
-        Expr::Range { start, end, step } => {
-            assert_eq!(*start, Expr::Literal(Literal::Int(0)));
+    match &expr.kind {
+        ExprKind::Range { start, end, step } => {
+            assert_eq!(start.kind, ExprKind::Literal(Literal::Int(0)));
             assert!(step.is_some());
-            assert_eq!(*end, Expr::Literal(Literal::Int(10)));
+            assert_eq!(end.kind, ExprKind::Literal(Literal::Int(10)));
         }
         _ => panic!("Expected range with step"),
     }
@@ -639,10 +650,10 @@ fn test_range_with_variables() {
     // "start:end" would be tokenized as Identifier("start"), Atom("end")
     // "start : end" is correctly tokenized as Identifier("start"), Colon, Identifier("end")
     let expr = parse_expr("start : end").unwrap();
-    match expr {
-        Expr::Range { start, end, step } => {
-            assert_eq!(*start, Expr::Identifier("start".to_string()));
-            assert_eq!(*end, Expr::Identifier("end".to_string()));
+    match &expr.kind {
+        ExprKind::Range { start, end, step } => {
+            assert_eq!(start.kind, ExprKind::Identifier("start".to_string()));
+            assert_eq!(end.kind, ExprKind::Identifier("end".to_string()));
             assert!(step.is_none());
         }
         _ => panic!("Expected range"),
@@ -654,14 +665,14 @@ fn test_range_with_variables() {
 #[test]
 fn test_static_init_int_1d() {
     let expr = parse_expr("int[5]").unwrap();
-    match expr {
-        Expr::StaticInit {
+    match &expr.kind {
+        ExprKind::StaticInit {
             element_type,
             dimensions,
         } => {
             assert_eq!(element_type, "int");
             assert_eq!(dimensions.len(), 1);
-            assert_eq!(dimensions[0], Expr::Literal(Literal::Int(5)));
+            assert_eq!(dimensions[0].kind, ExprKind::Literal(Literal::Int(5)));
         }
         _ => panic!("Expected static init"),
     }
@@ -670,8 +681,8 @@ fn test_static_init_int_1d() {
 #[test]
 fn test_static_init_float_2d() {
     let expr = parse_expr("float[3, 4]").unwrap();
-    match expr {
-        Expr::StaticInit {
+    match &expr.kind {
+        ExprKind::StaticInit {
             element_type,
             dimensions,
         } => {
@@ -687,8 +698,8 @@ fn test_static_init_float_2d() {
 #[test]
 fn test_fstring_text_only() {
     let expr = parse_expr(r#"f"hello""#).unwrap();
-    match expr {
-        Expr::FString { parts } => {
+    match &expr.kind {
+        ExprKind::FString { parts } => {
             assert_eq!(parts.len(), 1);
             match &parts[0] {
                 FStringPart::Text(text) => assert_eq!(text, "hello"),
@@ -702,8 +713,8 @@ fn test_fstring_text_only() {
 #[test]
 fn test_fstring_with_interpolation() {
     let expr = parse_expr(r#"f"x = {x}""#).unwrap();
-    match expr {
-        Expr::FString { parts } => {
+    match &expr.kind {
+        ExprKind::FString { parts } => {
             assert!(parts.len() >= 2); // Should have text and expr parts
         }
         _ => panic!("Expected fstring"),
@@ -716,15 +727,15 @@ fn test_fstring_with_interpolation() {
 fn test_complex_arithmetic() {
     let expr = parse_expr("1 + 2 * 3").unwrap();
     // Should parse as 1 + (2 * 3) due to precedence
-    match expr {
-        Expr::Binary {
+    match &expr.kind {
+        ExprKind::Binary {
             op: BinaryOp::Add,
             lhs,
             rhs,
         } => {
-            assert_eq!(*lhs, Expr::Literal(Literal::Int(1)));
-            match *rhs {
-                Expr::Binary {
+            assert_eq!(lhs.kind, ExprKind::Literal(Literal::Int(1)));
+            match &rhs.kind {
+                ExprKind::Binary {
                     op: BinaryOp::Mul, ..
                 } => {} // Good
                 _ => panic!("Expected multiplication on right side"),
@@ -738,19 +749,19 @@ fn test_complex_arithmetic() {
 fn test_complex_with_parens() {
     let expr = parse_expr("(1 + 2) * 3").unwrap();
     // Parentheses should change precedence
-    match expr {
-        Expr::Binary {
+    match &expr.kind {
+        ExprKind::Binary {
             op: BinaryOp::Mul,
             lhs,
             rhs,
         } => {
-            match *lhs {
-                Expr::Binary {
+            match &lhs.kind {
+                ExprKind::Binary {
                     op: BinaryOp::Add, ..
                 } => {}
                 _ => panic!("Expected addition on left side"),
             }
-            assert_eq!(*rhs, Expr::Literal(Literal::Int(3)));
+            assert_eq!(rhs.kind, ExprKind::Literal(Literal::Int(3)));
         }
         _ => panic!("Expected multiplication"),
     }
@@ -759,5 +770,5 @@ fn test_complex_with_parens() {
 #[test]
 fn test_deeply_nested() {
     let expr = parse_expr("((((1))))").unwrap();
-    assert_eq!(expr, Expr::Literal(Literal::Int(1)));
+    assert_eq!(expr.kind, ExprKind::Literal(Literal::Int(1)));
 }

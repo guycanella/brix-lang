@@ -2,7 +2,7 @@
 
 use crate::Compiler;
 use inkwell::context::Context;
-use parser::ast::{Expr, Literal, Program, Stmt};
+use parser::ast::{Expr, Literal, Program, Stmt, ExprKind, StmtKind};
 
 fn compile_program(program: Program) -> Result<String, String> {
     let result = std::panic::catch_unwind(|| {
@@ -22,10 +22,10 @@ fn compile_program(program: Program) -> Result<String, String> {
 #[test]
 fn test_typeof_builtin() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::Identifier("typeof".to_string())),
-            args: vec![Expr::Literal(Literal::Int(42))],
-        })],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("typeof".to_string()))),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Int(42)))],
+        })))],
     };
     let ir = compile_program(program).unwrap();
     assert!(ir.contains("typeof") || ir.contains("call"));
@@ -34,10 +34,10 @@ fn test_typeof_builtin() {
 #[test]
 fn test_int_conversion() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::Identifier("int".to_string())),
-            args: vec![Expr::Literal(Literal::Float(3.14))],
-        })],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("int".to_string()))),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Float(3.14)))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -46,10 +46,10 @@ fn test_int_conversion() {
 #[test]
 fn test_float_conversion() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::Identifier("float".to_string())),
-            args: vec![Expr::Literal(Literal::Int(42))],
-        })],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("float".to_string()))),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Int(42)))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -58,10 +58,10 @@ fn test_float_conversion() {
 #[test]
 fn test_string_conversion() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::Identifier("string".to_string())),
-            args: vec![Expr::Literal(Literal::Int(42))],
-        })],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("string".to_string()))),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Int(42)))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -70,9 +70,9 @@ fn test_string_conversion() {
 #[test]
 fn test_print_builtin() {
     let program = Program {
-        statements: vec![Stmt::Print {
-            expr: Expr::Literal(Literal::String("hello".to_string())),
-        }],
+        statements: vec![Stmt::dummy(StmtKind::Print {
+            expr: Expr::dummy(ExprKind::Literal(Literal::String("hello".to_string()))),
+        })],
     };
     let ir = compile_program(program).unwrap();
     assert!(ir.contains("printf") || ir.contains("call"));
@@ -81,9 +81,9 @@ fn test_print_builtin() {
 #[test]
 fn test_println_builtin() {
     let program = Program {
-        statements: vec![Stmt::Println {
-            expr: Expr::Literal(Literal::String("hello".to_string())),
-        }],
+        statements: vec![Stmt::dummy(StmtKind::Println {
+            expr: Expr::dummy(ExprKind::Literal(Literal::String("hello".to_string()))),
+        })],
     };
     let ir = compile_program(program).unwrap();
     assert!(ir.contains("printf") || ir.contains("call"));
@@ -92,10 +92,10 @@ fn test_println_builtin() {
 #[test]
 fn test_bool_conversion() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::Identifier("bool".to_string())),
-            args: vec![Expr::Literal(Literal::Int(1))],
-        })],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("bool".to_string()))),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Int(1)))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -106,10 +106,10 @@ fn test_bool_conversion() {
 #[test]
 fn test_is_nil() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::Identifier("is_nil".to_string())),
-            args: vec![Expr::Identifier("nil".to_string())],
-        })],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("is_nil".to_string()))),
+            args: vec![Expr::dummy(ExprKind::Identifier("nil".to_string()))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -118,10 +118,10 @@ fn test_is_nil() {
 #[test]
 fn test_is_atom() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::Identifier("is_atom".to_string())),
-            args: vec![Expr::Literal(Literal::Atom("ok".to_string()))],
-        })],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("is_atom".to_string()))),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Atom("ok".to_string())))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -130,10 +130,10 @@ fn test_is_atom() {
 #[test]
 fn test_is_boolean() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::Identifier("is_boolean".to_string())),
-            args: vec![Expr::Literal(Literal::Int(1))],
-        })],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("is_boolean".to_string()))),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Int(1)))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -142,10 +142,10 @@ fn test_is_boolean() {
 #[test]
 fn test_is_number() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::Identifier("is_number".to_string())),
-            args: vec![Expr::Literal(Literal::Int(42))],
-        })],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("is_number".to_string()))),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Int(42)))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -154,10 +154,10 @@ fn test_is_number() {
 #[test]
 fn test_is_integer() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::Identifier("is_integer".to_string())),
-            args: vec![Expr::Literal(Literal::Int(42))],
-        })],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("is_integer".to_string()))),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Int(42)))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -166,10 +166,10 @@ fn test_is_integer() {
 #[test]
 fn test_is_float() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::Identifier("is_float".to_string())),
-            args: vec![Expr::Literal(Literal::Float(3.14))],
-        })],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("is_float".to_string()))),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Float(3.14)))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -178,10 +178,10 @@ fn test_is_float() {
 #[test]
 fn test_is_string() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::Identifier("is_string".to_string())),
-            args: vec![Expr::Literal(Literal::String("hello".to_string()))],
-        })],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("is_string".to_string()))),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::String("hello".to_string())))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -190,13 +190,13 @@ fn test_is_string() {
 #[test]
 fn test_is_list() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::Identifier("is_list".to_string())),
-            args: vec![Expr::Array(vec![
-                Expr::Literal(Literal::Int(1)),
-                Expr::Literal(Literal::Int(2)),
-            ])],
-        })],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("is_list".to_string()))),
+            args: vec![Expr::dummy(ExprKind::Array(vec![
+                Expr::dummy(ExprKind::Literal(Literal::Int(1))),
+                Expr::dummy(ExprKind::Literal(Literal::Int(2))),
+            ]))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -207,10 +207,10 @@ fn test_is_tuple() {
     // Note: Tuples don't have direct Expr variant, they're created via function returns
     // This tests that is_tuple compiles correctly (will return 0 for non-tuple)
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::Identifier("is_tuple".to_string())),
-            args: vec![Expr::Literal(Literal::Int(42))],
-        })],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("is_tuple".to_string()))),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Int(42)))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -219,10 +219,10 @@ fn test_is_tuple() {
 #[test]
 fn test_is_function() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::Identifier("is_function".to_string())),
-            args: vec![Expr::Literal(Literal::Int(42))],
-        })],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("is_function".to_string()))),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Int(42)))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -233,10 +233,10 @@ fn test_is_function() {
 #[test]
 fn test_uppercase() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::Identifier("uppercase".to_string())),
-            args: vec![Expr::Literal(Literal::String("hello".to_string()))],
-        })],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("uppercase".to_string()))),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::String("hello".to_string())))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -245,10 +245,10 @@ fn test_uppercase() {
 #[test]
 fn test_lowercase() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::Identifier("lowercase".to_string())),
-            args: vec![Expr::Literal(Literal::String("HELLO".to_string()))],
-        })],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("lowercase".to_string()))),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::String("HELLO".to_string())))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -257,10 +257,10 @@ fn test_lowercase() {
 #[test]
 fn test_capitalize() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::Identifier("capitalize".to_string())),
-            args: vec![Expr::Literal(Literal::String("hello world".to_string()))],
-        })],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("capitalize".to_string()))),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::String("hello world".to_string())))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -269,10 +269,10 @@ fn test_capitalize() {
 #[test]
 fn test_byte_size() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::Identifier("byte_size".to_string())),
-            args: vec![Expr::Literal(Literal::String("Brix".to_string()))],
-        })],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("byte_size".to_string()))),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::String("Brix".to_string())))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -281,10 +281,10 @@ fn test_byte_size() {
 #[test]
 fn test_length() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::Identifier("length".to_string())),
-            args: vec![Expr::Literal(Literal::String("Hello".to_string()))],
-        })],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("length".to_string()))),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::String("Hello".to_string())))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -293,14 +293,14 @@ fn test_length() {
 #[test]
 fn test_replace() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::Identifier("replace".to_string())),
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("replace".to_string()))),
             args: vec![
-                Expr::Literal(Literal::String("hello world".to_string())),
-                Expr::Literal(Literal::String("world".to_string())),
-                Expr::Literal(Literal::String("Brix".to_string())),
+                Expr::dummy(ExprKind::Literal(Literal::String("hello world".to_string()))),
+                Expr::dummy(ExprKind::Literal(Literal::String("world".to_string()))),
+                Expr::dummy(ExprKind::Literal(Literal::String("Brix".to_string()))),
             ],
-        })],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -309,14 +309,14 @@ fn test_replace() {
 #[test]
 fn test_replace_all() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::Identifier("replace_all".to_string())),
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("replace_all".to_string()))),
             args: vec![
-                Expr::Literal(Literal::String("hi hi hi".to_string())),
-                Expr::Literal(Literal::String("hi".to_string())),
-                Expr::Literal(Literal::String("bye".to_string())),
+                Expr::dummy(ExprKind::Literal(Literal::String("hi hi hi".to_string()))),
+                Expr::dummy(ExprKind::Literal(Literal::String("hi".to_string()))),
+                Expr::dummy(ExprKind::Literal(Literal::String("bye".to_string()))),
             ],
-        })],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -327,10 +327,10 @@ fn test_replace_all() {
 #[test]
 fn test_zeros_1d() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::Identifier("zeros".to_string())),
-            args: vec![Expr::Literal(Literal::Int(5))],
-        })],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("zeros".to_string()))),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Int(5)))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -339,13 +339,13 @@ fn test_zeros_1d() {
 #[test]
 fn test_zeros_2d() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::Identifier("zeros".to_string())),
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("zeros".to_string()))),
             args: vec![
-                Expr::Literal(Literal::Int(3)),
-                Expr::Literal(Literal::Int(4)),
+                Expr::dummy(ExprKind::Literal(Literal::Int(3))),
+                Expr::dummy(ExprKind::Literal(Literal::Int(4))),
             ],
-        })],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -354,10 +354,10 @@ fn test_zeros_2d() {
 #[test]
 fn test_izeros_1d() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::Identifier("izeros".to_string())),
-            args: vec![Expr::Literal(Literal::Int(5))],
-        })],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("izeros".to_string()))),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Int(5)))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -366,13 +366,13 @@ fn test_izeros_1d() {
 #[test]
 fn test_izeros_2d() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::Identifier("izeros".to_string())),
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("izeros".to_string()))),
             args: vec![
-                Expr::Literal(Literal::Int(3)),
-                Expr::Literal(Literal::Int(4)),
+                Expr::dummy(ExprKind::Literal(Literal::Int(3))),
+                Expr::dummy(ExprKind::Literal(Literal::Int(4))),
             ],
-        })],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -383,16 +383,16 @@ fn test_izeros_2d() {
 #[test]
 fn test_math_sin() {
     let program = Program {
-        statements: vec![Stmt::Import {
+        statements: vec![Stmt::dummy(StmtKind::Import {
             module: "math".to_string(),
             alias: None,
-        }, Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::FieldAccess {
-                target: Box::new(Expr::Identifier("math".to_string())),
+        }), Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                target: Box::new(Expr::dummy(ExprKind::Identifier("math".to_string()))),
                 field: "sin".to_string(),
-            }),
-            args: vec![Expr::Literal(Literal::Float(3.14))],
-        })],
+            })),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Float(3.14)))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -401,16 +401,16 @@ fn test_math_sin() {
 #[test]
 fn test_math_cos() {
     let program = Program {
-        statements: vec![Stmt::Import {
+        statements: vec![Stmt::dummy(StmtKind::Import {
             module: "math".to_string(),
             alias: None,
-        }, Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::FieldAccess {
-                target: Box::new(Expr::Identifier("math".to_string())),
+        }), Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                target: Box::new(Expr::dummy(ExprKind::Identifier("math".to_string()))),
                 field: "cos".to_string(),
-            }),
-            args: vec![Expr::Literal(Literal::Float(0.0))],
-        })],
+            })),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Float(0.0)))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -419,16 +419,16 @@ fn test_math_cos() {
 #[test]
 fn test_math_sqrt() {
     let program = Program {
-        statements: vec![Stmt::Import {
+        statements: vec![Stmt::dummy(StmtKind::Import {
             module: "math".to_string(),
             alias: None,
-        }, Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::FieldAccess {
-                target: Box::new(Expr::Identifier("math".to_string())),
+        }), Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                target: Box::new(Expr::dummy(ExprKind::Identifier("math".to_string()))),
                 field: "sqrt".to_string(),
-            }),
-            args: vec![Expr::Literal(Literal::Float(16.0))],
-        })],
+            })),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Float(16.0)))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -437,16 +437,16 @@ fn test_math_sqrt() {
 #[test]
 fn test_math_exp() {
     let program = Program {
-        statements: vec![Stmt::Import {
+        statements: vec![Stmt::dummy(StmtKind::Import {
             module: "math".to_string(),
             alias: None,
-        }, Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::FieldAccess {
-                target: Box::new(Expr::Identifier("math".to_string())),
+        }), Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                target: Box::new(Expr::dummy(ExprKind::Identifier("math".to_string()))),
                 field: "exp".to_string(),
-            }),
-            args: vec![Expr::Literal(Literal::Float(1.0))],
-        })],
+            })),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Float(1.0)))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -455,16 +455,16 @@ fn test_math_exp() {
 #[test]
 fn test_math_log() {
     let program = Program {
-        statements: vec![Stmt::Import {
+        statements: vec![Stmt::dummy(StmtKind::Import {
             module: "math".to_string(),
             alias: None,
-        }, Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::FieldAccess {
-                target: Box::new(Expr::Identifier("math".to_string())),
+        }), Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                target: Box::new(Expr::dummy(ExprKind::Identifier("math".to_string()))),
                 field: "log".to_string(),
-            }),
-            args: vec![Expr::Literal(Literal::Float(2.718))],
-        })],
+            })),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Float(2.718)))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -473,16 +473,16 @@ fn test_math_log() {
 #[test]
 fn test_math_abs() {
     let program = Program {
-        statements: vec![Stmt::Import {
+        statements: vec![Stmt::dummy(StmtKind::Import {
             module: "math".to_string(),
             alias: None,
-        }, Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::FieldAccess {
-                target: Box::new(Expr::Identifier("math".to_string())),
+        }), Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                target: Box::new(Expr::dummy(ExprKind::Identifier("math".to_string()))),
                 field: "abs".to_string(),
-            }),
-            args: vec![Expr::Literal(Literal::Float(-5.0))],
-        })],
+            })),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Float(-5.0)))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -491,16 +491,16 @@ fn test_math_abs() {
 #[test]
 fn test_math_floor() {
     let program = Program {
-        statements: vec![Stmt::Import {
+        statements: vec![Stmt::dummy(StmtKind::Import {
             module: "math".to_string(),
             alias: None,
-        }, Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::FieldAccess {
-                target: Box::new(Expr::Identifier("math".to_string())),
+        }), Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                target: Box::new(Expr::dummy(ExprKind::Identifier("math".to_string()))),
                 field: "floor".to_string(),
-            }),
-            args: vec![Expr::Literal(Literal::Float(3.7))],
-        })],
+            })),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Float(3.7)))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -509,16 +509,16 @@ fn test_math_floor() {
 #[test]
 fn test_math_ceil() {
     let program = Program {
-        statements: vec![Stmt::Import {
+        statements: vec![Stmt::dummy(StmtKind::Import {
             module: "math".to_string(),
             alias: None,
-        }, Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::FieldAccess {
-                target: Box::new(Expr::Identifier("math".to_string())),
+        }), Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                target: Box::new(Expr::dummy(ExprKind::Identifier("math".to_string()))),
                 field: "ceil".to_string(),
-            }),
-            args: vec![Expr::Literal(Literal::Float(3.2))],
-        })],
+            })),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Float(3.2)))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -527,13 +527,13 @@ fn test_math_ceil() {
 #[test]
 fn test_math_pi_constant() {
     let program = Program {
-        statements: vec![Stmt::Import {
+        statements: vec![Stmt::dummy(StmtKind::Import {
             module: "math".to_string(),
             alias: None,
-        }, Stmt::Expr(Expr::FieldAccess {
-            target: Box::new(Expr::Identifier("math".to_string())),
+        }), Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::FieldAccess {
+            target: Box::new(Expr::dummy(ExprKind::Identifier("math".to_string()))),
             field: "pi".to_string(),
-        })],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -542,13 +542,13 @@ fn test_math_pi_constant() {
 #[test]
 fn test_math_e_constant() {
     let program = Program {
-        statements: vec![Stmt::Import {
+        statements: vec![Stmt::dummy(StmtKind::Import {
             module: "math".to_string(),
             alias: None,
-        }, Stmt::Expr(Expr::FieldAccess {
-            target: Box::new(Expr::Identifier("math".to_string())),
+        }), Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::FieldAccess {
+            target: Box::new(Expr::dummy(ExprKind::Identifier("math".to_string()))),
             field: "e".to_string(),
-        })],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -557,20 +557,20 @@ fn test_math_e_constant() {
 #[test]
 fn test_math_sum() {
     let program = Program {
-        statements: vec![Stmt::Import {
+        statements: vec![Stmt::dummy(StmtKind::Import {
             module: "math".to_string(),
             alias: None,
-        }, Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::FieldAccess {
-                target: Box::new(Expr::Identifier("math".to_string())),
+        }), Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                target: Box::new(Expr::dummy(ExprKind::Identifier("math".to_string()))),
                 field: "sum".to_string(),
-            }),
-            args: vec![Expr::Array(vec![
-                Expr::Literal(Literal::Float(1.0)),
-                Expr::Literal(Literal::Float(2.0)),
-                Expr::Literal(Literal::Float(3.0)),
-            ])],
-        })],
+            })),
+            args: vec![Expr::dummy(ExprKind::Array(vec![
+                Expr::dummy(ExprKind::Literal(Literal::Float(1.0))),
+                Expr::dummy(ExprKind::Literal(Literal::Float(2.0))),
+                Expr::dummy(ExprKind::Literal(Literal::Float(3.0))),
+            ]))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -579,20 +579,20 @@ fn test_math_sum() {
 #[test]
 fn test_math_mean() {
     let program = Program {
-        statements: vec![Stmt::Import {
+        statements: vec![Stmt::dummy(StmtKind::Import {
             module: "math".to_string(),
             alias: None,
-        }, Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::FieldAccess {
-                target: Box::new(Expr::Identifier("math".to_string())),
+        }), Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                target: Box::new(Expr::dummy(ExprKind::Identifier("math".to_string()))),
                 field: "mean".to_string(),
-            }),
-            args: vec![Expr::Array(vec![
-                Expr::Literal(Literal::Float(1.0)),
-                Expr::Literal(Literal::Float(2.0)),
-                Expr::Literal(Literal::Float(3.0)),
-            ])],
-        })],
+            })),
+            args: vec![Expr::dummy(ExprKind::Array(vec![
+                Expr::dummy(ExprKind::Literal(Literal::Float(1.0))),
+                Expr::dummy(ExprKind::Literal(Literal::Float(2.0))),
+                Expr::dummy(ExprKind::Literal(Literal::Float(3.0))),
+            ]))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -601,16 +601,16 @@ fn test_math_mean() {
 #[test]
 fn test_import_with_alias() {
     let program = Program {
-        statements: vec![Stmt::Import {
+        statements: vec![Stmt::dummy(StmtKind::Import {
             module: "math".to_string(),
             alias: Some("m".to_string()),
-        }, Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::FieldAccess {
-                target: Box::new(Expr::Identifier("m".to_string())),
+        }), Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                target: Box::new(Expr::dummy(ExprKind::Identifier("m".to_string()))),
                 field: "sqrt".to_string(),
-            }),
-            args: vec![Expr::Literal(Literal::Float(4.0))],
-        })],
+            })),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Float(4.0)))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -621,16 +621,16 @@ fn test_import_with_alias() {
 #[test]
 fn test_math_tan() {
     let program = Program {
-        statements: vec![Stmt::Import {
+        statements: vec![Stmt::dummy(StmtKind::Import {
             module: "math".to_string(),
             alias: None,
-        }, Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::FieldAccess {
-                target: Box::new(Expr::Identifier("math".to_string())),
+        }), Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                target: Box::new(Expr::dummy(ExprKind::Identifier("math".to_string()))),
                 field: "tan".to_string(),
-            }),
-            args: vec![Expr::Literal(Literal::Float(0.785))],
-        })],
+            })),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Float(0.785)))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -639,16 +639,16 @@ fn test_math_tan() {
 #[test]
 fn test_math_asin() {
     let program = Program {
-        statements: vec![Stmt::Import {
+        statements: vec![Stmt::dummy(StmtKind::Import {
             module: "math".to_string(),
             alias: None,
-        }, Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::FieldAccess {
-                target: Box::new(Expr::Identifier("math".to_string())),
+        }), Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                target: Box::new(Expr::dummy(ExprKind::Identifier("math".to_string()))),
                 field: "asin".to_string(),
-            }),
-            args: vec![Expr::Literal(Literal::Float(0.5))],
-        })],
+            })),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Float(0.5)))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -657,16 +657,16 @@ fn test_math_asin() {
 #[test]
 fn test_math_acos() {
     let program = Program {
-        statements: vec![Stmt::Import {
+        statements: vec![Stmt::dummy(StmtKind::Import {
             module: "math".to_string(),
             alias: None,
-        }, Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::FieldAccess {
-                target: Box::new(Expr::Identifier("math".to_string())),
+        }), Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                target: Box::new(Expr::dummy(ExprKind::Identifier("math".to_string()))),
                 field: "acos".to_string(),
-            }),
-            args: vec![Expr::Literal(Literal::Float(0.5))],
-        })],
+            })),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Float(0.5)))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -675,16 +675,16 @@ fn test_math_acos() {
 #[test]
 fn test_math_atan() {
     let program = Program {
-        statements: vec![Stmt::Import {
+        statements: vec![Stmt::dummy(StmtKind::Import {
             module: "math".to_string(),
             alias: None,
-        }, Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::FieldAccess {
-                target: Box::new(Expr::Identifier("math".to_string())),
+        }), Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                target: Box::new(Expr::dummy(ExprKind::Identifier("math".to_string()))),
                 field: "atan".to_string(),
-            }),
-            args: vec![Expr::Literal(Literal::Float(1.0))],
-        })],
+            })),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Float(1.0)))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -693,19 +693,19 @@ fn test_math_atan() {
 #[test]
 fn test_math_atan2() {
     let program = Program {
-        statements: vec![Stmt::Import {
+        statements: vec![Stmt::dummy(StmtKind::Import {
             module: "math".to_string(),
             alias: None,
-        }, Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::FieldAccess {
-                target: Box::new(Expr::Identifier("math".to_string())),
+        }), Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                target: Box::new(Expr::dummy(ExprKind::Identifier("math".to_string()))),
                 field: "atan2".to_string(),
-            }),
+            })),
             args: vec![
-                Expr::Literal(Literal::Float(1.0)),
-                Expr::Literal(Literal::Float(1.0)),
+                Expr::dummy(ExprKind::Literal(Literal::Float(1.0))),
+                Expr::dummy(ExprKind::Literal(Literal::Float(1.0))),
             ],
-        })],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -716,16 +716,16 @@ fn test_math_atan2() {
 #[test]
 fn test_math_sinh() {
     let program = Program {
-        statements: vec![Stmt::Import {
+        statements: vec![Stmt::dummy(StmtKind::Import {
             module: "math".to_string(),
             alias: None,
-        }, Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::FieldAccess {
-                target: Box::new(Expr::Identifier("math".to_string())),
+        }), Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                target: Box::new(Expr::dummy(ExprKind::Identifier("math".to_string()))),
                 field: "sinh".to_string(),
-            }),
-            args: vec![Expr::Literal(Literal::Float(1.0))],
-        })],
+            })),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Float(1.0)))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -734,16 +734,16 @@ fn test_math_sinh() {
 #[test]
 fn test_math_cosh() {
     let program = Program {
-        statements: vec![Stmt::Import {
+        statements: vec![Stmt::dummy(StmtKind::Import {
             module: "math".to_string(),
             alias: None,
-        }, Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::FieldAccess {
-                target: Box::new(Expr::Identifier("math".to_string())),
+        }), Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                target: Box::new(Expr::dummy(ExprKind::Identifier("math".to_string()))),
                 field: "cosh".to_string(),
-            }),
-            args: vec![Expr::Literal(Literal::Float(1.0))],
-        })],
+            })),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Float(1.0)))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -752,16 +752,16 @@ fn test_math_cosh() {
 #[test]
 fn test_math_tanh() {
     let program = Program {
-        statements: vec![Stmt::Import {
+        statements: vec![Stmt::dummy(StmtKind::Import {
             module: "math".to_string(),
             alias: None,
-        }, Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::FieldAccess {
-                target: Box::new(Expr::Identifier("math".to_string())),
+        }), Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                target: Box::new(Expr::dummy(ExprKind::Identifier("math".to_string()))),
                 field: "tanh".to_string(),
-            }),
-            args: vec![Expr::Literal(Literal::Float(1.0))],
-        })],
+            })),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Float(1.0)))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -772,16 +772,16 @@ fn test_math_tanh() {
 #[test]
 fn test_math_log10() {
     let program = Program {
-        statements: vec![Stmt::Import {
+        statements: vec![Stmt::dummy(StmtKind::Import {
             module: "math".to_string(),
             alias: None,
-        }, Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::FieldAccess {
-                target: Box::new(Expr::Identifier("math".to_string())),
+        }), Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                target: Box::new(Expr::dummy(ExprKind::Identifier("math".to_string()))),
                 field: "log10".to_string(),
-            }),
-            args: vec![Expr::Literal(Literal::Float(100.0))],
-        })],
+            })),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Float(100.0)))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -790,16 +790,16 @@ fn test_math_log10() {
 #[test]
 fn test_math_log2() {
     let program = Program {
-        statements: vec![Stmt::Import {
+        statements: vec![Stmt::dummy(StmtKind::Import {
             module: "math".to_string(),
             alias: None,
-        }, Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::FieldAccess {
-                target: Box::new(Expr::Identifier("math".to_string())),
+        }), Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                target: Box::new(Expr::dummy(ExprKind::Identifier("math".to_string()))),
                 field: "log2".to_string(),
-            }),
-            args: vec![Expr::Literal(Literal::Float(8.0))],
-        })],
+            })),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Float(8.0)))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -808,16 +808,16 @@ fn test_math_log2() {
 #[test]
 fn test_math_cbrt() {
     let program = Program {
-        statements: vec![Stmt::Import {
+        statements: vec![Stmt::dummy(StmtKind::Import {
             module: "math".to_string(),
             alias: None,
-        }, Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::FieldAccess {
-                target: Box::new(Expr::Identifier("math".to_string())),
+        }), Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                target: Box::new(Expr::dummy(ExprKind::Identifier("math".to_string()))),
                 field: "cbrt".to_string(),
-            }),
-            args: vec![Expr::Literal(Literal::Float(27.0))],
-        })],
+            })),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Float(27.0)))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -828,16 +828,16 @@ fn test_math_cbrt() {
 #[test]
 fn test_math_round() {
     let program = Program {
-        statements: vec![Stmt::Import {
+        statements: vec![Stmt::dummy(StmtKind::Import {
             module: "math".to_string(),
             alias: None,
-        }, Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::FieldAccess {
-                target: Box::new(Expr::Identifier("math".to_string())),
+        }), Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                target: Box::new(Expr::dummy(ExprKind::Identifier("math".to_string()))),
                 field: "round".to_string(),
-            }),
-            args: vec![Expr::Literal(Literal::Float(3.6))],
-        })],
+            })),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Float(3.6)))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -848,19 +848,19 @@ fn test_math_round() {
 #[test]
 fn test_math_fmod() {
     let program = Program {
-        statements: vec![Stmt::Import {
+        statements: vec![Stmt::dummy(StmtKind::Import {
             module: "math".to_string(),
             alias: None,
-        }, Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::FieldAccess {
-                target: Box::new(Expr::Identifier("math".to_string())),
+        }), Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                target: Box::new(Expr::dummy(ExprKind::Identifier("math".to_string()))),
                 field: "fmod".to_string(),
-            }),
+            })),
             args: vec![
-                Expr::Literal(Literal::Float(5.5)),
-                Expr::Literal(Literal::Float(2.0)),
+                Expr::dummy(ExprKind::Literal(Literal::Float(5.5))),
+                Expr::dummy(ExprKind::Literal(Literal::Float(2.0))),
             ],
-        })],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -869,19 +869,19 @@ fn test_math_fmod() {
 #[test]
 fn test_math_hypot() {
     let program = Program {
-        statements: vec![Stmt::Import {
+        statements: vec![Stmt::dummy(StmtKind::Import {
             module: "math".to_string(),
             alias: None,
-        }, Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::FieldAccess {
-                target: Box::new(Expr::Identifier("math".to_string())),
+        }), Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                target: Box::new(Expr::dummy(ExprKind::Identifier("math".to_string()))),
                 field: "hypot".to_string(),
-            }),
+            })),
             args: vec![
-                Expr::Literal(Literal::Float(3.0)),
-                Expr::Literal(Literal::Float(4.0)),
+                Expr::dummy(ExprKind::Literal(Literal::Float(3.0))),
+                Expr::dummy(ExprKind::Literal(Literal::Float(4.0))),
             ],
-        })],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -890,19 +890,19 @@ fn test_math_hypot() {
 #[test]
 fn test_math_min() {
     let program = Program {
-        statements: vec![Stmt::Import {
+        statements: vec![Stmt::dummy(StmtKind::Import {
             module: "math".to_string(),
             alias: None,
-        }, Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::FieldAccess {
-                target: Box::new(Expr::Identifier("math".to_string())),
+        }), Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                target: Box::new(Expr::dummy(ExprKind::Identifier("math".to_string()))),
                 field: "min".to_string(),
-            }),
+            })),
             args: vec![
-                Expr::Literal(Literal::Float(3.0)),
-                Expr::Literal(Literal::Float(7.0)),
+                Expr::dummy(ExprKind::Literal(Literal::Float(3.0))),
+                Expr::dummy(ExprKind::Literal(Literal::Float(7.0))),
             ],
-        })],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -911,19 +911,19 @@ fn test_math_min() {
 #[test]
 fn test_math_max() {
     let program = Program {
-        statements: vec![Stmt::Import {
+        statements: vec![Stmt::dummy(StmtKind::Import {
             module: "math".to_string(),
             alias: None,
-        }, Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::FieldAccess {
-                target: Box::new(Expr::Identifier("math".to_string())),
+        }), Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                target: Box::new(Expr::dummy(ExprKind::Identifier("math".to_string()))),
                 field: "max".to_string(),
-            }),
+            })),
             args: vec![
-                Expr::Literal(Literal::Float(3.0)),
-                Expr::Literal(Literal::Float(7.0)),
+                Expr::dummy(ExprKind::Literal(Literal::Float(3.0))),
+                Expr::dummy(ExprKind::Literal(Literal::Float(7.0))),
             ],
-        })],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -934,13 +934,13 @@ fn test_math_max() {
 #[test]
 fn test_math_tau_constant() {
     let program = Program {
-        statements: vec![Stmt::Import {
+        statements: vec![Stmt::dummy(StmtKind::Import {
             module: "math".to_string(),
             alias: None,
-        }, Stmt::Expr(Expr::FieldAccess {
-            target: Box::new(Expr::Identifier("math".to_string())),
+        }), Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::FieldAccess {
+            target: Box::new(Expr::dummy(ExprKind::Identifier("math".to_string()))),
             field: "tau".to_string(),
-        })],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -949,13 +949,13 @@ fn test_math_tau_constant() {
 #[test]
 fn test_math_phi_constant() {
     let program = Program {
-        statements: vec![Stmt::Import {
+        statements: vec![Stmt::dummy(StmtKind::Import {
             module: "math".to_string(),
             alias: None,
-        }, Stmt::Expr(Expr::FieldAccess {
-            target: Box::new(Expr::Identifier("math".to_string())),
+        }), Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::FieldAccess {
+            target: Box::new(Expr::dummy(ExprKind::Identifier("math".to_string()))),
             field: "phi".to_string(),
-        })],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -964,13 +964,13 @@ fn test_math_phi_constant() {
 #[test]
 fn test_math_sqrt2_constant() {
     let program = Program {
-        statements: vec![Stmt::Import {
+        statements: vec![Stmt::dummy(StmtKind::Import {
             module: "math".to_string(),
             alias: None,
-        }, Stmt::Expr(Expr::FieldAccess {
-            target: Box::new(Expr::Identifier("math".to_string())),
+        }), Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::FieldAccess {
+            target: Box::new(Expr::dummy(ExprKind::Identifier("math".to_string()))),
             field: "sqrt2".to_string(),
-        })],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -979,13 +979,13 @@ fn test_math_sqrt2_constant() {
 #[test]
 fn test_math_ln2_constant() {
     let program = Program {
-        statements: vec![Stmt::Import {
+        statements: vec![Stmt::dummy(StmtKind::Import {
             module: "math".to_string(),
             alias: None,
-        }, Stmt::Expr(Expr::FieldAccess {
-            target: Box::new(Expr::Identifier("math".to_string())),
+        }), Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::FieldAccess {
+            target: Box::new(Expr::dummy(ExprKind::Identifier("math".to_string()))),
             field: "ln2".to_string(),
-        })],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -996,22 +996,22 @@ fn test_math_ln2_constant() {
 #[test]
 fn test_math_median() {
     let program = Program {
-        statements: vec![Stmt::Import {
+        statements: vec![Stmt::dummy(StmtKind::Import {
             module: "math".to_string(),
             alias: None,
-        }, Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::FieldAccess {
-                target: Box::new(Expr::Identifier("math".to_string())),
+        }), Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                target: Box::new(Expr::dummy(ExprKind::Identifier("math".to_string()))),
                 field: "median".to_string(),
-            }),
-            args: vec![Expr::Array(vec![
-                Expr::Literal(Literal::Float(1.0)),
-                Expr::Literal(Literal::Float(2.0)),
-                Expr::Literal(Literal::Float(3.0)),
-                Expr::Literal(Literal::Float(4.0)),
-                Expr::Literal(Literal::Float(5.0)),
-            ])],
-        })],
+            })),
+            args: vec![Expr::dummy(ExprKind::Array(vec![
+                Expr::dummy(ExprKind::Literal(Literal::Float(1.0))),
+                Expr::dummy(ExprKind::Literal(Literal::Float(2.0))),
+                Expr::dummy(ExprKind::Literal(Literal::Float(3.0))),
+                Expr::dummy(ExprKind::Literal(Literal::Float(4.0))),
+                Expr::dummy(ExprKind::Literal(Literal::Float(5.0))),
+            ]))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -1020,20 +1020,20 @@ fn test_math_median() {
 #[test]
 fn test_math_std() {
     let program = Program {
-        statements: vec![Stmt::Import {
+        statements: vec![Stmt::dummy(StmtKind::Import {
             module: "math".to_string(),
             alias: None,
-        }, Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::FieldAccess {
-                target: Box::new(Expr::Identifier("math".to_string())),
+        }), Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                target: Box::new(Expr::dummy(ExprKind::Identifier("math".to_string()))),
                 field: "std".to_string(),
-            }),
-            args: vec![Expr::Array(vec![
-                Expr::Literal(Literal::Float(1.0)),
-                Expr::Literal(Literal::Float(2.0)),
-                Expr::Literal(Literal::Float(3.0)),
-            ])],
-        })],
+            })),
+            args: vec![Expr::dummy(ExprKind::Array(vec![
+                Expr::dummy(ExprKind::Literal(Literal::Float(1.0))),
+                Expr::dummy(ExprKind::Literal(Literal::Float(2.0))),
+                Expr::dummy(ExprKind::Literal(Literal::Float(3.0))),
+            ]))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -1042,20 +1042,20 @@ fn test_math_std() {
 #[test]
 fn test_math_var() {
     let program = Program {
-        statements: vec![Stmt::Import {
+        statements: vec![Stmt::dummy(StmtKind::Import {
             module: "math".to_string(),
             alias: None,
-        }, Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::FieldAccess {
-                target: Box::new(Expr::Identifier("math".to_string())),
+        }), Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                target: Box::new(Expr::dummy(ExprKind::Identifier("math".to_string()))),
                 field: "var".to_string(),
-            }),
-            args: vec![Expr::Array(vec![
-                Expr::Literal(Literal::Float(1.0)),
-                Expr::Literal(Literal::Float(2.0)),
-                Expr::Literal(Literal::Float(3.0)),
-            ])],
-        })],
+            })),
+            args: vec![Expr::dummy(ExprKind::Array(vec![
+                Expr::dummy(ExprKind::Literal(Literal::Float(1.0))),
+                Expr::dummy(ExprKind::Literal(Literal::Float(2.0))),
+                Expr::dummy(ExprKind::Literal(Literal::Float(3.0))),
+            ]))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -1066,22 +1066,22 @@ fn test_math_var() {
 #[test]
 fn test_math_det() {
     let program = Program {
-        statements: vec![Stmt::Import {
+        statements: vec![Stmt::dummy(StmtKind::Import {
             module: "math".to_string(),
             alias: None,
-        }, Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::FieldAccess {
-                target: Box::new(Expr::Identifier("math".to_string())),
+        }), Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                target: Box::new(Expr::dummy(ExprKind::Identifier("math".to_string()))),
                 field: "det".to_string(),
-            }),
-            args: vec![Expr::Call {
-                func: Box::new(Expr::Identifier("zeros".to_string())),
+            })),
+            args: vec![Expr::dummy(ExprKind::Call {
+                func: Box::new(Expr::dummy(ExprKind::Identifier("zeros".to_string()))),
                 args: vec![
-                    Expr::Literal(Literal::Int(3)),
-                    Expr::Literal(Literal::Int(3)),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(3))),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(3))),
                 ],
-            }],
-        })],
+            })],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -1090,22 +1090,22 @@ fn test_math_det() {
 #[test]
 fn test_math_inv() {
     let program = Program {
-        statements: vec![Stmt::Import {
+        statements: vec![Stmt::dummy(StmtKind::Import {
             module: "math".to_string(),
             alias: None,
-        }, Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::FieldAccess {
-                target: Box::new(Expr::Identifier("math".to_string())),
+        }), Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                target: Box::new(Expr::dummy(ExprKind::Identifier("math".to_string()))),
                 field: "inv".to_string(),
-            }),
-            args: vec![Expr::Call {
-                func: Box::new(Expr::Identifier("zeros".to_string())),
+            })),
+            args: vec![Expr::dummy(ExprKind::Call {
+                func: Box::new(Expr::dummy(ExprKind::Identifier("zeros".to_string()))),
                 args: vec![
-                    Expr::Literal(Literal::Int(2)),
-                    Expr::Literal(Literal::Int(2)),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(2))),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(2))),
                 ],
-            }],
-        })],
+            })],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -1114,22 +1114,22 @@ fn test_math_inv() {
 #[test]
 fn test_math_tr() {
     let program = Program {
-        statements: vec![Stmt::Import {
+        statements: vec![Stmt::dummy(StmtKind::Import {
             module: "math".to_string(),
             alias: None,
-        }, Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::FieldAccess {
-                target: Box::new(Expr::Identifier("math".to_string())),
+        }), Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                target: Box::new(Expr::dummy(ExprKind::Identifier("math".to_string()))),
                 field: "tr".to_string(),
-            }),
-            args: vec![Expr::Call {
-                func: Box::new(Expr::Identifier("zeros".to_string())),
+            })),
+            args: vec![Expr::dummy(ExprKind::Call {
+                func: Box::new(Expr::dummy(ExprKind::Identifier("zeros".to_string()))),
                 args: vec![
-                    Expr::Literal(Literal::Int(3)),
-                    Expr::Literal(Literal::Int(4)),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(3))),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(4))),
                 ],
-            }],
-        })],
+            })],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -1138,22 +1138,22 @@ fn test_math_tr() {
 #[test]
 fn test_math_eigvals() {
     let program = Program {
-        statements: vec![Stmt::Import {
+        statements: vec![Stmt::dummy(StmtKind::Import {
             module: "math".to_string(),
             alias: None,
-        }, Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::FieldAccess {
-                target: Box::new(Expr::Identifier("math".to_string())),
+        }), Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                target: Box::new(Expr::dummy(ExprKind::Identifier("math".to_string()))),
                 field: "eigvals".to_string(),
-            }),
-            args: vec![Expr::Call {
-                func: Box::new(Expr::Identifier("zeros".to_string())),
+            })),
+            args: vec![Expr::dummy(ExprKind::Call {
+                func: Box::new(Expr::dummy(ExprKind::Identifier("zeros".to_string()))),
                 args: vec![
-                    Expr::Literal(Literal::Int(2)),
-                    Expr::Literal(Literal::Int(2)),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(2))),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(2))),
                 ],
-            }],
-        })],
+            })],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -1162,22 +1162,22 @@ fn test_math_eigvals() {
 #[test]
 fn test_math_eigvecs() {
     let program = Program {
-        statements: vec![Stmt::Import {
+        statements: vec![Stmt::dummy(StmtKind::Import {
             module: "math".to_string(),
             alias: None,
-        }, Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::FieldAccess {
-                target: Box::new(Expr::Identifier("math".to_string())),
+        }), Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                target: Box::new(Expr::dummy(ExprKind::Identifier("math".to_string()))),
                 field: "eigvecs".to_string(),
-            }),
-            args: vec![Expr::Call {
-                func: Box::new(Expr::Identifier("zeros".to_string())),
+            })),
+            args: vec![Expr::dummy(ExprKind::Call {
+                func: Box::new(Expr::dummy(ExprKind::Identifier("zeros".to_string()))),
                 args: vec![
-                    Expr::Literal(Literal::Int(3)),
-                    Expr::Literal(Literal::Int(3)),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(3))),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(3))),
                 ],
-            }],
-        })],
+            })],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -1186,16 +1186,16 @@ fn test_math_eigvecs() {
 #[test]
 fn test_math_eye() {
     let program = Program {
-        statements: vec![Stmt::Import {
+        statements: vec![Stmt::dummy(StmtKind::Import {
             module: "math".to_string(),
             alias: None,
-        }, Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::FieldAccess {
-                target: Box::new(Expr::Identifier("math".to_string())),
+        }), Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                target: Box::new(Expr::dummy(ExprKind::Identifier("math".to_string()))),
                 field: "eye".to_string(),
-            }),
-            args: vec![Expr::Literal(Literal::Int(5))],
-        })],
+            })),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Int(5)))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -1206,10 +1206,10 @@ fn test_math_eye() {
 #[test]
 fn test_input_int() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::Identifier("input".to_string())),
-            args: vec![Expr::Literal(Literal::String("int".to_string()))],
-        })],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("input".to_string()))),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::String("int".to_string())))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -1218,10 +1218,10 @@ fn test_input_int() {
 #[test]
 fn test_input_float() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::Identifier("input".to_string())),
-            args: vec![Expr::Literal(Literal::String("float".to_string()))],
-        })],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("input".to_string()))),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::String("float".to_string())))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -1230,10 +1230,10 @@ fn test_input_float() {
 #[test]
 fn test_input_string() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::Identifier("input".to_string())),
-            args: vec![Expr::Literal(Literal::String("string".to_string()))],
-        })],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("input".to_string()))),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::String("string".to_string())))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -1244,10 +1244,10 @@ fn test_input_string() {
 #[test]
 fn test_int_conversion_from_string() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::Identifier("int".to_string())),
-            args: vec![Expr::Literal(Literal::String("123".to_string()))],
-        })],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("int".to_string()))),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::String("123".to_string())))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -1256,10 +1256,10 @@ fn test_int_conversion_from_string() {
 #[test]
 fn test_float_conversion_from_string() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::Identifier("float".to_string())),
-            args: vec![Expr::Literal(Literal::String("3.14".to_string()))],
-        })],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("float".to_string()))),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::String("3.14".to_string())))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -1268,10 +1268,10 @@ fn test_float_conversion_from_string() {
 #[test]
 fn test_bool_conversion_from_int_zero() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::Identifier("bool".to_string())),
-            args: vec![Expr::Literal(Literal::Int(0))],
-        })],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("bool".to_string()))),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Int(0)))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -1280,10 +1280,10 @@ fn test_bool_conversion_from_int_zero() {
 #[test]
 fn test_bool_conversion_from_int_nonzero() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::Identifier("bool".to_string())),
-            args: vec![Expr::Literal(Literal::Int(42))],
-        })],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("bool".to_string()))),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Int(42)))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -1292,10 +1292,10 @@ fn test_bool_conversion_from_int_nonzero() {
 #[test]
 fn test_string_conversion_from_float() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::Identifier("string".to_string())),
-            args: vec![Expr::Literal(Literal::Float(3.14))],
-        })],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("string".to_string()))),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Float(3.14)))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -1305,18 +1305,18 @@ fn test_string_conversion_from_float() {
 fn test_typeof_on_different_types() {
     let program = Program {
         statements: vec![
-            Stmt::Expr(Expr::Call {
-                func: Box::new(Expr::Identifier("typeof".to_string())),
-                args: vec![Expr::Literal(Literal::Int(42))],
-            }),
-            Stmt::Expr(Expr::Call {
-                func: Box::new(Expr::Identifier("typeof".to_string())),
-                args: vec![Expr::Literal(Literal::Float(3.14))],
-            }),
-            Stmt::Expr(Expr::Call {
-                func: Box::new(Expr::Identifier("typeof".to_string())),
-                args: vec![Expr::Literal(Literal::String("hello".to_string()))],
-            }),
+            Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+                func: Box::new(Expr::dummy(ExprKind::Identifier("typeof".to_string()))),
+                args: vec![Expr::dummy(ExprKind::Literal(Literal::Int(42)))],
+            }))),
+            Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+                func: Box::new(Expr::dummy(ExprKind::Identifier("typeof".to_string()))),
+                args: vec![Expr::dummy(ExprKind::Literal(Literal::Float(3.14)))],
+            }))),
+            Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+                func: Box::new(Expr::dummy(ExprKind::Identifier("typeof".to_string()))),
+                args: vec![Expr::dummy(ExprKind::Literal(Literal::String("hello".to_string())))],
+            }))),
         ],
     };
     let result = compile_program(program);
@@ -1328,16 +1328,16 @@ fn test_typeof_on_different_types() {
 #[test]
 fn test_math_abs_negative() {
     let program = Program {
-        statements: vec![Stmt::Import {
+        statements: vec![Stmt::dummy(StmtKind::Import {
             module: "math".to_string(),
             alias: None,
-        }, Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::FieldAccess {
-                target: Box::new(Expr::Identifier("math".to_string())),
+        }), Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                target: Box::new(Expr::dummy(ExprKind::Identifier("math".to_string()))),
                 field: "abs".to_string(),
-            }),
-            args: vec![Expr::Literal(Literal::Float(-10.5))],
-        })],
+            })),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Float(-10.5)))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -1346,16 +1346,16 @@ fn test_math_abs_negative() {
 #[test]
 fn test_math_sqrt_zero() {
     let program = Program {
-        statements: vec![Stmt::Import {
+        statements: vec![Stmt::dummy(StmtKind::Import {
             module: "math".to_string(),
             alias: None,
-        }, Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::FieldAccess {
-                target: Box::new(Expr::Identifier("math".to_string())),
+        }), Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                target: Box::new(Expr::dummy(ExprKind::Identifier("math".to_string()))),
                 field: "sqrt".to_string(),
-            }),
-            args: vec![Expr::Literal(Literal::Float(0.0))],
-        })],
+            })),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Float(0.0)))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -1364,16 +1364,16 @@ fn test_math_sqrt_zero() {
 #[test]
 fn test_math_log_one() {
     let program = Program {
-        statements: vec![Stmt::Import {
+        statements: vec![Stmt::dummy(StmtKind::Import {
             module: "math".to_string(),
             alias: None,
-        }, Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::FieldAccess {
-                target: Box::new(Expr::Identifier("math".to_string())),
+        }), Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                target: Box::new(Expr::dummy(ExprKind::Identifier("math".to_string()))),
                 field: "log".to_string(),
-            }),
-            args: vec![Expr::Literal(Literal::Float(1.0))],
-        })],
+            })),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Float(1.0)))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -1385,20 +1385,20 @@ fn test_math_log_one() {
 fn test_math_pow_zero_exponent() {
     let program = Program {
         statements: vec![
-            Stmt::Import {
+            Stmt::dummy(StmtKind::Import {
                 module: "math".to_string(),
                 alias: None,
-            },
-            Stmt::Expr(Expr::Call {
-                func: Box::new(Expr::FieldAccess {
-                    target: Box::new(Expr::Identifier("math".to_string())),
-                    field: "pow".to_string(),
-                }),
-                args: vec![
-                    Expr::Literal(Literal::Float(5.0)),
-                    Expr::Literal(Literal::Float(0.0)),
-                ],
             }),
+            Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+                func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                    target: Box::new(Expr::dummy(ExprKind::Identifier("math".to_string()))),
+                    field: "pow".to_string(),
+                })),
+                args: vec![
+                    Expr::dummy(ExprKind::Literal(Literal::Float(5.0))),
+                    Expr::dummy(ExprKind::Literal(Literal::Float(0.0))),
+                ],
+            }))),
         ],
     };
     let result = compile_program(program);
@@ -1409,20 +1409,20 @@ fn test_math_pow_zero_exponent() {
 fn test_math_pow_negative_base() {
     let program = Program {
         statements: vec![
-            Stmt::Import {
+            Stmt::dummy(StmtKind::Import {
                 module: "math".to_string(),
                 alias: None,
-            },
-            Stmt::Expr(Expr::Call {
-                func: Box::new(Expr::FieldAccess {
-                    target: Box::new(Expr::Identifier("math".to_string())),
-                    field: "pow".to_string(),
-                }),
-                args: vec![
-                    Expr::Literal(Literal::Float(-2.0)),
-                    Expr::Literal(Literal::Float(3.0)),
-                ],
             }),
+            Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+                func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                    target: Box::new(Expr::dummy(ExprKind::Identifier("math".to_string()))),
+                    field: "pow".to_string(),
+                })),
+                args: vec![
+                    Expr::dummy(ExprKind::Literal(Literal::Float(-2.0))),
+                    Expr::dummy(ExprKind::Literal(Literal::Float(3.0))),
+                ],
+            }))),
         ],
     };
     let result = compile_program(program);
@@ -1433,17 +1433,17 @@ fn test_math_pow_negative_base() {
 fn test_math_exp_zero() {
     let program = Program {
         statements: vec![
-            Stmt::Import {
+            Stmt::dummy(StmtKind::Import {
                 module: "math".to_string(),
                 alias: None,
-            },
-            Stmt::Expr(Expr::Call {
-                func: Box::new(Expr::FieldAccess {
-                    target: Box::new(Expr::Identifier("math".to_string())),
-                    field: "exp".to_string(),
-                }),
-                args: vec![Expr::Literal(Literal::Float(0.0))],
             }),
+            Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+                func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                    target: Box::new(Expr::dummy(ExprKind::Identifier("math".to_string()))),
+                    field: "exp".to_string(),
+                })),
+                args: vec![Expr::dummy(ExprKind::Literal(Literal::Float(0.0)))],
+            }))),
         ],
     };
     let result = compile_program(program);
@@ -1454,17 +1454,17 @@ fn test_math_exp_zero() {
 fn test_math_sin_zero() {
     let program = Program {
         statements: vec![
-            Stmt::Import {
+            Stmt::dummy(StmtKind::Import {
                 module: "math".to_string(),
                 alias: None,
-            },
-            Stmt::Expr(Expr::Call {
-                func: Box::new(Expr::FieldAccess {
-                    target: Box::new(Expr::Identifier("math".to_string())),
-                    field: "sin".to_string(),
-                }),
-                args: vec![Expr::Literal(Literal::Float(0.0))],
             }),
+            Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+                func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                    target: Box::new(Expr::dummy(ExprKind::Identifier("math".to_string()))),
+                    field: "sin".to_string(),
+                })),
+                args: vec![Expr::dummy(ExprKind::Literal(Literal::Float(0.0)))],
+            }))),
         ],
     };
     let result = compile_program(program);
@@ -1475,17 +1475,17 @@ fn test_math_sin_zero() {
 fn test_math_cos_zero() {
     let program = Program {
         statements: vec![
-            Stmt::Import {
+            Stmt::dummy(StmtKind::Import {
                 module: "math".to_string(),
                 alias: None,
-            },
-            Stmt::Expr(Expr::Call {
-                func: Box::new(Expr::FieldAccess {
-                    target: Box::new(Expr::Identifier("math".to_string())),
-                    field: "cos".to_string(),
-                }),
-                args: vec![Expr::Literal(Literal::Float(0.0))],
             }),
+            Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+                func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                    target: Box::new(Expr::dummy(ExprKind::Identifier("math".to_string()))),
+                    field: "cos".to_string(),
+                })),
+                args: vec![Expr::dummy(ExprKind::Literal(Literal::Float(0.0)))],
+            }))),
         ],
     };
     let result = compile_program(program);
@@ -1496,17 +1496,17 @@ fn test_math_cos_zero() {
 fn test_math_tan_zero() {
     let program = Program {
         statements: vec![
-            Stmt::Import {
+            Stmt::dummy(StmtKind::Import {
                 module: "math".to_string(),
                 alias: None,
-            },
-            Stmt::Expr(Expr::Call {
-                func: Box::new(Expr::FieldAccess {
-                    target: Box::new(Expr::Identifier("math".to_string())),
-                    field: "tan".to_string(),
-                }),
-                args: vec![Expr::Literal(Literal::Float(0.0))],
             }),
+            Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+                func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                    target: Box::new(Expr::dummy(ExprKind::Identifier("math".to_string()))),
+                    field: "tan".to_string(),
+                })),
+                args: vec![Expr::dummy(ExprKind::Literal(Literal::Float(0.0)))],
+            }))),
         ],
     };
     let result = compile_program(program);
@@ -1517,17 +1517,17 @@ fn test_math_tan_zero() {
 fn test_math_floor_negative() {
     let program = Program {
         statements: vec![
-            Stmt::Import {
+            Stmt::dummy(StmtKind::Import {
                 module: "math".to_string(),
                 alias: None,
-            },
-            Stmt::Expr(Expr::Call {
-                func: Box::new(Expr::FieldAccess {
-                    target: Box::new(Expr::Identifier("math".to_string())),
-                    field: "floor".to_string(),
-                }),
-                args: vec![Expr::Literal(Literal::Float(-3.7))],
             }),
+            Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+                func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                    target: Box::new(Expr::dummy(ExprKind::Identifier("math".to_string()))),
+                    field: "floor".to_string(),
+                })),
+                args: vec![Expr::dummy(ExprKind::Literal(Literal::Float(-3.7)))],
+            }))),
         ],
     };
     let result = compile_program(program);
@@ -1538,17 +1538,17 @@ fn test_math_floor_negative() {
 fn test_math_ceil_negative() {
     let program = Program {
         statements: vec![
-            Stmt::Import {
+            Stmt::dummy(StmtKind::Import {
                 module: "math".to_string(),
                 alias: None,
-            },
-            Stmt::Expr(Expr::Call {
-                func: Box::new(Expr::FieldAccess {
-                    target: Box::new(Expr::Identifier("math".to_string())),
-                    field: "ceil".to_string(),
-                }),
-                args: vec![Expr::Literal(Literal::Float(-3.2))],
             }),
+            Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+                func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                    target: Box::new(Expr::dummy(ExprKind::Identifier("math".to_string()))),
+                    field: "ceil".to_string(),
+                })),
+                args: vec![Expr::dummy(ExprKind::Literal(Literal::Float(-3.2)))],
+            }))),
         ],
     };
     let result = compile_program(program);
@@ -1559,17 +1559,17 @@ fn test_math_ceil_negative() {
 fn test_math_round_negative() {
     let program = Program {
         statements: vec![
-            Stmt::Import {
+            Stmt::dummy(StmtKind::Import {
                 module: "math".to_string(),
                 alias: None,
-            },
-            Stmt::Expr(Expr::Call {
-                func: Box::new(Expr::FieldAccess {
-                    target: Box::new(Expr::Identifier("math".to_string())),
-                    field: "round".to_string(),
-                }),
-                args: vec![Expr::Literal(Literal::Float(-3.5))],
             }),
+            Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+                func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                    target: Box::new(Expr::dummy(ExprKind::Identifier("math".to_string()))),
+                    field: "round".to_string(),
+                })),
+                args: vec![Expr::dummy(ExprKind::Literal(Literal::Float(-3.5)))],
+            }))),
         ],
     };
     let result = compile_program(program);
@@ -1580,20 +1580,20 @@ fn test_math_round_negative() {
 fn test_math_min_negative_values() {
     let program = Program {
         statements: vec![
-            Stmt::Import {
+            Stmt::dummy(StmtKind::Import {
                 module: "math".to_string(),
                 alias: None,
-            },
-            Stmt::Expr(Expr::Call {
-                func: Box::new(Expr::FieldAccess {
-                    target: Box::new(Expr::Identifier("math".to_string())),
-                    field: "min".to_string(),
-                }),
-                args: vec![
-                    Expr::Literal(Literal::Float(-10.0)),
-                    Expr::Literal(Literal::Float(-5.0)),
-                ],
             }),
+            Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+                func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                    target: Box::new(Expr::dummy(ExprKind::Identifier("math".to_string()))),
+                    field: "min".to_string(),
+                })),
+                args: vec![
+                    Expr::dummy(ExprKind::Literal(Literal::Float(-10.0))),
+                    Expr::dummy(ExprKind::Literal(Literal::Float(-5.0))),
+                ],
+            }))),
         ],
     };
     let result = compile_program(program);
@@ -1604,20 +1604,20 @@ fn test_math_min_negative_values() {
 fn test_math_max_negative_values() {
     let program = Program {
         statements: vec![
-            Stmt::Import {
+            Stmt::dummy(StmtKind::Import {
                 module: "math".to_string(),
                 alias: None,
-            },
-            Stmt::Expr(Expr::Call {
-                func: Box::new(Expr::FieldAccess {
-                    target: Box::new(Expr::Identifier("math".to_string())),
-                    field: "max".to_string(),
-                }),
-                args: vec![
-                    Expr::Literal(Literal::Float(-10.0)),
-                    Expr::Literal(Literal::Float(-5.0)),
-                ],
             }),
+            Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+                func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                    target: Box::new(Expr::dummy(ExprKind::Identifier("math".to_string()))),
+                    field: "max".to_string(),
+                })),
+                args: vec![
+                    Expr::dummy(ExprKind::Literal(Literal::Float(-10.0))),
+                    Expr::dummy(ExprKind::Literal(Literal::Float(-5.0))),
+                ],
+            }))),
         ],
     };
     let result = compile_program(program);
@@ -1629,10 +1629,10 @@ fn test_math_max_negative_values() {
 #[test]
 fn test_string_uppercase() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::Identifier("uppercase".to_string())),
-            args: vec![Expr::Literal(Literal::String("hello".to_string()))],
-        })],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("uppercase".to_string()))),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::String("hello".to_string())))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -1641,10 +1641,10 @@ fn test_string_uppercase() {
 #[test]
 fn test_string_lowercase() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::Identifier("lowercase".to_string())),
-            args: vec![Expr::Literal(Literal::String("WORLD".to_string()))],
-        })],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("lowercase".to_string()))),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::String("WORLD".to_string())))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -1653,10 +1653,10 @@ fn test_string_lowercase() {
 #[test]
 fn test_string_capitalize() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::Identifier("capitalize".to_string())),
-            args: vec![Expr::Literal(Literal::String("hello".to_string()))],
-        })],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("capitalize".to_string()))),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::String("hello".to_string())))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -1665,14 +1665,14 @@ fn test_string_capitalize() {
 #[test]
 fn test_string_replace() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::Identifier("replace".to_string())),
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("replace".to_string()))),
             args: vec![
-                Expr::Literal(Literal::String("hello world".to_string())),
-                Expr::Literal(Literal::String("world".to_string())),
-                Expr::Literal(Literal::String("Brix".to_string())),
+                Expr::dummy(ExprKind::Literal(Literal::String("hello world".to_string()))),
+                Expr::dummy(ExprKind::Literal(Literal::String("world".to_string()))),
+                Expr::dummy(ExprKind::Literal(Literal::String("Brix".to_string()))),
             ],
-        })],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -1683,10 +1683,10 @@ fn test_string_replace() {
 #[test]
 fn test_is_nil_function() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::Identifier("is_nil".to_string())),
-            args: vec![Expr::Literal(Literal::Nil)],
-        })],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("is_nil".to_string()))),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Nil))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -1695,10 +1695,10 @@ fn test_is_nil_function() {
 #[test]
 fn test_is_atom_function() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::Identifier("is_atom".to_string())),
-            args: vec![Expr::Literal(Literal::Atom("ok".to_string()))],
-        })],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("is_atom".to_string()))),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Atom("ok".to_string())))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -1707,10 +1707,10 @@ fn test_is_atom_function() {
 #[test]
 fn test_is_boolean_function() {
     let program = Program {
-        statements: vec![Stmt::Expr(Expr::Call {
-            func: Box::new(Expr::Identifier("is_boolean".to_string())),
-            args: vec![Expr::Literal(Literal::Bool(true))],
-        })],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("is_boolean".to_string()))),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Bool(true)))],
+        })))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
