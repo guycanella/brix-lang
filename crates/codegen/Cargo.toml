@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 parser = { path = "../parser" }
 lexer = { path = "../lexer" }
+ariadne = "0.4"
 
 [dependencies.inkwell]
 version = "0.5.0"
