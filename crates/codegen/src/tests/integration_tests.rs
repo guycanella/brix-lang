@@ -3,7 +3,7 @@
 
 use crate::Compiler;
 use inkwell::context::Context;
-use parser::ast::{BinaryOp, Expr, Literal, MatchArm, Pattern, Program, Stmt, UnaryOp};
+use parser::ast::{BinaryOp, Expr, Literal, MatchArm, Pattern, Program, Stmt, UnaryOp, ExprKind, StmtKind};
 
 fn compile_program(program: Program) -> Result<String, String> {
     let result = std::panic::catch_unwind(|| {
@@ -22,11 +22,11 @@ fn compile_program(program: Program) -> Result<String, String> {
 
 // Helper function to create binary operations
 fn binary(op: BinaryOp, lhs: Expr, rhs: Expr) -> Expr {
-    Expr::Binary {
+    Expr::dummy(ExprKind::Binary {
         op,
         lhs: Box::new(lhs),
         rhs: Box::new(rhs),
-    }
+    })
 }
 
 // 1. Array field access combined with arithmetic
@@ -36,29 +36,29 @@ fn test_array_field_access_with_arithmetic() {
     // var len := arr.rows * 2
     let program = Program {
         statements: vec![
-            Stmt::VariableDecl {
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "arr".to_string(),
                 type_hint: None,
-                value: Expr::Array(vec![
-                    Expr::Literal(Literal::Int(1)),
-                    Expr::Literal(Literal::Int(2)),
-                    Expr::Literal(Literal::Int(3)),
-                ]),
+                value: Expr::dummy(ExprKind::Array(vec![
+                    Expr::dummy(ExprKind::Literal(Literal::Int(1))),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(2))),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(3))),
+                ])),
                 is_const: false,
-            },
-            Stmt::VariableDecl {
+            }),
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "len".to_string(),
                 type_hint: None,
                 value: binary(
                     BinaryOp::Mul,
-                    Expr::FieldAccess {
-                        target: Box::new(Expr::Identifier("arr".to_string())),
+                    Expr::dummy(ExprKind::FieldAccess {
+                        target: Box::new(Expr::dummy(ExprKind::Identifier("arr".to_string()))),
                         field: "rows".to_string(),
-                    },
-                    Expr::Literal(Literal::Int(2)),
+                    }),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(2))),
                 ),
                 is_const: false,
-            },
+            }),
         ],
     };
     assert!(compile_program(program).is_ok());
@@ -72,42 +72,42 @@ fn test_ternary_with_array_indexing() {
     // var val := idx > 0 ? arr[idx] : arr[0]
     let program = Program {
         statements: vec![
-            Stmt::VariableDecl {
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "arr".to_string(),
                 type_hint: None,
-                value: Expr::Array(vec![
-                    Expr::Literal(Literal::Int(10)),
-                    Expr::Literal(Literal::Int(20)),
-                    Expr::Literal(Literal::Int(30)),
-                ]),
+                value: Expr::dummy(ExprKind::Array(vec![
+                    Expr::dummy(ExprKind::Literal(Literal::Int(10))),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(20))),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(30))),
+                ])),
                 is_const: false,
-            },
-            Stmt::VariableDecl {
+            }),
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "idx".to_string(),
                 type_hint: None,
-                value: Expr::Literal(Literal::Int(1)),
+                value: Expr::dummy(ExprKind::Literal(Literal::Int(1))),
                 is_const: false,
-            },
-            Stmt::VariableDecl {
+            }),
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "val".to_string(),
                 type_hint: None,
-                value: Expr::Ternary {
+                value: Expr::dummy(ExprKind::Ternary {
                     condition: Box::new(binary(
                         BinaryOp::Gt,
-                        Expr::Identifier("idx".to_string()),
-                        Expr::Literal(Literal::Int(0)),
+                        Expr::dummy(ExprKind::Identifier("idx".to_string())),
+                        Expr::dummy(ExprKind::Literal(Literal::Int(0))),
                     )),
-                    then_expr: Box::new(Expr::Index {
-                        array: Box::new(Expr::Identifier("arr".to_string())),
-                        indices: vec![Expr::Identifier("idx".to_string())],
-                    }),
-                    else_expr: Box::new(Expr::Index {
-                        array: Box::new(Expr::Identifier("arr".to_string())),
-                        indices: vec![Expr::Literal(Literal::Int(0))],
-                    }),
-                },
+                    then_expr: Box::new(Expr::dummy(ExprKind::Index {
+                        array: Box::new(Expr::dummy(ExprKind::Identifier("arr".to_string()))),
+                        indices: vec![Expr::dummy(ExprKind::Identifier("idx".to_string()))],
+                    })),
+                    else_expr: Box::new(Expr::dummy(ExprKind::Index {
+                        array: Box::new(Expr::dummy(ExprKind::Identifier("arr".to_string()))),
+                        indices: vec![Expr::dummy(ExprKind::Literal(Literal::Int(0)))],
+                    })),
+                }),
                 is_const: false,
-            },
+            }),
         ],
     };
     assert!(compile_program(program).is_ok());
@@ -124,25 +124,25 @@ fn test_match_with_arithmetic_in_arms() {
     // }
     let program = Program {
         statements: vec![
-            Stmt::VariableDecl {
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "x".to_string(),
                 type_hint: None,
-                value: Expr::Literal(Literal::Int(5)),
+                value: Expr::dummy(ExprKind::Literal(Literal::Int(5))),
                 is_const: false,
-            },
-            Stmt::VariableDecl {
+            }),
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "result".to_string(),
                 type_hint: None,
-                value: Expr::Match {
-                    value: Box::new(Expr::Identifier("x".to_string())),
+                value: Expr::dummy(ExprKind::Match {
+                    value: Box::new(Expr::dummy(ExprKind::Identifier("x".to_string()))),
                     arms: vec![
                         MatchArm {
                             pattern: Pattern::Literal(Literal::Int(1)),
                             guard: None,
                             body: Box::new(binary(
                                 BinaryOp::Add,
-                                Expr::Literal(Literal::Int(10)),
-                                Expr::Literal(Literal::Int(5)),
+                                Expr::dummy(ExprKind::Literal(Literal::Int(10))),
+                                Expr::dummy(ExprKind::Literal(Literal::Int(5))),
                             )),
                         },
                         MatchArm {
@@ -150,8 +150,8 @@ fn test_match_with_arithmetic_in_arms() {
                             guard: None,
                             body: Box::new(binary(
                                 BinaryOp::Mul,
-                                Expr::Literal(Literal::Int(20)),
-                                Expr::Literal(Literal::Int(2)),
+                                Expr::dummy(ExprKind::Literal(Literal::Int(20))),
+                                Expr::dummy(ExprKind::Literal(Literal::Int(2))),
                             )),
                         },
                         MatchArm {
@@ -159,14 +159,14 @@ fn test_match_with_arithmetic_in_arms() {
                             guard: None,
                             body: Box::new(binary(
                                 BinaryOp::Sub,
-                                Expr::Literal(Literal::Int(0)),
-                                Expr::Literal(Literal::Int(1)),
+                                Expr::dummy(ExprKind::Literal(Literal::Int(0))),
+                                Expr::dummy(ExprKind::Literal(Literal::Int(1))),
                             )),
                         },
                     ],
-                },
+                }),
                 is_const: false,
-            },
+            }),
         ],
     };
     assert!(compile_program(program).is_ok());
@@ -179,30 +179,30 @@ fn test_complex_operations_with_variable() {
     // var z2 := z * z
     let program = Program {
         statements: vec![
-            Stmt::VariableDecl {
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "z".to_string(),
                 type_hint: None,
                 value: binary(
                     BinaryOp::Add,
-                    Expr::Literal(Literal::Float(3.0)),
+                    Expr::dummy(ExprKind::Literal(Literal::Float(3.0))),
                     binary(
                         BinaryOp::Mul,
-                        Expr::Literal(Literal::Float(4.0)),
-                        Expr::Identifier("im".to_string()),
+                        Expr::dummy(ExprKind::Literal(Literal::Float(4.0))),
+                        Expr::dummy(ExprKind::Identifier("im".to_string())),
                     ),
                 ),
                 is_const: false,
-            },
-            Stmt::VariableDecl {
+            }),
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "z2".to_string(),
                 type_hint: None,
                 value: binary(
                     BinaryOp::Mul,
-                    Expr::Identifier("z".to_string()),
-                    Expr::Identifier("z".to_string()),
+                    Expr::dummy(ExprKind::Identifier("z".to_string())),
+                    Expr::dummy(ExprKind::Identifier("z".to_string())),
                 ),
                 is_const: false,
-            },
+            }),
         ],
     };
     assert!(compile_program(program).is_ok());
@@ -216,32 +216,32 @@ fn test_bitwise_combined_with_comparison() {
     // var result := (x & y) > 10
     let program = Program {
         statements: vec![
-            Stmt::VariableDecl {
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "x".to_string(),
                 type_hint: None,
-                value: Expr::Literal(Literal::Int(0xFF)),
+                value: Expr::dummy(ExprKind::Literal(Literal::Int(0xFF))),
                 is_const: false,
-            },
-            Stmt::VariableDecl {
+            }),
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "y".to_string(),
                 type_hint: None,
-                value: Expr::Literal(Literal::Int(0x0F)),
+                value: Expr::dummy(ExprKind::Literal(Literal::Int(0x0F))),
                 is_const: false,
-            },
-            Stmt::VariableDecl {
+            }),
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "result".to_string(),
                 type_hint: None,
                 value: binary(
                     BinaryOp::Gt,
                     binary(
                         BinaryOp::BitAnd,
-                        Expr::Identifier("x".to_string()),
-                        Expr::Identifier("y".to_string()),
+                        Expr::dummy(ExprKind::Identifier("x".to_string())),
+                        Expr::dummy(ExprKind::Identifier("y".to_string())),
                     ),
-                    Expr::Literal(Literal::Int(10)),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(10))),
                 ),
                 is_const: false,
-            },
+            }),
         ],
     };
     assert!(compile_program(program).is_ok());
@@ -255,19 +255,19 @@ fn test_logical_with_arithmetic() {
     // var result := (x + 5 > 10) && (y - 5 < 20)
     let program = Program {
         statements: vec![
-            Stmt::VariableDecl {
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "x".to_string(),
                 type_hint: None,
-                value: Expr::Literal(Literal::Int(10)),
+                value: Expr::dummy(ExprKind::Literal(Literal::Int(10))),
                 is_const: false,
-            },
-            Stmt::VariableDecl {
+            }),
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "y".to_string(),
                 type_hint: None,
-                value: Expr::Literal(Literal::Int(20)),
+                value: Expr::dummy(ExprKind::Literal(Literal::Int(20))),
                 is_const: false,
-            },
-            Stmt::VariableDecl {
+            }),
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "result".to_string(),
                 type_hint: None,
                 value: binary(
@@ -276,23 +276,23 @@ fn test_logical_with_arithmetic() {
                         BinaryOp::Gt,
                         binary(
                             BinaryOp::Add,
-                            Expr::Identifier("x".to_string()),
-                            Expr::Literal(Literal::Int(5)),
+                            Expr::dummy(ExprKind::Identifier("x".to_string())),
+                            Expr::dummy(ExprKind::Literal(Literal::Int(5))),
                         ),
-                        Expr::Literal(Literal::Int(10)),
+                        Expr::dummy(ExprKind::Literal(Literal::Int(10))),
                     ),
                     binary(
                         BinaryOp::Lt,
                         binary(
                             BinaryOp::Sub,
-                            Expr::Identifier("y".to_string()),
-                            Expr::Literal(Literal::Int(5)),
+                            Expr::dummy(ExprKind::Identifier("y".to_string())),
+                            Expr::dummy(ExprKind::Literal(Literal::Int(5))),
                         ),
-                        Expr::Literal(Literal::Int(20)),
+                        Expr::dummy(ExprKind::Literal(Literal::Int(20))),
                     ),
                 ),
                 is_const: false,
-            },
+            }),
         ],
     };
     assert!(compile_program(program).is_ok());
@@ -306,41 +306,41 @@ fn test_array_index_with_arithmetic_expression() {
     // var val := arr[i * 2 - 1]
     let program = Program {
         statements: vec![
-            Stmt::VariableDecl {
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "arr".to_string(),
                 type_hint: None,
-                value: Expr::Array(vec![
-                    Expr::Literal(Literal::Int(10)),
-                    Expr::Literal(Literal::Int(20)),
-                    Expr::Literal(Literal::Int(30)),
-                    Expr::Literal(Literal::Int(40)),
-                    Expr::Literal(Literal::Int(50)),
-                ]),
+                value: Expr::dummy(ExprKind::Array(vec![
+                    Expr::dummy(ExprKind::Literal(Literal::Int(10))),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(20))),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(30))),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(40))),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(50))),
+                ])),
                 is_const: false,
-            },
-            Stmt::VariableDecl {
+            }),
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "i".to_string(),
                 type_hint: None,
-                value: Expr::Literal(Literal::Int(2)),
+                value: Expr::dummy(ExprKind::Literal(Literal::Int(2))),
                 is_const: false,
-            },
-            Stmt::VariableDecl {
+            }),
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "val".to_string(),
                 type_hint: None,
-                value: Expr::Index {
-                    array: Box::new(Expr::Identifier("arr".to_string())),
+                value: Expr::dummy(ExprKind::Index {
+                    array: Box::new(Expr::dummy(ExprKind::Identifier("arr".to_string()))),
                     indices: vec![binary(
                         BinaryOp::Sub,
                         binary(
                             BinaryOp::Mul,
-                            Expr::Identifier("i".to_string()),
-                            Expr::Literal(Literal::Int(2)),
+                            Expr::dummy(ExprKind::Identifier("i".to_string())),
+                            Expr::dummy(ExprKind::Literal(Literal::Int(2))),
                         ),
-                        Expr::Literal(Literal::Int(1)),
+                        Expr::dummy(ExprKind::Literal(Literal::Int(1))),
                     )],
-                },
+                }),
                 is_const: false,
-            },
+            }),
         ],
     };
     assert!(compile_program(program).is_ok());
@@ -357,37 +357,37 @@ fn test_match_atoms_with_string_results() {
     // }
     let program = Program {
         statements: vec![
-            Stmt::VariableDecl {
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "code".to_string(),
                 type_hint: None,
-                value: Expr::Literal(Literal::Atom("ok".to_string())),
+                value: Expr::dummy(ExprKind::Literal(Literal::Atom("ok".to_string()))),
                 is_const: false,
-            },
-            Stmt::VariableDecl {
+            }),
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "msg".to_string(),
                 type_hint: None,
-                value: Expr::Match {
-                    value: Box::new(Expr::Identifier("code".to_string())),
+                value: Expr::dummy(ExprKind::Match {
+                    value: Box::new(Expr::dummy(ExprKind::Identifier("code".to_string()))),
                     arms: vec![
                         MatchArm {
                             pattern: Pattern::Literal(Literal::Atom("ok".to_string())),
                             guard: None,
-                            body: Box::new(Expr::Literal(Literal::String("Success".to_string()))),
+                            body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("Success".to_string())))),
                         },
                         MatchArm {
                             pattern: Pattern::Literal(Literal::Atom("error".to_string())),
                             guard: None,
-                            body: Box::new(Expr::Literal(Literal::String("Failed".to_string()))),
+                            body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("Failed".to_string())))),
                         },
                         MatchArm {
                             pattern: Pattern::Wildcard,
                             guard: None,
-                            body: Box::new(Expr::Literal(Literal::String("Unknown".to_string()))),
+                            body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("Unknown".to_string())))),
                         },
                     ],
-                },
+                }),
                 is_const: false,
-            },
+            }),
         ],
     };
     assert!(compile_program(program).is_ok());
@@ -400,29 +400,29 @@ fn test_unary_with_binary_operations() {
     // var result := -(x + 5) * 2
     let program = Program {
         statements: vec![
-            Stmt::VariableDecl {
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "x".to_string(),
                 type_hint: None,
-                value: Expr::Literal(Literal::Int(10)),
+                value: Expr::dummy(ExprKind::Literal(Literal::Int(10))),
                 is_const: false,
-            },
-            Stmt::VariableDecl {
+            }),
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "result".to_string(),
                 type_hint: None,
                 value: binary(
                     BinaryOp::Mul,
-                    Expr::Unary {
+                    Expr::dummy(ExprKind::Unary {
                         op: UnaryOp::Negate,
                         expr: Box::new(binary(
                             BinaryOp::Add,
-                            Expr::Identifier("x".to_string()),
-                            Expr::Literal(Literal::Int(5)),
+                            Expr::dummy(ExprKind::Identifier("x".to_string())),
+                            Expr::dummy(ExprKind::Literal(Literal::Int(5))),
                         )),
-                    },
-                    Expr::Literal(Literal::Int(2)),
+                    }),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(2))),
                 ),
                 is_const: false,
-            },
+            }),
         ],
     };
     assert!(compile_program(program).is_ok());
@@ -437,46 +437,46 @@ fn test_multiple_var_decls_with_dependencies() {
     // var d := c - b + a
     let program = Program {
         statements: vec![
-            Stmt::VariableDecl {
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "a".to_string(),
                 type_hint: None,
-                value: Expr::Literal(Literal::Int(10)),
+                value: Expr::dummy(ExprKind::Literal(Literal::Int(10))),
                 is_const: false,
-            },
-            Stmt::VariableDecl {
+            }),
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "b".to_string(),
                 type_hint: None,
                 value: binary(
                     BinaryOp::Mul,
-                    Expr::Identifier("a".to_string()),
-                    Expr::Literal(Literal::Int(2)),
+                    Expr::dummy(ExprKind::Identifier("a".to_string())),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(2))),
                 ),
                 is_const: false,
-            },
-            Stmt::VariableDecl {
+            }),
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "c".to_string(),
                 type_hint: None,
                 value: binary(
                     BinaryOp::Add,
-                    Expr::Identifier("b".to_string()),
-                    Expr::Identifier("a".to_string()),
+                    Expr::dummy(ExprKind::Identifier("b".to_string())),
+                    Expr::dummy(ExprKind::Identifier("a".to_string())),
                 ),
                 is_const: false,
-            },
-            Stmt::VariableDecl {
+            }),
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "d".to_string(),
                 type_hint: None,
                 value: binary(
                     BinaryOp::Add,
                     binary(
                         BinaryOp::Sub,
-                        Expr::Identifier("c".to_string()),
-                        Expr::Identifier("b".to_string()),
+                        Expr::dummy(ExprKind::Identifier("c".to_string())),
+                        Expr::dummy(ExprKind::Identifier("b".to_string())),
                     ),
-                    Expr::Identifier("a".to_string()),
+                    Expr::dummy(ExprKind::Identifier("a".to_string())),
                 ),
                 is_const: false,
-            },
+            }),
         ],
     };
     assert!(compile_program(program).is_ok());
@@ -490,34 +490,34 @@ fn test_compound_assignment_complex_rhs() {
     // x += y * 2 + 3
     let program = Program {
         statements: vec![
-            Stmt::VariableDecl {
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "x".to_string(),
                 type_hint: None,
-                value: Expr::Literal(Literal::Int(10)),
+                value: Expr::dummy(ExprKind::Literal(Literal::Int(10))),
                 is_const: false,
-            },
-            Stmt::VariableDecl {
+            }),
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "y".to_string(),
                 type_hint: None,
-                value: Expr::Literal(Literal::Int(5)),
+                value: Expr::dummy(ExprKind::Literal(Literal::Int(5))),
                 is_const: false,
-            },
-            Stmt::Assignment {
-                target: Expr::Identifier("x".to_string()),
+            }),
+            Stmt::dummy(StmtKind::Assignment {
+                target: Expr::dummy(ExprKind::Identifier("x".to_string())),
                 value: binary(
                     BinaryOp::Add,
-                    Expr::Identifier("x".to_string()),
+                    Expr::dummy(ExprKind::Identifier("x".to_string())),
                     binary(
                         BinaryOp::Add,
                         binary(
                             BinaryOp::Mul,
-                            Expr::Identifier("y".to_string()),
-                            Expr::Literal(Literal::Int(2)),
+                            Expr::dummy(ExprKind::Identifier("y".to_string())),
+                            Expr::dummy(ExprKind::Literal(Literal::Int(2))),
                         ),
-                        Expr::Literal(Literal::Int(3)),
+                        Expr::dummy(ExprKind::Literal(Literal::Int(3))),
                     ),
                 ),
-            },
+            }),
         ],
     };
     assert!(compile_program(program).is_ok());
@@ -535,53 +535,53 @@ fn test_if_else_complex_conditions_nested() {
     // }
     let program = Program {
         statements: vec![
-            Stmt::VariableDecl {
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "x".to_string(),
                 type_hint: None,
-                value: Expr::Literal(Literal::Int(15)),
+                value: Expr::dummy(ExprKind::Literal(Literal::Int(15))),
                 is_const: false,
-            },
-            Stmt::VariableDecl {
+            }),
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "y".to_string(),
                 type_hint: None,
-                value: Expr::Literal(Literal::Int(20)),
+                value: Expr::dummy(ExprKind::Literal(Literal::Int(20))),
                 is_const: false,
-            },
-            Stmt::If {
+            }),
+            Stmt::dummy(StmtKind::If {
                 condition: binary(
                     BinaryOp::LogicalAnd,
                     binary(
                         BinaryOp::Gt,
-                        Expr::Identifier("x".to_string()),
-                        Expr::Literal(Literal::Int(10)),
+                        Expr::dummy(ExprKind::Identifier("x".to_string())),
+                        Expr::dummy(ExprKind::Literal(Literal::Int(10))),
                     ),
                     binary(
                         BinaryOp::Lt,
-                        Expr::Identifier("y".to_string()),
-                        Expr::Literal(Literal::Int(30)),
+                        Expr::dummy(ExprKind::Identifier("y".to_string())),
+                        Expr::dummy(ExprKind::Literal(Literal::Int(30))),
                     ),
                 ),
-                then_block: Box::new(Stmt::VariableDecl {
+                then_block: Box::new(Stmt::dummy(StmtKind::VariableDecl {
                     name: "z".to_string(),
                     type_hint: None,
                     value: binary(
                         BinaryOp::Add,
-                        Expr::Identifier("x".to_string()),
-                        Expr::Identifier("y".to_string()),
+                        Expr::dummy(ExprKind::Identifier("x".to_string())),
+                        Expr::dummy(ExprKind::Identifier("y".to_string())),
                     ),
                     is_const: false,
-                }),
-                else_block: Some(Box::new(Stmt::VariableDecl {
+                })),
+                else_block: Some(Box::new(Stmt::dummy(StmtKind::VariableDecl {
                     name: "z".to_string(),
                     type_hint: None,
                     value: binary(
                         BinaryOp::Sub,
-                        Expr::Identifier("x".to_string()),
-                        Expr::Identifier("y".to_string()),
+                        Expr::dummy(ExprKind::Identifier("x".to_string())),
+                        Expr::dummy(ExprKind::Identifier("y".to_string())),
                     ),
                     is_const: false,
-                })),
-            },
+                }))),
+            }),
         ],
     };
     assert!(compile_program(program).is_ok());
@@ -598,51 +598,51 @@ fn test_while_compound_condition_multiple_stmts() {
     // }
     let program = Program {
         statements: vec![
-            Stmt::VariableDecl {
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "x".to_string(),
                 type_hint: None,
-                value: Expr::Literal(Literal::Int(10)),
+                value: Expr::dummy(ExprKind::Literal(Literal::Int(10))),
                 is_const: false,
-            },
-            Stmt::VariableDecl {
+            }),
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "y".to_string(),
                 type_hint: None,
-                value: Expr::Literal(Literal::Int(0)),
+                value: Expr::dummy(ExprKind::Literal(Literal::Int(0))),
                 is_const: false,
-            },
-            Stmt::While {
+            }),
+            Stmt::dummy(StmtKind::While {
                 condition: binary(
                     BinaryOp::LogicalAnd,
                     binary(
                         BinaryOp::Gt,
-                        Expr::Identifier("x".to_string()),
-                        Expr::Literal(Literal::Int(0)),
+                        Expr::dummy(ExprKind::Identifier("x".to_string())),
+                        Expr::dummy(ExprKind::Literal(Literal::Int(0))),
                     ),
                     binary(
                         BinaryOp::Lt,
-                        Expr::Identifier("y".to_string()),
-                        Expr::Literal(Literal::Int(20)),
+                        Expr::dummy(ExprKind::Identifier("y".to_string())),
+                        Expr::dummy(ExprKind::Literal(Literal::Int(20))),
                     ),
                 ),
-                body: Box::new(Stmt::Block(vec![
-                    Stmt::Assignment {
-                        target: Expr::Identifier("x".to_string()),
+                body: Box::new(Stmt::dummy(StmtKind::Block(vec![
+                    Stmt::dummy(StmtKind::Assignment {
+                        target: Expr::dummy(ExprKind::Identifier("x".to_string())),
                         value: binary(
                             BinaryOp::Sub,
-                            Expr::Identifier("x".to_string()),
-                            Expr::Literal(Literal::Int(1)),
+                            Expr::dummy(ExprKind::Identifier("x".to_string())),
+                            Expr::dummy(ExprKind::Literal(Literal::Int(1))),
                         ),
-                    },
-                    Stmt::Assignment {
-                        target: Expr::Identifier("y".to_string()),
+                    }),
+                    Stmt::dummy(StmtKind::Assignment {
+                        target: Expr::dummy(ExprKind::Identifier("y".to_string())),
                         value: binary(
                             BinaryOp::Add,
-                            Expr::Identifier("y".to_string()),
-                            Expr::Literal(Literal::Int(2)),
+                            Expr::dummy(ExprKind::Identifier("y".to_string())),
+                            Expr::dummy(ExprKind::Literal(Literal::Int(2))),
                         ),
-                    },
-                ])),
-            },
+                    }),
+                ]))),
+            }),
         ],
     };
     assert!(compile_program(program).is_ok());
@@ -656,46 +656,46 @@ fn test_array_assignment_complex_index() {
     // arr[i + 1] = arr[i - 1] * 2
     let program = Program {
         statements: vec![
-            Stmt::VariableDecl {
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "arr".to_string(),
                 type_hint: None,
-                value: Expr::Array(vec![
-                    Expr::Literal(Literal::Int(1)),
-                    Expr::Literal(Literal::Int(2)),
-                    Expr::Literal(Literal::Int(3)),
-                    Expr::Literal(Literal::Int(4)),
-                    Expr::Literal(Literal::Int(5)),
-                ]),
+                value: Expr::dummy(ExprKind::Array(vec![
+                    Expr::dummy(ExprKind::Literal(Literal::Int(1))),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(2))),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(3))),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(4))),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(5))),
+                ])),
                 is_const: false,
-            },
-            Stmt::VariableDecl {
+            }),
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "i".to_string(),
                 type_hint: None,
-                value: Expr::Literal(Literal::Int(2)),
+                value: Expr::dummy(ExprKind::Literal(Literal::Int(2))),
                 is_const: false,
-            },
-            Stmt::Assignment {
-                target: Expr::Index {
-                    array: Box::new(Expr::Identifier("arr".to_string())),
+            }),
+            Stmt::dummy(StmtKind::Assignment {
+                target: Expr::dummy(ExprKind::Index {
+                    array: Box::new(Expr::dummy(ExprKind::Identifier("arr".to_string()))),
                     indices: vec![binary(
                         BinaryOp::Add,
-                        Expr::Identifier("i".to_string()),
-                        Expr::Literal(Literal::Int(1)),
+                        Expr::dummy(ExprKind::Identifier("i".to_string())),
+                        Expr::dummy(ExprKind::Literal(Literal::Int(1))),
                     )],
-                },
+                }),
                 value: binary(
                     BinaryOp::Mul,
-                    Expr::Index {
-                        array: Box::new(Expr::Identifier("arr".to_string())),
+                    Expr::dummy(ExprKind::Index {
+                        array: Box::new(Expr::dummy(ExprKind::Identifier("arr".to_string()))),
                         indices: vec![binary(
                             BinaryOp::Sub,
-                            Expr::Identifier("i".to_string()),
-                            Expr::Literal(Literal::Int(1)),
+                            Expr::dummy(ExprKind::Identifier("i".to_string())),
+                            Expr::dummy(ExprKind::Literal(Literal::Int(1))),
                         )],
-                    },
-                    Expr::Literal(Literal::Int(2)),
+                    }),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(2))),
                 ),
-            },
+            }),
         ],
     };
     assert!(compile_program(program).is_ok());
@@ -709,36 +709,36 @@ fn test_power_combined_with_operations() {
     // var result := (x ** y) + (y ** x)
     let program = Program {
         statements: vec![
-            Stmt::VariableDecl {
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "x".to_string(),
                 type_hint: None,
-                value: Expr::Literal(Literal::Int(2)),
+                value: Expr::dummy(ExprKind::Literal(Literal::Int(2))),
                 is_const: false,
-            },
-            Stmt::VariableDecl {
+            }),
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "y".to_string(),
                 type_hint: None,
-                value: Expr::Literal(Literal::Int(3)),
+                value: Expr::dummy(ExprKind::Literal(Literal::Int(3))),
                 is_const: false,
-            },
-            Stmt::VariableDecl {
+            }),
+            Stmt::dummy(StmtKind::VariableDecl {
                 name: "result".to_string(),
                 type_hint: None,
                 value: binary(
                     BinaryOp::Add,
                     binary(
                         BinaryOp::Pow,
-                        Expr::Identifier("x".to_string()),
-                        Expr::Identifier("y".to_string()),
+                        Expr::dummy(ExprKind::Identifier("x".to_string())),
+                        Expr::dummy(ExprKind::Identifier("y".to_string())),
                     ),
                     binary(
                         BinaryOp::Pow,
-                        Expr::Identifier("y".to_string()),
-                        Expr::Identifier("x".to_string()),
+                        Expr::dummy(ExprKind::Identifier("y".to_string())),
+                        Expr::dummy(ExprKind::Identifier("x".to_string())),
                     ),
                 ),
                 is_const: false,
-            },
+            }),
         ],
     };
     assert!(compile_program(program).is_ok());
