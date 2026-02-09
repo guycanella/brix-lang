@@ -64,11 +64,18 @@ brix/
 │   │   └── src/{ast.rs, parser.rs, error.rs}
 │   └── codegen/             # LLVM code generation (inkwell) - REFACTORED v1.2 + ERROR HANDLING
 │       └── src/
-│           ├── lib.rs       # Core compiler (6,757→~7,200 lines with error handling, was 7,338)
-│           ├── error.rs     # Error types (CodegenError, CodegenResult) (61 lines)
+│           ├── lib.rs       # Core compiler (~7,200 lines with error handling)
+│           ├── error.rs     # Error types (CodegenError, CodegenResult) (84 lines)
+│           ├── error_report.rs # Ariadne error formatting (131 lines)
 │           ├── types.rs     # BrixType enum (33 lines)
 │           ├── helpers.rs   # LLVM helpers with Result types (146 lines)
 │           ├── stmt.rs      # Statement compilation with Result (528 lines)
+│           ├── expr.rs      # Expression compilation with Result (285 lines)
+│           ├── operators.rs # Operator logic (postponed, annotated)
+│           └── builtins/    # Built-in function declarations
+│               ├── mod.rs, math.rs, stats.rs, linalg.rs
+│               └── string.rs, io.rs, matrix.rs
+```
 │           ├── expr.rs      # Expression compilation with Result (285 lines)
 │           ├── operators.rs # Operator logic (postponed, annotated)
 │           └── builtins/    # Built-in function declarations
@@ -109,12 +116,20 @@ brix/
 - **PHI nodes used for**: ternary operator (`? :`), match expressions, logical short-circuit (`&&`, `||`)
 - **Error Handling** (v1.2.1 - Feb 2026):
   - `CodegenError` enum with 6 variants: LLVMError, TypeError, UndefinedSymbol, InvalidOperation, MissingValue, General
+  - Each variant (except General) includes `span: Option<Span>` for source location
   - `CodegenResult<T>` = `Result<T, CodegenError>` used throughout compilation pipeline
   - All expression compilation returns `CodegenResult<(BasicValueEnum, BrixType)>`
   - All statement compilation returns `CodegenResult<()>`
   - Proper error propagation with `?` operator instead of `.unwrap()`
   - LLVM operations use `.map_err()` for descriptive error messages
   - **Modules converted**: error.rs, expr.rs, stmt.rs, helpers.rs, lib.rs (nearly complete)
+- **Error Reporting** (`error_report.rs` - Feb 2026):
+  - Beautiful error messages using Ariadne library
+  - `report_codegen_error()`: Formats CodegenError with source context
+  - Error codes: E100 (General), E101 (LLVM), E102 (Type), E103 (UndefinedSymbol), E104 (InvalidOperation), E105 (MissingValue)
+  - Colored labels pointing to exact source code spans
+  - Contextual help messages for each error type
+  - Integration: `Compiler::new()` accepts `filename` and `source` parameters
 
 **4. Runtime (`runtime.c`)**
 - Provides C implementations of built-in functions (~1,500 lines)
@@ -341,7 +356,7 @@ cargo test -- --nocapture     # Show output from tests
 
 - **~14 unwrap() calls remaining** - Nearly all converted (was 595 → 325 → 14). Remaining in Option-returning I/O helper functions
 - **~54 eprintln!() calls remaining** - Core modules converted, auxiliary functions still need conversion
-- **Error messages not Ariadne-formatted in codegen yet** - Parser has beautiful errors, codegen doesn't (Phase E4c)
+- **Ariadne error reporting not integrated in main.rs yet** - Error report module implemented, needs final integration
 - **No LLVM optimizations** - runs with `OptimizationLevel::None`
 - **Single-file compilation** - multi-file imports not yet implemented
 - **Operator refactoring postponed** - Binary/Unary operators still in lib.rs (see operators.rs annotations)
@@ -422,20 +437,20 @@ cargo test -- --nocapture     # Show output from tests
 
 ## Development Roadmap
 
-**Current Focus (Feb 2026):** 🚧 **v1.2.1 - Error Handling Implementation (IN PROGRESS)**
+**Current Focus (Feb 2026):** 🚧 **v1.2.1 - Error Handling Implementation (95% COMPLETE)**
 - ✅ Phase 1: Lexer unit tests (completed)
 - ✅ Phase 2: Parser unit tests (completed - 150 passing, 0 ignored)
 - ✅ Phase 3: Codegen unit tests (completed - 1001/1001 passing, 100%!)
 - ✅ Phase 3.5: Bug fix sprint (completed - fixed 8/10 issues, see FIX_BUGS.md)
 - ✅ Phase 4: Ariadne integration (completed - beautiful error messages!)
 - ✅ **Phase R: Codegen refactoring (COMPLETED!)** - 7,338 → 6,499 lines (-11.4%)
-  - ✅ Types module (BrixType enum)
-  - ✅ Helpers module (LLVM utilities)
-  - ✅ Builtins modules (math, stats, linalg, string)
-  - ✅ Statements module (10/12 statements)
-  - ✅ Expressions module (literals, ternary, etc.)
-  - ⏸️ Operators module (postponed - annotated for future work)
-- 🚧 **Phase E: Error Handling (IN PROGRESS)** - Replace unwrap() with Result types
+ - ✅ Types module (BrixType enum)
+ - ✅ Helpers module (LLVM utilities)
+ - ✅ Builtins modules (math, stats, linalg, string)
+ - ✅ Statements module (10/12 statements)
+ - ✅ Expressions module (literals, ternary, etc.)
+ - ⏸️ Operators module (postponed - annotated for future work)
+- 🚧 **Phase E: Error Handling (95% COMPLETE)** - Replace unwrap() with Result types
   - ✅ **E1: Core error infrastructure** (completed)
     - Created `error.rs` with `CodegenError` enum (6 variants)
     - Created `CodegenResult<T>` type alias
@@ -495,18 +510,28 @@ cargo test -- --nocapture     # Show output from tests
       - Codegen tests: 559 passing ✅
       - All test files converted to use `Expr::dummy(ExprKind::...)` and `Stmt::dummy(StmtKind::...)`
     - **All 1001 tests passing!** ✅
-  - 🔲 **E4c: Complete Ariadne Integration** (postponed after E4b)
-    - Pass source code to Compiler constructor
-    - Create error_report.rs module with Ariadne formatting
-    - Update compile functions to capture and pass spans
-    - Beautiful error messages with source context
-  - 🔲 **E5: Remaining eprintln!() cleanup** (after E4c)
+  - ✅ **E4c: Complete Ariadne Integration** (COMPLETED - Feb 2026)
+    - ✅ Created `error_report.rs` module with Ariadne formatting
+    - ✅ Updated `Compiler::new()` to accept `filename: String` and `source: String`
+    - ✅ Implemented `report_codegen_error()` with beautiful error messages
+    - ✅ All 6 CodegenError variants formatted with:
+      - Error codes (E100-E105)
+      - Colored labels pointing to source code spans
+      - Contextual help messages
+    - ✅ Updated all 559 codegen tests to pass filename and source
+    - **All 1001 tests passing!** ✅
+  - 🔲 **E4d: Integrate Ariadne in main.rs** (next - after E4c)
+    - Replace `eprintln!()` error display with `report_codegen_error()`
+    - Pass source code to Compiler constructor in main.rs
+    - Beautiful error messages visible to end users
+  - 🔲 **E5: Remaining eprintln!() cleanup** (after E4d)
     - Convert remaining ~54 eprintln!() to CodegenError
     - Convert 14 Option-returning I/O functions to CodegenResult
     - Remove all debug prints in favor of structured errors
-  - 🔲 **E6: Test Infrastructure Restoration** (critical - independent of E4c/E5)
-    - Fix parser test files (6+ files with syntax errors)
-    - Fix codegen test files (257+ errors in builtin_tests.rs and others)
+  - 🔲 **E6: Final integration & polish** (after E5)
+    - Exit codes for different error types
+    - Error recovery strategies (where applicable)
+    - Documentation of error handling architecture
     - Convert all test `Expr::Variant` → `Expr::dummy(ExprKind::Variant)`
     - Convert all test `Stmt::Variant` → `Stmt::dummy(StmtKind::Variant)`
     - Restore 1001/1001 passing tests

@@ -1,6 +1,6 @@
 # Brix Language (Design Document v1.0)
 
-> ⚠️ **Status do Projeto (Fev 2026):** O compilador Brix está em desenvolvimento ativo (v1.2.1). O core está funcional mas alguns testes estão temporariamente desabilitados durante migração da AST. Veja seção "Status Atual" abaixo.
+> ⚠️ **Status do Projeto (Fev 2026):** O compilador Brix está em desenvolvimento ativo (v1.2.1). Core funcional com sistema de error handling robusto - 1001/1001 testes passando (100%). Ariadne integration para codegen completa, aguardando integração final no main.rs.
 
 ## Status Atual (Fevereiro 2026)
 
@@ -18,12 +18,17 @@
 - F-strings com format specifiers
 - Ariadne error reporting (parser)
 
-### ✅ **Completado (v1.2.1 - Phase E4b):**
-- **AST Migration with Spans:** Estrutura AST inclui informação de posição no código fonte
-  - ✅ Parser completamente convertido com `.map_with_span()`
-  - ✅ Codegen completamente convertido
-  - ✅ CodegenError com `span: Option<Span>` em todos os variants
+### ✅ **Completado (v1.2.1 - Phase E4c):**
+- **Error Handling with Result Types (95% complete):**
+  - ✅ All core compilation functions use `CodegenResult<T>`
+  - ✅ CodegenError enum with 6 variants + span information
+  - ✅ AST Migration with Spans (Expr/Stmt structs with source positions)
+  - ✅ **Ariadne Integration for Codegen Errors:**
+    - `error_report.rs` module with beautiful error formatting
+    - Error codes (E100-E105) with colored labels
+    - Source code context in error messages
   - ✅ **1001/1001 testes passando** (Lexer: 292, Parser: 150, Codegen: 559)
+  - 🔲 Remaining: Integrate Ariadne in main.rs for end-user visibility
 
 ### 🔮 **Planejado (v1.3+):**
 - Generics
