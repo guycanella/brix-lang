@@ -249,7 +249,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
     // --- MAIN COMPILATION ---
 
-    pub fn compile_program(&mut self, program: &Program) {
+    pub fn compile_program(&mut self, program: &Program) -> CodegenResult<()> {
         let i64_type = self.context.i64_type();
         let fn_type = i64_type.fn_type(&[], false);
         let function = self.module.add_function("main", fn_type, None);
@@ -258,13 +258,20 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         self.builder.position_at_end(basic_block);
         self.current_function = Some(function);
 
+        // Compile all statements, propagating errors
         for stmt in &program.statements {
-            let _ = self.compile_stmt(stmt, function);
+            self.compile_stmt(stmt, function)?;
         }
 
-        let _ = self
-            .builder
-            .build_return(Some(&i64_type.const_int(0, false)));
+        // Build return instruction
+        self.builder
+            .build_return(Some(&i64_type.const_int(0, false)))
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_return".to_string(),
+                details: "Failed to build return instruction in main".to_string(),
+            })?;
+
+        Ok(())
     }
 
     fn compile_lvalue_addr(&mut self, expr: &Expr) -> CodegenResult<(PointerValue<'ctx>, BrixType)> {
@@ -1098,8 +1105,11 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             Ok((val, BrixType::Error))
                         }
                         _ => {
-                            eprintln!("Error: Type not supported in identifier.");
-                            Err(CodegenError::MissingValue { what: "expression value".to_string(), context: "compile_expr".to_string() })
+                            Err(CodegenError::TypeError {
+                                expected: "Nil, Error, or Atom".to_string(),
+                                found: format!("{:?}", brix_type),
+                                context: "Identifier compilation - type not supported".to_string()
+                            })
                         }
                     },
                     None => {
@@ -1120,8 +1130,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             return Ok((im_val.into(), BrixType::Complex));
                         }
 
-                        eprintln!("Error: Variable '{}' not found.", name);
-                        Err(CodegenError::MissingValue { what: "expression value".to_string(), context: "compile_expr".to_string() })
+                        Err(CodegenError::UndefinedSymbol {
+                            name: name.clone(),
+                            context: "Variable lookup in expression".to_string()
+                        })
                     }
                 }
             }
@@ -1983,7 +1995,6 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         BinaryOp::Div => "complex_div",
                         BinaryOp::Pow => "complex_pow", // Fallback (shouldn't reach here for pow)
                         _ => {
-                            eprintln!("Error: Operator {:?} not supported for complex numbers", op);
                             return Err(CodegenError::InvalidOperation {
                                 operation: format!("{:?}", op),
                                 reason: "Operator not supported for complex numbers".to_string(),
@@ -2076,7 +2087,6 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             return Ok((result, BrixType::Int));
                         }
                         _ => {
-                            eprintln!("Erro: Operação não suportada para strings (apenas + e ==).");
                             return Err(CodegenError::InvalidOperation {
                                 operation: format!("{:?}", op),
                                 reason: "Only + and == are supported for strings".to_string(),
@@ -2233,7 +2243,6 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 if let Expr::Identifier(fn_name) = func.as_ref() {
                     if fn_name == "typeof" {
                         if args.len() != 1 {
-                            eprintln!("Error: typeof expects exactly 1 argument.");
                             return Err(CodegenError::InvalidOperation {
                                 operation: "typeof".to_string(),
                                 reason: "expects exactly 1 argument".to_string(),
@@ -2265,7 +2274,6 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     // Conversion functions
                     if fn_name == "int" {
                         if args.len() != 1 {
-                            eprintln!("Error: int() expects exactly 1 argument.");
                             return Err(CodegenError::InvalidOperation {
                                 operation: "int()".to_string(),
                                 reason: "expects exactly 1 argument".to_string(),
@@ -2342,9 +2350,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                     .into()
                             }
                             _ => {
-                                eprintln!("Error: Cannot convert {:?} to int", val_type);
                                 return Err(CodegenError::TypeError {
-                                    expected: "int-convertible type".to_string(),
+                                    expected: "int-convertible type (Int, Float, Boolean)".to_string(),
                                     found: format!("{:?}", val_type),
                                     context: "int() conversion".to_string(),
                                 });
@@ -2356,8 +2363,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
                     if fn_name == "float" {
                         if args.len() != 1 {
-                            eprintln!("Error: float() expects exactly 1 argument.");
-                            return Err(CodegenError::General("compilation error".to_string()));
+                            return Err(CodegenError::InvalidOperation {
+                                operation: "float()".to_string(),
+                                reason: "expects exactly 1 argument".to_string(),
+                            });
                         }
                         let (val, val_type) = self.compile_expr(&args[0])?;
 
@@ -2416,8 +2425,11 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                     })?
                             }
                             _ => {
-                                eprintln!("Error: Cannot convert {:?} to float", val_type);
-                                return Err(CodegenError::General("compilation error".to_string()));
+                                return Err(CodegenError::TypeError {
+                                    expected: "float-convertible type (Int, Float, String)".to_string(),
+                                    found: format!("{:?}", val_type),
+                                    context: "float() conversion".to_string(),
+                                });
                             }
                         };
 
@@ -2426,8 +2438,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
                     if fn_name == "string" {
                         if args.len() != 1 {
-                            eprintln!("Error: string() expects exactly 1 argument.");
-                            return Err(CodegenError::General("compilation error".to_string()));
+                            return Err(CodegenError::InvalidOperation {
+                                operation: "string()".to_string(),
+                                reason: "expects exactly 1 argument".to_string(),
+                            });
                         }
                         let (val, val_type) = self.compile_expr(&args[0])?;
 
@@ -2438,8 +2452,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
                     if fn_name == "bool" {
                         if args.len() != 1 {
-                            eprintln!("Error: bool() expects exactly 1 argument.");
-                            return Err(CodegenError::General("compilation error".to_string()));
+                            return Err(CodegenError::InvalidOperation {
+                                operation: "bool()".to_string(),
+                                reason: "expects exactly 1 argument".to_string(),
+                            });
                         }
                         let (val, val_type) = self.compile_expr(&args[0])?;
 
@@ -2555,8 +2571,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     // is_nil(x) - Check if value is nil (null pointer for pointer types)
                     if fn_name == "is_nil" {
                         if args.len() != 1 {
-                            eprintln!("Error: is_nil() expects exactly 1 argument.");
-                            return Err(CodegenError::General("compilation error".to_string()));
+                            return Err(CodegenError::InvalidOperation {
+                                operation: "is_nil()".to_string(),
+                                reason: "expects exactly 1 argument".to_string(),
+                            });
                         }
                         let (val, val_type) = self.compile_expr(&args[0])?;
 
@@ -2607,8 +2625,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     // is_atom(x) - Check if value is atom
                     if fn_name == "is_atom" {
                         if args.len() != 1 {
-                            eprintln!("Error: is_atom() expects exactly 1 argument.");
-                            return Err(CodegenError::General("compilation error".to_string()));
+                            return Err(CodegenError::InvalidOperation {
+                                operation: "is_atom()".to_string(),
+                                reason: "expects exactly 1 argument".to_string(),
+                            });
                         }
                         let (_, val_type) = self.compile_expr(&args[0])?;
 
@@ -2624,8 +2644,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     // is_boolean(x) - Check if int value is 0 or 1
                     if fn_name == "is_boolean" {
                         if args.len() != 1 {
-                            eprintln!("Error: is_boolean() expects exactly 1 argument.");
-                            return Err(CodegenError::General("compilation error".to_string()));
+                            return Err(CodegenError::InvalidOperation {
+                                operation: "is_boolean()".to_string(),
+                                reason: "expects exactly 1 argument".to_string(),
+                            });
                         }
                         let (val, val_type) = self.compile_expr(&args[0])?;
 
@@ -2694,8 +2716,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     // is_integer(x) - Check if value is int
                     if fn_name == "is_integer" {
                         if args.len() != 1 {
-                            eprintln!("Error: is_integer() expects exactly 1 argument.");
-                            return Err(CodegenError::General("compilation error".to_string()));
+                            return Err(CodegenError::InvalidOperation {
+                                operation: "is_integer()".to_string(),
+                                reason: "expects exactly 1 argument".to_string(),
+                            });
                         }
                         let (_, val_type) = self.compile_expr(&args[0])?;
 
@@ -2711,8 +2735,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     // is_float(x) - Check if value is float
                     if fn_name == "is_float" {
                         if args.len() != 1 {
-                            eprintln!("Error: is_float() expects exactly 1 argument.");
-                            return Err(CodegenError::General("compilation error".to_string()));
+                            return Err(CodegenError::InvalidOperation {
+                                operation: "is_float()".to_string(),
+                                reason: "expects exactly 1 argument".to_string(),
+                            });
                         }
                         let (_, val_type) = self.compile_expr(&args[0])?;
 
@@ -2728,8 +2754,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     // is_number(x) - Check if value is int or float
                     if fn_name == "is_number" {
                         if args.len() != 1 {
-                            eprintln!("Error: is_number() expects exactly 1 argument.");
-                            return Err(CodegenError::General("compilation error".to_string()));
+                            return Err(CodegenError::InvalidOperation {
+                                operation: "is_number()".to_string(),
+                                reason: "expects exactly 1 argument".to_string(),
+                            });
                         }
                         let (_, val_type) = self.compile_expr(&args[0])?;
 
@@ -2745,8 +2773,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     // is_string(x) - Check if value is string
                     if fn_name == "is_string" {
                         if args.len() != 1 {
-                            eprintln!("Error: is_string() expects exactly 1 argument.");
-                            return Err(CodegenError::General("compilation error".to_string()));
+                            return Err(CodegenError::InvalidOperation {
+                                operation: "is_string()".to_string(),
+                                reason: "expects exactly 1 argument".to_string(),
+                            });
                         }
                         let (_, val_type) = self.compile_expr(&args[0])?;
 
@@ -2762,8 +2792,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     // is_list(x) - Check if value is matrix or intmatrix
                     if fn_name == "is_list" {
                         if args.len() != 1 {
-                            eprintln!("Error: is_list() expects exactly 1 argument.");
-                            return Err(CodegenError::General("compilation error".to_string()));
+                            return Err(CodegenError::InvalidOperation {
+                                operation: "is_list()".to_string(),
+                                reason: "expects exactly 1 argument".to_string(),
+                            });
                         }
                         let (_, val_type) = self.compile_expr(&args[0])?;
 
