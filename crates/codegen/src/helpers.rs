@@ -49,6 +49,7 @@ impl<'a, 'ctx> HelperFunctions<'ctx> for Compiler<'a, 'ctx> {
             .ok_or_else(|| CodegenError::LLVMError {
                 operation: "get_insert_block".to_string(),
                 details: "No current basic block".to_string(),
+                span: None,
             })?;
 
         let parent = block
@@ -56,6 +57,7 @@ impl<'a, 'ctx> HelperFunctions<'ctx> for Compiler<'a, 'ctx> {
             .ok_or_else(|| CodegenError::LLVMError {
                 operation: "get_parent".to_string(),
                 details: "Basic block has no parent function".to_string(),
+                span: None,
             })?;
 
         let entry = parent
@@ -63,6 +65,7 @@ impl<'a, 'ctx> HelperFunctions<'ctx> for Compiler<'a, 'ctx> {
             .ok_or_else(|| CodegenError::LLVMError {
                 operation: "get_first_basic_block".to_string(),
                 details: "Function has no entry block".to_string(),
+                span: None,
             })?;
 
         match entry.get_first_instruction() {
@@ -73,6 +76,7 @@ impl<'a, 'ctx> HelperFunctions<'ctx> for Compiler<'a, 'ctx> {
         builder.build_alloca(ty, name).map_err(|_| CodegenError::LLVMError {
             operation: "build_alloca".to_string(),
             details: format!("Failed to allocate variable '{}'", name),
+            span: None,
         })
     }
 

@@ -82,6 +82,7 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
             .map_err(|_| CodegenError::LLVMError {
                 operation: "build_global_string_ptr".to_string(),
                 details: "Failed to create format string for print".to_string(),
+                            span: None,
             })?;
 
         // Extract char* from BrixString
@@ -93,6 +94,7 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
             .map_err(|_| CodegenError::LLVMError {
                 operation: "build_struct_gep".to_string(),
                 details: "Failed to get string data pointer".to_string(),
+                            span: None,
             })?;
         let data_ptr = self
             .builder
@@ -104,6 +106,7 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
             .map_err(|_| CodegenError::LLVMError {
                 operation: "build_load".to_string(),
                 details: "Failed to load string data".to_string(),
+                            span: None,
             })?;
 
         self.builder
@@ -115,6 +118,7 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
             .map_err(|_| CodegenError::LLVMError {
                 operation: "build_call".to_string(),
                 details: "Failed to call printf".to_string(),
+                            span: None,
             })?;
 
         Ok(())
@@ -133,6 +137,7 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
             .map_err(|_| CodegenError::LLVMError {
                 operation: "build_global_string_ptr".to_string(),
                 details: "Failed to create format string for println".to_string(),
+                            span: None,
             })?;
 
         // Extract char* from BrixString
@@ -144,6 +149,7 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
             .map_err(|_| CodegenError::LLVMError {
                 operation: "build_struct_gep".to_string(),
                 details: "Failed to get string data pointer".to_string(),
+                            span: None,
             })?;
         let data_ptr = self
             .builder
@@ -155,6 +161,7 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
             .map_err(|_| CodegenError::LLVMError {
                 operation: "build_load".to_string(),
                 details: "Failed to load string data".to_string(),
+                            span: None,
             })?;
 
         self.builder
@@ -166,6 +173,7 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
             .map_err(|_| CodegenError::LLVMError {
                 operation: "build_call".to_string(),
                 details: "Failed to call printf".to_string(),
+                            span: None,
             })?;
 
         Ok(())
@@ -181,6 +189,7 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
             .map_err(|_| CodegenError::LLVMError {
                 operation: "build_global_string_ptr".to_string(),
                 details: "Failed to create format string for printf".to_string(),
+                            span: None,
             })?;
 
         use inkwell::values::BasicMetadataValueEnum;
@@ -199,6 +208,7 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
                         .map_err(|_| CodegenError::LLVMError {
                             operation: "build_struct_gep".to_string(),
                             details: "Failed to get string data pointer".to_string(),
+                                                    span: None,
                         })?;
                     let data_ptr = self
                         .builder
@@ -210,6 +220,7 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
                         .map_err(|_| CodegenError::LLVMError {
                             operation: "build_load".to_string(),
                             details: "Failed to load string data".to_string(),
+                                                    span: None,
                         })?;
                     compiled_args.push(data_ptr.into());
                 }
@@ -222,6 +233,7 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
             .map_err(|_| CodegenError::LLVMError {
                 operation: "build_call".to_string(),
                 details: "Failed to call printf".to_string(),
+                            span: None,
             })?;
 
         Ok(())
@@ -259,6 +271,7 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
             .map_err(|_| CodegenError::LLVMError {
                 operation: "build_int_compare".to_string(),
                 details: "Failed to compare if condition".to_string(),
+                            span: None,
             })?;
 
         let then_bb = self.context.append_basic_block(function, "then_block");
@@ -270,6 +283,7 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
             .map_err(|_| CodegenError::LLVMError {
                 operation: "build_conditional_branch".to_string(),
                 details: "Failed to build if conditional branch".to_string(),
+                            span: None,
             })?;
 
         // THEN
@@ -282,6 +296,7 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
             .ok_or_else(|| CodegenError::LLVMError {
                 operation: "get_insert_block".to_string(),
                 details: "Failed to get current block".to_string(),
+                            span: None,
             })?
             .get_terminator()
             .is_none()
@@ -290,6 +305,7 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
                 .map_err(|_| CodegenError::LLVMError {
                     operation: "build_unconditional_branch".to_string(),
                     details: "Failed to build branch to merge block".to_string(),
+                                    span: None,
                 })?;
         }
 
@@ -305,6 +321,7 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
             .ok_or_else(|| CodegenError::LLVMError {
                 operation: "get_insert_block".to_string(),
                 details: "Failed to get current block".to_string(),
+                            span: None,
             })?
             .get_terminator()
             .is_none()
@@ -313,6 +330,7 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
                 .map_err(|_| CodegenError::LLVMError {
                     operation: "build_unconditional_branch".to_string(),
                     details: "Failed to build branch to merge block".to_string(),
+                                    span: None,
                 })?;
         }
 
@@ -332,6 +350,7 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
             .map_err(|_| CodegenError::LLVMError {
                 operation: "build_unconditional_branch".to_string(),
                 details: "Failed to build branch to while header".to_string(),
+                            span: None,
             })?;
         self.builder.position_at_end(header_bb);
 
@@ -346,6 +365,7 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
             .map_err(|_| CodegenError::LLVMError {
                 operation: "build_int_compare".to_string(),
                 details: "Failed to compare while condition".to_string(),
+                            span: None,
             })?;
 
         self.builder
@@ -353,6 +373,7 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
             .map_err(|_| CodegenError::LLVMError {
                 operation: "build_conditional_branch".to_string(),
                 details: "Failed to build while conditional branch".to_string(),
+                            span: None,
             })?;
 
         self.builder.position_at_end(body_bb);
@@ -361,6 +382,7 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
             .map_err(|_| CodegenError::LLVMError {
                 operation: "build_unconditional_branch".to_string(),
                 details: "Failed to build branch back to while header".to_string(),
+                            span: None,
             })?;
 
         self.builder.position_at_end(after_bb);
@@ -388,6 +410,7 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
                 .map_err(|_| CodegenError::LLVMError {
                     operation: "build_return".to_string(),
                     details: "Failed to build void return".to_string(),
+                                    span: None,
                 })?;
         } else if values.len() == 1 {
             // Single return
@@ -396,6 +419,7 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
                 .map_err(|_| CodegenError::LLVMError {
                     operation: "build_return".to_string(),
                     details: "Failed to build single value return".to_string(),
+                                    span: None,
                 })?;
         } else {
             // Multiple returns - create struct
@@ -424,6 +448,7 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
                     .map_err(|_| CodegenError::LLVMError {
                         operation: "build_insert_value".to_string(),
                         details: format!("Failed to insert value {} into return tuple", i),
+                                            span: None,
                     })?
                     .into_struct_value();
             }
@@ -432,6 +457,7 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
                 .map_err(|_| CodegenError::LLVMError {
                     operation: "build_return".to_string(),
                     details: "Failed to build multiple value return".to_string(),
+                                    span: None,
                 })?;
         }
         Ok(())
@@ -459,6 +485,7 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
                             .map_err(|_| CodegenError::LLVMError {
                                 operation: "build_float_to_signed_int".to_string(),
                                 details: "Failed to cast float to int".to_string(),
+                                                            span: None,
                             })?
                             .into();
                         val_type = BrixType::Int;
@@ -476,6 +503,7 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
                             .map_err(|_| CodegenError::LLVMError {
                                 operation: "build_signed_int_to_float".to_string(),
                                 details: "Failed to cast int to float".to_string(),
+                                                            span: None,
                             })?
                             .into();
                         val_type = BrixType::Float;
@@ -490,6 +518,7 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
                             expected: "String".to_string(),
                             found: format!("{:?}", val_type),
                             context: format!("Variable declaration '{}'", name),
+                                                    span: None,
                         });
                     }
                 }
@@ -499,6 +528,7 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
                             expected: "Error or Nil".to_string(),
                             found: format!("{:?}", val_type),
                             context: format!("Variable declaration '{}'", name),
+                                                    span: None,
                         });
                     }
                     // Accept both Error and Nil for error type
@@ -510,6 +540,7 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
                             expected: "Known type".to_string(),
                             found: hint.clone(),
                             context: format!("Variable declaration '{}'", name),
+                                                    span: None,
                         });
                     }
                 }
@@ -540,6 +571,7 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
                     expected: "Known type".to_string(),
                     found: format!("{:?}", val_type),
                     context: format!("Variable declaration '{}'", name),
+                                    span: None,
                 });
             }
         };
@@ -549,6 +581,7 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
             .map_err(|_| CodegenError::LLVMError {
                 operation: "build_store".to_string(),
                 details: format!("Failed to store value in variable '{}'", name),
+                            span: None,
             })?;
 
         self.variables.insert(name.to_string(), (alloca, val_type));
@@ -569,6 +602,7 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
                     expected: "Tuple".to_string(),
                     found: format!("{:?}", tuple_type),
                     context: "Destructuring declaration".to_string(),
+                                    span: None,
                 });
             }
         };
@@ -582,6 +616,7 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
                     names.len(),
                     field_types.len()
                 ),
+                            span: None,
             });
         }
 
@@ -603,6 +638,7 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
                 .map_err(|_| CodegenError::LLVMError {
                     operation: "build_extract_value".to_string(),
                     details: format!("Failed to extract field {} from tuple", i),
+                                    span: None,
                 })?;
 
             // Allocate and store the variable
@@ -611,11 +647,13 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
                 .map_err(|_| CodegenError::LLVMError {
                     operation: "build_alloca".to_string(),
                     details: format!("Failed to allocate variable '{}'", name),
+                                    span: None,
                 })?;
             self.builder.build_store(alloca, extracted)
                 .map_err(|_| CodegenError::LLVMError {
                     operation: "build_store".to_string(),
                     details: format!("Failed to store value in variable '{}'", name),
+                                    span: None,
                 })?;
 
             // Register in symbol table
@@ -643,6 +681,7 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
                 .map_err(|_| CodegenError::LLVMError {
                     operation: "build_signed_int_to_float".to_string(),
                     details: "Failed to cast int to float in assignment".to_string(),
+                                    span: None,
                 })?
                 .into()
         } else {
@@ -653,6 +692,7 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
             .map_err(|_| CodegenError::LLVMError {
                 operation: "build_store".to_string(),
                 details: "Failed to store value in assignment target".to_string(),
+                            span: None,
             })?;
 
         Ok(())

@@ -1,3 +1,6 @@
+// Span represents a range in the source code (start and end positions)
+pub type Span = std::ops::Range<usize>;
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Literal {
     Int(i64),
@@ -62,7 +65,13 @@ pub struct MatchArm {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum Expr {
+pub struct Expr {
+    pub kind: ExprKind,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ExprKind {
     Literal(Literal),
 
     Identifier(String),
@@ -145,7 +154,13 @@ pub struct ComprehensionGen {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum Stmt {
+pub struct Stmt {
+    pub kind: StmtKind,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum StmtKind {
     VariableDecl {
         name: String,
         type_hint: Option<String>,
@@ -213,6 +228,30 @@ pub enum Stmt {
     },
 
     Expr(Expr),
+}
+
+// Helper methods for Expr construction
+impl Expr {
+    pub fn new(kind: ExprKind, span: Span) -> Self {
+        Expr { kind, span }
+    }
+
+    // Convenience method for dummy spans (used in tests)
+    pub fn dummy(kind: ExprKind) -> Self {
+        Expr { kind, span: 0..0 }
+    }
+}
+
+// Helper methods for Stmt construction
+impl Stmt {
+    pub fn new(kind: StmtKind, span: Span) -> Self {
+        Stmt { kind, span }
+    }
+
+    // Convenience method for dummy spans (used in tests)
+    pub fn dummy(kind: StmtKind) -> Self {
+        Stmt { kind, span: 0..0 }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
