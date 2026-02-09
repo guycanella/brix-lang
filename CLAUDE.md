@@ -339,19 +339,6 @@ cargo test -- --nocapture     # Show output from tests
 
 ## Current Limitations & Known Issues
 
-**AST Migration (Feb 2026 - Phase E4b):**
-- ⚠️ **Tests temporarily disabled** - Parser and codegen tests need manual conversion to new AST structure
-- Unit test files have syntax errors from automated conversion (~263 errors)
-- Backup files saved with `.bak` extension for manual fixing
-- Main compiler functionality intact - compiles without tests ✅
-- Issue: Automated scripts struggled with nested `Expr`/`Stmt` constructs
-
-**CodegenError Spans (Feb 2026 - Phase E4b):**
-- `span: Option<Span>` field added to error variants
-- ~654 locations creating errors need `span: None` added
-- Temporarily incomplete to allow progress on other phases
-
-**Other Known Issues:**
 - **~14 unwrap() calls remaining** - Nearly all converted (was 595 → 325 → 14). Remaining in Option-returning I/O helper functions
 - **~54 eprintln!() calls remaining** - Core modules converted, auxiliary functions still need conversion
 - **Error messages not Ariadne-formatted in codegen yet** - Parser has beautiful errors, codegen doesn't (Phase E4c)
@@ -487,7 +474,7 @@ cargo test -- --nocapture     # Show output from tests
     - Error display in CLI with colored, structured messages (6 error variants)
     - **~54 eprintln!() calls remaining** (mostly in debugging/fallback paths)
     - **All 1001 tests passing!** ✅
-  - 🚧 **E4b: AST Migration with Spans** (PAUSED - Partially Complete - Feb 2026)
+  - ✅ **E4b: AST Migration with Spans** (COMPLETED - Feb 2026)
     - ✅ **AST Structure Updated:**
       - Added `Span = Range<usize>` type
       - `Expr` changed from enum to `struct { kind: ExprKind, span: Span }`
@@ -496,23 +483,18 @@ cargo test -- --nocapture     # Show output from tests
     - ✅ **Parser Fully Updated:**
       - All ~930 lines converted to use new AST structure
       - Pattern matches updated from `match expr {` to `match &expr.kind {`
-      - All `Expr::Variant` → `ExprKind::Variant`, `Stmt::Variant` → `StmtKind::Variant`
-      - Parser compiles successfully ✅
-    - ✅ **Codegen Partially Updated:**
+      - Uses `.map_with_span()` from chumsky to capture real spans
+    - ✅ **Codegen Fully Updated:**
       - Main codegen logic (~7300 lines) updated for new AST
       - Pattern matches converted to use `.kind` field
-      - Codegen compiles successfully ✅
-    - 🚧 **CodegenError with Spans** (Incomplete):
+    - ✅ **CodegenError with Spans:**
       - Added `span: Option<Span>` field to 5 error variants
-      - **Problem:** ~654 locations creating `CodegenError` need `span: None` added
-      - Automated scripts had difficulty with complex nested structures
-    - ⚠️ **Tests Temporarily Disabled:**
-      - Parser tests disabled (needs AST conversion)
-      - Codegen tests disabled (needs AST conversion)
-      - **Reason:** Automated conversion created syntax errors in nested Expr/Stmt constructs
-      - Backup files (.bak) saved for manual fixing later
-    - **Project Status:** Compiles without tests, core functionality intact
-    - **Next Steps:** Either finish CodegenError span migration OR fix tests first
+      - All ~654 locations updated with `span: None`
+    - ✅ **All Tests Restored:**
+      - Parser tests: 150 passing ✅
+      - Codegen tests: 559 passing ✅
+      - All test files converted to use `Expr::dummy(ExprKind::...)` and `Stmt::dummy(StmtKind::...)`
+    - **All 1001 tests passing!** ✅
   - 🔲 **E4c: Complete Ariadne Integration** (postponed after E4b)
     - Pass source code to Compiler constructor
     - Create error_report.rs module with Ariadne formatting
@@ -557,21 +539,18 @@ cargo test -- --nocapture     # Show output from tests
 ## Version Summary
 
 **v1.2.1 (IN PROGRESS - Feb 2026):**
-- 🚧 **AST Migration with Spans** (Phase E4b - Partially Complete)
-  - ✅ AST structure changed to include spans (`Expr { kind, span }`, `Stmt { kind, span }`)
-  - ✅ Parser fully converted (~930 lines) - compiles successfully
-  - ✅ Codegen fully converted (~7300 lines) - compiles successfully
-  - 🚧 CodegenError span field added but needs migration (~654 locations)
-  - ⚠️ Tests temporarily disabled (need manual AST conversion)
-  - **Project compiles without tests** ✅
-- 🚧 **Error Handling with Result types** (Phase E1-E4a complete)
-  - ✅ CodegenError enum with 6 error variants
-  - ✅ Core modules converted: expr.rs, stmt.rs, helpers.rs, lib.rs
-  - ✅ E4a: Basic error propagation to main.rs complete
-  - 🔲 E4c: Full Ariadne integration (postponed)
+- ✅ **AST Migration with Spans** (Phase E4b - COMPLETE)
+  - AST structure: `Expr { kind: ExprKind, span: Span }`, `Stmt { kind: StmtKind, span: Span }`
+  - Parser, codegen, and ALL tests fully converted
+  - CodegenError has `span: Option<Span>` on all variants
+  - **All 1001 tests passing!** ✅
+- ✅ **Error Handling with Result types** (Phase E1-E4b complete)
+  - CodegenError enum with 6 error variants + span support
+  - Core modules converted: expr.rs, stmt.rs, helpers.rs, lib.rs
+  - Basic error propagation to main.rs complete
+  - 🔲 E4c: Full Ariadne integration for codegen errors (next)
   - 🔲 E5: Remaining eprintln!() cleanup
-  - 🔲 E6: Test infrastructure restoration (critical)
-  - 🔲 E7: Final polish
+  - 🔲 E6: Final polish
 
 **v1.2 (COMPLETE - Feb 2026):**
 - ✅ Codegen refactoring - modular architecture (7,338 → 6,499 lines)
