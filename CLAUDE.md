@@ -23,7 +23,7 @@ cargo build --release
 
 **Run tests:**
 ```bash
-cargo test --all              # Run all unit tests (1001 tests total)
+cargo test --all              # Run all unit tests (1001 tests total, 100% passing)
 cargo test <pattern>          # Run tests matching pattern
 cargo test -- --nocapture     # Show println! output
 ```
@@ -64,7 +64,7 @@ brix/
 │   │   └── src/{ast.rs, parser.rs, error.rs}
 │   └── codegen/             # LLVM code generation (inkwell) - REFACTORED v1.2 + ERROR HANDLING
 │       └── src/
-│           ├── lib.rs       # Core compiler (6,756 lines, was 7,338)
+│           ├── lib.rs       # Core compiler (6,757→~7,200 lines with error handling, was 7,338)
 │           ├── error.rs     # Error types (CodegenError, CodegenResult) (61 lines)
 │           ├── types.rs     # BrixType enum (33 lines)
 │           ├── helpers.rs   # LLVM helpers with Result types (146 lines)
@@ -114,7 +114,7 @@ brix/
   - All statement compilation returns `CodegenResult<()>`
   - Proper error propagation with `?` operator instead of `.unwrap()`
   - LLVM operations use `.map_err()` for descriptive error messages
-  - **Modules converted**: error.rs, expr.rs, stmt.rs, helpers.rs, parts of lib.rs (~2000 lines)
+  - **Modules converted**: error.rs, expr.rs, stmt.rs, helpers.rs, lib.rs (nearly complete)
 
 **4. Runtime (`runtime.c`)**
 - Provides C implementations of built-in functions (~1,500 lines)
@@ -339,7 +339,7 @@ cargo test -- --nocapture     # Show output from tests
 
 ## Current Limitations & Known Issues
 
-- **~350-400 unwrap() calls remaining** - Core modules converted (expr.rs, stmt.rs, helpers.rs), auxiliary functions in lib.rs still need conversion (was ~595)
+- **~14 unwrap() calls remaining** - Nearly all converted to Result types (was 595 → 325 → 14). Remaining 14 are in Option-returning I/O helper functions
 - **Error messages not user-facing yet** - Errors propagate but not integrated with Ariadne for pretty printing
 - **No LLVM optimizations** - runs with `OptimizationLevel::None`
 - **Single-file compilation** - multi-file imports not yet implemented
@@ -439,11 +439,25 @@ cargo test -- --nocapture     # Show output from tests
     - `helpers.rs` - LLVM helpers with proper error handling
     - `lib.rs` - Main compilation methods (`compile_expr`, `compile_stmt`, `value_to_string`, etc.)
     - **All 1001 tests passing!** ✅
-  - 🔲 **E3: Auxiliary function conversion** (next - ~350-400 unwrap() calls remaining)
-    - Binary/unary operators in lib.rs
-    - Built-in function compilation helpers
-    - Remaining LLVM builder operations
-  - 🔲 **E4: Ariadne integration** (after E3)
+  - ✅ **E3: Auxiliary function conversion** (completed - 325 → 14 unwrap() calls!)
+    - Binary/unary operators converted to Result types
+    - All matrix arithmetic operations (28 functions)
+    - Complex number operations (arithmetic, power, promotion)
+    - String operations (concat, equality)
+    - Logical short-circuit operators (AND, OR with PHI nodes)
+    - Built-in function calls (int(), float(), string(), bool(), typeof())
+    - Type checking functions (is_nil, is_atom, is_boolean, etc.)
+    - Match expression compilation + pattern matching
+    - Increment/Decrement operations
+    - F-string compilation
+    - FieldAccess and Index compilation
+    - Array literal compilation
+    - List comprehension + generator loop compilation
+    - `compile_pattern_match` converted from Option → CodegenResult
+    - `generate_comp_loop` converted from Option → CodegenResult
+    - **14 remaining unwrap() calls** are in Option-returning I/O functions (compile_input_*, compile_read_csv, compile_matrix_constructor, compile_zip) - isolated and safe
+    - **All 1001 tests passing!** ✅
+  - 🔲 **E4: Ariadne integration** (next)
     - Pretty error printing for codegen errors
     - Source code context in error messages
     - Similar to parser error reporting
@@ -452,7 +466,7 @@ cargo test -- --nocapture     # Show output from tests
     - Exit codes for different error types
   - 🔲 **E6: Replace remaining eprintln!()** (after E5)
     - Convert debug prints to structured errors
-    - Remove all unwrap() calls
+    - Convert remaining 14 unwrap() in Option-returning functions
 - Phase 5: Integration/golden tests (after Phase E - end-to-end .bx execution)
 - Phase 6: Property-based tests (~20 tests)
 
