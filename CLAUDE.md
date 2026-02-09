@@ -356,7 +356,7 @@ cargo test -- --nocapture     # Show output from tests
 
 - **~14 unwrap() calls remaining** - Nearly all converted (was 595 → 325 → 14). Remaining in Option-returning I/O helper functions
 - **~54 eprintln!() calls remaining** - Core modules converted, auxiliary functions still need conversion
-- **Ariadne error reporting not integrated in main.rs yet** - Error report module implemented, needs final integration
+- **Span precision in error messages** - Ariadne shows entire expressions, not individual tokens (parser improvement needed)
 - **No LLVM optimizations** - runs with `OptimizationLevel::None`
 - **Single-file compilation** - multi-file imports not yet implemented
 - **Operator refactoring postponed** - Binary/Unary operators still in lib.rs (see operators.rs annotations)
@@ -437,7 +437,7 @@ cargo test -- --nocapture     # Show output from tests
 
 ## Development Roadmap
 
-**Current Focus (Feb 2026):** 🚧 **v1.2.1 - Error Handling Implementation (95% COMPLETE)**
+**Current Focus (Feb 2026):** ✅ **v1.2.1 - Error Handling Implementation (98% COMPLETE)**
 - ✅ Phase 1: Lexer unit tests (completed)
 - ✅ Phase 2: Parser unit tests (completed - 150 passing, 0 ignored)
 - ✅ Phase 3: Codegen unit tests (completed - 1001/1001 passing, 100%!)
@@ -450,7 +450,7 @@ cargo test -- --nocapture     # Show output from tests
  - ✅ Statements module (10/12 statements)
  - ✅ Expressions module (literals, ternary, etc.)
  - ⏸️ Operators module (postponed - annotated for future work)
-- 🚧 **Phase E: Error Handling (95% COMPLETE)** - Replace unwrap() with Result types
+- 🚧 **Phase E: Error Handling (98% COMPLETE)** - Replace unwrap() with Result types
   - ✅ **E1: Core error infrastructure** (completed)
     - Created `error.rs` with `CodegenError` enum (6 variants)
     - Created `CodegenResult<T>` type alias
@@ -520,10 +520,13 @@ cargo test -- --nocapture     # Show output from tests
       - Contextual help messages
     - ✅ Updated all 559 codegen tests to pass filename and source
     - **All 1001 tests passing!** ✅
-  - 🔲 **E4d: Integrate Ariadne in main.rs** (next - after E4c)
-    - Replace `eprintln!()` error display with `report_codegen_error()`
-    - Pass source code to Compiler constructor in main.rs
-    - Beautiful error messages visible to end users
+  - ✅ **E4d: Integrate Ariadne in main.rs** (COMPLETED - Feb 2026)
+    - ✅ main.rs calls `report_codegen_error()` instead of `eprintln!()`
+    - ✅ Updated `UndefinedSymbol` errors to capture `expr.span`
+    - ✅ Beautiful error messages visible to end users
+    - ✅ Tested with `.bx` files showing proper Ariadne formatting
+    - **All 1001 tests passing!** ✅
+    - **Known limitation:** Spans capture entire expressions, not just identifiers (parser-level improvement needed)
   - 🔲 **E5: Remaining eprintln!() cleanup** (after E4d)
     - Convert remaining ~54 eprintln!() to CodegenError
     - Convert 14 Option-returning I/O functions to CodegenResult
