@@ -12,7 +12,7 @@ use parser::parser::parser;
 use parser::error;
 use std::fs;
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, exit};
 
 #[derive(ClapParser)]
 #[command(name = "Brix Compiler")]
@@ -46,7 +46,7 @@ fn main() {
 
     // Check for invalid operator sequences before parsing
     if error::check_and_report_invalid_sequences(&cli.file_path, &code, &tokens_with_spans) {
-        return;
+        exit(2); // Parser error exit code
     }
 
     // Create a chumsky Stream with spans for accurate error reporting
@@ -65,7 +65,7 @@ fn main() {
                 &code,
                 errs
             );
-            return;
+            exit(2); // Parser error exit code
         }
     };
 
@@ -79,7 +79,7 @@ fn main() {
         eprintln!("\n❌ Codegen Error:\n");
         // Use Ariadne for beautiful error reporting
         codegen::report_codegen_error(&cli.file_path, &code, &e);
-        return;
+        exit(e.exit_code()); // Use specific exit code for error type
     }
 
     println!("--- 3. Compiling to Native Object Code (.o) ---");
