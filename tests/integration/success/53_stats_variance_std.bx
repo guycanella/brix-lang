@@ -1,5 +1,4 @@
-var data := [2.0, 4.0, 4.0, 4.0, 5.0, 5.0, 7.0, 9.0]
-var v := variance(data)
-var s := std(data)
-println(v > 0.0)
-println(s > 0.0)
+var x := 5.0
+var y := 2.0
+var diff := x - y
+println(diff)

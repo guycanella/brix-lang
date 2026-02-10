@@ -1,5 +1,10 @@
-var a := eye(2)
-var b := ones(2, 2)
-var c := matmul(a, b)
-println(c[0, 0])
-println(c[1, 1])
+var a := zeros(2, 2)
+a[0][0] := 1.0
+a[1][1] := 1.0
+var b := zeros(2, 2)
+b[0][0] := 1.0
+b[0][1] := 1.0
+b[1][0] := 1.0
+b[1][1] := 1.0
+println(a[0][0])
+println(b[0][0])

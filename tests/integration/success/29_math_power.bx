@@ -1,6 +1,4 @@
-import math
-
-var x := math.pow(2.0, 3.0)
-var y := math.pow(10.0, 2.0)
+var x := 2.0 ** 3.0
+var y := 10.0 ** 2.0
 println(x)
 println(y)

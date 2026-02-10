@@ -1,11 +1,12 @@
-function minmax(a : Int, b : Int) -> (Int, Int) {
+function minmax(a : Int, b : Int) -> Int {
     if a < b {
-        return (a, b)
+        return a
     } else {
-        return (b, a)
+        return b
     }
 }
 
-var (min_val, max_val) := minmax(10, 5)
+var min_val := minmax(10, 5)
+var max_val := minmax(5, 10)
 println(min_val)
 println(max_val)

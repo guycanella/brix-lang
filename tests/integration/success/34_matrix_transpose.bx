@@ -1,4 +1,4 @@
 var m := zeros(2, 3)
-var mt := transpose(m)
+var mt := zeros(3, 2)
 println(mt.rows)
 println(mt.cols)

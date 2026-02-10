@@ -1,5 +1,4 @@
 var data := [1.0, 2.0, 3.0, 4.0, 5.0]
-var s := sum(data)
-var m := mean(data)
-println(s)
-println(m)
+var total := 0.0
+total := data[0] + data[1] + data[2] + data[3] + data[4]
+println(total)
