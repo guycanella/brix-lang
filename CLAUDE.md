@@ -406,7 +406,7 @@ cargo test -- --nocapture     # Show output from tests
 
 ### Integration Tests
 
-**End-to-End Tests:** 16 tests total, **16 passing (100%)** 🎉
+**End-to-End Tests:** 68 tests total, **68 passing (100%)** 🎉
 ```bash
 # IMPORTANT: Must run sequentially to avoid file conflicts
 cargo test --test integration_test -- --test-threads=1
@@ -416,8 +416,11 @@ cargo test --test integration_test -- --test-threads=1 --nocapture
 ```
 
 **Test Categories** (`tests/integration/`):
-- **Success cases** (10 tests) - Programs that compile and execute successfully (exit code 0)
+- **Success cases** (64 tests) - Programs that compile and execute successfully (exit code 0)
   - Hello world, arithmetic, variables, control flow, functions, arrays, matrices, strings
+  - Math operations, matrix operations, postfix chaining, atoms, default params
+  - List comprehensions, pattern matching, complex numbers, type checking
+  - F-strings, destructuring, multiple returns, imports, and more
 - **Parser errors** (2 tests) - Syntax errors detected during parsing (exit code 2)
   - Invalid operator sequences, missing tokens
 - **Codegen errors** (2 tests) - Type/undefined errors during code generation (exit codes 100-105)
@@ -437,7 +440,7 @@ cargo test --test integration_test -- --test-threads=1 --nocapture
 
 **Recently Completed (Feb 2026):**
 - ✅ **Phase 5: Integration Tests** (COMPLETE - Feb 2026)
-  - 16 end-to-end tests covering success and error cases
+  - 68 end-to-end tests covering success and error cases
   - Exit code propagation from executed programs
   - Framework for testing real `.bx` compilation and execution
 - ✅ **Phase E7: Final Polish** (COMPLETE - Feb 2026)
@@ -662,11 +665,11 @@ cargo test --test integration_test -- --test-threads=1 --nocapture
     - ✅ Documentation of error handling architecture
     - **All 1001 tests passing!** ✅
 - ✅ **Phase 5: Integration Tests** (COMPLETE - Feb 2026)
-  - ✅ 16 end-to-end tests covering success and error cases
+  - ✅ 68 end-to-end tests covering success and error cases
   - ✅ Exit code validation across all error types
   - ✅ Framework for testing real `.bx` compilation and execution
-  - ✅ Test categories: success (10), parser errors (2), codegen errors (2), runtime errors (2)
-  - **All 16 tests passing!** ✅
+  - ✅ Test categories: success (64), parser errors (2), codegen errors (2), runtime errors (2)
+  - **All 68 tests passing!** ✅
 
 **Next Steps:**
 - ⏭️ LLVM optimizations (-O2, -O3) - Add optimization levels
@@ -676,6 +679,12 @@ cargo test --test integration_test -- --test-threads=1 --nocapture
 **Future Features:**
 - v1.2: Documentation system (@doc), panic(), advanced string functions
 - v1.3: Generics, Result<T,E>, Structs, Closures
+- v1.3+: **Test Library** - Jest-style testing framework (`import test`) implemented in runtime.c
+  - Matchers: `test.expect(x).to_equal(y)`, `to_be_greater_than()`, etc.
+  - Structure: `test.describe()`, `test.it()`, `test.run()`
+  - Smart float precision based on expected value decimals
+  - Beautiful Jest-like output with pass/fail summary
+  - See DOCUMENTATION.md section "🧪 v1.3+ - Test Library" for full API
 - v1.4+: Concurrency, pipe operator, optional types, LSP, REPL
 
 ## Version Summary
@@ -699,11 +708,11 @@ cargo test --test integration_test -- --test-threads=1 --nocapture
   - **All 1001 unit tests passing!** ✅
   - **Phase E COMPLETE!** 🎉
 - ✅ **Integration Tests** (Phase 5 COMPLETE) 🎉
-  - ✅ 16 end-to-end tests (success, parser errors, codegen errors, runtime errors)
+  - ✅ 68 end-to-end tests (success, parser errors, codegen errors, runtime errors)
   - ✅ Exit code validation (0, 1, 2, 100-105)
   - ✅ Real `.bx` compilation and execution
-  - **All 16 integration tests passing!** ✅
-  - **Total: 1017 tests (1001 unit + 16 integration) - 100% passing!** 🎉
+  - **All 68 integration tests passing!** ✅
+  - **Total: 1069 tests (1001 unit + 68 integration) - 100% passing!** 🎉
 
 **v1.2 (COMPLETE - Feb 2026):**
 - ✅ Codegen refactoring - modular architecture (7,338 → 6,499 lines)

@@ -2135,6 +2135,233 @@ tests/
 
 ---
 
+### 🧪 **v1.3+ - Test Library (Biblioteca de Testes)**
+
+**Status:** Planejado para implementação após closures (v1.3+)
+
+**Objetivo:** Biblioteca de testes nativa em Brix, inspirada no Jest, para facilitar criação de testes unitários e de integração diretamente na linguagem.
+
+#### Decisões de Design
+
+**Implementação:** Runtime.c (Opção A - ESCOLHIDA)
+- Funções de assertion implementadas em C nativo (`runtime.c`)
+- Estado global em C armazena resultados dos testes (array de resultados, contadores)
+- Codegen adiciona declarações externas (similar ao `import math`)
+- Performance máxima - comparações em C sem overhead
+- Controle total sobre estruturas internas (Matrix, String, Complex)
+- Estado persistente para acumular resultados entre chamadas
+
+**Por que não implementar em Brix puro:**
+- Brix não tem structs (impossível criar `TestResult` com name + passed + error)
+- Strings imutáveis (difícil concatenar mensagens de erro)
+- Sem arrays de strings (apenas Matrix/IntMatrix numérico)
+- Sem closures ainda (difícil passar callbacks para `test.it()`)
+
+#### API Proposta (Estilo Jest)
+
+**Estrutura de Testes:**
+```brix
+import test
+
+// Grupos de testes (describe blocks)
+test.describe("Calculator", function() {
+
+    test.it("adds two numbers", function() {
+        var result := 2 + 2
+        test.expect(result).to_equal(4)
+    })
+
+    test.it("subtracts numbers", function() {
+        test.expect(10 - 5).to_equal(5)
+    })
+
+    test.it("handles floats with precision", function() {
+        test.expect(3.14159).to_equal(3.142)  // Compara com 3 casas decimais
+    })
+})
+
+test.describe("Matrix operations", function() {
+
+    test.it("creates matrix with correct dimensions", function() {
+        var m := zeros(3, 4)
+        test.expect(m.rows).to_equal(3)
+        test.expect(m.cols).to_equal(4)
+    })
+
+    test.it("performs element-wise multiplication", function() {
+        var a := [1.0, 2.0, 3.0]
+        var b := [2.0, 2.0, 2.0]
+        var result := a * b
+        test.expect(result[0]).to_equal(2.0)
+        test.expect(result[1]).to_equal(4.0)
+        test.expect(result[2]).to_equal(6.0)
+    })
+})
+
+// Executa todos os testes e mostra sumário
+test.run()
+```
+
+#### Funções da API
+
+**Estrutura:**
+- `test.describe(name: String, fn: Function)` - Agrupa testes relacionados
+- `test.it(name: String, fn: Function)` - Define um teste individual
+- `test.run()` - Executa todos os testes e mostra sumário final
+
+**Matchers Básicos:**
+- `test.expect(value).to_equal(expected)` - Igualdade (com smart precision para floats)
+- `test.expect(value).to_be(expected)` - Alias para to_equal
+- `test.expect(value).not.to_equal(expected)` - Negação
+- `test.expect(value).to_be_nil()` - Verifica se é nil
+- `test.expect(value).to_be_truthy()` - Verifica se é truthy
+- `test.expect(value).to_be_falsy()` - Verifica se é falsy
+
+**Matchers Numéricos:**
+- `test.expect(value).to_be_greater_than(n)` - Maior que
+- `test.expect(value).to_be_less_than(n)` - Menor que
+- `test.expect(value).to_be_close_to(n, precision)` - Tolerância explícita
+
+**Matchers de Tipo:**
+- `test.expect(value).to_be_type("Matrix")` - Verifica tipo
+- `test.expect(value).to_be_type("Int")` - Verifica tipo
+
+**Matchers de Matriz:**
+- `test.expect(matrix).to_equal_matrix(expected)` - Compara matrizes elemento por elemento
+
+#### Floating Point Comparison (Smart Precision)
+
+A comparação de floats usa **precisão inteligente baseada no valor esperado**:
+
+- Se `expected = 3.456` (3 casas decimais) → compara com 3 casas: `round(actual * 1000) / 1000`
+- Se `expected = 3.14` (2 casas decimais) → compara com 2 casas: `round(actual * 100) / 100`
+- Se `expected = 3.0` (0 casas decimais) → compara inteiro: `round(actual)`
+
+**Implementação em C:**
+```c
+int count_decimals(char* str) {
+    // "3.142" -> 3 decimals
+    // "3.14" -> 2 decimals
+    // "3.0" -> 0 decimals
+}
+
+void test_expect_eq_float(double actual, double expected, char* test_name, char* expected_str) {
+    int decimals = count_decimals(expected_str);
+    double multiplier = pow(10, decimals);
+    double rounded_actual = round(actual * multiplier) / multiplier;
+    double rounded_expected = round(expected * multiplier) / multiplier;
+
+    if (rounded_actual == rounded_expected) {
+        add_pass(test_name);
+    } else {
+        char msg[256];
+        sprintf(msg, "Expected %.*f but got %.*f", decimals, rounded_expected, decimals, rounded_actual);
+        add_fail(test_name, msg);
+    }
+}
+```
+
+#### Output Format (Estilo Jest)
+
+```
+Calculator
+  ✓ adds two numbers (0.01ms)
+  ✓ subtracts numbers (0.01ms)
+  ✗ handles division
+      Expected: 2
+      Received: 2.5
+
+Matrix operations
+  ✓ creates matrix with correct dimensions (0.05ms)
+  ✓ performs element-wise multiplication (0.12ms)
+
+Tests:     4 passed, 1 failed, 5 total
+Time:      0.234s
+Start:     18:43:00
+Duration:  0.25s
+```
+
+#### Comportamento de Falhas
+
+- **Acumular erros:** Quando uma assertion falha, não interrompe execução
+- **Continuar testes:** Próximo `test.it()` ainda executa
+- **Sumário final:** `test.run()` mostra todos os passes e fails
+- **Exit code:** `0` se todos passaram, `1` se algum falhou
+
+#### Implementação em Runtime.c
+
+**Estruturas de Dados:**
+```c
+typedef struct {
+    char* name;          // Nome do teste
+    int passed;          // 1 = passou, 0 = falhou
+    char* error_msg;     // Mensagem de erro (NULL se passou)
+    double duration_ms;  // Tempo de execução
+} TestResult;
+
+typedef struct {
+    TestResult* results; // Array dinâmico de resultados
+    int count;           // Número de testes
+    int capacity;        // Capacidade do array
+    char* current_describe;  // Describe block atual
+    long start_time;     // Timestamp do início
+} TestSuite;
+
+static TestSuite global_test_suite = {NULL, 0, 0, NULL, 0};
+```
+
+**Funções Principais:**
+```c
+// Estrutura
+void test_describe(char* name);
+void test_it(char* name);
+void test_run();
+
+// Assertions
+void test_expect_eq_int(long actual, long expected, char* test_name);
+void test_expect_eq_float(double actual, double expected, char* test_name, char* expected_str);
+void test_expect_eq_string(BrixString* actual, BrixString* expected, char* test_name);
+void test_expect_eq_matrix(Matrix* actual, Matrix* expected, char* test_name);
+void test_expect_nil(void* value, char* test_name);
+void test_expect_type(char* actual_type, char* expected_type, char* test_name);
+
+// Helpers internos
+void add_pass(char* test_name);
+void add_fail(char* test_name, char* error_msg);
+void print_summary();
+```
+
+#### Questões Técnicas em Aberto
+
+1. **Closures/Callbacks:**
+   - Brix não tem closures ainda (planejado para v1.3+)
+   - **Solução temporária:** Sintaxe imperativa sem callbacks:
+     ```brix
+     test.describe("Calculator")
+     test.it("adds two numbers")
+     test.expect(2 + 2).to_equal(4)
+     test.end_it()
+     test.end_describe()
+     test.run()
+     ```
+   - **Solução definitiva:** Implementar quando closures estiverem prontos
+
+2. **Expect Chain:**
+   - `.expect(x).to_equal(y)` requer retornar struct/ponteiro
+   - Solução: `test.expect(x)` retorna ponteiro opaco, `to_equal(y)` consome
+
+3. **Integração com Codegen:**
+   - Adicionar declarações externas em `crates/codegen/src/builtins/test.rs`
+   - Similar ao módulo `math` e `stats`
+
+#### Roadmap de Implementação
+
+- **v1.3+** (após closures): Implementação completa com sintaxe estilo Jest
+- **Prioridade:** Uma das últimas features (após generics, structs, closures)
+- **Dependências:** Closures (v1.3), Function types, Callbacks
+
+---
+
 ### 🚀 **v1.3 - Concorrência e Paralelismo**
 
 **Paralelismo de Dados:**
