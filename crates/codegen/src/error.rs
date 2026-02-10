@@ -80,5 +80,20 @@ impl fmt::Display for CodegenError {
 
 impl std::error::Error for CodegenError {}
 
+impl CodegenError {
+    /// Get the exit code for this error type
+    /// Used by main.rs to return specific exit codes
+    pub fn exit_code(&self) -> i32 {
+        match self {
+            CodegenError::General(_) => 100,
+            CodegenError::LLVMError { .. } => 101,
+            CodegenError::TypeError { .. } => 102,
+            CodegenError::UndefinedSymbol { .. } => 103,
+            CodegenError::InvalidOperation { .. } => 104,
+            CodegenError::MissingValue { .. } => 105,
+        }
+    }
+}
+
 /// Convenient Result type for codegen operations
 pub type CodegenResult<T> = Result<T, CodegenError>;
