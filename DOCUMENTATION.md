@@ -18,7 +18,7 @@
 - F-strings com format specifiers
 - Ariadne error reporting (parser)
 
-### ✅ **Completado (v1.2.1 - Phase E6+):**
+### ✅ **Completado (v1.2.1 - Phase E7 COMPLETE):**
 - **Error Handling with Result Types (COMPLETE - Feb 2026):**
   - ✅ All core compilation functions use `CodegenResult<T>`
   - ✅ CodegenError enum with 6 variants + span information
@@ -38,8 +38,21 @@
     - Ariadne highlights precise source locations with surgical accuracy
   - ✅ **eprintln!() Cleanup:** 54 → 32 (22 critical errors converted to CodegenError)
   - ✅ **unwrap() Cleanup:** Remaining calls isolated in I/O helpers and test utilities
+  - ✅ **Exit Codes Diferenciados (Phase E7):**
+    - E100-E105: Códigos específicos por tipo de erro
+    - Parser errors: exit code 2
+    - Runtime div/0: exit code 1 com mensagem clara
+  - ✅ **Division by Zero Runtime Checks:**
+    - Detecção automática em operações inteiras (/, %)
+    - Mensagem clara: "❌ Runtime Error: Division by zero"
+  - ✅ **Type Error Fixes:**
+    - String + Int agora retorna erro bonito (antes causava panic)
+  - ✅ **Error Handling Architecture:**
+    - Documentação completa em CLAUDE.md
+    - Fluxo de propagação de erros
+    - Tabela de exit codes
   - ✅ **1001/1001 testes passando** (Lexer: 292, Parser: 150, Codegen: 559)
-  - 🔲 Next: Phase E7 - Final polish (exit codes, error recovery)
+  - ✅ **Phase E COMPLETE!** 🎉
 
 ### 🔮 **Planejado (v1.3+):**
 - Generics
