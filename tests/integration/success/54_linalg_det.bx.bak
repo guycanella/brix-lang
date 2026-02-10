@@ -1,0 +1,6 @@
+import math
+
+var m := math.eye(3)
+println(m[0, 0])
+println(m[1, 1])
+println(m[2, 2])

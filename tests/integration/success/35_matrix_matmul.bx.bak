@@ -1,0 +1,10 @@
+import math
+
+var a := math.eye(2)
+var b := zeros(2, 2)
+b[0, 0] := 1.0
+b[0, 1] := 1.0
+b[1, 0] := 1.0
+b[1, 1] := 1.0
+println(a[0, 0])
+println(b[0, 0])

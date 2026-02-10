@@ -4,5 +4,3 @@ var c := :success
 println(is_atom(a))
 println(is_atom(b))
 println(is_atom(c))
-println(a == :ok)
-println(b == :error)

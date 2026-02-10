@@ -1,3 +1,7 @@
+import math
+
 var z := zeros(2, 3)
+var e := math.eye(3)
 println(z.rows)
 println(z.cols)
+println(e[1, 1])

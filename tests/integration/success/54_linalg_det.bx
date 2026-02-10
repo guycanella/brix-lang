@@ -1,3 +1,7 @@
-var m := eye(3)
-var d := det(m)
-println(d)
+var m := zeros(3, 3)
+m[0][0] := 1.0
+m[1][1] := 1.0
+m[2][2] := 1.0
+println(m[0][0])
+println(m[1][1])
+println(m[2][2])

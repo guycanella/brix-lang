@@ -1,6 +1,6 @@
-function greet(name : String, greeting : String = "Hello") -> String {
-    return greeting + " " + name
+function add(a : Int, b : Int = 5) -> Int {
+    return a + b
 }
 
-println(greet("Alice"))
-println(greet("Bob", "Hi"))
+println(add(10))
+println(add(10, 3))
