@@ -4,8 +4,9 @@
 
 ## Status Atual (Fevereiro 2026)
 
-### ✅ **Funcionalidades Implementadas (v1.0-v1.2):**
+### ✅ **Funcionalidades Implementadas (v1.0-v1.2.1):**
 - Compilação completa `.bx` → binário nativo via LLVM
+- **LLVM Optimizations**: `-O0`, `-O1`, `-O2`, `-O3`, `--release`
 - 14 tipos core (Int, Float, String, Matrix, IntMatrix, Complex, ComplexMatrix, Atom, Nil, Error, etc.)
 - Operadores completos (aritméticos, lógicos, bitwise, power operator `**`)
 - Funções definidas pelo usuário com múltiplos retornos
@@ -16,7 +17,7 @@
 - Integração LAPACK (eigvals, eigvecs)
 - Atoms estilo Elixir (`:ok`, `:error`)
 - F-strings com format specifiers
-- Ariadne error reporting (parser)
+- Ariadne error reporting (parser + codegen)
 
 ### ✅ **Completado (v1.2.1 - Phase E7 COMPLETE):**
 - **Error Handling with Result Types (COMPLETE - Feb 2026):**
@@ -53,6 +54,13 @@
     - Tabela de exit codes
   - ✅ **1001/1001 testes passando** (Lexer: 292, Parser: 150, Codegen: 559)
   - ✅ **Phase E COMPLETE!** 🎉
+- **LLVM Optimizations (COMPLETE - Feb 2026):**
+  - ✅ Optimization levels: `-O0`, `-O1`, `-O2`, `-O3`
+  - ✅ `--release` flag (equivalent to `-O3`)
+  - ✅ Zero-overhead flag parsing via clap
+  - ✅ Optimizations applied by LLVM TargetMachine during code generation
+  - ✅ **All 68 integration tests passing** with optimizations enabled
+  - Usage: `cargo run file.bx -O 3` or `cargo run file.bx --release`
 
 ### 🔮 **Planejado (v1.3+):**
 - Generics
@@ -689,6 +697,68 @@ var lista := Node { val: 10, next: Node { val: 20, next: nil } }
 - ✅ **Parser (Chumsky):** Parser combinator com precedência de operadores correta
 - ✅ **Codegen (Inkwell/LLVM 18):** Geração de LLVM IR e compilação nativa
 - ✅ **Runtime C:** Biblioteca com funções de Matrix e String
+
+### 1.1. LLVM Optimizations (v1.2.1 - Feb 2026)
+
+**Status:** COMPLETE ✅ - Suporte completo para otimizações LLVM via flags de compilação
+
+**Níveis de Otimização:**
+
+| Nível | Flag | Descrição | Uso Recomendado |
+|-------|------|-----------|-----------------|
+| `-O0` | Default | Sem otimizações, compilação rápida | Debug, desenvolvimento |
+| `-O1` | `-O 1` | Otimizações básicas, tamanho reduzido | Builds intermediários |
+| `-O2` | `-O 2` | Otimizações padrão, performance balanceada | Maioria dos casos |
+| `-O3` | `-O 3` or `--release` | Otimizações agressivas, máxima performance | Production, benchmarks |
+
+**Exemplos de Uso:**
+
+```bash
+# Debug mode (sem otimizações)
+cargo run program.bx
+
+# Otimização básica
+cargo run -- program.bx -O 1
+
+# Otimização padrão
+cargo run -- program.bx -O 2
+
+# Otimização máxima
+cargo run -- program.bx -O 3
+cargo run -- program.bx --release  # Equivalente a -O3
+```
+
+**Implementação Técnica:**
+
+- **TargetMachine OptimizationLevel:** Otimizações aplicadas durante geração de código objeto
+- **Zero Overhead:** Flags processadas via clap sem impacto em performance
+- **LLVM 18 Backend:** Aproveita otimizações modernas do LLVM (GVN, DCE, inlining, etc.)
+- **Compatibilidade:** Todos os 1069 testes (1001 unit + 68 integration) passam com `-O3`
+
+**O que LLVM Otimiza:**
+
+- **-O1 (Less):** Constant folding, dead code elimination básico, simplificação de CFG
+- **-O2 (Default):** GVN (Global Value Numbering), loop optimizations, function inlining
+- **-O3 (Aggressive):** Vetorização, unrolling agressivo, otimizações interprocedurais
+
+**Benefícios Observados:**
+
+- Código gerado mais compacto e eficiente
+- Melhor uso de registradores CPU
+- Eliminação de código morto
+- Inline de funções pequenas (reduz overhead de chamadas)
+
+**Limitações:**
+
+- Tamanho do binário similar entre níveis (runtime.c é a maior parte)
+- Ganhos de performance dependem da complexidade do código Brix
+- Tempos de compilação ligeiramente maiores em `-O3`
+
+**Roadmap Futuro:**
+
+- [ ] **LTO (Link-Time Optimization):** Otimizações cross-module
+- [ ] **PGO (Profile-Guided Optimization):** Otimizações baseadas em profiling
+- [ ] **Size Optimization (-Os, -Oz):** Flags para minimizar tamanho do binário
 
 ### 2. Sistema de Tipos
 
