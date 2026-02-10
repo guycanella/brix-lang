@@ -232,6 +232,69 @@ brix/
 - **Codegen detection**: Checks operand types and selects appropriate runtime function
 - **NOT matrix multiplication**: `*` is element-wise, use `matmul()` for true matrix product
 
+## Error Handling Architecture (v1.2.1)
+
+**Philosophy**: All compilation errors use `Result` types with rich error information and precise source spans.
+
+### Error Types (`CodegenError` enum)
+
+| Variant | Exit Code | Description | Example |
+|---------|-----------|-------------|---------|
+| `General` | 100 | Generic error message | Internal compiler errors |
+| `LLVMError` | 101 | LLVM operation failed | Builder/module operations |
+| `TypeError` | 102 | Type mismatch | `"string" + 42` |
+| `UndefinedSymbol` | 103 | Variable/function not found | `var x := undefined_var` |
+| `InvalidOperation` | 104 | Invalid operation | Unsupported operator combination |
+| `MissingValue` | 105 | Required value missing | Failed compilation step |
+| Parser Errors | 2 | Syntax errors | `1 ++ 2`, missing tokens |
+| Success | 0 | Compilation successful | - |
+
+### Error Propagation Flow
+
+```
+Source Code (.bx)
+    ↓
+Lexer (logos) → Token stream
+    ↓
+Parser (chumsky) → AST with spans
+    ↓ (Result<AST, ParseError>)
+    ├─ Err → report_errors() → exit(2)
+    └─ Ok → AST
+        ↓
+Codegen (inkwell) → LLVM IR
+    ↓ (CodegenResult<()>)
+    ├─ Err(e) → report_codegen_error() → exit(e.exit_code())
+    └─ Ok → Compile & Link
+        ↓
+Binary Execution
+    ├─ Runtime Error → exit(1) or crash
+    └─ Success → exit(0)
+```
+
+### Error Reporting
+
+**Parser Errors**: Use Ariadne to show beautiful syntax errors with source context
+**Codegen Errors**: Use Ariadne with precise token-level spans (not expression-level)
+**Runtime Errors**: Some have automatic checks (div/0), others are undefined behavior
+
+### Span Precision
+
+All errors include `span: Option<Span>` to point to exact source locations:
+- Parser captures spans via chumsky's `.map_with_span()`
+- Codegen propagates spans through AST nodes
+- Ariadne uses spans to highlight exact tokens in error messages
+
+Example: In `var x := a + foo * b`, error on `foo` highlights only `foo`, not entire expression.
+
+### Runtime Safety Checks
+
+| Operation | Check | Behavior |
+|-----------|-------|----------|
+| Int / 0 | ✅ Automatic | Exit with error message |
+| Int % 0 | ✅ Automatic | Exit with error message |
+| Float / 0.0 | ❌ None | Returns `inf` (IEEE 754) |
+| Array bounds | ❌ None | Undefined behavior (like C) |
+
 ## Critical Architectural Decisions
 
 **Why PHI nodes only for expressions, not if/else statements:**
@@ -340,11 +403,15 @@ cargo test -- --nocapture     # Show output from tests
 **Remaining Ignored Tests:** None! 🎉 All 1001 tests passing (100%)
 
 **Recently Completed (Feb 2026):**
+- ✅ **Phase E7: Final Polish** (COMPLETE - Feb 2026)
+  - Exit codes diferenciados por tipo de erro (100-105, parser=2)
+  - Documented error handling architecture
+  - Division by zero runtime checks (int/mod operations)
+  - Type error fixes (String + Int now shows proper error)
 - ✅ **Phase E6: Real Spans in Errors** (458 lines modified, precise error locations)
-- ✅ **Span Granularity Fix** (Feb 2026) - Fixed parser to use chumsky Stream with spans
-  - Changed from `parser().parse(Vec<Token>)` to `parser().parse(Stream::with_spans())`
+- ✅ **Span Granularity Fix** - Parser uses chumsky Stream with spans
   - Spans now point to exact tokens instead of expression-level ranges
-  - Ariadne now highlights precise source locations (e.g., `undefined_var` not whole line)
+  - Ariadne highlights precise source locations (e.g., `undefined_var` not whole line)
 - ✅ **Ariadne error reporting** (beautiful error messages with source context)
 - ✅ **Error handling infrastructure** (CodegenError with 6 variants, Result types throughout)
 - ✅ Invalid operator sequence detection (`1 ++ 2` now properly detected)
@@ -447,7 +514,7 @@ cargo test -- --nocapture     # Show output from tests
 
 ## Development Roadmap
 
-**Current Focus (Feb 2026):** ✅ **v1.2.1 - Error Handling Implementation (99% COMPLETE)**
+**Current Focus (Feb 2026):** ✅ **v1.2.1 - Error Handling Implementation (COMPLETE!)**
 - ✅ Phase 1: Lexer unit tests (completed)
 - ✅ Phase 2: Parser unit tests (completed - 150 passing, 0 ignored)
 - ✅ Phase 3: Codegen unit tests (completed - 1001/1001 passing, 100%!)
@@ -460,7 +527,7 @@ cargo test -- --nocapture     # Show output from tests
  - ✅ Statements module (10/12 statements)
  - ✅ Expressions module (literals, ternary, etc.)
  - ⏸️ Operators module (postponed - annotated for future work)
-- 🚧 **Phase E: Error Handling (99% COMPLETE)** - Replace unwrap() with Result types
+- ✅ **Phase E: Error Handling (COMPLETE!)** - Replace unwrap() with Result types
   - ✅ **E1: Core error infrastructure** (completed)
     - Created `error.rs` with `CodegenError` enum (6 variants)
     - Created `CodegenResult<T>` type alias
@@ -556,11 +623,10 @@ cargo test -- --nocapture     # Show output from tests
     - Exit codes for different error types
     - Error recovery strategies (where applicable)
     - Documentation of error handling architecture
-- Phase 5: Integration/golden tests (after Phase E - end-to-end .bx execution)
+**Next Steps:**
+- ⏭️ LLVM optimizations (-O2, -O3) - Add optimization levels
+- Phase 5: Integration/golden tests (end-to-end .bx execution)
 - Phase 6: Property-based tests (~20 tests)
-
-**After Error Handling & Testing:**
-- LLVM optimizations (-O2, -O3)
 - Complete operator refactoring (see operators.rs TODOs)
 
 **Future Features:**
@@ -570,13 +636,13 @@ cargo test -- --nocapture     # Show output from tests
 
 ## Version Summary
 
-**v1.2.1 (IN PROGRESS - Feb 2026):**
+**v1.2.1 (COMPLETE - Feb 2026):**
 - ✅ **AST Migration with Spans** (Phase E4b - COMPLETE)
   - AST structure: `Expr { kind: ExprKind, span: Span }`, `Stmt { kind: StmtKind, span: Span }`
   - Parser, codegen, and ALL tests fully converted
   - CodegenError has `span: Option<Span>` on all variants
   - **All 1001 tests passing!** ✅
-- ✅ **Error Handling with Result types** (Phase E1-E6 COMPLETE)
+- ✅ **Error Handling with Result types** (Phase E1-E7 COMPLETE) 🎉
   - ✅ E1: Core error infrastructure (CodegenError enum with 6 variants)
   - ✅ E2: Core module conversion (expr.rs, stmt.rs, helpers.rs, lib.rs)
   - ✅ E3: Auxiliary function conversion (unwrap() calls isolated in helpers)
@@ -585,8 +651,9 @@ cargo test -- --nocapture     # Show output from tests
   - ✅ E4d: Ariadne in main.rs (user-facing error messages)
   - ✅ E5: Cleanup eprintln!() and unwrap() (22/54 critical errors converted)
   - ✅ E6: Add real spans to errors (458 lines modified, all errors have source positions)
-  - 🔲 E7: Final polish (exit codes, error recovery)
+  - ✅ E7: Final polish (exit codes, runtime checks, documentation)
   - **All 1001 tests passing!** ✅
+  - **Phase E COMPLETE!** 🎉
 
 **v1.2 (COMPLETE - Feb 2026):**
 - ✅ Codegen refactoring - modular architecture (7,338 → 6,499 lines)
