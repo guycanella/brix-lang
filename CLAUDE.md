@@ -375,6 +375,8 @@ Example: In `var x := a + foo * b`, error on `foo` highlights only `foo`, not en
 
 ## Testing
 
+### Unit Tests
+
 **Automated Unit Tests:** 1001 tests total, **1001 passing (100%)** 🎉
 ```bash
 cargo test --all              # Run all tests
@@ -402,7 +404,42 @@ cargo test -- --nocapture     # Show output from tests
 
 **Remaining Ignored Tests:** None! 🎉 All 1001 tests passing (100%)
 
+### Integration Tests
+
+**End-to-End Tests:** 16 tests total, **16 passing (100%)** 🎉
+```bash
+# IMPORTANT: Must run sequentially to avoid file conflicts
+cargo test --test integration_test -- --test-threads=1
+
+# Run with output
+cargo test --test integration_test -- --test-threads=1 --nocapture
+```
+
+**Test Categories** (`tests/integration/`):
+- **Success cases** (10 tests) - Programs that compile and execute successfully (exit code 0)
+  - Hello world, arithmetic, variables, control flow, functions, arrays, matrices, strings
+- **Parser errors** (2 tests) - Syntax errors detected during parsing (exit code 2)
+  - Invalid operator sequences, missing tokens
+- **Codegen errors** (2 tests) - Type/undefined errors during code generation (exit codes 100-105)
+  - Undefined variables, type mismatches
+- **Runtime errors** (2 tests) - Errors during program execution (exit code 1)
+  - Division by zero, modulo by zero
+
+**What Integration Tests Cover:**
+- ✅ End-to-end compilation pipeline (lex → parse → codegen → link → execute)
+- ✅ Actual `.bx` file compilation and execution
+- ✅ Exit code validation (0, 1, 2, 100-105)
+- ✅ Ariadne error messages in real scenarios
+- ✅ Runtime safety checks (division by zero)
+- ✅ System integration (clang linking, LLVM backend)
+
+**Limitation:** Tests must run sequentially (`--test-threads=1`) because they compile to the same directory.
+
 **Recently Completed (Feb 2026):**
+- ✅ **Phase 5: Integration Tests** (COMPLETE - Feb 2026)
+  - 16 end-to-end tests covering success and error cases
+  - Exit code propagation from executed programs
+  - Framework for testing real `.bx` compilation and execution
 - ✅ **Phase E7: Final Polish** (COMPLETE - Feb 2026)
   - Exit codes diferenciados por tipo de erro (100-105, parser=2)
   - Documented error handling architecture
@@ -619,13 +656,20 @@ cargo test -- --nocapture     # Show output from tests
     - ✅ Beautiful error messages with precise source code highlighting
     - ✅ All CodegenError variants now include accurate source locations
     - **All 1001 tests passing!** ✅
-  - 🔲 **E7: Final integration & polish** (next - after E6)
-    - Exit codes for different error types
-    - Error recovery strategies (where applicable)
-    - Documentation of error handling architecture
+  - ✅ **E7: Final integration & polish** (COMPLETE - Feb 2026)
+    - ✅ Exit codes for different error types (0, 1, 2, 100-105)
+    - ✅ Exit code propagation from executed programs
+    - ✅ Documentation of error handling architecture
+    - **All 1001 tests passing!** ✅
+- ✅ **Phase 5: Integration Tests** (COMPLETE - Feb 2026)
+  - ✅ 16 end-to-end tests covering success and error cases
+  - ✅ Exit code validation across all error types
+  - ✅ Framework for testing real `.bx` compilation and execution
+  - ✅ Test categories: success (10), parser errors (2), codegen errors (2), runtime errors (2)
+  - **All 16 tests passing!** ✅
+
 **Next Steps:**
 - ⏭️ LLVM optimizations (-O2, -O3) - Add optimization levels
-- Phase 5: Integration/golden tests (end-to-end .bx execution)
 - Phase 6: Property-based tests (~20 tests)
 - Complete operator refactoring (see operators.rs TODOs)
 
@@ -641,7 +685,7 @@ cargo test -- --nocapture     # Show output from tests
   - AST structure: `Expr { kind: ExprKind, span: Span }`, `Stmt { kind: StmtKind, span: Span }`
   - Parser, codegen, and ALL tests fully converted
   - CodegenError has `span: Option<Span>` on all variants
-  - **All 1001 tests passing!** ✅
+  - **All 1001 unit tests passing!** ✅
 - ✅ **Error Handling with Result types** (Phase E1-E7 COMPLETE) 🎉
   - ✅ E1: Core error infrastructure (CodegenError enum with 6 variants)
   - ✅ E2: Core module conversion (expr.rs, stmt.rs, helpers.rs, lib.rs)
@@ -652,8 +696,14 @@ cargo test -- --nocapture     # Show output from tests
   - ✅ E5: Cleanup eprintln!() and unwrap() (22/54 critical errors converted)
   - ✅ E6: Add real spans to errors (458 lines modified, all errors have source positions)
   - ✅ E7: Final polish (exit codes, runtime checks, documentation)
-  - **All 1001 tests passing!** ✅
+  - **All 1001 unit tests passing!** ✅
   - **Phase E COMPLETE!** 🎉
+- ✅ **Integration Tests** (Phase 5 COMPLETE) 🎉
+  - ✅ 16 end-to-end tests (success, parser errors, codegen errors, runtime errors)
+  - ✅ Exit code validation (0, 1, 2, 100-105)
+  - ✅ Real `.bx` compilation and execution
+  - **All 16 integration tests passing!** ✅
+  - **Total: 1017 tests (1001 unit + 16 integration) - 100% passing!** 🎉
 
 **v1.2 (COMPLETE - Feb 2026):**
 - ✅ Codegen refactoring - modular architecture (7,338 → 6,499 lines)
