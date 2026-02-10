@@ -679,13 +679,19 @@ cargo test --test integration_test -- --test-threads=1 --nocapture
 **Future Features:**
 - v1.2: Documentation system (@doc), panic(), advanced string functions
 - v1.3: Generics, Result<T,E>, Structs, Closures
+- v1.3+: **Async/Await** - High-performance concurrency via compile-time state machine transformation
+  - Target: 0.2-0.3 MB/task (12x better than Go goroutines)
+  - Compile-time transformation to state machines (like Rust tokio)
+  - Runtime minimalista em C (~300 lines) com event loop
+  - Syntax: `async function`, `.await`, `spawn { }`
+  - See DOCUMENTATION.md section "🚀 v1.3+ - Concorrência e Paralelismo" for full design
 - v1.3+: **Test Library** - Jest-style testing framework (`import test`) implemented in runtime.c
   - Matchers: `test.expect(x).to_equal(y)`, `to_be_greater_than()`, etc.
   - Structure: `test.describe()`, `test.it()`, `test.run()`
   - Smart float precision based on expected value decimals
   - Beautiful Jest-like output with pass/fail summary
   - See DOCUMENTATION.md section "🧪 v1.3+ - Test Library" for full API
-- v1.4+: Concurrency, pipe operator, optional types, LSP, REPL
+- v1.4+: Pipe operator, optional types, LSP, REPL
 
 ## Version Summary
 

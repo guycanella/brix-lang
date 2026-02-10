@@ -2362,18 +2362,122 @@ void print_summary();
 
 ---
 
-### 🚀 **v1.3 - Concorrência e Paralelismo**
+### 🚀 **v1.3+ - Concorrência e Paralelismo**
 
-**Paralelismo de Dados:**
+**Status:** Planejado para v1.3+ (após generics, structs, closures)
+
+#### Paralelismo de Dados
 
 - [ ] **par for:** Distribui iterações entre threads automaticamente
 - [ ] **par map:** Map paralelo sobre arrays
 - [ ] **Threads Nativas:** `spawn { ... }` (estilo Go)
 
-**I/O Assíncrono:**
+#### Async/Await (High-Performance I/O)
 
-- [ ] **Non-blocking I/O:** Para servidores HTTP de alta performance
-- [ ] **async/await:** Modelo de programação assíncrona (opcional)
+**Decisão de Design (Feb 2026):** Implementação via **compile-time state machine transformation**, seguindo modelo do Rust para atingir performance competitiva (0.2-0.3 MB/task vs 2.66 MB/task do Go).
+
+**Motivação:**
+- Benchmarks mostram Rust async (0.21 MB/task) sendo 12x mais eficiente que Go goroutines (2.66 MB/task) em 1M tasks concorrentes
+- Brix precisa suportar alta concorrência para web servers e I/O intensivo
+- Performance é pilar da linguagem ("execute like Fortran")
+
+**Abordagem Técnica:**
+
+1. **Compile-Time Transformation (Zero Overhead Runtime)**
+   - Parser detecta `async function` e `await` expressions
+   - Codegen transforma em state machine (struct com enum de estados)
+   - LLVM otimiza state machine para código nativo eficiente
+   - Tamanho por task: ~32-128 bytes (apenas variáveis capturadas + estado)
+
+2. **State Machine via LLVM**
+   ```brix
+   // Código Brix
+   async function fetch_data() -> String {
+       var response := http_get("url").await
+       var data := parse(response).await
+       return data
+   }
+
+   // Transformado em (pseudo-código LLVM)
+   struct FetchDataFuture {
+       int state;           // 0=Start, 1=WaitingHttp, 2=WaitingParse, 3=Done
+       void* http_future;   // Subfuture se ainda esperando
+       String* response;    // Dados capturados
+       String* result;      // Resultado final
+   }
+
+   PollResult fetch_data_poll(FetchDataFuture* self) {
+       switch(self->state) {
+           case 0: /* Start - inicia http_get */
+           case 1: /* WaitingHttp - poll http, avança para parse */
+           case 2: /* WaitingParse - poll parse, retorna resultado */
+           case 3: /* Done */
+       }
+   }
+   ```
+
+3. **Runtime Minimalista (runtime.c)**
+   - Event loop simples (~200-300 linhas)
+   - Executor com fila de tasks
+   - Poll cooperativo (não cria threads por task)
+   - Integração com epoll/kqueue para I/O assíncrono
+   - Overhead total: ~50KB código + array de ponteiros
+
+4. **Syntax Proposta**
+   ```brix
+   // Definição async
+   async function handle_request(req: Request) -> Response {
+       var user := db.get_user(req.user_id).await
+       var posts := db.get_posts(user.id).await
+       return render_template(posts)
+   }
+
+   // Spawning tasks
+   spawn handle_request(request)  // Lança no executor
+
+   // Await inline
+   var result := some_async_fn().await
+
+   // Executor principal
+   function main() {
+       var executor := Executor.new()
+       executor.spawn(server_loop())
+       executor.run()  // Block até todas tasks completarem
+   }
+   ```
+
+**Vantagens sobre Rust:**
+- ✅ **Sem Borrow Checker:** Não precisa de `Pin<Box<dyn Future>>`, `Send`, `Sync`
+- ✅ **ARC Automático:** Ownership resolvido em runtime, syntax mais simples
+- ✅ **Runtime em C:** Mais fácil debugar e integrar com bibliotecas existentes
+- ✅ **Mesma Performance:** LLVM otimiza state machines igualmente
+
+**Vantagens sobre Go:**
+- ✅ **12x Menos Memória:** State machines vs goroutine stacks
+- ✅ **Compile-Time Transform:** Sem overhead de scheduler em runtime
+- ✅ **Stack Inline:** Futures pequenas ficam na stack (0 bytes heap)
+
+**Performance Esperada:**
+- Target: **0.2-0.3 MB/task** (competitivo com Rust tokio)
+- 1M tasks concorrentes: ~200-300 MB total
+- Latência: Microsegundos (poll cooperativo, sem context switch)
+
+**Roadmap de Implementação:**
+1. Parser: Detectar `async` e `await` keywords
+2. AST: Adicionar `AsyncFunction` e `Await` variants
+3. Codegen: State machine transformation via LLVM
+4. Runtime: Event loop + executor em runtime.c (~300 linhas)
+5. Stdlib: Async I/O primitives (file, network, timers)
+
+**Dependências:**
+- Closures (v1.3) - Para callbacks em async context
+- Generics (v1.3) - Para `Future<T>` type
+- Result<T,E> (v1.3) - Para error handling em async
+
+**Referência:**
+- Análise de performance: https://pkolaczk.github.io/memory-consumption-of-async/
+- Rust async internals: https://rust-lang.github.io/async-book/
+- Decisão tomada: Fevereiro 2026
 
 ---
 
