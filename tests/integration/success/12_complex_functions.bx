@@ -1,0 +1,7 @@
+var z := 3.0 + 4.0 * im
+println(abs(z))
+println(real(z))
+println(imag(z))
+var conj_z := conj(z)
+println(real(conj_z))
+println(imag(conj_z))

@@ -1,0 +1,6 @@
+var x := 5
+var y := 10
+var and_result := x > 0 && y > 0
+var or_result := x < 0 || y > 0
+println(and_result)
+println(or_result)

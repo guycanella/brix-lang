@@ -1,0 +1,6 @@
+var m := ones(3, 3)
+m[0, 0] := 5.0
+m[1, 1] := 10.0
+println(m[0, 0])
+println(m[1, 1])
+println(m[2, 2])

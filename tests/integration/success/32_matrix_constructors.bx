@@ -1,0 +1,7 @@
+var z := zeros(2, 3)
+var o := ones(2, 2)
+var e := eye(3)
+println(z.rows)
+println(z.cols)
+println(o[0, 0])
+println(e[1, 1])

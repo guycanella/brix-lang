@@ -1,0 +1,9 @@
+function get_matrix() -> Matrix {
+    return zeros(3, 4)
+}
+
+var rows := get_matrix().rows
+println(rows)
+
+var arr := [1, 2, 3]
+println(arr.len)

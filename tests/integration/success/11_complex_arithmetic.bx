@@ -1,0 +1,11 @@
+var z1 := 3.0 + 4.0 * im
+var z2 := 1.0 + 2.0 * im
+var sum := z1 + z2
+var diff := z1 - z2
+var prod := z1 * z2
+println(real(sum))
+println(imag(sum))
+println(real(diff))
+println(imag(diff))
+println(real(prod))
+println(imag(prod))

@@ -1,0 +1,7 @@
+function get_pair() -> (Int, Int) {
+    return (42, 100)
+}
+
+var (a, b) := get_pair()
+println(a)
+println(b)

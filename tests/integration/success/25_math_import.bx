@@ -1,0 +1,8 @@
+import math
+
+var x := math.sin(0.0)
+var y := math.cos(0.0)
+var z := math.sqrt(16.0)
+println(x)
+println(y)
+println(z)

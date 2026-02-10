@@ -1,0 +1,6 @@
+var s1 := "hello\nworld"
+var s2 := "tab\there"
+var s3 := "quote\""
+println(s1)
+println(s2)
+println(s3)

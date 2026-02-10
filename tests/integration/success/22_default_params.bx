@@ -1,0 +1,6 @@
+function greet(name : String, greeting : String = "Hello") -> String {
+    return greeting + " " + name
+}
+
+println(greet("Alice"))
+println(greet("Bob", "Hi"))

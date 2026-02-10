@@ -1,0 +1,8 @@
+var x := 2
+var result := match x {
+    1 -> "one"
+    2 -> "two"
+    3 -> "three"
+    _ -> "other"
+}
+println(result)

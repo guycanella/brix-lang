@@ -1,0 +1,8 @@
+var t := true
+var f := false
+println(t && t)
+println(t && f)
+println(t || f)
+println(f || f)
+println(!t)
+println(!f)

@@ -1,0 +1,7 @@
+var x := 15
+var result := match x {
+    n if n < 10 -> "small"
+    n if n < 20 -> "medium"
+    _ -> "large"
+}
+println(result)

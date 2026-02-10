@@ -1,0 +1,8 @@
+import math
+
+var a := math.abs(-5.0)
+var b := math.ceil(3.2)
+var c := math.floor(3.8)
+println(a)
+println(b)
+println(c)
