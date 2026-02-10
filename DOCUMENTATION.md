@@ -18,7 +18,7 @@
 - F-strings com format specifiers
 - Ariadne error reporting (parser)
 
-### ✅ **Completado (v1.2.1 - Phase E5):**
+### ✅ **Completado (v1.2.1 - Phase E6+):**
 - **Error Handling with Result Types (COMPLETE - Feb 2026):**
   - ✅ All core compilation functions use `CodegenResult<T>`
   - ✅ CodegenError enum with 6 variants + span information
@@ -28,10 +28,18 @@
     - Error codes (E100-E105) with colored labels
     - Source code context in error messages
     - **Integrated in main.rs** - end users see beautiful errors
+  - ✅ **Real Spans in All Errors (Phase E6 - COMPLETE):**
+    - All CodegenError variants now capture real source spans from AST
+    - 458 lines modified in lib.rs to propagate spans through compilation
+    - Precise error highlighting in Ariadne error messages
+  - ✅ **Span Granularity Fix (Feb 2026):**
+    - Fixed parser to use chumsky Stream with spans instead of Vec<Token>
+    - Spans now point to exact tokens (e.g., `undefined_var`) not whole expressions
+    - Ariadne highlights precise source locations with surgical accuracy
   - ✅ **eprintln!() Cleanup:** 54 → 32 (22 critical errors converted to CodegenError)
-  - ✅ **unwrap() Cleanup:** All 14 remaining documented and isolated in I/O helpers
+  - ✅ **unwrap() Cleanup:** Remaining calls isolated in I/O helpers and test utilities
   - ✅ **1001/1001 testes passando** (Lexer: 292, Parser: 150, Codegen: 559)
-  - 🔲 Next: Add real spans to errors (currently `span: None`)
+  - 🔲 Next: Phase E7 - Final polish (exit codes, error recovery)
 
 ### 🔮 **Planejado (v1.3+):**
 - Generics
