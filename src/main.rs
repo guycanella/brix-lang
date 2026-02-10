@@ -157,4 +157,9 @@ fn main() {
 
     println!("--------------------------------------------------");
     println!("🏁 Processo finalizado com código: {}", run_output);
+
+    // Propagate the exit code from the executed program
+    if let Some(code) = run_output.code() {
+        exit(code);
+    }
 }

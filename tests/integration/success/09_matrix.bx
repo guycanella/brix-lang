@@ -1,0 +1,5 @@
+var arr := [1.0, 2.0, 3.0]
+var result := arr * 2.5
+println(result[0])
+println(result[1])
+println(result[2])
