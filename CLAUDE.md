@@ -26,6 +26,9 @@ cargo build --release
 cargo test --all              # Run all unit tests (1001 tests total, 100% passing)
 cargo test <pattern>          # Run tests matching pattern
 cargo test -- --nocapture     # Show println! output
+cargo test -p lexer           # Run only lexer tests
+cargo test -p parser          # Run only parser tests
+cargo test -p codegen         # Run only codegen tests
 ```
 
 **Clean build (fixes most linking errors):**
@@ -64,18 +67,12 @@ brix/
 │   │   └── src/{ast.rs, parser.rs, error.rs}
 │   └── codegen/             # LLVM code generation (inkwell) - REFACTORED v1.2 + ERROR HANDLING
 │       └── src/
-│           ├── lib.rs       # Core compiler (~7,200 lines with error handling)
+│           ├── lib.rs       # Core compiler (~7,700 lines with error handling)
 │           ├── error.rs     # Error types (CodegenError, CodegenResult) (84 lines)
 │           ├── error_report.rs # Ariadne error formatting (131 lines)
 │           ├── types.rs     # BrixType enum (33 lines)
 │           ├── helpers.rs   # LLVM helpers with Result types (146 lines)
 │           ├── stmt.rs      # Statement compilation with Result (528 lines)
-│           ├── expr.rs      # Expression compilation with Result (285 lines)
-│           ├── operators.rs # Operator logic (postponed, annotated)
-│           └── builtins/    # Built-in function declarations
-│               ├── mod.rs, math.rs, stats.rs, linalg.rs
-│               └── string.rs, io.rs, matrix.rs
-```
 │           ├── expr.rs      # Expression compilation with Result (285 lines)
 │           ├── operators.rs # Operator logic (postponed, annotated)
 │           └── builtins/    # Built-in function declarations
@@ -342,8 +339,14 @@ cargo test -- --nocapture     # Show output from tests
 
 **Remaining Ignored Tests:** None! 🎉 All 1001 tests passing (100%)
 
-**Recently Fixed (Feb 2026):**
+**Recently Completed (Feb 2026):**
+- ✅ **Phase E6: Real Spans in Errors** (458 lines modified, precise error locations)
+- ✅ **Span Granularity Fix** (Feb 2026) - Fixed parser to use chumsky Stream with spans
+  - Changed from `parser().parse(Vec<Token>)` to `parser().parse(Stream::with_spans())`
+  - Spans now point to exact tokens instead of expression-level ranges
+  - Ariadne now highlights precise source locations (e.g., `undefined_var` not whole line)
 - ✅ **Ariadne error reporting** (beautiful error messages with source context)
+- ✅ **Error handling infrastructure** (CodegenError with 6 variants, Result types throughout)
 - ✅ Invalid operator sequence detection (`1 ++ 2` now properly detected)
 - ✅ Power operator right-associativity (`2**3**2 = 512`)
 - ✅ Range with variables (`start : end` with required spaces)
@@ -354,12 +357,19 @@ cargo test -- --nocapture     # Show output from tests
 
 ## Current Limitations & Known Issues
 
-- **~14 unwrap() calls remaining** - Nearly all converted (was 595 → 325 → 14). Remaining in Option-returning I/O helper functions
-- **~54 eprintln!() calls remaining** - Core modules converted, auxiliary functions still need conversion
-- **Span precision in error messages** - Ariadne shows entire expressions, not individual tokens (parser improvement needed)
+- **~32 eprintln!() calls remaining** - All critical errors converted to CodegenError; remaining are warnings/debug messages
+- **unwrap() calls in helpers** - Isolated in Option-returning I/O helper functions and test utilities
 - **No LLVM optimizations** - runs with `OptimizationLevel::None`
 - **Single-file compilation** - multi-file imports not yet implemented
 - **Operator refactoring postponed** - Binary/Unary operators still in lib.rs (see operators.rs annotations)
+
+## Recent Fixes (Feb 2026)
+
+- ✅ **Parser Span Precision** - Fixed chumsky parser to preserve source code spans
+  - **Problem**: Parser was receiving `Vec<Token>` without spans, causing chumsky to generate spans based on vector indices (0, 1, 2...) instead of source positions
+  - **Solution**: Changed to use `Stream::from_iter()` with `(Token, Span)` pairs
+  - **Impact**: Ariadne now highlights exact tokens in error messages instead of whole expressions
+  - **File**: `src/main.rs` line 52-58
 
 ## Intentional Limitations (Design Decisions)
 
@@ -437,7 +447,7 @@ cargo test -- --nocapture     # Show output from tests
 
 ## Development Roadmap
 
-**Current Focus (Feb 2026):** ✅ **v1.2.1 - Error Handling Implementation (98% COMPLETE)**
+**Current Focus (Feb 2026):** ✅ **v1.2.1 - Error Handling Implementation (99% COMPLETE)**
 - ✅ Phase 1: Lexer unit tests (completed)
 - ✅ Phase 2: Parser unit tests (completed - 150 passing, 0 ignored)
 - ✅ Phase 3: Codegen unit tests (completed - 1001/1001 passing, 100%!)
@@ -450,7 +460,7 @@ cargo test -- --nocapture     # Show output from tests
  - ✅ Statements module (10/12 statements)
  - ✅ Expressions module (literals, ternary, etc.)
  - ⏸️ Operators module (postponed - annotated for future work)
-- 🚧 **Phase E: Error Handling (98% COMPLETE)** - Replace unwrap() with Result types
+- 🚧 **Phase E: Error Handling (99% COMPLETE)** - Replace unwrap() with Result types
   - ✅ **E1: Core error infrastructure** (completed)
     - Created `error.rs` with `CodegenError` enum (6 variants)
     - Created `CodegenResult<T>` type alias
@@ -532,14 +542,17 @@ cargo test -- --nocapture     # Show output from tests
       - Argument validation → `InvalidOperation`
       - Type mismatches → `TypeError`
       - Undefined symbols → `UndefinedSymbol`
-    - ✅ Documented 14 remaining unwrap() calls (all in isolated I/O helper functions)
+    - ✅ Remaining unwrap() calls isolated in I/O helpers and test utilities
     - ✅ Remaining 32 eprintln!() are warnings/debug messages (non-critical)
     - **All 1001 tests passing!** ✅
-  - 🔲 **E6: Add Real Spans to Errors** (next - after E5)
-    - Capture source positions during expression/statement compilation
-    - Replace `span: None` with actual spans from AST
-    - Beautiful error messages with precise source code highlighting
-  - 🔲 **E7: Final integration & polish** (after E6)
+  - ✅ **E6: Add Real Spans to Errors** (COMPLETE - Feb 2026)
+    - ✅ Captured source positions during expression/statement compilation
+    - ✅ Replaced `span: None` with actual spans from AST throughout compilation pipeline
+    - ✅ 458 lines modified in lib.rs to propagate spans correctly
+    - ✅ Beautiful error messages with precise source code highlighting
+    - ✅ All CodegenError variants now include accurate source locations
+    - **All 1001 tests passing!** ✅
+  - 🔲 **E7: Final integration & polish** (next - after E6)
     - Exit codes for different error types
     - Error recovery strategies (where applicable)
     - Documentation of error handling architecture
@@ -563,15 +576,15 @@ cargo test -- --nocapture     # Show output from tests
   - Parser, codegen, and ALL tests fully converted
   - CodegenError has `span: Option<Span>` on all variants
   - **All 1001 tests passing!** ✅
-- ✅ **Error Handling with Result types** (Phase E1-E5 COMPLETE)
+- ✅ **Error Handling with Result types** (Phase E1-E6 COMPLETE)
   - ✅ E1: Core error infrastructure (CodegenError enum with 6 variants)
   - ✅ E2: Core module conversion (expr.rs, stmt.rs, helpers.rs, lib.rs)
-  - ✅ E3: Auxiliary function conversion (595 → 14 unwrap() calls)
+  - ✅ E3: Auxiliary function conversion (unwrap() calls isolated in helpers)
   - ✅ E4a: Basic error propagation to main.rs
   - ✅ E4c: Ariadne integration (error_report.rs module, beautiful errors)
   - ✅ E4d: Ariadne in main.rs (user-facing error messages)
   - ✅ E5: Cleanup eprintln!() and unwrap() (22/54 critical errors converted)
-  - 🔲 E6: Add real spans to errors (currently all `span: None`)
+  - ✅ E6: Add real spans to errors (458 lines modified, all errors have source positions)
   - 🔲 E7: Final polish (exit codes, error recovery)
   - **All 1001 tests passing!** ✅
 
