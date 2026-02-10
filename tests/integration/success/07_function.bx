@@ -1,0 +1,6 @@
+function add(a : Int, b : Int) -> Int {
+    return a + b
+}
+
+var result := add(10, 5)
+println(result)

@@ -1,0 +1,6 @@
+var s := "hello"
+println(uppercase(s))
+println(lowercase("HELLO"))
+println(capitalize(s))
+var replaced := replace(s, "ll", "**")
+println(replaced)
