@@ -49,13 +49,14 @@ fn main() {
         return;
     }
 
-    // Extract just tokens for parsing (chumsky doesn't use spans directly)
-    let tokens: Vec<Token> = tokens_with_spans
-        .iter()
-        .map(|(t, _)| t.clone())
-        .collect();
+    // Create a chumsky Stream with spans for accurate error reporting
+    use chumsky::Stream;
+    let token_stream = Stream::from_iter(
+        code.len()..code.len() + 1,  // End-of-input span
+        tokens_with_spans.iter().map(|(tok, span)| (tok.clone(), span.clone()))
+    );
 
-    let ast = match parser().parse(tokens) {
+    let ast = match parser().parse(token_stream) {
         Ok(ast) => ast,
         Err(errs) => {
             // Use Ariadne for beautiful error reporting
