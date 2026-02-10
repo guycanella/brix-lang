@@ -2190,6 +2190,18 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 }
 
                 // --- Numbers (Int and Float) ---
+                // Validate that both operands are numeric types
+                let is_numeric = |t: &BrixType| matches!(t, BrixType::Int | BrixType::Float);
+
+                if !is_numeric(&lhs_type) || !is_numeric(&rhs_type) {
+                    return Err(CodegenError::TypeError {
+                        expected: "Int or Float".to_string(),
+                        found: format!("{:?} and {:?}", lhs_type, rhs_type),
+                        context: format!("Binary operation {:?} requires numeric operands", op),
+                        span: Some(expr.span.clone()),
+                    });
+                }
+
                 let is_float_op =
                     matches!(lhs_type, BrixType::Float) || matches!(rhs_type, BrixType::Float);
 
@@ -6258,18 +6270,78 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     .ok()?
                     .as_basic_value_enum(),
             ),
-            BinaryOp::Div => Some(
-                self.builder
-                    .build_int_signed_div(lhs, rhs, "tmp_div")
-                    .ok()?
-                    .as_basic_value_enum(),
-            ),
-            BinaryOp::Mod => Some(
-                self.builder
-                    .build_int_signed_rem(lhs, rhs, "tmp_mod")
-                    .ok()?
-                    .as_basic_value_enum(),
-            ),
+            BinaryOp::Div => {
+                // Check for division by zero at runtime
+                let zero = self.context.i64_type().const_int(0, false);
+                let is_zero = self.builder.build_int_compare(
+                    inkwell::IntPredicate::EQ,
+                    rhs,
+                    zero,
+                    "div_check"
+                ).ok()?;
+
+                let parent_fn = self.builder.get_insert_block()?.get_parent()?;
+                let then_block = self.context.append_basic_block(parent_fn, "div_zero_error");
+                let else_block = self.context.append_basic_block(parent_fn, "div_ok");
+
+                self.builder.build_conditional_branch(is_zero, then_block, else_block).ok()?;
+
+                // Then block: call error handler and exit
+                self.builder.position_at_end(then_block);
+                let void_type = self.context.void_type();
+                let fn_type = void_type.fn_type(&[], false);
+                let error_fn = self.module.get_function("brix_division_by_zero_error")
+                    .unwrap_or_else(|| {
+                        self.module.add_function("brix_division_by_zero_error", fn_type, Some(inkwell::module::Linkage::External))
+                    });
+                self.builder.build_call(error_fn, &[], "").ok()?;
+                self.builder.build_unreachable().ok()?;
+
+                // Else block: perform division
+                self.builder.position_at_end(else_block);
+                Some(
+                    self.builder
+                        .build_int_signed_div(lhs, rhs, "tmp_div")
+                        .ok()?
+                        .as_basic_value_enum(),
+                )
+            },
+            BinaryOp::Mod => {
+                // Check for modulo by zero at runtime
+                let zero = self.context.i64_type().const_int(0, false);
+                let is_zero = self.builder.build_int_compare(
+                    inkwell::IntPredicate::EQ,
+                    rhs,
+                    zero,
+                    "mod_check"
+                ).ok()?;
+
+                let parent_fn = self.builder.get_insert_block()?.get_parent()?;
+                let then_block = self.context.append_basic_block(parent_fn, "mod_zero_error");
+                let else_block = self.context.append_basic_block(parent_fn, "mod_ok");
+
+                self.builder.build_conditional_branch(is_zero, then_block, else_block).ok()?;
+
+                // Then block: call error handler and exit
+                self.builder.position_at_end(then_block);
+                let void_type = self.context.void_type();
+                let fn_type = void_type.fn_type(&[], false);
+                let error_fn = self.module.get_function("brix_division_by_zero_error")
+                    .unwrap_or_else(|| {
+                        self.module.add_function("brix_division_by_zero_error", fn_type, Some(inkwell::module::Linkage::External))
+                    });
+                self.builder.build_call(error_fn, &[], "").ok()?;
+                self.builder.build_unreachable().ok()?;
+
+                // Else block: perform modulo
+                self.builder.position_at_end(else_block);
+                Some(
+                    self.builder
+                        .build_int_signed_rem(lhs, rhs, "tmp_mod")
+                        .ok()?
+                        .as_basic_value_enum(),
+                )
+            },
             BinaryOp::Gt => self.compile_cmp(IntPredicate::SGT, lhs, rhs),
             BinaryOp::Lt => self.compile_cmp(IntPredicate::SLT, lhs, rhs),
             BinaryOp::GtEq => self.compile_cmp(IntPredicate::SGE, lhs, rhs),

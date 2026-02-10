@@ -83,6 +83,16 @@ void atom_pool_free() {
 }
 
 // ==========================================
+// SECTION -0.5: RUNTIME ERROR HANDLERS
+// ==========================================
+
+// Division by zero error (called from generated code)
+void brix_division_by_zero_error() {
+    fprintf(stderr, "\n❌ Runtime Error: Division by zero\n");
+    exit(1);
+}
+
+// ==========================================
 // SECTION 0: COMPLEX NUMBERS (v1.0)
 // ==========================================
 

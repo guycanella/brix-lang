@@ -15,7 +15,7 @@ fn make_program(stmt: Stmt) -> Program {
 }
 
 // Helper to compile a program and return the LLVM IR
-// Returns Ok(ir) if compilation succeeded, Err(msg) if it panicked
+// Returns Ok(ir) if compilation succeeded, Err(msg) if it failed or panicked
 fn compile_program(program: Program) -> Result<String, String> {
     let result = std::panic::catch_unwind(|| {
         let context = Context::create();
@@ -24,12 +24,16 @@ fn compile_program(program: Program) -> Result<String, String> {
 
         let mut compiler = Compiler::new(&context, &builder, &module, "test.bx".to_string(), "".to_string());
 
-        compiler.compile_program(&program);
-        module.print_to_string().to_string()
+        // compile_program now returns CodegenResult
+        match compiler.compile_program(&program) {
+            Ok(_) => Ok(module.print_to_string().to_string()),
+            Err(e) => Err(format!("Codegen error: {:?}", e)),
+        }
     });
 
     match result {
-        Ok(ir) => Ok(ir),
+        Ok(Ok(ir)) => Ok(ir),
+        Ok(Err(msg)) => Err(msg),
         Err(_) => Err("Compilation panicked".to_string()),
     }
 }
