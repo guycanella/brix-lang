@@ -1,0 +1,7 @@
+var s1 := "hello"
+var s2 := uppercase(s1)
+var s3 := lowercase(s2)
+var s4 := capitalize(s3)
+println(s2)
+println(s3)
+println(s4)

@@ -1,0 +1,6 @@
+var a := [1, 2, 3]
+var b := [10, 20, 30]
+for (x, y) in zip(a, b) {
+    var sum := x + y
+    println(sum)
+}

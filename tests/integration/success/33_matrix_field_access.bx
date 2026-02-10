@@ -1,0 +1,5 @@
+var m := zeros(3, 4)
+println(m.rows)
+println(m.cols)
+var arr := [1, 2, 3]
+println(arr.len)

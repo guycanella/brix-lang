@@ -1,0 +1,6 @@
+import math
+
+var x := math.exp(1.0)
+var y := math.log(x)
+println(x > 2.71)
+println(y > 0.99)

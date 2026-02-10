@@ -1,0 +1,8 @@
+var a := [1.0, 2.0, 3.0]
+var b := [2.0, 3.0, 4.0]
+var sum := a + b
+var prod := a * b
+println(sum[0])
+println(sum[1])
+println(prod[0])
+println(prod[2])

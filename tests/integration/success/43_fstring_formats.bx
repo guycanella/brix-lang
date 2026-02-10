@@ -1,0 +1,5 @@
+var x := 255
+var y := 3.14159
+println(f"{x:x}")
+println(f"{x:o}")
+println(f"{y:.2f}")

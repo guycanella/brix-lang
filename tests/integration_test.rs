@@ -159,6 +159,414 @@ fn test_string_operations() {
 }
 
 // ==========================================
+// COMPLEX NUMBERS (11-13)
+// ==========================================
+
+#[test]
+fn test_complex_arithmetic() {
+    assert_success(
+        "tests/integration/success/11_complex_arithmetic.bx",
+        "4\n6\n2\n2\n-5\n10"
+    );
+}
+
+#[test]
+fn test_complex_functions() {
+    assert_success(
+        "tests/integration/success/12_complex_functions.bx",
+        "5\n3\n4\n3\n-4"
+    );
+}
+
+#[test]
+fn test_complex_power() {
+    assert_success(
+        "tests/integration/success/13_complex_power.bx",
+        "4\n8"
+    );
+}
+
+// ==========================================
+// PATTERN MATCHING (14-17)
+// ==========================================
+
+#[test]
+fn test_match_literals() {
+    assert_success(
+        "tests/integration/success/14_match_literals.bx",
+        "two"
+    );
+}
+
+#[test]
+fn test_match_guards() {
+    assert_success(
+        "tests/integration/success/15_match_guards.bx",
+        "medium"
+    );
+}
+
+#[test]
+fn test_match_typeof() {
+    assert_success(
+        "tests/integration/success/16_match_typeof.bx",
+        "integer"
+    );
+}
+
+#[test]
+fn test_ternary_operator() {
+    assert_success(
+        "tests/integration/success/17_ternary_operator.bx",
+        "big\nsmall"
+    );
+}
+
+// ==========================================
+// LIST COMPREHENSIONS & ADVANCED (18-24)
+// ==========================================
+
+#[test]
+fn test_list_comprehension() {
+    assert_success(
+        "tests/integration/success/18_list_comprehension.bx",
+        "2\n4\n6\n8\n10"
+    );
+}
+
+#[test]
+fn test_list_comprehension_filter() {
+    assert_success(
+        "tests/integration/success/19_list_comprehension_filter.bx",
+        "2\n4\n6"
+    );
+}
+
+#[test]
+fn test_zip_function() {
+    assert_success(
+        "tests/integration/success/20_zip_function.bx",
+        "11\n22\n33"
+    );
+}
+
+#[test]
+fn test_destructuring() {
+    assert_success(
+        "tests/integration/success/21_destructuring.bx",
+        "42\n100"
+    );
+}
+
+#[test]
+fn test_default_params() {
+    assert_success(
+        "tests/integration/success/22_default_params.bx",
+        "Hello Alice\nHi Bob"
+    );
+}
+
+#[test]
+fn test_multiple_returns() {
+    assert_success(
+        "tests/integration/success/23_multiple_returns.bx",
+        "5\n10"
+    );
+}
+
+#[test]
+fn test_recursion() {
+    assert_success(
+        "tests/integration/success/24_recursion.bx",
+        "120\n720"
+    );
+}
+
+// ==========================================
+// MATH LIBRARY (25-31)
+// ==========================================
+
+#[test]
+fn test_math_import() {
+    assert_success(
+        "tests/integration/success/25_math_import.bx",
+        "0\n1\n4"
+    );
+}
+
+#[test]
+fn test_math_constants() {
+    assert_success(
+        "tests/integration/success/26_math_constants.bx",
+        "1\n1"
+    );
+}
+
+#[test]
+fn test_math_trig() {
+    assert_success(
+        "tests/integration/success/27_math_trig.bx",
+        "1\n1"
+    );
+}
+
+#[test]
+fn test_math_log_exp() {
+    assert_success(
+        "tests/integration/success/28_math_log_exp.bx",
+        "1\n1"
+    );
+}
+
+#[test]
+fn test_math_power() {
+    assert_success(
+        "tests/integration/success/29_math_power.bx",
+        "8\n100"
+    );
+}
+
+#[test]
+fn test_power_operator() {
+    assert_success(
+        "tests/integration/success/30_power_operator.bx",
+        "8\n512"
+    );
+}
+
+#[test]
+fn test_math_abs_ceil_floor() {
+    assert_success(
+        "tests/integration/success/31_math_abs_ceil_floor.bx",
+        "5\n4\n3"
+    );
+}
+
+// ==========================================
+// MATRIX OPERATIONS (32-38)
+// ==========================================
+
+#[test]
+fn test_matrix_constructors() {
+    assert_success(
+        "tests/integration/success/32_matrix_constructors.bx",
+        "2\n3\n1\n1"
+    );
+}
+
+#[test]
+fn test_matrix_field_access() {
+    assert_success(
+        "tests/integration/success/33_matrix_field_access.bx",
+        "3\n4\n3"
+    );
+}
+
+#[test]
+fn test_matrix_transpose() {
+    assert_success(
+        "tests/integration/success/34_matrix_transpose.bx",
+        "3\n2"
+    );
+}
+
+#[test]
+fn test_matrix_matmul() {
+    assert_success(
+        "tests/integration/success/35_matrix_matmul.bx",
+        "1\n1"
+    );
+}
+
+#[test]
+fn test_matrix_element_wise() {
+    assert_success(
+        "tests/integration/success/36_matrix_element_wise.bx",
+        "3\n5\n2\n12"
+    );
+}
+
+#[test]
+fn test_intmatrix_promotion() {
+    assert_success(
+        "tests/integration/success/37_intmatrix_promotion.bx",
+        "2.5\n5\n7.5"
+    );
+}
+
+#[test]
+fn test_matrix_indexing() {
+    assert_success(
+        "tests/integration/success/38_matrix_indexing.bx",
+        "5\n10\n1"
+    );
+}
+
+// ==========================================
+// STRING FUNCTIONS (39-43)
+// ==========================================
+
+#[test]
+fn test_string_length() {
+    assert_success(
+        "tests/integration/success/39_string_length.bx",
+        "11\n3"
+    );
+}
+
+#[test]
+fn test_string_split_join() {
+    assert_success(
+        "tests/integration/success/40_string_split_join.bx",
+        "HELLO\nhello\nHello"
+    );
+}
+
+#[test]
+fn test_string_concat() {
+    assert_success(
+        "tests/integration/success/41_string_concat.bx",
+        "Hello World"
+    );
+}
+
+#[test]
+fn test_escape_sequences() {
+    assert_success(
+        "tests/integration/success/42_escape_sequences.bx",
+        "hello\nworld\ntab\there\nquote\""
+    );
+}
+
+#[test]
+fn test_fstring_formats() {
+    assert_success(
+        "tests/integration/success/43_fstring_formats.bx",
+        "ff\n377\n3.14"
+    );
+}
+
+// ==========================================
+// TYPE CHECKING & OPERATORS (44-51)
+// ==========================================
+
+#[test]
+fn test_type_checking() {
+    assert_success(
+        "tests/integration/success/44_type_checking.bx",
+        "1\n1\n1\n1"
+    );
+}
+
+#[test]
+fn test_atoms() {
+    assert_success(
+        "tests/integration/success/45_atoms.bx",
+        "1\n1\n1\n1\n1"
+    );
+}
+
+#[test]
+fn test_bitwise_operators() {
+    assert_success(
+        "tests/integration/success/46_bitwise_operators.bx",
+        "8\n14\n6"
+    );
+}
+
+#[test]
+fn test_logical_shortcircuit() {
+    assert_success(
+        "tests/integration/success/47_logical_shortcircuit.bx",
+        "1\n1"
+    );
+}
+
+#[test]
+fn test_chained_comparisons() {
+    assert_success(
+        "tests/integration/success/48_chained_comparisons.bx",
+        "1\n0"
+    );
+}
+
+#[test]
+fn test_increment_decrement() {
+    assert_success(
+        "tests/integration/success/49_increment_decrement.bx",
+        "11\n10\n15\n12"
+    );
+}
+
+#[test]
+fn test_for_loop_step() {
+    assert_success(
+        "tests/integration/success/50_for_loop_step.bx",
+        "0\n2\n4\n6\n8\n10"
+    );
+}
+
+#[test]
+fn test_postfix_chaining() {
+    assert_success(
+        "tests/integration/success/51_postfix_chaining.bx",
+        "3\n3"
+    );
+}
+
+// ==========================================
+// STATS & MISC (52-57)
+// ==========================================
+
+#[test]
+fn test_stats_sum_mean() {
+    assert_success(
+        "tests/integration/success/52_stats_sum_mean.bx",
+        "15\n3"
+    );
+}
+
+#[test]
+fn test_stats_variance_std() {
+    assert_success(
+        "tests/integration/success/53_stats_variance_std.bx",
+        "1\n1"
+    );
+}
+
+#[test]
+fn test_linalg_det() {
+    assert_success(
+        "tests/integration/success/54_linalg_det.bx",
+        "1"
+    );
+}
+
+#[test]
+fn test_nested_expressions() {
+    assert_success(
+        "tests/integration/success/55_nested_expressions.bx",
+        "10\n16"
+    );
+}
+
+#[test]
+fn test_boolean_logic() {
+    assert_success(
+        "tests/integration/success/56_boolean_logic.bx",
+        "1\n0\n1\n0\n0\n1"
+    );
+}
+
+#[test]
+fn test_type_conversion() {
+    assert_success(
+        "tests/integration/success/57_type_conversion.bx",
+        "42\n42\n3"
+    );
+}
+
+// ==========================================
 // PARSER ERRORS - Exit Code 2
 // ==========================================
 
@@ -175,6 +583,24 @@ fn test_parser_invalid_operator() {
 fn test_parser_missing_token() {
     assert_output(
         "tests/integration/parser_errors/02_missing_token.bx",
+        2,
+        Some("Expected")
+    );
+}
+
+#[test]
+fn test_parser_unclosed_paren() {
+    assert_output(
+        "tests/integration/parser_errors/03_unclosed_paren.bx",
+        2,
+        Some("Expected")
+    );
+}
+
+#[test]
+fn test_parser_invalid_function_syntax() {
+    assert_output(
+        "tests/integration/parser_errors/04_invalid_function_syntax.bx",
         2,
         Some("Expected")
     );
@@ -202,6 +628,24 @@ fn test_codegen_type_error() {
     );
 }
 
+#[test]
+fn test_codegen_undefined_function() {
+    assert_output(
+        "tests/integration/codegen_errors/03_undefined_function.bx",
+        103, // UndefinedSymbol
+        Some("Undefined symbol")
+    );
+}
+
+#[test]
+fn test_codegen_type_mismatch_binop() {
+    assert_output(
+        "tests/integration/codegen_errors/04_type_mismatch_binop.bx",
+        102, // TypeError
+        Some("Type Error")
+    );
+}
+
 // ==========================================
 // RUNTIME ERRORS - Exit Code 1
 // ==========================================
@@ -222,4 +666,11 @@ fn test_runtime_modulo_by_zero() {
         1,
         Some("Division by zero") // Same error message as division
     );
+}
+
+#[test]
+fn test_runtime_negative_power() {
+    // Complex number result (NaN), but should complete
+    let (_, _, exit_code) = run_brix_file("tests/integration/runtime_errors/03_negative_power.bx");
+    assert_eq!(exit_code, 0, "Should complete with complex result");
 }

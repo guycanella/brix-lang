@@ -1,0 +1,8 @@
+var i := 42
+var f := float(i)
+var s := string(i)
+println(f)
+println(s)
+var x := 3.14
+var j := int(x)
+println(j)

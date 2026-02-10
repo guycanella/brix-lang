@@ -1,0 +1,8 @@
+var x := 42
+var result := match typeof(x) {
+    "int" -> "integer"
+    "float" -> "float"
+    "string" -> "string"
+    _ -> "other"
+}
+println(result)

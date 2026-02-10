@@ -1,0 +1,8 @@
+var i := 42
+var f := 3.14
+var s := "hello"
+var arr := [1, 2, 3]
+println(is_integer(i))
+println(is_float(f))
+println(is_string(s))
+println(is_list(arr))

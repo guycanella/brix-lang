@@ -1,0 +1,9 @@
+var x := 10
+x++
+println(x)
+x--
+println(x)
+x += 5
+println(x)
+x -= 3
+println(x)

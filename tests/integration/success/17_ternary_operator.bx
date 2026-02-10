@@ -1,0 +1,6 @@
+var x := 10
+var result := x > 5 ? "big" : "small"
+println(result)
+var y := 3
+var result2 := y > 5 ? "big" : "small"
+println(result2)

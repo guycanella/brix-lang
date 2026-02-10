@@ -1,0 +1,8 @@
+var a := 12
+var b := 10
+var and_result := a & b
+var or_result := a | b
+var xor_result := a ^ b
+println(and_result)
+println(or_result)
+println(xor_result)

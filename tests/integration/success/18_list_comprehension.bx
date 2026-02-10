@@ -1,0 +1,7 @@
+var arr := [1, 2, 3, 4, 5]
+var doubled := [x * 2 for x in arr]
+println(doubled[0])
+println(doubled[1])
+println(doubled[2])
+println(doubled[3])
+println(doubled[4])

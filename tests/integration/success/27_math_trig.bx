@@ -1,0 +1,7 @@
+import math
+
+var angle := math.pi / 2.0
+var s := math.sin(angle)
+var c := math.cos(angle)
+println(s > 0.99)
+println(c < 0.01)
