@@ -14,17 +14,44 @@ use std::fs;
 use std::path::Path;
 use std::process::{Command, exit};
 
+/// Maps optimization level number to inkwell OptimizationLevel
+fn get_optimization_level(level: u8) -> OptimizationLevel {
+    match level {
+        0 => OptimizationLevel::None,
+        1 => OptimizationLevel::Less,
+        2 => OptimizationLevel::Default,
+        3 => OptimizationLevel::Aggressive,
+        _ => {
+            eprintln!("⚠️ Invalid optimization level: {}. Using -O0", level);
+            OptimizationLevel::None
+        }
+    }
+}
+
 #[derive(ClapParser)]
 #[command(name = "Brix Compiler")]
 #[command(version = "0.1")]
 #[command(about = "Compila e executa arquivos .bx", long_about = None)]
 struct Cli {
     file_path: String,
+
+    /// Optimization level: 0, 1, 2, 3 (default: 0)
+    #[arg(short = 'O', long, default_value = "0")]
+    opt_level: u8,
+
+    /// Build in release mode (equivalent to -O3)
+    #[arg(long, default_value = "false")]
+    release: bool,
 }
 
 fn main() {
-    let cli = Cli::parse();
+    let mut cli = Cli::parse();
     let source_path = Path::new(&cli.file_path);
+
+    // Override optimization level if --release is set
+    if cli.release {
+        cli.opt_level = 3;
+    }
 
     println!("📂 Lendo arquivo: {:?}", source_path);
 
@@ -82,6 +109,9 @@ fn main() {
         exit(e.exit_code()); // Use specific exit code for error type
     }
 
+    // Optimization level will be applied by TargetMachine during code generation
+    let opt_level = get_optimization_level(cli.opt_level);
+
     println!("--- 3. Compiling to Native Object Code (.o) ---");
 
     let runtime_status = Command::new("cc")
@@ -107,7 +137,7 @@ fn main() {
             &triple,
             "generic",
             "",
-            OptimizationLevel::None,
+            opt_level,
             RelocMode::Default,
             CodeModel::Default,
         )
