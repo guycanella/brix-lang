@@ -11,4 +11,5 @@ mod matrix_tests;
 mod pattern_tests;
 mod stmt_tests;
 mod string_tests;
+mod struct_tests;
 mod type_tests;

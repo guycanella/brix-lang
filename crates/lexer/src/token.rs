@@ -18,6 +18,9 @@ pub enum Token {
     #[token("type")]
     Type,
 
+    #[token("struct")]
+    Struct,
+
     #[token("return")]
     Return,
 

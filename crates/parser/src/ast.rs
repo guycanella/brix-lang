@@ -129,6 +129,11 @@ pub enum ExprKind {
         arms: Vec<MatchArm>,
     },
 
+    StructInit {
+        struct_name: String,
+        fields: Vec<(String, Expr)>, // (field_name, value)
+    },
+
     Range {
         start: Box<Expr>,
         end: Box<Expr>,
@@ -151,6 +156,24 @@ pub struct ComprehensionGen {
     pub var_names: Vec<String>, // Variables (supports destructuring)
     pub iterable: Box<Expr>,    // What to iterate over
     pub conditions: Vec<Expr>,  // if clauses (multiple allowed)
+}
+
+// Struct definition (user-defined types)
+#[derive(Debug, Clone, PartialEq)]
+pub struct StructDef {
+    pub name: String,
+    pub fields: Vec<(String, String, Option<Expr>)>, // (field_name, type, default_value)
+}
+
+// Method definition (Go-style receivers)
+#[derive(Debug, Clone, PartialEq)]
+pub struct MethodDef {
+    pub receiver_name: String,  // "p" in fn (p: Point) distance()
+    pub receiver_type: String,  // "Point"
+    pub method_name: String,    // "distance"
+    pub params: Vec<(String, String, Option<Expr>)>, // (param_name, type, default_value)
+    pub return_type: Option<Vec<String>>, // None = void, Some(vec!["int"]) = single
+    pub body: Box<Stmt>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -222,6 +245,10 @@ pub enum StmtKind {
         return_type: Option<Vec<String>>, // None = void, Some(vec!["int"]) = single, Some(vec!["int", "float"]) = multiple
         body: Box<Stmt>,
     },
+
+    StructDef(StructDef),
+
+    MethodDef(MethodDef),
 
     Return {
         values: Vec<Expr>, // Empty for void, 1+ for returns

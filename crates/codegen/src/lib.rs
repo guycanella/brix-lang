@@ -49,6 +49,8 @@ pub struct Compiler<'a, 'ctx> {
     pub variables: HashMap<String, (PointerValue<'ctx>, BrixType)>,
     pub functions: HashMap<String, (inkwell::values::FunctionValue<'ctx>, Option<Vec<BrixType>>)>, // (function, return_types)
     pub function_params: HashMap<String, Vec<(String, BrixType, Option<Expr>)>>, // (param_name, type, default_value)
+    pub struct_defs: HashMap<String, Vec<(String, BrixType, Option<Expr>)>>, // Struct definitions: name -> fields
+    pub struct_types: HashMap<String, inkwell::types::StructType<'ctx>>, // LLVM struct types
     pub current_function: Option<inkwell::values::FunctionValue<'ctx>>, // Track current function being compiled
     pub filename: String,    // Source filename for error reporting
     pub source: String,      // Source code for error reporting
@@ -69,6 +71,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             variables: HashMap::new(),
             functions: HashMap::new(),
             function_params: HashMap::new(),
+            struct_defs: HashMap::new(),
+            struct_types: HashMap::new(),
             current_function: None,
             filename,
             source,
@@ -100,8 +104,13 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             "atom" => BrixType::Atom,
             "void" => BrixType::Void,
             _ => {
-                eprintln!("Warning: Unknown type '{}', defaulting to Int", type_str);
-                BrixType::Int
+                // Check if it's a struct type
+                if self.struct_defs.contains_key(type_str) {
+                    BrixType::Struct(type_str.to_string())
+                } else {
+                    eprintln!("Warning: Unknown type '{}', defaulting to Int", type_str);
+                    BrixType::Int
+                }
             }
         }
     }
@@ -133,6 +142,12 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let field_types: Vec<BasicTypeEnum> =
                     types.iter().map(|t| self.brix_type_to_llvm(t)).collect();
                 self.context.struct_type(&field_types, false).into()
+            }
+            BrixType::Struct(name) => {
+                // Return the LLVM struct type stored in struct_types
+                self.struct_types.get(name)
+                    .expect(&format!("Struct type '{}' not found", name))
+                    .as_basic_type_enum()
             }
         }
     }
@@ -256,6 +271,124 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         }
 
         Ok(())
+    }
+
+    // --- STRUCT DEFINITION ---
+    fn compile_struct_def(
+        &mut self,
+        name: &str,
+        fields: &[(String, String, Option<Expr>)],
+    ) -> CodegenResult<()> {
+        // 1. Parse field types
+        let field_metadata: Vec<(String, BrixType, Option<Expr>)> = fields
+            .iter()
+            .map(|(field_name, field_type, default)| {
+                (field_name.clone(), self.string_to_brix_type(field_type), default.clone())
+            })
+            .collect();
+
+        // 2. Create named LLVM struct type
+        let struct_type = self.context.opaque_struct_type(name);
+
+        // 3. Define struct body with field types
+        let field_llvm_types: Vec<BasicTypeEnum> = field_metadata
+            .iter()
+            .map(|(_, brix_type, _)| self.brix_type_to_llvm(brix_type))
+            .collect();
+
+        struct_type.set_body(&field_llvm_types, false);
+
+        // 4. Store in registries
+        self.struct_defs.insert(name.to_string(), field_metadata);
+        self.struct_types.insert(name.to_string(), struct_type);
+
+        Ok(())
+    }
+
+    // --- METHOD DEFINITION ---
+    fn compile_method_def(
+        &mut self,
+        receiver_name: &str,
+        receiver_type: &str,
+        method_name: &str,
+        params: &[(String, String, Option<Expr>)],
+        return_type: &Option<Vec<String>>,
+        body: &Stmt,
+        parent_function: inkwell::values::FunctionValue<'ctx>,
+    ) -> CodegenResult<()> {
+        // Mangle method name: StructName_methodname
+        let mangled_name = format!("{}_{}", receiver_type, method_name);
+
+        // Create extended params with receiver as first parameter
+        let mut extended_params = vec![(receiver_name.to_string(), receiver_type.to_string(), None)];
+        extended_params.extend(params.iter().cloned());
+
+        // Compile as regular function with mangled name
+        self.compile_function_def(
+            &mangled_name,
+            &extended_params,
+            return_type,
+            body,
+            parent_function,
+        )
+    }
+
+    // --- STRUCT INITIALIZATION ---
+    fn compile_struct_init(
+        &mut self,
+        struct_name: &str,
+        field_inits: &[(String, Expr)],
+    ) -> CodegenResult<(BasicValueEnum<'ctx>, BrixType)> {
+        // 1. Get struct definition
+        let struct_def = self.struct_defs.get(struct_name)
+            .ok_or_else(|| CodegenError::UndefinedSymbol {
+                name: struct_name.to_string(),
+                context: "struct initialization".to_string(),
+                span: None,
+            })?
+            .clone();
+
+        let struct_type = *self.struct_types.get(struct_name)
+            .ok_or_else(|| CodegenError::General(format!("Struct type '{}' not found", struct_name)))?;
+
+        // 2. Create field value map from field_inits
+        let mut field_values: HashMap<String, BasicValueEnum> = HashMap::new();
+        for (field_name, field_expr) in field_inits {
+            let (value, _) = self.compile_expr(field_expr)?;
+            field_values.insert(field_name.clone(), value);
+        }
+
+        // 3. Build struct value with all fields (like tuples)
+        let mut struct_val = struct_type.get_undef();
+        for (i, (field_name, _field_type, default)) in struct_def.iter().enumerate() {
+            let value = if let Some(val) = field_values.get(field_name) {
+                // Use provided value
+                *val
+            } else if let Some(default_expr) = default {
+                // Use default value
+                let (val, _) = self.compile_expr(default_expr)?;
+                val
+            } else {
+                return Err(CodegenError::InvalidOperation {
+                    operation: format!("struct initialization for '{}'", struct_name),
+                    reason: format!("field '{}' has no value and no default", field_name),
+                    span: None,
+                });
+            };
+
+            // Insert the value into the struct
+            struct_val = self.builder
+                .build_insert_value(struct_val, value, i as u32, "field")
+                .map_err(|_| CodegenError::LLVMError {
+                    operation: "build_insert_value".to_string(),
+                    details: format!("Failed to insert field '{}'", field_name),
+                    span: None,
+                })?
+                .into_struct_value();
+        }
+
+        // Return struct value
+        Ok((struct_val.into(), BrixType::Struct(struct_name.to_string())))
     }
 
     // --- MAIN COMPILATION ---
@@ -1022,6 +1155,24 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 Ok(())
             }
 
+            StmtKind::StructDef(struct_def) => {
+                self.compile_struct_def(&struct_def.name, &struct_def.fields)?;
+                Ok(())
+            }
+
+            StmtKind::MethodDef(method_def) => {
+                self.compile_method_def(
+                    &method_def.receiver_name,
+                    &method_def.receiver_type,
+                    &method_def.method_name,
+                    &method_def.params,
+                    &method_def.return_type,
+                    &method_def.body,
+                    function,
+                )?;
+                Ok(())
+            }
+
             StmtKind::Return { values } => {
                 self.compile_return_stmt(values)?;
                 Ok(())
@@ -1130,6 +1281,23 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             let ptr_type = self.context.ptr_type(AddressSpace::default());
                             let val = self.builder.build_load(ptr_type, *ptr, name).map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in compile_expr".to_string(), span: None })?;
                             Ok((val, BrixType::Error))
+                        }
+                        BrixType::Struct(struct_name) => {
+                            // Load struct value from the alloca'd memory
+                            let struct_type = self.struct_types.get(struct_name).ok_or_else(|| {
+                                CodegenError::UndefinedSymbol {
+                                    name: struct_name.clone(),
+                                    context: "Loading struct variable".to_string(),
+                                    span: Some(expr.span.clone()),
+                                }
+                            })?;
+                            let val = self.builder.build_load(*struct_type, *ptr, name)
+                                .map_err(|_| CodegenError::LLVMError {
+                                    operation: "build_load".to_string(),
+                                    details: format!("Failed to load struct variable '{}'", name),
+                                    span: Some(expr.span.clone()),
+                                })?;
+                            Ok((val, BrixType::Struct(struct_name.clone())))
                         }
                         _ => {
                             Err(CodegenError::TypeError {
@@ -2351,6 +2519,85 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             return Ok((result, return_type));
                         }
                     }
+
+                    // Check if this is a method call (e.g., obj.method(args))
+                    // Method calls have FieldAccess where target is NOT an Identifier
+                    if let ExprKind::FieldAccess { target, field } = &func.kind {
+                        // Compile the target to get the receiver
+                        let (receiver_val, receiver_type) = self.compile_expr(target)?;
+
+                        // Check if receiver is a struct
+                        if let BrixType::Struct(struct_name) = &receiver_type {
+                            // Build mangled method name: StructName_methodname
+                            let mangled_name = format!("{}_{}", struct_name, field);
+
+                            // Look up the method function
+                            if let Some(llvm_fn) = self.module.get_function(&mangled_name) {
+                                // Compile method arguments
+                                let mut llvm_args = Vec::new();
+
+                                // First argument is the receiver (pointer to struct)
+                                llvm_args.push(receiver_val.into());
+
+                                // Add remaining arguments
+                                for arg in args {
+                                    let (arg_val, _) = self.compile_expr(arg)?;
+                                    llvm_args.push(arg_val.into());
+                                }
+
+                                // Call the method
+                                let call = self
+                                    .builder
+                                    .build_call(llvm_fn, &llvm_args, "method_call")
+                                    .map_err(|_| CodegenError::LLVMError {
+                                        operation: "build_call".to_string(),
+                                        details: format!(
+                                            "Failed to call method '{}.{}'",
+                                            struct_name, field
+                                        ),
+                                        span: Some(expr.span.clone()),
+                                    })?;
+
+                                // Check if method returns void
+                                if llvm_fn.get_type().get_return_type().is_none() {
+                                    return Ok((
+                                        self.context.i64_type().const_int(0, false).into(),
+                                        BrixType::Void,
+                                    ));
+                                }
+
+                                let result = call.try_as_basic_value().left().ok_or_else(|| {
+                                    CodegenError::MissingValue {
+                                        what: "method result".to_string(),
+                                        context: format!("{}.{}", struct_name, field),
+                                        span: Some(expr.span.clone()),
+                                    }
+                                })?;
+
+                                // TODO: Determine return type from method signature
+                                // For now, we'll use a simple heuristic based on LLVM type
+                                let return_type = if result.is_int_value() {
+                                    BrixType::Int
+                                } else if result.is_float_value() {
+                                    BrixType::Float
+                                } else if result.is_pointer_value() {
+                                    // Could be String, Matrix, Error, etc.
+                                    // For now default to Matrix
+                                    BrixType::Matrix
+                                } else {
+                                    BrixType::Void
+                                };
+
+                                return Ok((result, return_type));
+                            } else {
+                                return Err(CodegenError::UndefinedSymbol {
+                                    name: format!("{}.{}", struct_name, field),
+                                    context: "method call".to_string(),
+                                    span: Some(expr.span.clone()),
+                                });
+                            }
+                        }
+                    }
                 }
 
                 if let ExprKind::Identifier(fn_name) = &func.kind {
@@ -2364,25 +2611,26 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         }
                         let (_, arg_type) = self.compile_expr(&args[0])?;
 
-                        let type_str = match arg_type {
-                            BrixType::Int => "int",
-                            BrixType::Float => "float",
-                            BrixType::String => "string",
-                            BrixType::Matrix => "matrix",
-                            BrixType::IntMatrix => "intmatrix",
-                            BrixType::Complex => "complex",
-                            BrixType::ComplexArray => "complexarray",
-                            BrixType::ComplexMatrix => "complexmatrix",
-                            BrixType::FloatPtr => "float_ptr",
-                            BrixType::Void => "void",
-                            BrixType::Tuple(_) => "tuple",
-                            BrixType::Nil => "nil",
-                            BrixType::Error => "error",
-                            BrixType::Atom => "atom",
+                        let type_str = match &arg_type {
+                            BrixType::Int => "int".to_string(),
+                            BrixType::Float => "float".to_string(),
+                            BrixType::String => "string".to_string(),
+                            BrixType::Matrix => "matrix".to_string(),
+                            BrixType::IntMatrix => "intmatrix".to_string(),
+                            BrixType::Complex => "complex".to_string(),
+                            BrixType::ComplexArray => "complexarray".to_string(),
+                            BrixType::ComplexMatrix => "complexmatrix".to_string(),
+                            BrixType::FloatPtr => "float_ptr".to_string(),
+                            BrixType::Void => "void".to_string(),
+                            BrixType::Tuple(_) => "tuple".to_string(),
+                            BrixType::Nil => "nil".to_string(),
+                            BrixType::Error => "error".to_string(),
+                            BrixType::Atom => "atom".to_string(),
+                            BrixType::Struct(name) => name.clone(),
                         };
 
                         return self
-                            .compile_expr(&Expr::dummy(ExprKind::Literal(Literal::String(type_str.to_string()))));
+                            .compile_expr(&Expr::dummy(ExprKind::Literal(Literal::String(type_str))));
                     }
 
                     // Conversion functions
@@ -3767,9 +4015,11 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             }
 
             ExprKind::FieldAccess { target, field } => {
-                // Check if this is a module constant access (e.g., math.pi)
-                if let ExprKind::Identifier(module_name) = &target.kind {
-                    let const_name = format!("{}.{}", module_name, field);
+                // Special handling for struct field access on identifiers
+                // We need the pointer to the struct, not the loaded value
+                if let ExprKind::Identifier(var_name) = &target.kind {
+                    // Check if this is a module constant access (e.g., math.pi)
+                    let const_name = format!("{}.{}", var_name, field);
                     if let Some((ptr, brix_type)) = self.variables.get(&const_name) {
                         // Load the constant value
                         let loaded_val = self
@@ -3782,9 +4032,77 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             })?;
                         return Ok((loaded_val, brix_type.clone()));
                     }
+
+                    // Check if it's a struct variable - if so, get pointer from symbol table
+                    if let Some((target_ptr, target_type)) = self.variables.get(var_name) {
+                        if let BrixType::Struct(struct_name) = target_type {
+                            // We have a struct variable - use the pointer directly
+                            let struct_def = self.struct_defs.get(struct_name).ok_or_else(|| {
+                                CodegenError::UndefinedSymbol {
+                                    name: struct_name.clone(),
+                                    context: "struct field access".to_string(),
+                                    span: Some(expr.span.clone()),
+                                }
+                            })?;
+
+                            // Find the field index and type
+                            let (field_index, field_type) = struct_def
+                                .iter()
+                                .enumerate()
+                                .find(|(_, (name, _, _))| name == field)
+                                .map(|(idx, (_, ty, _))| (idx as u32, ty.clone()))
+                                .ok_or_else(|| CodegenError::General(format!(
+                                    "Struct '{}' has no field '{}'",
+                                    struct_name, field
+                                )))?;
+
+                            // Get the LLVM struct type
+                            let llvm_struct_type = self.struct_types.get(struct_name).ok_or_else(|| {
+                                CodegenError::General(format!("Struct type '{}' not found", struct_name))
+                            })?;
+
+                            // Get pointer to the field
+                            let field_ptr = self
+                                .builder
+                                .build_struct_gep(*llvm_struct_type, *target_ptr, field_index, "field_ptr")
+                                .map_err(|_| CodegenError::LLVMError {
+                                    operation: "build_struct_gep".to_string(),
+                                    details: format!(
+                                        "Failed to get field '{}' pointer from struct '{}'",
+                                        field, struct_name
+                                    ),
+                                    span: Some(expr.span.clone()),
+                                })?;
+
+                            // Load the field value
+                            let field_llvm_type = self.brix_type_to_llvm(&field_type);
+                            let field_val = self
+                                .builder
+                                .build_load(field_llvm_type, field_ptr, "load_field")
+                                .map_err(|_| CodegenError::LLVMError {
+                                    operation: "build_load".to_string(),
+                                    details: format!(
+                                        "Failed to load field '{}' from struct '{}'",
+                                        field, struct_name
+                                    ),
+                                    span: Some(expr.span.clone()),
+                                })?;
+
+                            return Ok((field_val, field_type));
+                        }
+                    }
                 }
 
+                // For non-identifier targets (or non-struct identifiers), compile normally
                 let (target_val, target_type) = self.compile_expr(target)?;
+
+                // TODO: Handle struct field access for expressions that return structs
+                // (not just identifiers). Would need to alloca + store the struct value first.
+                if let BrixType::Struct(_) = &target_type {
+                    return Err(CodegenError::General(
+                        "Field access on struct-valued expressions not yet supported. Use a variable.".to_string()
+                    ));
+                }
 
                 if target_type == BrixType::String {
                     if field == "len" {
@@ -4689,6 +5007,11 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
                 Ok((result, BrixType::String))
             }
+
+            ExprKind::StructInit {
+                struct_name,
+                fields,
+            } => self.compile_struct_init(struct_name, fields),
 
             #[allow(unreachable_patterns)]
             _ => {
