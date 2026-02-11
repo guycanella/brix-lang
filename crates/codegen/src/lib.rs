@@ -1,7 +1,7 @@
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::{Linkage, Module};
-use inkwell::types::{BasicType, BasicTypeEnum};
+use inkwell::types::{BasicMetadataTypeEnum, BasicType, BasicTypeEnum};
 use inkwell::values::{BasicValue, BasicValueEnum, FloatValue, IntValue, PointerValue};
 use inkwell::{AddressSpace, FloatPredicate, IntPredicate};
 use parser::ast::{BinaryOp, Expr, ExprKind, Literal, Program, Stmt, StmtKind, UnaryOp};
@@ -314,23 +314,136 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         params: &[(String, String, Option<Expr>)],
         return_type: &Option<Vec<String>>,
         body: &Stmt,
-        parent_function: inkwell::values::FunctionValue<'ctx>,
+        _parent_function: inkwell::values::FunctionValue<'ctx>,
     ) -> CodegenResult<()> {
         // Mangle method name: StructName_methodname
         let mangled_name = format!("{}_{}", receiver_type, method_name);
 
-        // Create extended params with receiver as first parameter
-        let mut extended_params = vec![(receiver_name.to_string(), receiver_type.to_string(), None)];
-        extended_params.extend(params.iter().cloned());
+        // 1. Parse return type
+        let ret_types: Vec<BrixType> = match return_type {
+            None => vec![],
+            Some(types) => types.iter().map(|t| self.string_to_brix_type(t)).collect(),
+        };
 
-        // Compile as regular function with mangled name
-        self.compile_function_def(
-            &mangled_name,
-            &extended_params,
-            return_type,
-            body,
-            parent_function,
-        )
+        // 2. Create parameter types
+        // First parameter is receiver (pointer to struct)
+        let receiver_brix_type = self.string_to_brix_type(receiver_type);
+        let _receiver_struct_type = match &receiver_brix_type {
+            BrixType::Struct(name) => self.struct_types.get(name).ok_or_else(|| {
+                CodegenError::UndefinedSymbol {
+                    name: name.clone(),
+                    context: "method receiver type".to_string(),
+                    span: None,
+                }
+            })?,
+            _ => {
+                return Err(CodegenError::TypeError {
+                    expected: "Struct type".to_string(),
+                    found: format!("{:?}", receiver_brix_type),
+                    context: "method receiver".to_string(),
+                    span: None,
+                });
+            }
+        };
+
+        // Build parameter types: receiver pointer + other params
+        let mut param_types: Vec<BasicMetadataTypeEnum> = vec![self.context.ptr_type(AddressSpace::default()).into()];
+        for (_, param_type_str, _) in params {
+            let param_type = self.string_to_brix_type(param_type_str);
+            param_types.push(self.brix_type_to_llvm(&param_type).into());
+        }
+
+        // 3. Create function type
+        let fn_type = if ret_types.is_empty() {
+            self.context.void_type().fn_type(&param_types, false)
+        } else if ret_types.len() == 1 {
+            let ret_llvm = self.brix_type_to_llvm(&ret_types[0]);
+            ret_llvm.fn_type(&param_types, false)
+        } else {
+            let tuple_type = BrixType::Tuple(ret_types.clone());
+            let ret_llvm = self.brix_type_to_llvm(&tuple_type);
+            ret_llvm.fn_type(&param_types, false)
+        };
+
+        // 4. Create the function
+        let llvm_function = self.module.add_function(&mangled_name, fn_type, None);
+
+        // 5. Store function in registry
+        self.functions.insert(mangled_name.clone(), (llvm_function, Some(ret_types.clone())));
+
+        // 6. Create entry block
+        let entry_block = self.context.append_basic_block(llvm_function, "entry");
+        self.builder.position_at_end(entry_block);
+
+        // 7. Save current state
+        let saved_vars = self.variables.clone();
+        self.current_function = Some(llvm_function);
+
+        // 8. Store receiver parameter (as pointer - no alloca needed)
+        let receiver_param = llvm_function.get_nth_param(0).ok_or_else(|| {
+            CodegenError::LLVMError {
+                operation: "get_nth_param".to_string(),
+                details: "Failed to get receiver parameter".to_string(),
+                span: None,
+            }
+        })?;
+        // Store receiver pointer directly in symbol table
+        self.variables.insert(
+            receiver_name.to_string(),
+            (receiver_param.into_pointer_value(), receiver_brix_type.clone()),
+        );
+
+        // 9. Store other parameters
+        for (i, (param_name, param_type_str, _)) in params.iter().enumerate() {
+            let param_value = llvm_function.get_nth_param((i + 1) as u32).ok_or_else(|| {
+                CodegenError::LLVMError {
+                    operation: "get_nth_param".to_string(),
+                    details: format!("Failed to get parameter {}", i + 1),
+                    span: None,
+                }
+            })?;
+            let param_type = self.string_to_brix_type(param_type_str);
+            let llvm_type = self.brix_type_to_llvm(&param_type);
+
+            let alloca = self.create_entry_block_alloca(llvm_type, param_name)?;
+            self.builder.build_store(alloca, param_value).map_err(|_| {
+                CodegenError::LLVMError {
+                    operation: "build_store".to_string(),
+                    details: format!("Failed to store parameter '{}'", param_name),
+                    span: None,
+                }
+            })?;
+            self.variables.insert(param_name.clone(), (alloca, param_type));
+        }
+
+        // 10. Compile body
+        self.compile_stmt(body, llvm_function)?;
+
+        // 11. Add implicit return for void functions if missing
+        if ret_types.is_empty() {
+            if let Some(block) = self.builder.get_insert_block() {
+                if block.get_terminator().is_none() {
+                    self.builder.build_return(None).map_err(|_| {
+                        CodegenError::LLVMError {
+                            operation: "build_return".to_string(),
+                            details: "Failed to build implicit void return".to_string(),
+                            span: None,
+                        }
+                    })?;
+                }
+            }
+        }
+
+        // 12. Restore state
+        self.variables = saved_vars;
+        self.current_function = Some(_parent_function);
+
+        // 13. Position builder back
+        if let Some(block) = _parent_function.get_last_basic_block() {
+            self.builder.position_at_end(block);
+        }
+
+        Ok(())
     }
 
     // --- STRUCT INITIALIZATION ---
@@ -2521,23 +2634,25 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     }
 
                     // Check if this is a method call (e.g., obj.method(args))
-                    // Method calls have FieldAccess where target is NOT an Identifier
                     if let ExprKind::FieldAccess { target, field } = &func.kind {
-                        // Compile the target to get the receiver
-                        let (receiver_val, receiver_type) = self.compile_expr(target)?;
+                        // Special handling for method calls on struct identifiers
+                        // We need the pointer to the struct, not the loaded value
+                        if let ExprKind::Identifier(var_name) = &target.kind {
+                            // Clone the values we need before mutable borrows
+                            let receiver_info = self.variables.get(var_name).cloned();
 
-                        // Check if receiver is a struct
-                        if let BrixType::Struct(struct_name) = &receiver_type {
-                            // Build mangled method name: StructName_methodname
-                            let mangled_name = format!("{}_{}", struct_name, field);
+                            if let Some((receiver_ptr, receiver_type)) = receiver_info {
+                                if let BrixType::Struct(struct_name) = receiver_type {
+                                    // Build mangled method name: StructName_methodname
+                                    let mangled_name = format!("{}_{}", struct_name, field);
 
-                            // Look up the method function
-                            if let Some(llvm_fn) = self.module.get_function(&mangled_name) {
-                                // Compile method arguments
-                                let mut llvm_args = Vec::new();
+                                    // Look up the method function
+                                    if let Some(llvm_fn) = self.module.get_function(&mangled_name) {
+                                        // Compile method arguments
+                                        let mut llvm_args = Vec::new();
 
-                                // First argument is the receiver (pointer to struct)
-                                llvm_args.push(receiver_val.into());
+                                        // First argument is the receiver (pointer to struct)
+                                        llvm_args.push(receiver_ptr.into());
 
                                 // Add remaining arguments
                                 for arg in args {
@@ -2588,13 +2703,15 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                     BrixType::Void
                                 };
 
-                                return Ok((result, return_type));
-                            } else {
-                                return Err(CodegenError::UndefinedSymbol {
-                                    name: format!("{}.{}", struct_name, field),
-                                    context: "method call".to_string(),
-                                    span: Some(expr.span.clone()),
-                                });
+                                        return Ok((result, return_type));
+                                    } else {
+                                        return Err(CodegenError::UndefinedSymbol {
+                                            name: format!("{}.{}", struct_name, field),
+                                            context: "method call".to_string(),
+                                            span: Some(expr.span.clone()),
+                                        });
+                                    }
+                                }
                             }
                         }
                     }
