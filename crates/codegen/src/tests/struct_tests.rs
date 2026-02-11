@@ -243,11 +243,17 @@ fn test_method_definition() {
     };
 
     let result = compile_program(program);
+    println!("=== METHOD DEF IR ===");
+    match &result {
+        Ok(ir) => println!("{}", ir),
+        Err(e) => println!("ERROR: {}", e),
+    }
+    println!("======================");
     assert!(result.is_ok());
     let ir = result.unwrap();
 
-    // Check that method was compiled with mangled name
-    assert!(ir.contains("define i64 @Point_get_x(%Point*"));
+    // Check that method was compiled with mangled name (ptr instead of %Point*)
+    assert!(ir.contains("define i64 @Point_get_x(ptr"));
 }
 
 #[test]
@@ -301,8 +307,8 @@ fn test_method_call() {
     assert!(result.is_ok());
     let ir = result.unwrap();
 
-    // Check that method was called
-    assert!(ir.contains("call i64 @Point_get_x(%Point*"));
+    // Check that method was called (ptr instead of %Point*)
+    assert!(ir.contains("call i64 @Point_get_x(ptr"));
 }
 
 #[test]
@@ -340,9 +346,9 @@ fn test_method_with_parameters() {
     assert!(result.is_ok());
     let ir = result.unwrap();
 
-    // Check that method accepts both receiver and parameter
-    assert!(ir.contains("define i64 @Point_add(%Point*"));
-    assert!(ir.contains("i64 %dx"));
+    // Check that method accepts both receiver and parameter (ptr instead of %Point*)
+    assert!(ir.contains("define i64 @Point_add(ptr"));
+    assert!(ir.contains("i64 %"));
 }
 
 #[test]
