@@ -346,6 +346,7 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
             .then(block.clone())
             .map_with_span(|(((name, params), return_type), body), span| Stmt::new(StmtKind::FunctionDef {
                 name,
+                type_params: vec![], // TODO: Parse generic type parameters
                 params,
                 return_type,
                 body: Box::new(body),
@@ -386,6 +387,7 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
             )
             .map_with_span(|(name, fields), span| Stmt::new(StmtKind::StructDef(StructDef {
                 name,
+                type_params: vec![], // TODO: Parse generic type parameters
                 fields,
             }), span));
 
@@ -637,6 +639,7 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
             )
             .map_with_span(|(struct_name, fields), span| Expr::new(ExprKind::StructInit {
                 struct_name,
+                type_args: vec![], // TODO: Parse type arguments for generic structs
                 fields,
             }, span));
 

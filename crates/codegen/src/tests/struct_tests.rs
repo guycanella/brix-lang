@@ -64,6 +64,7 @@ fn test_struct_definition_simple() {
     // Note: LLVM doesn't include unused types in IR, so we just check compilation succeeds
     let program = Program {
         statements: vec![Stmt::dummy(StmtKind::StructDef(StructDef {
+                type_params: vec![],
             name: "Point".to_string(),
             fields: vec![
                 ("x".to_string(), "int".to_string(), None),
@@ -81,6 +82,7 @@ fn test_struct_definition_with_defaults() {
     // Test that struct definition with defaults compiles without errors
     let program = Program {
         statements: vec![Stmt::dummy(StmtKind::StructDef(StructDef {
+                type_params: vec![],
             name: "Config".to_string(),
             fields: vec![
                 ("timeout".to_string(), "int".to_string(), Some(lit_int!(30))),
@@ -98,6 +100,7 @@ fn test_struct_init_all_fields() {
     let program = Program {
         statements: vec![
             Stmt::dummy(StmtKind::StructDef(StructDef {
+                type_params: vec![],
                 name: "Point".to_string(),
                 fields: vec![
                     ("x".to_string(), "int".to_string(), None),
@@ -107,6 +110,7 @@ fn test_struct_init_all_fields() {
             var_decl!(
                 "p",
                 Expr::dummy(ExprKind::StructInit {
+                    type_args: vec![],
                     struct_name: "Point".to_string(),
                     fields: vec![
                         ("x".to_string(), lit_int!(10)),
@@ -139,6 +143,7 @@ fn test_struct_init_with_defaults() {
     let program = Program {
         statements: vec![
             Stmt::dummy(StmtKind::StructDef(StructDef {
+                type_params: vec![],
                 name: "Config".to_string(),
                 fields: vec![
                     ("timeout".to_string(), "int".to_string(), Some(lit_int!(30))),
@@ -148,6 +153,7 @@ fn test_struct_init_with_defaults() {
             var_decl!(
                 "cfg",
                 Expr::dummy(ExprKind::StructInit {
+                    type_args: vec![],
                     struct_name: "Config".to_string(),
                     fields: vec![
                         // Only specify timeout, retries should use default
@@ -174,6 +180,7 @@ fn test_field_access() {
     let program = Program {
         statements: vec![
             Stmt::dummy(StmtKind::StructDef(StructDef {
+                type_params: vec![],
                 name: "Point".to_string(),
                 fields: vec![
                     ("x".to_string(), "int".to_string(), None),
@@ -183,6 +190,7 @@ fn test_field_access() {
             var_decl!(
                 "p",
                 Expr::dummy(ExprKind::StructInit {
+                    type_args: vec![],
                     struct_name: "Point".to_string(),
                     fields: vec![
                         ("x".to_string(), lit_int!(10)),
@@ -220,6 +228,7 @@ fn test_method_definition() {
     let program = Program {
         statements: vec![
             Stmt::dummy(StmtKind::StructDef(StructDef {
+                type_params: vec![],
                 name: "Point".to_string(),
                 fields: vec![
                     ("x".to_string(), "int".to_string(), None),
@@ -261,6 +270,7 @@ fn test_method_call() {
     let program = Program {
         statements: vec![
             Stmt::dummy(StmtKind::StructDef(StructDef {
+                type_params: vec![],
                 name: "Point".to_string(),
                 fields: vec![
                     ("x".to_string(), "int".to_string(), None),
@@ -283,6 +293,7 @@ fn test_method_call() {
             var_decl!(
                 "p",
                 Expr::dummy(ExprKind::StructInit {
+                    type_args: vec![],
                     struct_name: "Point".to_string(),
                     fields: vec![
                         ("x".to_string(), lit_int!(10)),
@@ -316,6 +327,7 @@ fn test_method_with_parameters() {
     let program = Program {
         statements: vec![
             Stmt::dummy(StmtKind::StructDef(StructDef {
+                type_params: vec![],
                 name: "Point".to_string(),
                 fields: vec![
                     ("x".to_string(), "int".to_string(), None),
@@ -356,6 +368,7 @@ fn test_multiple_structs() {
     let program = Program {
         statements: vec![
             Stmt::dummy(StmtKind::StructDef(StructDef {
+                type_params: vec![],
                 name: "Point".to_string(),
                 fields: vec![
                     ("x".to_string(), "int".to_string(), None),
@@ -363,6 +376,7 @@ fn test_multiple_structs() {
                 ],
             })),
             Stmt::dummy(StmtKind::StructDef(StructDef {
+                type_params: vec![],
                 name: "Circle".to_string(),
                 fields: vec![
                     ("radius".to_string(), "int".to_string(), None),
@@ -371,6 +385,7 @@ fn test_multiple_structs() {
             var_decl!(
                 "p",
                 Expr::dummy(ExprKind::StructInit {
+                    type_args: vec![],
                     struct_name: "Point".to_string(),
                     fields: vec![
                         ("x".to_string(), lit_int!(10)),
@@ -381,6 +396,7 @@ fn test_multiple_structs() {
             var_decl!(
                 "c",
                 Expr::dummy(ExprKind::StructInit {
+                    type_args: vec![],
                     struct_name: "Circle".to_string(),
                     fields: vec![
                         ("radius".to_string(), lit_int!(5)),
@@ -404,6 +420,7 @@ fn test_struct_with_mixed_types() {
     let program = Program {
         statements: vec![
             Stmt::dummy(StmtKind::StructDef(StructDef {
+                type_params: vec![],
                 name: "Person".to_string(),
                 fields: vec![
                     ("age".to_string(), "int".to_string(), None),
@@ -413,6 +430,7 @@ fn test_struct_with_mixed_types() {
             var_decl!(
                 "person",
                 Expr::dummy(ExprKind::StructInit {
+                    type_args: vec![],
                     struct_name: "Person".to_string(),
                     fields: vec![
                         ("age".to_string(), lit_int!(30)),

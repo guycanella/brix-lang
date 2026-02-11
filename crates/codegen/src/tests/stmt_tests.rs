@@ -157,6 +157,7 @@ fn test_block_statement() {
 fn test_return_statement() {
     let program = Program {
         statements: vec![Stmt::dummy(StmtKind::FunctionDef {
+                type_params: vec![],
             name: "test_fn".to_string(),
             params: vec![],
             return_type: Some(vec!["int".to_string()]),
@@ -592,6 +593,7 @@ fn test_destructuring_declaration() {
     let program = Program {
         statements: vec![
             Stmt::dummy(StmtKind::FunctionDef {
+                type_params: vec![],
                 name: "get_pair".to_string(),
                 params: vec![],
                 return_type: Some(vec!["int".to_string(), "int".to_string()]),
@@ -621,6 +623,7 @@ fn test_destructuring_with_ignore() {
     let program = Program {
         statements: vec![
             Stmt::dummy(StmtKind::FunctionDef {
+                type_params: vec![],
                 name: "get_triple".to_string(),
                 params: vec![],
                 return_type: Some(vec![
@@ -895,6 +898,7 @@ fn test_assignment_from_function_result() {
     let program = Program {
         statements: vec![
             Stmt::dummy(StmtKind::FunctionDef {
+                type_params: vec![],
                 name: "get_value".to_string(),
                 params: vec![],
                 return_type: Some(vec!["int".to_string()]),

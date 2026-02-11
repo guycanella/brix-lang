@@ -931,6 +931,7 @@ fn test_match_in_return() {
     // }
     let program = Program {
         statements: vec![Stmt::dummy(StmtKind::FunctionDef {
+                type_params: vec![],
             name: "classify".to_string(),
             params: vec![("x".to_string(), "int".to_string(), None)],
             return_type: Some(vec!["string".to_string()]),
@@ -969,6 +970,7 @@ fn test_match_in_function_argument() {
     let program = Program {
         statements: vec![
             Stmt::dummy(StmtKind::FunctionDef {
+                type_params: vec![],
                 name: "foo".to_string(),
                 params: vec![("x".to_string(), "int".to_string(), None)],
                 return_type: Some(vec!["int".to_string()]),
@@ -1044,6 +1046,7 @@ fn test_match_with_function_call_value() {
     let program = Program {
         statements: vec![
             Stmt::dummy(StmtKind::FunctionDef {
+                type_params: vec![],
                 name: "get_num".to_string(),
                 params: vec![],
                 return_type: Some(vec!["int".to_string()]),
