@@ -119,6 +119,12 @@ pub enum ExprKind {
         args: Vec<Expr>,
     },
 
+    GenericCall {
+        func: Box<Expr>,
+        type_args: Vec<String>, // Explicit type arguments: swap<int, float>
+        args: Vec<Expr>,
+    },
+
     FieldAccess {
         target: Box<Expr>,
         field: String,
@@ -131,6 +137,7 @@ pub enum ExprKind {
 
     StructInit {
         struct_name: String,
+        type_args: Vec<String>,      // Type arguments for generic structs: Box<int>
         fields: Vec<(String, Expr)>, // (field_name, value)
     },
 
@@ -158,10 +165,17 @@ pub struct ComprehensionGen {
     pub conditions: Vec<Expr>,  // if clauses (multiple allowed)
 }
 
+// Type parameter for generics (e.g., T, U, K, V)
+#[derive(Debug, Clone, PartialEq)]
+pub struct TypeParam {
+    pub name: String,
+}
+
 // Struct definition (user-defined types)
 #[derive(Debug, Clone, PartialEq)]
 pub struct StructDef {
     pub name: String,
+    pub type_params: Vec<TypeParam>,                 // Generic type parameters
     pub fields: Vec<(String, String, Option<Expr>)>, // (field_name, type, default_value)
 }
 
@@ -241,6 +255,7 @@ pub enum StmtKind {
 
     FunctionDef {
         name: String,
+        type_params: Vec<TypeParam>,                 // Generic type parameters
         params: Vec<(String, String, Option<Expr>)>, // (param_name, type, default_value)
         return_type: Option<Vec<String>>, // None = void, Some(vec!["int"]) = single, Some(vec!["int", "float"]) = multiple
         body: Box<Stmt>,

@@ -4,7 +4,7 @@ use inkwell::module::{Linkage, Module};
 use inkwell::types::{BasicMetadataTypeEnum, BasicType, BasicTypeEnum};
 use inkwell::values::{BasicValue, BasicValueEnum, FloatValue, IntValue, PointerValue};
 use inkwell::{AddressSpace, FloatPredicate, IntPredicate};
-use parser::ast::{BinaryOp, Expr, ExprKind, Literal, Program, Stmt, StmtKind, UnaryOp};
+use parser::ast::{BinaryOp, Expr, ExprKind, Literal, Program, Stmt, StmtKind, StructDef, UnaryOp};
 use std::collections::HashMap;
 
 // --- MODULE DECLARATIONS ---
@@ -54,6 +54,11 @@ pub struct Compiler<'a, 'ctx> {
     pub current_function: Option<inkwell::values::FunctionValue<'ctx>>, // Track current function being compiled
     pub filename: String,    // Source filename for error reporting
     pub source: String,      // Source code for error reporting
+
+    // Generics support
+    pub generic_functions: HashMap<String, Stmt>,                       // Generic function AST (name -> body)
+    pub generic_structs: HashMap<String, StructDef>,                    // Generic struct definitions
+    pub monomorphized_cache: HashMap<(String, Vec<String>), String>,    // (name, type_args) -> specialized_name
 }
 
 impl<'a, 'ctx> Compiler<'a, 'ctx> {
@@ -76,6 +81,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             current_function: None,
             filename,
             source,
+            generic_functions: HashMap::new(),
+            generic_structs: HashMap::new(),
+            monomorphized_cache: HashMap::new(),
         }
     }
 
@@ -1263,6 +1271,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 params,
                 return_type,
                 body,
+                ..
             } => {
                 self.compile_function_def(name, params, return_type, body, function)?;
                 Ok(())
@@ -5128,6 +5137,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             ExprKind::StructInit {
                 struct_name,
                 fields,
+                ..
             } => self.compile_struct_init(struct_name, fields),
 
             #[allow(unreachable_patterns)]
