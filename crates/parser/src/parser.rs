@@ -1,4 +1,4 @@
-use crate::ast::{BinaryOp, Expr, ExprKind, FStringPart, Literal, MatchArm, Pattern, Program, Stmt, StmtKind, UnaryOp};
+use crate::ast::{BinaryOp, Expr, ExprKind, FStringPart, Literal, MatchArm, Pattern, Program, Stmt, StmtKind, UnaryOp, StructDef, MethodDef};
 use chumsky::prelude::*;
 use lexer::token::Token;
 
@@ -370,6 +370,71 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
                 values: values.unwrap_or_default(),
             }, span));
 
+        // Struct definition: struct Point { x: int = 0; y: int }
+        let struct_def = just(Token::Struct)
+            .ignore_then(select! { Token::Identifier(name) => name })
+            .then(
+                // Fields: name: type = default (semicolon separated for inline, newline separated for multi-line)
+                select! { Token::Identifier(field_name) => field_name }
+                    .then_ignore(just(Token::Colon))
+                    .then(select! { Token::Identifier(field_type) => field_type })
+                    .then(just(Token::Eq).ignore_then(expr_parser()).or_not())
+                    .map(|((name, ty), default)| (name, ty, default))
+                    .separated_by(just(Token::Comma))
+                    .allow_trailing()
+                    .delimited_by(just(Token::LBrace), just(Token::RBrace)),
+            )
+            .map_with_span(|(name, fields), span| Stmt::new(StmtKind::StructDef(StructDef {
+                name,
+                fields,
+            }), span));
+
+        // Method definition: fn (p: Point) distance() -> float { }
+        let method_def = just(Token::Function)
+            .ignore_then(
+                select! { Token::Identifier(receiver_name) => receiver_name }
+                    .then_ignore(just(Token::Colon))
+                    .then(select! { Token::Identifier(receiver_type) => receiver_type })
+                    .delimited_by(just(Token::LParen), just(Token::RParen)),
+            )
+            .then(select! { Token::Identifier(method_name) => method_name })
+            .then(
+                // Parameters (optional): (name: type, name: type = default)
+                select! { Token::Identifier(param_name) => param_name }
+                    .then_ignore(just(Token::Colon))
+                    .then(select! { Token::Identifier(param_type) => param_type })
+                    .then(just(Token::Eq).ignore_then(expr_parser()).or_not())
+                    .map(|((name, ty), default)| (name, ty, default))
+                    .separated_by(just(Token::Comma))
+                    .allow_trailing()
+                    .delimited_by(just(Token::LParen), just(Token::RParen)),
+            )
+            .then(
+                // Return type: -> type or -> (type1, type2)
+                just(Token::Arrow)
+                    .ignore_then(
+                        select! { Token::Identifier(t) => vec![t] }.or(
+                            select! { Token::Identifier(t) => t }
+                                .separated_by(just(Token::Comma))
+                                .at_least(1)
+                                .delimited_by(just(Token::LParen), just(Token::RParen)),
+                        ),
+                    )
+                    .or_not(), // Optional for void methods
+            )
+            .then(block.clone())
+            .map_with_span(|((((receiver, method_name), params), return_type), body), span| {
+                let (receiver_name, receiver_type) = receiver;
+                Stmt::new(StmtKind::MethodDef(MethodDef {
+                    receiver_name,
+                    receiver_type,
+                    method_name,
+                    params,
+                    return_type,
+                    body: Box::new(body),
+                }), span)
+            });
+
         let expr_stmt = expr_parser().map_with_span(|expr, span| Stmt::new(StmtKind::Expr(expr), span));
 
         destructuring_decl
@@ -382,6 +447,8 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
             .or(printf_stmt)
             .or(print_stmt)
             .or(println_stmt)
+            .or(struct_def)
+            .or(method_def)
             .or(function_def)
             .or(return_stmt)
             .or(block)
@@ -558,6 +625,21 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
             .delimited_by(just(Token::LBracket), just(Token::RBracket))
             .map_with_span(|exprs, span| Expr::new(ExprKind::Array(exprs), span));
 
+        // Struct initialization: Point { x: 10, y: 20 }
+        let struct_init = select! { Token::Identifier(name) => name }
+            .then(
+                select! { Token::Identifier(field_name) => field_name }
+                    .then_ignore(just(Token::Colon))
+                    .then(expr.clone())
+                    .separated_by(just(Token::Comma))
+                    .allow_trailing()
+                    .delimited_by(just(Token::LBrace), just(Token::RBrace)),
+            )
+            .map_with_span(|(struct_name, fields), span| Expr::new(ExprKind::StructInit {
+                struct_name,
+                fields,
+            }, span));
+
         // Parse expressions in parentheses, with optional 'im' suffix for implicit multiplication
         let paren_expr = expr
             .clone()
@@ -580,6 +662,7 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
             .or(fstring)
             .or(match_expr)
             .or(list_comp)
+            .or(struct_init)
             .or(array_literal)
             .or(paren_expr);
 

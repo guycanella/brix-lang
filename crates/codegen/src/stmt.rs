@@ -535,13 +535,17 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
                     // val_type remains as-is (Error or Nil)
                 }
                 _ => {
+                    // Allow matrix, intmatrix, complex, and struct types
                     if hint != "matrix" && hint != "intmatrix" && hint != "complex" {
-                        return Err(CodegenError::TypeError {
-                            expected: "Known type".to_string(),
-                            found: hint.clone(),
-                            context: format!("Variable declaration '{}'", name),
-                                                    span: None,
-                        });
+                        // Check if it's a struct type
+                        if !matches!(val_type, BrixType::Struct(_)) {
+                            return Err(CodegenError::TypeError {
+                                expected: "Known type".to_string(),
+                                found: hint.clone(),
+                                context: format!("Variable declaration '{}'", name),
+                                                        span: None,
+                            });
+                        }
                     }
                 }
             }
@@ -565,6 +569,10 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
             BrixType::Tuple(types) => {
                 // Allocate space for tuple struct
                 self.brix_type_to_llvm(&BrixType::Tuple(types.clone()))
+            }
+            BrixType::Struct(_) => {
+                // Allocate space for user-defined struct
+                self.brix_type_to_llvm(&val_type)
             }
             _ => {
                 return Err(CodegenError::TypeError {

@@ -26,6 +26,7 @@ pub enum BrixType {
     Nil,                  // Represents null/nil value (null pointer)
     Error,                // Error type (pointer to BrixError struct in runtime.c)
     Atom,                 // Elixir-style atom (interned string, i64 ID)
+    Struct(String),       // User-defined struct (name stored as String)
 }
 
 // Type-related helper functions will be implemented as methods on Compiler
