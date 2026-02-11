@@ -62,12 +62,17 @@
   - ✅ **All 68 integration tests passing** with optimizations enabled
   - Usage: `cargo run file.bx -O 3` or `cargo run file.bx --release`
 
+### 🔮 **Planejado (v1.3):**
+- **Closures** (lambda functions com captura por referência, generics permitidos)
+- **Structs** (user-defined types com default values, Go-style receivers)
+- **Generics** (functions e structs, monomorphization, duck typing)
+- **Error handling** (continua padrão Go - sem Result<T,E>)
+
 ### 🔮 **Planejado (v1.3+):**
-- Generics
-- Structs com métodos
-- Result<T,E> type
-- Closures
-- Concurrency (goroutines-style)
+- Concurrency (async/await via state machines)
+- Test Library (Jest-style)
+- Iterators (map, filter, reduce)
+- Pipeline operator (`|>`)
 
 ---
 
@@ -2132,16 +2137,20 @@ tests/
 
 ---
 
-### ⏸️ **v1.2 - Closures e Funções Avançadas** (ADIADO - Após Testes)
+### ⏸️ **v1.2 - Documentation & Advanced Features** (ADIADO - Após Testes)
 
-**NOTA:** Esta versão foi adiada para priorizar infraestrutura de testes.
+**NOTA:** Esta versão foi adiada para priorizar infraestrutura de testes. Closures foram movidas para v1.3.
 
-#### Closures e Lambda Functions (planejado)
+#### Documentation System (planejado)
 
-- [ ] **Closures básicas:** `var double := (x) -> x * 2`
-- [ ] **Capture de variáveis:** Acesso a variáveis do escopo externo
-- [ ] **First-class functions:** Passar funções como argumentos
-- [ ] **Higher-order functions:** Funções que retornam funções
+- [ ] **@doc annotations:** Documentação inline no código
+- [ ] **Doc generation:** Gerar documentação HTML/Markdown
+- [ ] **Examples em docs:** Código executável em documentação
+
+#### Advanced Functions (planejado)
+
+- [ ] **panic():** Error handling alternativo para erros irrecuperáveis
+- [ ] **Advanced string functions:** split(), join(), trim(), etc.
 
 #### User-Defined Modules (planejado)
 
@@ -2151,29 +2160,278 @@ tests/
 
 ---
 
-### 🔧 **v1.3 - Programação Funcional Avançada** (ADIADO)
+### 🔧 **v1.3 - Type System Expansion (Closures, Structs, Generics)** ⏸️ **PLANNED**
 
-**Iteradores:**
+**Status:** Planejado para implementação após infraestrutura de testes e v1.2
 
-- [ ] **map:** `nums.map(x -> x * 2)`
-- [ ] **filter:** `nums.filter(x -> x > 10)`
-- [ ] **reduce:** `nums.reduce(0, (acc, x) -> acc + x)`
-- [ ] **Lazy Evaluation:** Não processar até consumir resultado
+Esta versão introduz features fundamentais do sistema de tipos: **Closures**, **Structs** e **Generics**. Todas as decisões de design documentadas (Fev 2026).
 
-**List Comprehension Avançada:**
+---
 
-- [x] **Básico:** `[x * 2 for x in nums]` ✅ **v0.9 IMPLEMENTADO**
-- [x] **Com Filtro:** `[x for x in nums if x > 10]` ✅ **v0.9 IMPLEMENTADO**
-- [x] **Nested Loops:** `[x * y for x in a for y in b]` ✅ **v0.9 IMPLEMENTADO**
-- [x] **Com Destructuring:** `[x + y for x, y in zip(a, b)]` ✅ **v0.9 IMPLEMENTADO**
-- [ ] **Matrix Comprehension 2D:** `[[i + j for j in 1:n] for i in 1:m]`
+#### **1. Closures (Lambda Functions)**
 
-**Pipeline Operator (`|>`):**
+**Sintaxe:**
+```brix
+// Corpo multi-linha - chaves obrigatórias
+var double := (x: int) -> int { return x * 2 }
 
-- [ ] **Encadeamento Funcional:**
+// Corpo complexo
+var complex := (a: int, b: int) -> int {
+    var result := a + b
+    return result * 2
+}
+
+// Como parâmetro de função
+fn map(arr: [int], fn: (int) -> int) -> [int] {
+    // implementação
+}
+```
+
+**Type Annotations:** OBRIGATÓRIAS - sem inferência de tipo para assinaturas de closures
+```brix
+var add := (x: int, y: int) -> int { return x + y }  // ✅ Obrigatório
+```
+
+**Captura de Variáveis:**
+- [x] **Por Referência** - closures capturam ponteiros para variáveis (não cópias)
+- **Decisão:** Eficiente para tipos grandes (Matrix, String)
+- ARC gerencia lifetimes automaticamente
+- Exemplo:
   ```brix
-  dados |> filter(x -> x > 0) |> map(x -> x * 2) |> sum()
+  var matriz := zeros(1000, 1000)  // 8MB
+  var sum := 0
+  var closure := (x: int) -> int {
+      return x + sum  // Captura ponteiro para 'sum' (8 bytes)
+  }
   ```
+
+**Recursão em Closures:**
+- [x] **PROIBIDA** - closures recursivas criam inferência circular
+- **Decisão:** Usar `function` declarations para recursão
+- Exemplo:
+  ```brix
+  // ❌ NÃO PERMITIDO
+  var fib := (n: int) -> int {
+      if n <= 1 { return n }
+      return fib(n-1) + fib(n-2)  // ERRO: recursão em closure
+  }
+
+  // ✅ Use function ao invés
+  function fib(n: int) -> int {
+      if n <= 1 { return n }
+      return fib(n-1) + fib(n-2)
+  }
+  ```
+
+**Closures Genéricos:**
+- [x] **PERMITIDO** - closures podem ter type parameters
+```brix
+var identity := <T>(x: T) -> T { return x }
+
+identity<int>(42)        // 42
+identity<string>("hi")   // "hi"
+```
+
+---
+
+#### **2. Structs (User-Defined Types)**
+
+**Sintaxe:**
+```brix
+// Multi-linha: sem vírgulas
+struct Point {
+    x: int
+    y: int
+}
+
+// Inline: usa ponto-e-vírgula
+struct Point { x: int; y: int }
+
+// Com default values
+struct Config {
+    timeout: int = 30
+    retries: int = 3
+    url: string          // Sem default - obrigatório
+}
+```
+
+**Construção:**
+```brix
+// Usa todos os defaults
+var cfg1 := Config{ url: "https://example.com" }
+
+// Override parcial
+var cfg2 := Config{
+    timeout: 60,
+    url: "https://example.com"
+}  // Usa default retries=3
+
+// Todos os campos especificados
+var point := Point{ x: 10, y: 20 }
+```
+
+**Methods (Go-style Receivers):**
+```brix
+struct Point {
+    x: int
+    y: int
+}
+
+// Sintaxe de receiver: fn (receiver: Type) method_name()
+fn (p: Point) distance() -> float {
+    return sqrt(float(p.x**2 + p.y**2))
+}
+
+// Chamada de método (dot notation)
+var point := Point{ x: 3, y: 4 }
+var dist := point.distance()  // 5.0
+```
+
+**Mutabilidade:**
+- [x] **SEM keyword `mut`** - todo método pode modificar o receiver
+- **Decisão:** Simplicidade - não precisa declarar mutabilidade
+```brix
+fn (p: Point) move(dx: int, dy: int) {
+    p.x += dx  // ✅ Permitido - modifica receiver
+    p.y += dy
+}
+
+var point := Point{ x: 2, y: 3 }
+point.move(5, 10)  // point agora é {7, 13}
+```
+
+**Escolha de Design:** Go-style receivers ao invés de `extend` blocks
+- **Decisão:** Seguir convenções do Go para consistência
+- Sintaxe mais simples para definição de métodos
+- Sem necessidade de namespacing de extensões
+
+---
+
+#### **3. Generics (Parametric Polymorphism)**
+
+**Generic Functions:**
+```brix
+// Angle brackets com tipos explícitos
+fn map<T, U>(arr: [T], fn: (T) -> U) -> [U] {
+    // implementação
+}
+
+// Múltiplos type parameters
+fn zip<A, B>(arr1: [A], arr2: [B]) -> [(A, B)] {
+    // implementação
+}
+```
+
+**Generic Structs:**
+```brix
+// Single type parameter
+struct Box<T> {
+    value: T
+}
+
+// Múltiplos type parameters
+struct Pair<A, B> {
+    first: A
+    second: B
+}
+
+// Construção - inferência de tipo a partir dos valores
+var box := Box{ value: 42 }           // Infere Box<int>
+var pair := Pair{ first: 1, second: 3.14 }  // Infere Pair<int, float>
+```
+
+**Type Constraints:**
+- [x] **NENHUM** - abordagem duck typing
+- **Decisão:** Sem trait bounds ou interface constraints
+- Erro de compilação se tipo não suporta operações requeridas
+- Exemplo:
+  ```brix
+  fn add<T>(a: T, b: T) -> T {
+      return a + b  // Compila apenas se T tem operator+
+  }
+
+  add(1, 2)        // ✅ int tem operator+
+  add("a", "b")    // ✅ string tem operator+ (concat)
+  add(:ok, :err)   // ❌ Erro de compilação: Atom não suporta operator+
+  ```
+
+**Monomorphization:**
+- [x] **Estratégia de geração de código**
+- Gera código especializado para cada tipo concreto usado
+- Similar a templates C++ e generics Rust
+- Trade-off: Binário maior para melhor performance em runtime
+- Exemplo: `Box<int>` e `Box<string>` geram funções LLVM separadas
+
+**Generic Methods:**
+```brix
+struct Box<T> {
+    value: T
+}
+
+// Método pode introduzir type parameters adicionais
+fn (b: Box<T>) map<U>(fn: (T) -> U) -> Box<U> {
+    return Box{ value: fn(b.value) }
+}
+
+// Uso
+var int_box := Box{ value: 42 }
+var str_box := int_box.map<string>((x: int) -> string {
+    return string(x)
+})  // Box<string>{ value: "42" }
+```
+
+---
+
+#### **4. Error Handling (SEM Result<T,E>)**
+
+**Decisão:** Continuar usando error handling estilo Go com tuplas e nil
+- **NÃO vai ter tipo `Result<T, E>` na v1.3**
+- **Justificativa:** Já temos padrão funcionando com Error type e nil checking
+
+**Padrão:**
+```brix
+fn divide(a: int, b: int) -> (float, Error) {
+    if b == 0 {
+        return (0.0, Error{ message: "division by zero" })
+    }
+    return (float(a) / float(b), nil)
+}
+
+// Uso
+var result, err := divide(10, 2)
+if err != nil {
+    println(err.message)
+} else {
+    println(result)  // 5.0
+}
+```
+
+---
+
+#### **Roadmap de Implementação v1.3**
+
+**Fase 1: Closures** (2-3 semanas)
+1. Lexer: Tokens para `->`, parentheses para params
+2. Parser: AST nodes para `Closure` expressions
+3. Codegen: LLVM struct para closure environment (captured vars)
+4. Runtime: ARC para closures (ref counting)
+5. Tests: ~80 testes (captura, generics, como parâmetros)
+
+**Fase 2: Structs** (2-3 semanas)
+1. Lexer: Token `struct`
+2. Parser: Struct definitions, field access, construction
+3. Codegen: LLVM struct types, field accessors
+4. Codegen: Go-style receiver methods
+5. Tests: ~100 testes (constructors, methods, default values)
+
+**Fase 3: Generics** (3-4 semanas)
+1. Parser: Angle bracket type parameters `<T, U>`
+2. Type inference: Infer concrete types from usage
+3. Codegen: Monomorphization - generate specialized code per type
+4. Codegen: Generic methods, nested generics
+5. Tests: ~120 testes (functions, structs, methods, duck typing errors)
+
+**Total estimado:** 7-10 semanas
 
 ---
 
@@ -2607,10 +2865,11 @@ v0.8 ████████████████████ 100% ✅ User-
 v0.9 ████████████████████ 100% ✅ List comprehensions, zip(), destructuring
 v1.0 ████████████████████ 100% ✅ Pattern matching, Complex, LAPACK, Nil/Error
 v1.1 ████████████████████ 100% ✅ Atoms, Escapes, Type checkers (10), Strings (7)
-TESTES ██░░░░░░░░░░░░░░░░  10% 🚧 Testing Infrastructure (~1,520 tests) ← EM ANDAMENTO
-v1.2 ░░░░░░░░░░░░░░░░░░░░   0% ⏸️ Closures, modules (ADIADO - Após testes)
-v1.3 ░░░░░░░░░░░░░░░░░░░░   0% ⏸️ Generics, Result<T,E>, Structs (ADIADO)
-v1.4 ░░░░░░░░░░░░░░░░░░░░   0% ⏸️ Concurrency, stdlib, optimizations (ADIADO)
+v1.2.1 ██████████████████ 100% ✅ Error Handling (Result types, 1069 tests)
+TESTES ████████████████████ 100% ✅ Testing Infrastructure (1069 tests) - COMPLETO
+v1.2 ░░░░░░░░░░░░░░░░░░░░   0% ⏸️ Docs, panic, modules (ADIADO)
+v1.3 ███░░░░░░░░░░░░░░░░░  15% 📋 Closures, Structs, Generics (DESIGN COMPLETO)
+v1.4 ░░░░░░░░░░░░░░░░░░░░   0% ⏸️ Async/Await, Test Library, Iterators (ADIADO)
 ```
 
 **Legenda:**
@@ -2791,15 +3050,22 @@ math.sum(arr), math.mean(arr), math.median(arr), math.std(arr)
 
 ### Próximas Features (v1.1+):
 
-**v1.1 - Closures & Modules:**
-- Closures: `var fn := (x: int) -> int { return x * 2 }`
-- First-class functions: Passar funções como parâmetros
+**v1.2 - Documentation & Modules:**
+- Documentation system: `@doc` annotations
 - User-defined modules: `module mymod { ... }`
+- Advanced string functions: split(), join(), trim()
 
-**v1.2 - Generics & Concurrency:**
+**v1.3 - Type System Expansion:**
+- Closures: `var fn := (x: int) -> int { return x * 2 }`
+- Structs: `struct Point { x: int; y: int }` com Go-style receivers
 - Generics: `function map<T, U>(arr: [T], fn: T -> U) -> [U]`
-- Concurrency: `spawn`, `par for`, `par map`
-- Channels para comunicação entre threads
+- Error handling: Continua padrão Go (sem Result<T,E>)
+
+**v1.4 - Concurrency & Advanced Features:**
+- Async/Await: State machine transformation
+- Concurrency: `spawn`, async functions
+- Test Library: Jest-style testing framework
+- Iterators: map, filter, reduce, pipeline operator
 
 **Qualidade (qualquer versão):**
 - Testes de integração automatizados

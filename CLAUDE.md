@@ -683,9 +683,249 @@ cargo test --test integration_test -- --test-threads=1 --nocapture
 - Complete operator refactoring (see operators.rs TODOs)
 - LTO and PGO support (future optimization enhancements)
 
+## v1.3 - Type System Expansion (Design Decisions)
+
+**Status:** Planned after testing infrastructure completion
+
+This version introduces fundamental type system features: **Closures**, **Structs**, and **Generics**. All design decisions documented below (Feb 2026).
+
+### 1. Closures
+
+**Syntax:**
+```brix
+// Single expression - needs braces
+var double := (x: int) -> int { return x * 2 }
+
+// Multi-line body - needs braces
+var complex := (a: int, b: int) -> int {
+    var result := a + b
+    return result * 2
+}
+
+// As function parameter
+fn map(arr: [int], fn: (int) -> int) -> [int] {
+    // implementation
+}
+```
+
+**Type Annotations:** REQUIRED - no type inference for closure signatures
+```brix
+var add := (x: int, y: int) -> int { return x + y }  // ✅ Required
+```
+
+**Variable Capture:**
+- **By Reference** - closures capture pointers to variables (not copies)
+- Rationale: Efficient for large types (Matrix, String)
+- ARC manages lifetimes automatically
+- Example:
+  ```brix
+  var matriz := zeros(1000, 1000)  // 8MB
+  var sum := 0
+  var closure := (x: int) -> int {
+      return x + sum  // Captures pointer to 'sum' (8 bytes)
+  }
+  ```
+
+**Recursion:** PROHIBITED in closures
+- Recursive closures create circular type inference
+- Use regular `function` declarations for recursion instead
+- Example:
+  ```brix
+  // ❌ NOT ALLOWED
+  var fib := (n: int) -> int {
+      if n <= 1 { return n }
+      return fib(n-1) + fib(n-2)  // ERROR: recursion in closure
+  }
+
+  // ✅ Use function instead
+  function fib(n: int) -> int {
+      if n <= 1 { return n }
+      return fib(n-1) + fib(n-2)
+  }
+  ```
+
+**Generic Closures:** ALLOWED
+```brix
+var identity := <T>(x: T) -> T { return x }
+
+identity<int>(42)        // 42
+identity<string>("hi")   // "hi"
+```
+
+---
+
+### 2. Structs
+
+**Syntax:**
+```brix
+// Multi-line: no commas
+struct Point {
+    x: int
+    y: int
+}
+
+// Inline: semicolons
+struct Point { x: int; y: int }
+
+// With default values
+struct Config {
+    timeout: int = 30
+    retries: int = 3
+    url: string          // No default - required
+}
+```
+
+**Construction:**
+```brix
+// All defaults
+var cfg1 := Config{ url: "https://example.com" }
+
+// Partial override
+var cfg2 := Config{
+    timeout: 60,
+    url: "https://example.com"
+}  // Uses default retries=3
+
+// All fields specified
+var point := Point{ x: 10, y: 20 }
+```
+
+**Methods (Go-style Receivers):**
+```brix
+struct Point {
+    x: int
+    y: int
+}
+
+// Receiver syntax: fn (receiver: Type) method_name()
+fn (p: Point) distance() -> float {
+    return sqrt(float(p.x**2 + p.y**2))
+}
+
+// Method call (dot notation)
+var point := Point{ x: 3, y: 4 }
+var dist := point.distance()  // 5.0
+```
+
+**Mutability:** NO `mut` keyword needed - all methods can modify receiver
+```brix
+fn (p: Point) move(dx: int, dy: int) {
+    p.x += dx  // ✅ Allowed - modifies receiver
+    p.y += dy
+}
+
+var point := Point{ x: 2, y: 3 }
+point.move(5, 10)  // point is now {7, 13}
+```
+
+**Design Choice:** Go-style receivers instead of `extend` blocks
+- Rationale: Follow Go conventions for consistency
+- Simpler syntax for method definitions
+- No need for extension namespacing
+
+---
+
+### 3. Generics
+
+**Generic Functions:**
+```brix
+// Angle bracket syntax with explicit types
+fn map<T, U>(arr: [T], fn: (T) -> U) -> [U] {
+    // implementation
+}
+
+// Multiple type parameters
+fn zip<A, B>(arr1: [A], arr2: [B]) -> [(A, B)] {
+    // implementation
+}
+```
+
+**Generic Structs:**
+```brix
+// Single type parameter
+struct Box<T> {
+    value: T
+}
+
+// Multiple type parameters
+struct Pair<A, B> {
+    first: A
+    second: B
+}
+
+// Construction - type inference from values
+var box := Box{ value: 42 }           // Infers Box<int>
+var pair := Pair{ first: 1, second: 3.14 }  // Infers Pair<int, float>
+```
+
+**Type Constraints:** NONE - duck typing approach
+- No trait bounds or interface constraints
+- Compilation error if type doesn't support required operations
+- Example:
+  ```brix
+  fn add<T>(a: T, b: T) -> T {
+      return a + b  // Compiles only if T has operator+
+  }
+
+  add(1, 2)        // ✅ int has operator+
+  add("a", "b")    // ✅ string has operator+ (concat)
+  add(:ok, :err)   // ❌ Compile error: Atom doesn't support operator+
+  ```
+
+**Monomorphization:** Code generation strategy
+- Generates specialized code for each concrete type used
+- Similar to C++ templates and Rust generics
+- Trade-off: Larger binary size for better runtime performance
+- Example: `Box<int>` and `Box<string>` generate separate LLVM functions
+
+**Generic Methods:**
+```brix
+struct Box<T> {
+    value: T
+}
+
+// Method can introduce additional type parameters
+fn (b: Box<T>) map<U>(fn: (T) -> U) -> Box<U> {
+    return Box{ value: fn(b.value) }
+}
+
+// Usage
+var int_box := Box{ value: 42 }
+var str_box := int_box.map<string>((x: int) -> string {
+    return string(x)
+})  // Box<string>{ value: "42" }
+```
+
+---
+
+### 4. Error Handling (NO Result<T,E>)
+
+**Decision:** Continue using Go-style error handling with tuples and nil
+- No `Result<T, E>` type in v1.3
+- Rationale: Already have working pattern with Error type and nil checking
+
+**Pattern:**
+```brix
+fn divide(a: int, b: int) -> (float, Error) {
+    if b == 0 {
+        return (0.0, Error{ message: "division by zero" })
+    }
+    return (float(a) / float(b), nil)
+}
+
+// Usage
+var result, err := divide(10, 2)
+if err != nil {
+    println(err.message)
+} else {
+    println(result)  // 5.0
+}
+```
+
+---
+
 **Future Features:**
 - v1.2: Documentation system (@doc), panic(), advanced string functions
-- v1.3: Generics, Result<T,E>, Structs, Closures
 - v1.3+: **Async/Await** - High-performance concurrency via compile-time state machine transformation
   - Target: 0.2-0.3 MB/task (12x better than Go goroutines)
   - Compile-time transformation to state machines (like Rust tokio)
