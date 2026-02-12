@@ -1,0 +1,6 @@
+// Test: Generic function definition (should show "not yet implemented" error)
+function swap<T, U>(a: T, b: U) -> (U, T) {
+    return (b, a)
+}
+
+println(42)

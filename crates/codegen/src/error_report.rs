@@ -110,8 +110,7 @@ pub fn report_codegen_error(
         CodegenError::General(msg) => {
             Report::<(&str, std::ops::Range<usize>)>::build(ReportKind::Error, filename, 0)
                 .with_code("E100")
-                .with_message("Compilation Error")
-                .with_help(msg.clone())
+                .with_message(msg.clone())  // Use the message directly
                 .finish()
                 .print((filename, Source::from(source)))
                 .unwrap();

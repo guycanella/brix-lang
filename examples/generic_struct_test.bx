@@ -1,0 +1,6 @@
+// Test: Generic struct definition (should show "not yet implemented" error)
+struct Box<T> {
+    value: T
+}
+
+println(42)
