@@ -1,0 +1,9 @@
+// Test: Generic struct instantiation (should show "not yet implemented" error)
+struct Box<T> {
+    value: T
+}
+
+// Try to instantiate the generic struct
+var box := Box<int>{ value: 42 }
+
+println(box.value)
