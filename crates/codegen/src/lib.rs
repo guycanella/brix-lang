@@ -5,7 +5,7 @@ use inkwell::types::{BasicMetadataTypeEnum, BasicType, BasicTypeEnum};
 use inkwell::values::BasicMetadataValueEnum;
 use inkwell::values::{BasicValue, BasicValueEnum, FloatValue, IntValue, PointerValue};
 use inkwell::{AddressSpace, FloatPredicate, IntPredicate};
-use parser::ast::{BinaryOp, Expr, ExprKind, Literal, Program, Stmt, StmtKind, StructDef, UnaryOp};
+use parser::ast::{BinaryOp, Expr, ExprKind, Literal, MethodDef, Program, Stmt, StmtKind, StructDef, UnaryOp};
 use std::collections::HashMap;
 
 // --- MODULE DECLARATIONS ---
@@ -59,6 +59,7 @@ pub struct Compiler<'a, 'ctx> {
     // Generics support
     pub generic_functions: HashMap<String, Stmt>,                       // Generic function AST (name -> body)
     pub generic_structs: HashMap<String, StructDef>,                    // Generic struct definitions
+    pub generic_methods: HashMap<String, Vec<MethodDef>>,               // struct_name -> methods
     pub monomorphized_cache: HashMap<(String, Vec<String>), String>,    // (name, type_args) -> specialized_name
 }
 
@@ -84,6 +85,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             source,
             generic_functions: HashMap::new(),
             generic_structs: HashMap::new(),
+            generic_methods: HashMap::new(),
             monomorphized_cache: HashMap::new(),
         }
     }
@@ -341,6 +343,26 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         body: &Stmt,
         _parent_function: inkwell::values::FunctionValue<'ctx>,
     ) -> CodegenResult<()> {
+        // Check if receiver type is a generic struct
+        if self.generic_structs.contains_key(receiver_type) {
+            // Store method for later monomorphization
+            let method_def = MethodDef {
+                receiver_name: receiver_name.to_string(),
+                receiver_type: receiver_type.to_string(),
+                method_name: method_name.to_string(),
+                params: params.to_vec(),
+                return_type: return_type.clone(),
+                body: Box::new(body.clone()),
+            };
+
+            self.generic_methods
+                .entry(receiver_type.to_string())
+                .or_insert_with(Vec::new)
+                .push(method_def);
+
+            return Ok(());  // Don't compile yet
+        }
+
         // Mangle method name: StructName_methodname
         let mangled_name = format!("{}_{}", receiver_type, method_name);
 
@@ -823,10 +845,57 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         self.struct_defs.insert(mangled_name.clone(), field_metadata);
         self.struct_types.insert(mangled_name.clone(), struct_type);
 
+        // Monomorphize associated methods
+        if let Some(methods) = self.generic_methods.get(struct_name).cloned() {
+            for method in methods {
+                self.monomorphize_method(&mangled_name, &generic_struct.type_params, type_args, &method)?;
+            }
+        }
+
         // Cache the result
         self.monomorphized_cache.insert(cache_key, mangled_name.clone());
 
         Ok(mangled_name)
+    }
+
+    /// Monomorphize and compile a method for a specialized struct
+    fn monomorphize_method(
+        &mut self,
+        specialized_struct_name: &str,
+        type_params: &[parser::ast::TypeParam],
+        type_args: &[String],
+        method: &MethodDef,
+    ) -> CodegenResult<()> {
+        // Substitute type parameters in method signature
+        let specialized_params: Vec<(String, String, Option<Expr>)> = method
+            .params
+            .iter()
+            .map(|(param_name, param_type, default)| {
+                let substituted_type = self.substitute_type(param_type, type_params, type_args);
+                (param_name.clone(), substituted_type, default.clone())
+            })
+            .collect();
+
+        let specialized_return_type = method.return_type.as_ref().map(|ret_types| {
+            ret_types
+                .iter()
+                .map(|ret_type| self.substitute_type(ret_type, type_params, type_args))
+                .collect()
+        });
+
+        // Compile the method with specialized struct name as receiver
+        // The receiver_type is now the specialized struct name (e.g., "Box_int")
+        self.compile_method_def(
+            &method.receiver_name,
+            specialized_struct_name,
+            &method.method_name,
+            &specialized_params,
+            &specialized_return_type,
+            &method.body,
+            self.current_function.ok_or_else(|| CodegenError::General(
+                "No current function during method monomorphization".to_string()
+            ))?,
+        )
     }
 
     // --- MAIN COMPILATION ---
