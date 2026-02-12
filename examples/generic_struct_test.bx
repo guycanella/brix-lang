@@ -1,6 +1,13 @@
-// Test: Generic struct definition (should show "not yet implemented" error)
+// Test: Generic struct Box<T>
 struct Box<T> {
     value: T
 }
 
-println(42)
+// Instantiate with different types
+var int_box := Box<int>{ value: 42 }
+var float_box := Box<float>{ value: 3.14 }
+var string_box := Box<string>{ value: "hello" }
+
+println(int_box.value)
+println(float_box.value)
+println(string_box.value)

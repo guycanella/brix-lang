@@ -1,0 +1,14 @@
+// Test: Generic struct with multiple type parameters
+struct Pair<T, U> {
+    first: T,
+    second: U
+}
+
+// Different combinations
+var int_float := Pair<int, float>{ first: 42, second: 3.14 }
+var str_int := Pair<string, int>{ first: "answer", second: 42 }
+
+println(int_float.first)
+println(int_float.second)
+println(str_int.first)
+println(str_int.second)

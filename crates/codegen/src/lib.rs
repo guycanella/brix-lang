@@ -475,24 +475,30 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     fn compile_struct_init(
         &mut self,
         struct_name: &str,
-        _type_args: &[String],  // Not used yet (parser doesn't send them)
+        type_args: &[String],
         field_inits: &[(String, Expr)],
         _expr: &Expr,
     ) -> CodegenResult<(BasicValueEnum<'ctx>, BrixType)> {
-        // NOTE: Type args in struct init not supported yet due to parser limitations
-        // For now, we only support non-generic struct instantiation
+        // Determine the actual struct name to use (mangled if generic)
+        let actual_struct_name = if !type_args.is_empty() {
+            // Generic struct - monomorphize it
+            self.monomorphize_struct(struct_name, type_args)?
+        } else {
+            // Non-generic struct - use as-is
+            struct_name.to_string()
+        };
 
         // 1. Get struct definition
-        let struct_def = self.struct_defs.get(struct_name)
+        let struct_def = self.struct_defs.get(&actual_struct_name)
             .ok_or_else(|| CodegenError::UndefinedSymbol {
-                name: struct_name.to_string(),
+                name: actual_struct_name.clone(),
                 context: "struct initialization".to_string(),
                 span: None,
             })?
             .clone();
 
-        let struct_type = *self.struct_types.get(struct_name)
-            .ok_or_else(|| CodegenError::General(format!("Struct type '{}' not found", struct_name)))?;
+        let struct_type = *self.struct_types.get(&actual_struct_name)
+            .ok_or_else(|| CodegenError::General(format!("Struct type '{}' not found", actual_struct_name)))?;
 
         // 2. Create field value map from field_inits
         let mut field_values: HashMap<String, BasicValueEnum> = HashMap::new();
@@ -513,7 +519,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 val
             } else {
                 return Err(CodegenError::InvalidOperation {
-                    operation: format!("struct initialization for '{}'", struct_name),
+                    operation: format!("struct initialization for '{}'", actual_struct_name),
                     reason: format!("field '{}' has no value and no default", field_name),
                     span: None,
                 });
@@ -531,7 +537,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         }
 
         // Return struct value
-        Ok((struct_val.into(), BrixType::Struct(struct_name.to_string())))
+        Ok((struct_val.into(), BrixType::Struct(actual_struct_name)))
     }
 
     // --- GENERICS: MONOMORPHIZATION ---
@@ -741,6 +747,81 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             &generic_stmt,
             parent_function,
         )?;
+
+        // Cache the result
+        self.monomorphized_cache.insert(cache_key, mangled_name.clone());
+
+        Ok(mangled_name)
+    }
+
+    /// Monomorphize and compile a generic struct with concrete type arguments
+    fn monomorphize_struct(
+        &mut self,
+        struct_name: &str,
+        type_args: &[String],
+    ) -> CodegenResult<String> {
+        // Check cache first
+        let cache_key = (struct_name.to_string(), type_args.to_vec());
+        if let Some(mangled_name) = self.monomorphized_cache.get(&cache_key) {
+            return Ok(mangled_name.clone());
+        }
+
+        // Get generic struct definition
+        let generic_struct = self.generic_structs.get(struct_name)
+            .ok_or_else(|| CodegenError::UndefinedSymbol {
+                name: struct_name.to_string(),
+                context: "generic struct instantiation".to_string(),
+                span: None,
+            })?
+            .clone();
+
+        // Validate type argument count
+        if type_args.len() != generic_struct.type_params.len() {
+            return Err(CodegenError::General(
+                format!("Generic struct '{}' expects {} type arguments, got {}",
+                    struct_name, generic_struct.type_params.len(), type_args.len())
+            ));
+        }
+
+        // Generate mangled name: Box<int> -> Box_int
+        let mangled_name = self.mangle_generic_name(struct_name, type_args);
+
+        // Substitute type parameters in fields
+        let specialized_fields: Vec<(String, String, Option<Expr>)> = generic_struct
+            .fields
+            .iter()
+            .map(|(field_name, field_type, default)| {
+                let substituted_type = self.substitute_type(
+                    field_type,
+                    &generic_struct.type_params,
+                    type_args,
+                );
+                (field_name.clone(), substituted_type, default.clone())
+            })
+            .collect();
+
+        // Convert field types to BrixType
+        let field_metadata: Vec<(String, BrixType, Option<Expr>)> = specialized_fields
+            .iter()
+            .map(|(field_name, field_type, default)| {
+                (field_name.clone(), self.string_to_brix_type(field_type), default.clone())
+            })
+            .collect();
+
+        // Create specialized LLVM struct type
+        let struct_type = self.context.opaque_struct_type(&mangled_name);
+
+        // Define struct body
+        let field_llvm_types: Vec<BasicTypeEnum> = field_metadata
+            .iter()
+            .map(|(_, brix_type, _)| self.brix_type_to_llvm(brix_type))
+            .collect();
+
+        struct_type.set_body(&field_llvm_types, false);
+
+        // Store in registries
+        self.struct_defs.insert(mangled_name.clone(), field_metadata);
+        self.struct_types.insert(mangled_name.clone(), struct_type);
 
         // Cache the result
         self.monomorphized_cache.insert(cache_key, mangled_name.clone());

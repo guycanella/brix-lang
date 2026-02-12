@@ -646,9 +646,8 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
             .delimited_by(just(Token::LBracket), just(Token::RBracket))
             .map_with_span(|exprs, span| Expr::new(ExprKind::Array(exprs), span));
 
-        // Struct initialization: Point { x: 10, y: 20 }
-        // NOTE: Type args in struct init (Box<int>{ value: 42 }) not supported yet
-        // due to parser ambiguity with comparison operators
+        // Struct initialization (non-generic): Point { x: 10, y: 20 }
+        // Generic struct init (Box<int>{ value: 42 }) is handled as postfix operation
         let struct_init = select! { Token::Identifier(name) => name }
             .then(
                 select! { Token::Identifier(field_name) => field_name }
@@ -660,7 +659,7 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
             )
             .map_with_span(|(struct_name, fields), span| Expr::new(ExprKind::StructInit {
                 struct_name,
-                type_args: vec![],  // Type args not supported in struct init yet
+                type_args: vec![],  // No type args in non-generic struct init
                 fields,
             }, span));
 
@@ -713,6 +712,7 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
             Index(Expr),
             Call(Vec<Expr>),
             GenericCall(Vec<String>, Vec<Expr>),
+            StructInit(Vec<String>, Vec<(String, Expr)>),  // Generic struct init: <int>{ value: 42 }
         }
 
         let postfix_chain = static_init
@@ -726,6 +726,22 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
                     .or(expr.clone()
                         .delimited_by(just(Token::LBracket), just(Token::RBracket))
                         .map(PostfixOp::Index))
+                    // Generic struct init: <int>{ value: 42 }
+                    .or(
+                        select! { Token::Identifier(name) => name }
+                            .separated_by(just(Token::Comma))
+                            .allow_trailing()
+                            .delimited_by(just(Token::Lt), just(Token::Gt))
+                            .then(
+                                select! { Token::Identifier(field_name) => field_name }
+                                    .then_ignore(just(Token::Colon))
+                                    .then(expr.clone())
+                                    .separated_by(just(Token::Comma))
+                                    .allow_trailing()
+                                    .delimited_by(just(Token::LBrace), just(Token::RBrace))
+                            )
+                            .map(|(type_args, fields)| PostfixOp::StructInit(type_args, fields))
+                    )
                     // Generic call: <int, float>(args)
                     .or(
                         select! { Token::Identifier(name) => name }
@@ -776,6 +792,17 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
                         type_args,
                         args,
                     }, span),
+                    PostfixOp::StructInit(type_args, fields) => {
+                        // Extract struct name from lhs (should be an identifier)
+                        match lhs.kind {
+                            ExprKind::Identifier(struct_name) => Expr::new(ExprKind::StructInit {
+                                struct_name,
+                                type_args,
+                                fields,
+                            }, span),
+                            _ => lhs,  // Should not happen, but keep lhs if it's not an identifier
+                        }
+                    },
                 }
             })
             .boxed();
