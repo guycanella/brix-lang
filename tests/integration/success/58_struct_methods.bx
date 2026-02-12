@@ -1,0 +1,31 @@
+// Test: Struct with methods and generic struct methods
+struct Point {
+    x: int,
+    y: int
+}
+
+fn (p: Point) get_x() -> int {
+    return p.x
+}
+
+fn (p: Point) add(dx: int) -> int {
+    return p.x + dx
+}
+
+struct Box<T> {
+    value: T
+}
+
+fn (b: Box) get() -> T {
+    return b.value
+}
+
+var p := Point { x: 10, y: 20 }
+println(p.get_x())
+println(p.add(5))
+
+var int_box := Box<int> { value: 42 }
+println(int_box.get())
+
+var float_box := Box<float> { value: 3.14 }
+println(float_box.get())

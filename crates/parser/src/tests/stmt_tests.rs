@@ -2,7 +2,7 @@
 //
 // Comprehensive tests for all statement types.
 
-use crate::ast::{ExprKind, Literal, Stmt, StmtKind};
+use crate::ast::{ExprKind, Literal, MethodDef, Stmt, StmtKind};
 use crate::parser::parser;
 use chumsky::Parser;
 use lexer::token::Token;
@@ -351,6 +351,166 @@ fn test_return_multiple() {
             assert_eq!(values.len(), 3);
         }
         _ => panic!("Expected return"),
+    }
+}
+
+// ==================== METHOD DEFINITION TESTS ====================
+
+#[test]
+fn test_method_simple() {
+    // fn (p: Point) get_x() -> int { return p.x }
+    let stmt = parse_stmt("fn (p: Point) get_x() -> int { return 42 }").unwrap();
+    match &stmt.kind {
+        StmtKind::MethodDef(MethodDef {
+            receiver_name,
+            receiver_type,
+            method_name,
+            params,
+            return_type,
+            ..
+        }) => {
+            assert_eq!(receiver_name, "p");
+            assert_eq!(receiver_type, "Point");
+            assert_eq!(method_name, "get_x");
+            assert_eq!(params.len(), 0);
+            assert_eq!(*return_type, Some(vec!["int".to_string()]));
+        }
+        _ => panic!("Expected method def, got {:?}", stmt.kind),
+    }
+}
+
+#[test]
+fn test_method_with_params() {
+    let stmt = parse_stmt("fn (p: Point) add(dx: int, dy: int) -> int { return dx }").unwrap();
+    match &stmt.kind {
+        StmtKind::MethodDef(MethodDef {
+            method_name,
+            params,
+            ..
+        }) => {
+            assert_eq!(method_name, "add");
+            assert_eq!(params.len(), 2);
+            assert_eq!(params[0].0, "dx");
+            assert_eq!(params[0].1, "int");
+            assert_eq!(params[1].0, "dy");
+            assert_eq!(params[1].1, "int");
+        }
+        _ => panic!("Expected method def"),
+    }
+}
+
+#[test]
+fn test_method_void() {
+    let stmt = parse_stmt("fn (p: Point) reset() { p = 0 }").unwrap();
+    match &stmt.kind {
+        StmtKind::MethodDef(MethodDef {
+            return_type,
+            ..
+        }) => {
+            assert_eq!(*return_type, None);
+        }
+        _ => panic!("Expected method def"),
+    }
+}
+
+#[test]
+fn test_method_with_function_keyword() {
+    // "function" keyword should also work for methods
+    let stmt = parse_stmt("function (p: Point) get_x() -> int { return 42 }").unwrap();
+    match &stmt.kind {
+        StmtKind::MethodDef(MethodDef {
+            receiver_name,
+            receiver_type,
+            method_name,
+            ..
+        }) => {
+            assert_eq!(receiver_name, "p");
+            assert_eq!(receiver_type, "Point");
+            assert_eq!(method_name, "get_x");
+        }
+        _ => panic!("Expected method def"),
+    }
+}
+
+#[test]
+fn test_method_and_function_in_same_program() {
+    // Critical test: both methods and functions in same program
+    let input = "fn (p: Point) get_x() -> int { return 42 }\nfn foo() -> int { return 1 }";
+    let tokens: Vec<Token> = lexer::lex(input);
+    let program = parser().parse(tokens).expect("Should parse both fn and method");
+    assert_eq!(program.statements.len(), 2);
+
+    match &program.statements[0].kind {
+        StmtKind::MethodDef(MethodDef { method_name, .. }) => {
+            assert_eq!(method_name, "get_x");
+        }
+        _ => panic!("Expected method def as first statement"),
+    }
+
+    match &program.statements[1].kind {
+        StmtKind::FunctionDef { name, .. } => {
+            assert_eq!(name, "foo");
+        }
+        _ => panic!("Expected function def as second statement"),
+    }
+}
+
+#[test]
+fn test_function_then_method() {
+    // Reverse order: function first, then method
+    let input = "fn foo() -> int { return 1 }\nfn (p: Point) get_x() -> int { return 42 }";
+    let tokens: Vec<Token> = lexer::lex(input);
+    let program = parser().parse(tokens).expect("Should parse both fn and method");
+    assert_eq!(program.statements.len(), 2);
+
+    match &program.statements[0].kind {
+        StmtKind::FunctionDef { name, .. } => {
+            assert_eq!(name, "foo");
+        }
+        _ => panic!("Expected function def as first statement"),
+    }
+
+    match &program.statements[1].kind {
+        StmtKind::MethodDef(MethodDef { method_name, .. }) => {
+            assert_eq!(method_name, "get_x");
+        }
+        _ => panic!("Expected method def as second statement"),
+    }
+}
+
+#[test]
+fn test_generic_function_still_works() {
+    // Ensure generic functions aren't broken
+    let stmt = parse_stmt("fn identity<T>(x: T) -> T { return x }").unwrap();
+    match &stmt.kind {
+        StmtKind::FunctionDef {
+            name,
+            type_params,
+            params,
+            ..
+        } => {
+            assert_eq!(name, "identity");
+            assert_eq!(type_params.len(), 1);
+            assert_eq!(type_params[0].name, "T");
+            assert_eq!(params.len(), 1);
+            assert_eq!(params[0].0, "x");
+            assert_eq!(params[0].1, "T");
+        }
+        _ => panic!("Expected function def"),
+    }
+}
+
+#[test]
+fn test_method_multiple_returns() {
+    let stmt = parse_stmt("fn (p: Point) coords() -> (int, int) { return (1, 2) }").unwrap();
+    match &stmt.kind {
+        StmtKind::MethodDef(MethodDef {
+            return_type,
+            ..
+        }) => {
+            assert_eq!(*return_type, Some(vec!["int".to_string(), "int".to_string()]));
+        }
+        _ => panic!("Expected method def"),
     }
 }
 

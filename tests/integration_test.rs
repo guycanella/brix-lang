@@ -566,6 +566,14 @@ fn test_type_conversion() {
     );
 }
 
+#[test]
+fn test_struct_methods() {
+    assert_success(
+        "tests/integration/success/58_struct_methods.bx",
+        "10\n15\n42\n3.14"
+    );
+}
+
 // ==========================================
 // PARSER ERRORS - Exit Code 2
 // ==========================================
