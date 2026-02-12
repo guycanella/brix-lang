@@ -1,0 +1,4 @@
+// Test: Simple closure
+var double := (x: int) -> int { return x * 2 }
+var result := double(21)
+println(result)

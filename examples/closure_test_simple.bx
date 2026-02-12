@@ -1,0 +1,3 @@
+// Test: Very simple closure without return type
+var add := (x: int, y: int) -> x + y
+println(42)

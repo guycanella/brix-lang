@@ -156,6 +156,8 @@ pub enum ExprKind {
         element_type: String,  // "int" or "float"
         dimensions: Vec<Expr>, // [n] for 1D, [r, c] for 2D
     },
+
+    Closure(Closure),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -188,6 +190,15 @@ pub struct MethodDef {
     pub params: Vec<(String, String, Option<Expr>)>, // (param_name, type, default_value)
     pub return_type: Option<Vec<String>>, // None = void, Some(vec!["int"]) = single
     pub body: Box<Stmt>,
+}
+
+// Closure (anonymous function with capture)
+#[derive(Debug, Clone, PartialEq)]
+pub struct Closure {
+    pub params: Vec<(String, String)>,    // Type annotations required: (name, type)
+    pub return_type: Option<String>,      // Optional return type
+    pub body: Box<Expr>,                  // Closure body (expression that gets returned)
+    pub captured_vars: Vec<String>,       // Filled by analysis pass
 }
 
 #[derive(Debug, Clone, PartialEq)]
