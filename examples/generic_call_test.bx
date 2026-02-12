@@ -1,0 +1,10 @@
+// Test: Generic function call with explicit type arguments
+function swap<T, U>(a: T, b: U) -> (U, T) {
+    return (b, a)
+}
+
+// Call with explicit type arguments
+var result1, result2 := swap<int, float>(42, 3.14)
+
+println(result1)
+println(result2)
