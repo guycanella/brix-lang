@@ -718,3 +718,111 @@ fn test_generic_struct_cache() {
     let count = ir.matches("%Box_int = type").count();
     assert_eq!(count, 1, "Should only define Box_int once (cache should work)");
 }
+
+// ===========================
+// GENERIC METHOD TESTS
+// ===========================
+
+#[test]
+fn test_generic_struct_with_method() {
+    // Test: Box<T> with get() method
+    let program = Program {
+        statements: vec![
+            Stmt::dummy(StmtKind::StructDef(parser::ast::StructDef {
+                name: "Box".to_string(),
+                type_params: vec![parser::ast::TypeParam { name: "T".to_string() }],
+                fields: vec![("value".to_string(), "T".to_string(), None)],
+            })),
+            Stmt::dummy(StmtKind::MethodDef(parser::ast::MethodDef {
+                receiver_name: "b".to_string(),
+                receiver_type: "Box".to_string(),
+                method_name: "get".to_string(),
+                params: vec![],
+                return_type: Some(vec!["T".to_string()]),
+                body: Box::new(Stmt::dummy(StmtKind::Return {
+                    values: vec![Expr::dummy(ExprKind::FieldAccess {
+                        target: Box::new(ident!("b")),
+                        field: "value".to_string(),
+                    })],
+                })),
+            })),
+            var_decl!(
+                "int_box",
+                Expr::dummy(ExprKind::StructInit {
+                    struct_name: "Box".to_string(),
+                    type_args: vec!["int".to_string()],
+                    fields: vec![("value".to_string(), lit_int!(42))],
+                })
+            ),
+            var_decl!(
+                "x",
+                Expr::dummy(ExprKind::Call {
+                    func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                        target: Box::new(ident!("int_box")),
+                        field: "get".to_string(),
+                    })),
+                    args: vec![],
+                })
+            ),
+        ],
+    };
+
+    let result = compile_program(program);
+    assert!(result.is_ok());
+    let ir = result.unwrap();
+
+    // Should have specialized struct and method
+    assert!(ir.contains("%Box_int = type"), "Should have Box_int struct");
+    assert!(ir.contains("@Box_int_get"), "Should have Box_int_get method");
+}
+
+#[test]
+fn test_generic_method_multiple_types() {
+    // Test: Methods monomorphized for different type instantiations
+    let program = Program {
+        statements: vec![
+            Stmt::dummy(StmtKind::StructDef(parser::ast::StructDef {
+                name: "Box".to_string(),
+                type_params: vec![parser::ast::TypeParam { name: "T".to_string() }],
+                fields: vec![("value".to_string(), "T".to_string(), None)],
+            })),
+            Stmt::dummy(StmtKind::MethodDef(parser::ast::MethodDef {
+                receiver_name: "b".to_string(),
+                receiver_type: "Box".to_string(),
+                method_name: "get".to_string(),
+                params: vec![],
+                return_type: Some(vec!["T".to_string()]),
+                body: Box::new(Stmt::dummy(StmtKind::Return {
+                    values: vec![Expr::dummy(ExprKind::FieldAccess {
+                        target: Box::new(ident!("b")),
+                        field: "value".to_string(),
+                    })],
+                })),
+            })),
+            var_decl!(
+                "int_box",
+                Expr::dummy(ExprKind::StructInit {
+                    struct_name: "Box".to_string(),
+                    type_args: vec!["int".to_string()],
+                    fields: vec![("value".to_string(), lit_int!(42))],
+                })
+            ),
+            var_decl!(
+                "float_box",
+                Expr::dummy(ExprKind::StructInit {
+                    struct_name: "Box".to_string(),
+                    type_args: vec!["float".to_string()],
+                    fields: vec![("value".to_string(), lit_float!(3.14))],
+                })
+            ),
+        ],
+    };
+
+    let result = compile_program(program);
+    assert!(result.is_ok());
+    let ir = result.unwrap();
+
+    // Should have both specialized methods
+    assert!(ir.contains("@Box_int_get"), "Should have Box_int_get");
+    assert!(ir.contains("@Box_float_get"), "Should have Box_float_get");
+}

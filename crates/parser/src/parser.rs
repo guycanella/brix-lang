@@ -316,50 +316,115 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
             .ignore_then(expr_parser().delimited_by(just(Token::LParen), just(Token::RParen)))
             .map_with_span(|expr, span| Stmt::new(StmtKind::Println { expr }, span));
 
-        // Function definition: function swap<T, U>(a: T, b: U) -> (U, T) { }
-        let function_def = just(Token::Function)
-            .ignore_then(select! { Token::Identifier(name) => name })
-            .then(
-                // Parse type parameters <T, U> (optional)
-                select! { Token::Identifier(name) => TypeParam { name } }
-                    .separated_by(just(Token::Comma))
-                    .allow_trailing()
-                    .delimited_by(just(Token::Lt), just(Token::Gt))
-                    .or_not()
-                    .map(|opt| opt.unwrap_or_default())
-            )
-            .then(
-                // Parameters: (name: type, name: type = default)
-                select! { Token::Identifier(param_name) => param_name }
+        // Combined function/method parser
+        // Both start with Token::Function (fn/function), so we consume it once
+        // then disambiguate by the next token:
+        //   - Method: LParen follows (receiver syntax)  -> fn (p: Point) name() { }
+        //   - Function: Identifier follows (func name)  -> fn name<T>() { }
+        let fn_or_method = just(Token::Function)
+            .ignore_then(
+                // Path 1: Method definition - fn (receiver: Type) method_name(params) -> ret { body }
+                // Starts with LParen (for receiver), so won't conflict with function path
+                select! { Token::Identifier(receiver_name) => receiver_name }
                     .then_ignore(just(Token::Colon))
-                    .then(select! { Token::Identifier(param_type) => param_type })
-                    .then(just(Token::Eq).ignore_then(expr_parser()).or_not())
-                    .map(|((name, ty), default)| (name, ty, default))
-                    .separated_by(just(Token::Comma))
-                    .allow_trailing()
-                    .delimited_by(just(Token::LParen), just(Token::RParen)),
-            )
-            .then(
-                // Return type: -> type or -> (type1, type2)
-                just(Token::Arrow)
-                    .ignore_then(
-                        select! { Token::Identifier(t) => vec![t] }.or(
-                            select! { Token::Identifier(t) => t }
-                                .separated_by(just(Token::Comma))
-                                .at_least(1)
-                                .delimited_by(just(Token::LParen), just(Token::RParen)),
-                        ),
+                    .then(select! { Token::Identifier(receiver_type) => receiver_type })
+                    .delimited_by(just(Token::LParen), just(Token::RParen))
+                    .then(select! { Token::Identifier(method_name) => method_name })
+                    .then(
+                        // Method type parameters <U> (optional, for generic methods)
+                        select! { Token::Identifier(name) => TypeParam { name } }
+                            .separated_by(just(Token::Comma))
+                            .allow_trailing()
+                            .delimited_by(just(Token::Lt), just(Token::Gt))
+                            .or_not()
+                            .map(|opt| opt.unwrap_or_default())
                     )
-                    .or_not(), // Optional for void functions
+                    .then(
+                        // Parameters (optional): (name: type, name: type = default)
+                        select! { Token::Identifier(param_name) => param_name }
+                            .then_ignore(just(Token::Colon))
+                            .then(select! { Token::Identifier(param_type) => param_type })
+                            .then(just(Token::Eq).ignore_then(expr_parser()).or_not())
+                            .map(|((name, ty), default)| (name, ty, default))
+                            .separated_by(just(Token::Comma))
+                            .allow_trailing()
+                            .delimited_by(just(Token::LParen), just(Token::RParen)),
+                    )
+                    .then(
+                        // Return type: -> type or -> (type1, type2)
+                        just(Token::Arrow)
+                            .ignore_then(
+                                select! { Token::Identifier(t) => vec![t] }.or(
+                                    select! { Token::Identifier(t) => t }
+                                        .separated_by(just(Token::Comma))
+                                        .at_least(1)
+                                        .delimited_by(just(Token::LParen), just(Token::RParen)),
+                                ),
+                            )
+                            .or_not(), // Optional for void methods
+                    )
+                    .then(block.clone())
+                    .map(|(((((receiver, method_name), _type_params), params), return_type), body)| {
+                        let (receiver_name, receiver_type) = receiver;
+                        StmtKind::MethodDef(MethodDef {
+                            receiver_name,
+                            receiver_type,
+                            method_name,
+                            params,
+                            return_type,
+                            body: Box::new(body),
+                        })
+                    })
+                .or(
+                    // Path 2: Function definition - fn name<T>(params) -> ret { body }
+                    // Starts with Identifier (function name), completely distinct from LParen
+                    select! { Token::Identifier(name) => name }
+                        .then(
+                            // Parse type parameters <T, U> (optional)
+                            select! { Token::Identifier(name) => TypeParam { name } }
+                                .separated_by(just(Token::Comma))
+                                .allow_trailing()
+                                .delimited_by(just(Token::Lt), just(Token::Gt))
+                                .or_not()
+                                .map(|opt| opt.unwrap_or_default())
+                        )
+                        .then(
+                            // Parameters: (name: type, name: type = default)
+                            select! { Token::Identifier(param_name) => param_name }
+                                .then_ignore(just(Token::Colon))
+                                .then(select! { Token::Identifier(param_type) => param_type })
+                                .then(just(Token::Eq).ignore_then(expr_parser()).or_not())
+                                .map(|((name, ty), default)| (name, ty, default))
+                                .separated_by(just(Token::Comma))
+                                .allow_trailing()
+                                .delimited_by(just(Token::LParen), just(Token::RParen)),
+                        )
+                        .then(
+                            // Return type: -> type or -> (type1, type2)
+                            just(Token::Arrow)
+                                .ignore_then(
+                                    select! { Token::Identifier(t) => vec![t] }.or(
+                                        select! { Token::Identifier(t) => t }
+                                            .separated_by(just(Token::Comma))
+                                            .at_least(1)
+                                            .delimited_by(just(Token::LParen), just(Token::RParen)),
+                                    ),
+                                )
+                                .or_not(), // Optional for void functions
+                        )
+                        .then(block.clone())
+                        .map(|((((name, type_params), params), return_type), body)| {
+                            StmtKind::FunctionDef {
+                                name,
+                                type_params,
+                                params,
+                                return_type,
+                                body: Box::new(body),
+                            }
+                        })
+                )
             )
-            .then(block.clone())
-            .map_with_span(|((((name, type_params), params), return_type), body), span| Stmt::new(StmtKind::FunctionDef {
-                name,
-                type_params,
-                params,
-                return_type,
-                body: Box::new(body),
-            }, span));
+            .map_with_span(|kind, span| Stmt::new(kind, span));
 
         // Return statement
         // Supports: return, return x, return (x), return (x, y, z)
@@ -409,52 +474,6 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
                 fields,
             }), span));
 
-        // Method definition: fn (p: Point) distance() -> float { }
-        let method_def = just(Token::Function)
-            .ignore_then(
-                select! { Token::Identifier(receiver_name) => receiver_name }
-                    .then_ignore(just(Token::Colon))
-                    .then(select! { Token::Identifier(receiver_type) => receiver_type })
-                    .delimited_by(just(Token::LParen), just(Token::RParen)),
-            )
-            .then(select! { Token::Identifier(method_name) => method_name })
-            .then(
-                // Parameters (optional): (name: type, name: type = default)
-                select! { Token::Identifier(param_name) => param_name }
-                    .then_ignore(just(Token::Colon))
-                    .then(select! { Token::Identifier(param_type) => param_type })
-                    .then(just(Token::Eq).ignore_then(expr_parser()).or_not())
-                    .map(|((name, ty), default)| (name, ty, default))
-                    .separated_by(just(Token::Comma))
-                    .allow_trailing()
-                    .delimited_by(just(Token::LParen), just(Token::RParen)),
-            )
-            .then(
-                // Return type: -> type or -> (type1, type2)
-                just(Token::Arrow)
-                    .ignore_then(
-                        select! { Token::Identifier(t) => vec![t] }.or(
-                            select! { Token::Identifier(t) => t }
-                                .separated_by(just(Token::Comma))
-                                .at_least(1)
-                                .delimited_by(just(Token::LParen), just(Token::RParen)),
-                        ),
-                    )
-                    .or_not(), // Optional for void methods
-            )
-            .then(block.clone())
-            .map_with_span(|((((receiver, method_name), params), return_type), body), span| {
-                let (receiver_name, receiver_type) = receiver;
-                Stmt::new(StmtKind::MethodDef(MethodDef {
-                    receiver_name,
-                    receiver_type,
-                    method_name,
-                    params,
-                    return_type,
-                    body: Box::new(body),
-                }), span)
-            });
-
         let expr_stmt = expr_parser().map_with_span(|expr, span| Stmt::new(StmtKind::Expr(expr), span));
 
         destructuring_decl
@@ -468,8 +487,7 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
             .or(print_stmt)
             .or(println_stmt)
             .or(struct_def)
-            .or(method_def)
-            .or(function_def)
+            .or(fn_or_method)
             .or(return_stmt)
             .or(block)
             .or(expr_stmt)
@@ -741,6 +759,19 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
                                     .delimited_by(just(Token::LBrace), just(Token::RBrace))
                             )
                             .map(|(type_args, fields)| PostfixOp::StructInit(type_args, fields))
+                    )
+                    // Non-generic struct init: { field: value, ... }
+                    // Handles Point { x: 3.0, y: 4.0 } when Point is already parsed as identifier
+                    // Requires at least one field to avoid consuming empty blocks { }
+                    .or(
+                        select! { Token::Identifier(field_name) => field_name }
+                            .then_ignore(just(Token::Colon))
+                            .then(expr.clone())
+                            .separated_by(just(Token::Comma))
+                            .allow_trailing()
+                            .at_least(1)
+                            .delimited_by(just(Token::LBrace), just(Token::RBrace))
+                            .map(|fields| PostfixOp::StructInit(vec![], fields))
                     )
                     // Generic call: <int, float>(args)
                     .or(

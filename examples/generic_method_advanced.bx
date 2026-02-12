@@ -1,0 +1,32 @@
+// Test: Advanced generic methods
+struct Box<T> {
+    value: T
+}
+
+// Method that returns the value
+fn (b: Box) get() -> T {
+    return b.value
+}
+
+// Method that creates a new Box with modified value
+fn (b: Box) map(f: T) -> Box {
+    var new_box := Box{ value: f }
+    return new_box
+}
+
+// Create instances
+var int_box := Box<int>{ value: 42 }
+var float_box := Box<float>{ value: 3.14 }
+
+// Call get() methods
+var x := int_box.get()
+var y := float_box.get()
+
+// Call map() methods
+var int_box2 := int_box.map(100)
+var float_box2 := float_box.map(2.71)
+
+println(x)
+println(y)
+println(int_box2.get())
+println(float_box2.get())

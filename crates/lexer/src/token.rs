@@ -7,6 +7,7 @@ use std::fmt;
 pub enum Token {
     // --- Keywords ---
     #[token("function")]
+    #[token("fn")]
     Function,
 
     #[token("var")]

@@ -1,0 +1,26 @@
+// Test: Generic struct with simple methods
+struct Point {
+    x: int,
+    y: int
+}
+
+// Simple method
+fn (p: Point) getX() -> int {
+    return p.x
+}
+
+fn (p: Point) getY() -> int {
+    return p.y
+}
+
+fn (p: Point) sum() -> int {
+    return p.x + p.y
+}
+
+// Create instance
+var pt := Point{ x: 10, y: 20 }
+
+// Call methods
+println(pt.getX())
+println(pt.getY())
+println(pt.sum())
