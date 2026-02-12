@@ -1,12 +1,13 @@
 # Brix Language (Design Document v1.0)
 
-> ⚠️ **Status do Projeto (Fev 2026):** O compilador Brix está em desenvolvimento ativo (v1.2.1). Core funcional com sistema de error handling robusto - 1001/1001 testes passando (100%). Ariadne integration completa para parser e codegen, com mensagens de erro lindas e contextuais para o usuário final.
+> ⚠️ **Status do Projeto (Fev 2026):** O compilador Brix está em desenvolvimento ativo (v1.3 - Type System Expansion). Core funcional com error handling robusto e **Generics COMPLETOS** - 1038/1038 testes unitários + 69 testes de integração passando (100%). Phase 2 (Generics) completa com monomorphization, type inference e generic methods. Phase 3 (Closures) iniciada mas bloqueada em parser architecture issue.
 
 ## Status Atual (Fevereiro 2026)
 
-### ✅ **Funcionalidades Implementadas (v1.0-v1.2.1):**
+### ✅ **Funcionalidades Implementadas (v1.0-v1.3):**
 - Compilação completa `.bx` → binário nativo via LLVM
 - **LLVM Optimizations**: `-O0`, `-O1`, `-O2`, `-O3`, `--release`
+- **Generics (v1.3 - COMPLETE)**: Generic functions, structs, methods com monomorphization
 - 14 tipos core (Int, Float, String, Matrix, IntMatrix, Complex, ComplexMatrix, Atom, Nil, Error, etc.)
 - Operadores completos (aritméticos, lógicos, bitwise, power operator `**`)
 - Funções definidas pelo usuário com múltiplos retornos
@@ -52,8 +53,18 @@
     - Documentação completa em CLAUDE.md
     - Fluxo de propagação de erros
     - Tabela de exit codes
-  - ✅ **1001/1001 testes passando** (Lexer: 292, Parser: 150, Codegen: 559)
+  - ✅ **1038/1038 testes unitários passando** (Lexer: 292, Parser: 158, Codegen: 588)
+  - ✅ **69/69 testes de integração passando**
   - ✅ **Phase E COMPLETE!** 🎉
+- **Generics (COMPLETE - Feb 2026):**
+  - ✅ Generic functions com type parameters (Phase 2.1)
+  - ✅ Type inference from arguments (Phase 2.3)
+  - ✅ Generic structs com type inference (Phase 2.5)
+  - ✅ Generic methods com monomorphization (Phase 2.6)
+  - ✅ Name mangling: `Box<int>.get()` → `Box_int_get()`
+  - ✅ Parser solution: Combined `fn_or_method` parser com distinct tokens
+  - ✅ 21 generic tests + 1 integration test
+  - ✅ **All 1038 unit tests + 69 integration tests passing!** 🎉
 - **LLVM Optimizations (COMPLETE - Feb 2026):**
   - ✅ Optimization levels: `-O0`, `-O1`, `-O2`, `-O3`
   - ✅ `--release` flag (equivalent to `-O3`)
@@ -62,11 +73,10 @@
   - ✅ **All 68 integration tests passing** with optimizations enabled
   - Usage: `cargo run file.bx -O 3` or `cargo run file.bx --release`
 
-### 🔮 **Planejado (v1.3):**
-- **Closures** (lambda functions com captura por referência, generics permitidos)
-- **Structs** (user-defined types com default values, Go-style receivers)
-- **Generics** (functions e structs, monomorphization, duck typing)
-- **Error handling** (continua padrão Go - sem Result<T,E>)
+### 🚧 **Em Progresso (v1.3):**
+- ✅ **Generics (COMPLETE)** - functions, structs, methods com monomorphization
+- ⚠️ **Closures (BLOCKED)** - AST complete, parser architecture issue (awaiting decision)
+- ⏸️ **Structs (PLANNED)** - user-defined types com default values, Go-style receivers
 
 ### 🔮 **Planejado (v1.3+):**
 - Concurrency (async/await via state machines)
@@ -2160,15 +2170,31 @@ tests/
 
 ---
 
-### 🔧 **v1.3 - Type System Expansion (Closures, Structs, Generics)** ⏸️ **PLANNED**
+### 🔧 **v1.3 - Type System Expansion (Closures, Structs, Generics)** 🚧 **IN PROGRESS**
 
-**Status:** Planejado para implementação após infraestrutura de testes e v1.2
+**Status:** Em desenvolvimento ativo (Feb 2026)
+- ✅ **Phase 2: Generics (COMPLETE)** - All 6 sub-phases complete
+- ⚠️ **Phase 3: Closures (BLOCKED)** - AST complete, parser blocked on architecture issue
+- ⏸️ **Phase 1: Structs (PLANNED)** - Awaiting closure resolution
 
 Esta versão introduz features fundamentais do sistema de tipos: **Closures**, **Structs** e **Generics**. Todas as decisões de design documentadas (Fev 2026).
 
 ---
 
-#### **1. Closures (Lambda Functions)**
+#### **1. Closures (Lambda Functions)** ⚠️ **BLOCKED (Parser Architecture Issue)**
+
+**Status:** AST complete, parser blocked awaiting architectural decision
+- ✅ Phase 3.1: AST implementation complete
+- ⚠️ Phase 3.2: Parser BLOCKED - expression parser cannot access statement parser
+- ⏸️ Phase 3.3: Capture analysis not started
+- ⏸️ Phase 3.4: Codegen not started
+
+**Problem:** Closure syntax requires parsing block statements `{ return x + y }` within expression context, but `expr_parser()` is a recursive function that doesn't have access to `stmt_parser()`.
+
+**Options under consideration:**
+1. **Skip closures** - defer to v1.4+ (simplest, maintains stability)
+2. **Refactor parser** - restructure to allow statements in expressions (complex)
+3. **Simplify syntax** - expression-only bodies: `(x: int) -> x * 2` (loses functionality)
 
 **Sintaxe:**
 ```brix
@@ -2307,7 +2333,16 @@ point.move(5, 10)  // point agora é {7, 13}
 
 ---
 
-#### **3. Generics (Parametric Polymorphism)**
+#### **3. Generics (Parametric Polymorphism)** ✅ **IMPLEMENTED (Feb 2026)**
+
+**Status:** COMPLETE - All phases implemented and tested
+- ✅ Phase 2.1: Generic Functions (parser, AST, monomorphization)
+- ✅ Phase 2.2: Generic Function Calls (explicit + inferred types)
+- ✅ Phase 2.3: Type Inference System (deduce T from arguments)
+- ✅ Phase 2.4: Type Substitution (replace type params in signatures)
+- ✅ Phase 2.5: Generic Structs (definitions, construction, field access)
+- ✅ Phase 2.6: Generic Methods (Go-style receivers, monomorphization)
+- **21 generic tests + 1 integration test passing** ✅
 
 **Generic Functions:**
 ```brix
@@ -2410,28 +2445,33 @@ if err != nil {
 
 #### **Roadmap de Implementação v1.3**
 
-**Fase 1: Closures** (2-3 semanas)
-1. Lexer: Tokens para `->`, parentheses para params
-2. Parser: AST nodes para `Closure` expressions
-3. Codegen: LLVM struct para closure environment (captured vars)
-4. Runtime: ARC para closures (ref counting)
-5. Tests: ~80 testes (captura, generics, como parâmetros)
+**✅ Fase 2: Generics (COMPLETA - 3-4 semanas)**
+1. ✅ Parser: Angle bracket type parameters `<T, U>`
+2. ✅ Type inference: Infer concrete types from usage
+3. ✅ Codegen: Monomorphization - generate specialized code per type
+4. ✅ Codegen: Generic methods, nested generics
+5. ✅ Tests: 21 testes (functions, structs, methods, duck typing errors)
 
-**Fase 2: Structs** (2-3 semanas)
-1. Lexer: Token `struct`
+**⚠️ Fase 3: Closures (BLOQUEADA - Parser Architecture Issue)**
+1. ✅ AST: `Closure` struct complete (params, return_type, body, captured_vars)
+2. ⚠️ Parser: **BLOCKED** - expression parser cannot access statement parser for block bodies
+   - **Syntax:** `(x: int, y: int) -> int { x + y }` (parentheses, not pipes)
+   - **Problem:** Recursive `expr_parser()` function doesn't have access to `block` parser
+   - **Status:** Placeholder parser in place, all tests passing
+   - **Options:** (1) Skip for now, (2) Refactor parser architecture, (3) Simplify to expression-only bodies
+3. ⏸️ Codegen: LLVM struct para closure environment (captured vars) - **NOT STARTED**
+4. ⏸️ Runtime: ARC para closures (ref counting) - **NOT STARTED**
+5. ⏸️ Tests: ~80 testes (captura, generics, como parâmetros) - **NOT STARTED**
+
+**⏸️ Fase 1: Structs (PLANEJADA - Awaiting closure resolution)**
+1. Lexer: Token `struct` (already exists)
 2. Parser: Struct definitions, field access, construction
 3. Codegen: LLVM struct types, field accessors
 4. Codegen: Go-style receiver methods
 5. Tests: ~100 testes (constructors, methods, default values)
 
-**Fase 3: Generics** (3-4 semanas)
-1. Parser: Angle bracket type parameters `<T, U>`
-2. Type inference: Infer concrete types from usage
-3. Codegen: Monomorphization - generate specialized code per type
-4. Codegen: Generic methods, nested generics
-5. Tests: ~120 testes (functions, structs, methods, duck typing errors)
-
-**Total estimado:** 7-10 semanas
+**Progresso atual:** Fase 2 completa (100%), Fase 3 bloqueada (~10%), Fase 1 não iniciada (0%)
+**Total estimado restante:** Depende da decisão sobre closures - 4-7 semanas se closures for adiada
 
 ---
 

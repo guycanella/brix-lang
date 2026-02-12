@@ -23,7 +23,7 @@ cargo build --release
 
 **Run tests:**
 ```bash
-cargo test --all              # Run all unit tests (1001 tests total, 100% passing)
+cargo test --all              # Run all unit tests (1038 tests total, 100% passing)
 cargo test <pattern>          # Run tests matching pattern
 cargo test -- --nocapture     # Show println! output
 cargo test -p lexer           # Run only lexer tests
@@ -377,7 +377,7 @@ Example: In `var x := a + foo * b`, error on `foo` highlights only `foo`, not en
 
 ### Unit Tests
 
-**Automated Unit Tests:** 1001 tests total, **1001 passing (100%)** 🎉
+**Automated Unit Tests:** 1038 tests total, **1038 passing (100%)** 🎉
 ```bash
 cargo test --all              # Run all tests
 cargo test <pattern>          # Run tests matching pattern
@@ -385,10 +385,10 @@ cargo test -- --nocapture     # Show output from tests
 ```
 
 **Test Organization:**
-- `crates/lexer/src/tests/` - 5 modules (atoms, numbers, strings, tokens, edge cases)
-- `crates/parser/src/tests/` - 7 modules, **149 passing, 1 ignored**
+- `crates/lexer/src/tests/` - 5 modules (atoms, numbers, strings, tokens, edge cases) - **292 passing**
+- `crates/parser/src/tests/` - 7 modules - **158 passing**
   - exprs, stmts, patterns, precedence, destructuring, errors, edge cases
-- `crates/codegen/src/tests/` - 12 modules (560 tests), **559 passing, 1 ignored**:
+- `crates/codegen/src/tests/` - 13 modules - **588 passing**:
   - builtin_tests.rs (100 tests) - Math, stats, linear algebra, type checking, I/O
   - complex_tests.rs (30 tests) - Complex numbers, ComplexMatrix, LAPACK
   - stmt_tests.rs (40 tests) - Declarations, assignments, imports, destructuring
@@ -401,12 +401,13 @@ cargo test -- --nocapture     # Show output from tests
   - expr_tests.rs (60 tests) - Literals, operators, ternary, short-circuit, chained comparisons
   - edge_cases.rs (50 tests) - Overflow, precedence, division, boolean, negative numbers
   - integration_tests.rs (15 tests) - Complex feature combinations
+  - generic_tests.rs (21 tests) - Generic functions, structs, type inference, monomorphization, generic methods
 
-**Remaining Ignored Tests:** None! 🎉 All 1001 tests passing (100%)
+**Remaining Ignored Tests:** None! 🎉 All 1038 tests passing (100%)
 
 ### Integration Tests
 
-**End-to-End Tests:** 68 tests total, **68 passing (100%)** 🎉
+**End-to-End Tests:** 69 tests total, **69 passing (100%)** 🎉
 ```bash
 # IMPORTANT: Must run sequentially to avoid file conflicts
 cargo test --test integration_test -- --test-threads=1
@@ -416,7 +417,7 @@ cargo test --test integration_test -- --test-threads=1 --nocapture
 ```
 
 **Test Categories** (`tests/integration/`):
-- **Success cases** (64 tests) - Programs that compile and execute successfully (exit code 0)
+- **Success cases** (65 tests) - Programs that compile and execute successfully (exit code 0)
   - Hello world, arithmetic, variables, control flow, functions, arrays, matrices, strings
   - Math operations, matrix operations, postfix chaining, atoms, default params
   - List comprehensions, pattern matching, complex numbers, type checking
@@ -439,8 +440,14 @@ cargo test --test integration_test -- --test-threads=1 --nocapture
 **Limitation:** Tests must run sequentially (`--test-threads=1`) because they compile to the same directory.
 
 **Recently Completed (Feb 2026):**
+- ✅ **Phase 2.6: Generic Methods** (COMPLETE - Feb 2026)
+  - Generic methods on generic structs (e.g., `Box<T>.get()`)
+  - Monomorphization of methods per struct instantiation
+  - User implemented parser solution for function/method disambiguation
+  - 2 new unit tests, multiple integration tests
+  - All 1038 unit tests + 69 integration tests passing
 - ✅ **Phase 5: Integration Tests** (COMPLETE - Feb 2026)
-  - 68 end-to-end tests covering success and error cases
+  - 69 end-to-end tests covering success and error cases
   - Exit code propagation from executed programs
   - Framework for testing real `.bx` compilation and execution
 - ✅ **Phase E7: Final Polish** (COMPLETE - Feb 2026)
@@ -554,10 +561,13 @@ cargo test --test integration_test -- --test-threads=1 --nocapture
 
 ## Development Roadmap
 
-**Current Focus (Feb 2026):** ✅ **v1.2.1 - Error Handling Implementation (COMPLETE!)**
+**Current Focus (Feb 2026):** 🚧 **v1.3 - Type System Expansion (IN PROGRESS)**
+
+**✅ Completed Phases:**
+- ✅ v1.2.1 - Error Handling Implementation (COMPLETE!)
 - ✅ Phase 1: Lexer unit tests (completed)
-- ✅ Phase 2: Parser unit tests (completed - 150 passing, 0 ignored)
-- ✅ Phase 3: Codegen unit tests (completed - 1001/1001 passing, 100%!)
+- ✅ Phase 2: Parser unit tests (completed - 158 passing)
+- ✅ Phase 3: Codegen unit tests (completed - 1038/1038 passing, 100%!)
 - ✅ Phase 3.5: Bug fix sprint (completed - fixed 8/10 issues, see FIX_BUGS.md)
 - ✅ Phase 4: Ariadne integration (completed - beautiful error messages!)
 - ✅ **Phase R: Codegen refactoring (COMPLETED!)** - 7,338 → 6,499 lines (-11.4%)
@@ -675,10 +685,33 @@ cargo test --test integration_test -- --test-threads=1 --nocapture
   - ✅ `--release` flag (equivalent to `-O3`)
   - ✅ Usage: `cargo run file.bx -O 3` or `cargo run file.bx --release`
   - ✅ Zero-overhead flag parsing via clap
-  - ✅ All 1069 tests passing with optimizations enabled
+  - ✅ All 1107 tests passing with optimizations enabled (1038 unit + 69 integration)
   - See DOCUMENTATION.md section "1.1. LLVM Optimizations" for details
 
+**v1.3 - Type System Expansion (IN PROGRESS - Feb 2026):**
+- ✅ **Phase 2: Generics (COMPLETE)** - 3-4 weeks
+  - ✅ Phase 2.1: Generic Functions (parser, monomorphization, type inference)
+  - ✅ Phase 2.2: Generic Function Calls (explicit and inferred types)
+  - ✅ Phase 2.3: Type Inference System (deduce T from arguments)
+  - ✅ Phase 2.4: Type Substitution (replace type params in signatures)
+  - ✅ Phase 2.5: Generic Structs (struct definitions, construction, field access)
+  - ✅ Phase 2.6: Generic Methods (Go-style receivers, monomorphization)
+  - **21 generic tests passing** (functions, structs, methods, inference)
+  - **All 1038 unit tests + 69 integration tests passing** ✅
+
+- 🚧 **Phase 3: Closures (BLOCKED)** - 2-3 weeks
+  - ✅ Phase 3.1: AST complete (`Closure` struct with params, return_type, body, captured_vars)
+  - ⚠️ Phase 3.2: Parser BLOCKED - architecture issue
+    - **Syntax:** `(x: int, y: int) -> int { x + y }` (uses parentheses, not pipes)
+    - **Problem:** Expression parser cannot access statement parser for block bodies
+    - **Status:** Placeholder parser in place, all 1038 tests still passing
+    - **Awaiting:** User decision on implementation approach
+  - ⏸️ Phase 3.3: Capture Analysis (not started)
+  - ⏸️ Phase 3.4: Codegen (not started)
+
 **Next Steps:**
+- Resolve closure parser architecture (3 options: skip for now, refactor parser, simplify syntax)
+- Phase 1: Structs (2-3 weeks) - if closures are deferred
 - Phase 6: Property-based tests (~20 tests)
 - Complete operator refactoring (see operators.rs TODOs)
 - LTO and PGO support (future optimization enhancements)
@@ -825,19 +858,20 @@ point.move(5, 10)  // point is now {7, 13}
 
 ---
 
-### 3. Generics
+### 3. Generics ✅ **IMPLEMENTED (Feb 2026)**
 
 **Generic Functions:**
 ```brix
 // Angle bracket syntax with explicit types
-fn map<T, U>(arr: [T], fn: (T) -> U) -> [U] {
-    // implementation
+fn swap<T>(a: T, b: T) -> (T, T) {
+    return (b, a)
 }
 
-// Multiple type parameters
-fn zip<A, B>(arr1: [A], arr2: [B]) -> [(A, B)] {
-    // implementation
-}
+// Explicit type arguments
+var result := swap<int>(1, 2)  // (2, 1)
+
+// Type inference from arguments
+var result := swap(1, 2)  // Infers T = int
 ```
 
 **Generic Structs:**
@@ -877,6 +911,7 @@ var pair := Pair{ first: 1, second: 3.14 }  // Infers Pair<int, float>
 - Similar to C++ templates and Rust generics
 - Trade-off: Larger binary size for better runtime performance
 - Example: `Box<int>` and `Box<string>` generate separate LLVM functions
+- Aggressive caching to prevent code bloat
 
 **Generic Methods:**
 ```brix
@@ -884,17 +919,25 @@ struct Box<T> {
     value: T
 }
 
-// Method can introduce additional type parameters
-fn (b: Box<T>) map<U>(fn: (T) -> U) -> Box<U> {
-    return Box{ value: fn(b.value) }
+// Method on generic struct
+fn (b: Box<T>) get() -> T {
+    return b.value
 }
 
 // Usage
 var int_box := Box{ value: 42 }
-var str_box := int_box.map<string>((x: int) -> string {
-    return string(x)
-})  // Box<string>{ value: "42" }
+println(int_box.get())  // 42 (calls Box_int_get)
 ```
+
+**Implementation Details:**
+- **Name Mangling:** `Box<int>.get()` → `Box_int_get()` in LLVM
+- **Monomorphization Cache:** Prevents duplicate instantiations
+- **Type Substitution:** Replaces type parameters (T → int) in signatures
+- **Parser Solution:** Combined `fn_or_method` parser disambiguates via distinct tokens
+  - Method path: starts with `LParen` (receiver syntax)
+  - Function path: starts with `Identifier` (function name)
+  - No token consumption conflict due to distinct starting tokens
+- **Codegen:** Methods compiled when struct is instantiated
 
 ---
 
@@ -964,13 +1007,26 @@ if err != nil {
   - ✅ 68 end-to-end tests (success, parser errors, codegen errors, runtime errors)
   - ✅ Exit code validation (0, 1, 2, 100-105)
   - ✅ Real `.bx` compilation and execution
-  - **All 68 integration tests passing!** ✅
-  - **Total: 1069 tests (1001 unit + 68 integration) - 100% passing!** 🎉
+  - **All 69 integration tests passing!** ✅
+- ✅ **Phase 2: Generics (COMPLETE - Feb 2026)** 🎉
+  - ✅ Generic functions with type parameters
+  - ✅ Generic structs with type inference
+  - ✅ Generic methods on generic structs
+  - ✅ Monomorphization (compile-time specialization)
+  - ✅ Type inference from construction
+  - ✅ 21 generic tests passing
+  - **All 1038 unit tests passing!** ✅
+  - **Total: 1107 tests (1038 unit + 69 integration) - 100% passing!** 🎉
 
 **v1.2 (COMPLETE - Feb 2026):**
 - ✅ Codegen refactoring - modular architecture (7,338 → 6,499 lines)
 - ✅ error.rs, types.rs, helpers.rs, stmt.rs, expr.rs, builtins/ modules
 - ✅ Comprehensive unit tests (1001/1001 passing - 100%)
+
+**v1.3 (IN PROGRESS - Feb 2026):**
+- ✅ **Generics (COMPLETE)** - Monomorphization, type inference, generic methods
+- 🚧 **Closures (BLOCKED)** - AST complete, parser architecture issue
+- ⏸️ **Structs (PLANNED)** - Go-style receivers, default values
 
 **v1.1 (COMPLETE - Feb 2026):**
 - ✅ Atoms (Elixir-style: `:ok`, `:error`)
