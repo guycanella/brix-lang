@@ -497,3 +497,224 @@ fn test_explicit_and_inferred_same_result() {
     let count = ir.matches("define i64 @identity_int").count();
     assert_eq!(count, 1, "Both explicit and inferred should use same specialized function");
 }
+
+// ===========================
+// GENERIC STRUCT TESTS
+// ===========================
+
+#[test]
+fn test_generic_struct_definition() {
+    // Test that generic struct definition is stored, not compiled
+    let program = Program {
+        statements: vec![
+            Stmt::dummy(StmtKind::StructDef(parser::ast::StructDef {
+                name: "Box".to_string(),
+                type_params: vec![parser::ast::TypeParam { name: "T".to_string() }],
+                fields: vec![("value".to_string(), "T".to_string(), None)],
+            })),
+        ],
+    };
+
+    let result = compile_program(program);
+    assert!(result.is_ok(), "Generic struct definition should compile without errors");
+
+    // Generic struct should NOT appear in IR (not compiled yet)
+    let ir = result.unwrap();
+    assert!(!ir.contains("%Box = type"), "Generic struct 'Box' should not be compiled yet");
+}
+
+#[test]
+fn test_generic_struct_single_type() {
+    // Test: Box<int>{ value: 42 }
+    let program = Program {
+        statements: vec![
+            Stmt::dummy(StmtKind::StructDef(parser::ast::StructDef {
+                name: "Box".to_string(),
+                type_params: vec![parser::ast::TypeParam { name: "T".to_string() }],
+                fields: vec![("value".to_string(), "T".to_string(), None)],
+            })),
+            var_decl!(
+                "b",
+                Expr::dummy(ExprKind::StructInit {
+                    struct_name: "Box".to_string(),
+                    type_args: vec!["int".to_string()],
+                    fields: vec![("value".to_string(), lit_int!(42))],
+                })
+            ),
+        ],
+    };
+
+    let result = compile_program(program);
+    assert!(result.is_ok());
+    let ir = result.unwrap();
+
+    // Should have specialized struct
+    assert!(ir.contains("%Box_int = type"), "Should have specialized struct Box_int");
+}
+
+#[test]
+fn test_generic_struct_multiple_types() {
+    // Test: Pair<int, float>{ first: 42, second: 3.14 }
+    let program = Program {
+        statements: vec![
+            Stmt::dummy(StmtKind::StructDef(parser::ast::StructDef {
+                name: "Pair".to_string(),
+                type_params: vec![
+                    parser::ast::TypeParam { name: "T".to_string() },
+                    parser::ast::TypeParam { name: "U".to_string() },
+                ],
+                fields: vec![
+                    ("first".to_string(), "T".to_string(), None),
+                    ("second".to_string(), "U".to_string(), None),
+                ],
+            })),
+            var_decl!(
+                "p",
+                Expr::dummy(ExprKind::StructInit {
+                    struct_name: "Pair".to_string(),
+                    type_args: vec!["int".to_string(), "float".to_string()],
+                    fields: vec![
+                        ("first".to_string(), lit_int!(42)),
+                        ("second".to_string(), lit_float!(3.14)),
+                    ],
+                })
+            ),
+        ],
+    };
+
+    let result = compile_program(program);
+    assert!(result.is_ok());
+    let ir = result.unwrap();
+
+    // Should have specialized struct with mangled name
+    assert!(ir.contains("%Pair_int_float = type"), "Should have specialized struct Pair_int_float");
+}
+
+#[test]
+fn test_generic_struct_field_access() {
+    // Test: Box<int>{ value: 42 }.value
+    let program = Program {
+        statements: vec![
+            Stmt::dummy(StmtKind::StructDef(parser::ast::StructDef {
+                name: "Box".to_string(),
+                type_params: vec![parser::ast::TypeParam { name: "T".to_string() }],
+                fields: vec![("value".to_string(), "T".to_string(), None)],
+            })),
+            var_decl!(
+                "b",
+                Expr::dummy(ExprKind::StructInit {
+                    struct_name: "Box".to_string(),
+                    type_args: vec!["int".to_string()],
+                    fields: vec![("value".to_string(), lit_int!(42))],
+                })
+            ),
+            var_decl!(
+                "x",
+                Expr::dummy(ExprKind::FieldAccess {
+                    target: Box::new(ident!("b")),
+                    field: "value".to_string(),
+                })
+            ),
+        ],
+    };
+
+    let result = compile_program(program);
+    assert!(result.is_ok());
+    let ir = result.unwrap();
+
+    // Should have field access
+    assert!(ir.contains("%Box_int = type"), "Should have specialized struct");
+}
+
+#[test]
+fn test_generic_struct_multiple_specializations() {
+    // Test: Multiple instantiations with different types
+    let program = Program {
+        statements: vec![
+            Stmt::dummy(StmtKind::StructDef(parser::ast::StructDef {
+                name: "Box".to_string(),
+                type_params: vec![parser::ast::TypeParam { name: "T".to_string() }],
+                fields: vec![("value".to_string(), "T".to_string(), None)],
+            })),
+            var_decl!(
+                "int_box",
+                Expr::dummy(ExprKind::StructInit {
+                    struct_name: "Box".to_string(),
+                    type_args: vec!["int".to_string()],
+                    fields: vec![("value".to_string(), lit_int!(42))],
+                })
+            ),
+            var_decl!(
+                "float_box",
+                Expr::dummy(ExprKind::StructInit {
+                    struct_name: "Box".to_string(),
+                    type_args: vec!["float".to_string()],
+                    fields: vec![("value".to_string(), lit_float!(3.14))],
+                })
+            ),
+            var_decl!(
+                "str_box",
+                Expr::dummy(ExprKind::StructInit {
+                    struct_name: "Box".to_string(),
+                    type_args: vec!["string".to_string()],
+                    fields: vec![("value".to_string(), lit_str!("hello"))],
+                })
+            ),
+        ],
+    };
+
+    let result = compile_program(program);
+    assert!(result.is_ok());
+    let ir = result.unwrap();
+
+    // Should have three different specializations
+    assert!(ir.contains("%Box_int = type"), "Should have Box_int");
+    assert!(ir.contains("%Box_float = type"), "Should have Box_float");
+    assert!(ir.contains("%Box_string = type"), "Should have Box_string");
+}
+
+#[test]
+fn test_generic_struct_cache() {
+    // Test: Multiple instantiations with same types should reuse
+    let program = Program {
+        statements: vec![
+            Stmt::dummy(StmtKind::StructDef(parser::ast::StructDef {
+                name: "Box".to_string(),
+                type_params: vec![parser::ast::TypeParam { name: "T".to_string() }],
+                fields: vec![("value".to_string(), "T".to_string(), None)],
+            })),
+            var_decl!(
+                "a",
+                Expr::dummy(ExprKind::StructInit {
+                    struct_name: "Box".to_string(),
+                    type_args: vec!["int".to_string()],
+                    fields: vec![("value".to_string(), lit_int!(1))],
+                })
+            ),
+            var_decl!(
+                "b",
+                Expr::dummy(ExprKind::StructInit {
+                    struct_name: "Box".to_string(),
+                    type_args: vec!["int".to_string()],
+                    fields: vec![("value".to_string(), lit_int!(2))],
+                })
+            ),
+            var_decl!(
+                "c",
+                Expr::dummy(ExprKind::StructInit {
+                    struct_name: "Box".to_string(),
+                    type_args: vec!["int".to_string()],
+                    fields: vec![("value".to_string(), lit_int!(3))],
+                })
+            ),
+        ],
+    };
+
+    let result = compile_program(program);
+    assert!(result.is_ok());
+    let ir = result.unwrap();
+
+    // Should only have ONE definition of Box_int (cache should work)
+    let count = ir.matches("%Box_int = type").count();
+    assert_eq!(count, 1, "Should only define Box_int once (cache should work)");
+}
