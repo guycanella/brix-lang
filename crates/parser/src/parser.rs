@@ -657,6 +657,11 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
                 generators,
             }, span));
 
+        // Closure: (x: int, y: int) -> int x + y
+        // Simplified version with expression body (no block needed)
+        // This placeholder will be properly implemented in Phase 3
+        let closure = just(Token::Error).to(Expr::new(ExprKind::Literal(Literal::Int(0)), 0..0));
+
         let array_literal = expr
             .clone()
             .separated_by(just(Token::Comma))
@@ -703,6 +708,7 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
             .or(fstring)
             .or(match_expr)
             .or(list_comp)
+            .or(closure)  // Try closure BEFORE paren_expr
             .or(struct_init)
             .or(array_literal)
             .or(paren_expr);
