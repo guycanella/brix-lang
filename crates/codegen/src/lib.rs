@@ -591,6 +591,95 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         })
     }
 
+    /// Infer type arguments from function call arguments
+    /// Example: add(1, 2.5) with add<T>(a: T, b: T) -> infers T = float (promotion)
+    fn infer_generic_types(
+        &mut self,
+        func_name: &str,
+        args: &[Expr],
+    ) -> CodegenResult<Vec<String>> {
+        // Get generic function definition
+        let generic_stmt = self.generic_functions.get(func_name)
+            .ok_or_else(|| CodegenError::UndefinedSymbol {
+                name: func_name.to_string(),
+                context: "generic type inference".to_string(),
+                span: None,
+            })?
+            .clone();
+
+        // Extract type parameters and params
+        let (type_params, params) = match &generic_stmt.kind {
+            StmtKind::FunctionDef {
+                type_params,
+                params,
+                ..
+            } => (type_params, params),
+            _ => return Err(CodegenError::General(
+                format!("Stored generic '{}' is not a function", func_name)
+            )),
+        };
+
+        // Compile arguments to get their types
+        let mut arg_types: Vec<BrixType> = Vec::new();
+        for arg in args {
+            let (_, arg_type) = self.compile_expr(arg)?;
+            arg_types.push(arg_type);
+        }
+
+        // Build substitution map: type_param -> concrete_type
+        let mut subst_map: HashMap<String, String> = HashMap::new();
+
+        // Match each argument type against parameter type
+        for (i, arg_type) in arg_types.iter().enumerate() {
+            if i >= params.len() {
+                break;  // More args than params - will error later
+            }
+
+            let (_param_name, param_type_str, _default) = &params[i];
+
+            // Convert BrixType to string for comparison
+            let arg_type_str = match arg_type {
+                BrixType::Int => "int",
+                BrixType::Float => "float",
+                BrixType::String => "string",
+                BrixType::Matrix => "matrix",
+                BrixType::IntMatrix => "intmatrix",
+                _ => "unknown",
+            }.to_string();
+
+            // If param type is a type parameter, record the substitution
+            if type_params.iter().any(|tp| &tp.name == param_type_str) {
+                // Check if we already have a substitution for this type param
+                if let Some(existing) = subst_map.get(param_type_str) {
+                    // If types don't match, apply promotion rules
+                    if existing != &arg_type_str {
+                        // Int + Float = Float (promote to float)
+                        if (existing == "int" && arg_type_str == "float") ||
+                           (existing == "float" && arg_type_str == "int") {
+                            subst_map.insert(param_type_str.clone(), "float".to_string());
+                        }
+                    }
+                } else {
+                    subst_map.insert(param_type_str.clone(), arg_type_str);
+                }
+            }
+        }
+
+        // Build final type_args vector in the order of type_params
+        let mut type_args = Vec::new();
+        for type_param in type_params {
+            if let Some(concrete_type) = subst_map.get(&type_param.name) {
+                type_args.push(concrete_type.clone());
+            } else {
+                return Err(CodegenError::General(
+                    format!("Could not infer type for type parameter '{}'", type_param.name)
+                ));
+            }
+        }
+
+        Ok(type_args)
+    }
+
     /// Monomorphize and compile a generic function
     fn monomorphize_function(
         &mut self,
@@ -4184,6 +4273,93 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             CodegenError::General("zip() call failed".to_string())
                         })?;
                         return Ok((val, tuple_type));
+                    }
+                }
+
+                // Check if it's a generic function call (with type inference)
+                if let ExprKind::Identifier(fn_name) = &func.kind {
+                    // Check if this is a generic function
+                    if self.generic_functions.contains_key(fn_name) {
+                        // Get parent function for context
+                        let parent_function = self.current_function.ok_or_else(|| {
+                            CodegenError::General("Generic call outside function context".to_string())
+                        })?;
+
+                        // Infer type arguments from argument types
+                        let type_args = self.infer_generic_types(fn_name, args)?;
+
+                        // Monomorphize the function
+                        let specialized_name = self.monomorphize_function(fn_name, &type_args, parent_function)?;
+
+                        // Get the specialized function
+                        let llvm_fn = self.module.get_function(&specialized_name)
+                            .ok_or_else(|| CodegenError::General(
+                                format!("Specialized function '{}' not found after monomorphization", specialized_name)
+                            ))?;
+
+                        // Get parameter types from the generic function to cast arguments correctly
+                        let generic_stmt = self.generic_functions.get(fn_name).unwrap().clone();
+                        let (type_params, params) = match &generic_stmt.kind {
+                            StmtKind::FunctionDef { type_params, params, .. } => (type_params, params),
+                            _ => unreachable!(),
+                        };
+
+                        // Compile arguments with proper type casting
+                        let mut llvm_args: Vec<BasicMetadataValueEnum> = Vec::new();
+                        for (i, arg) in args.iter().enumerate() {
+                            let (mut arg_val, arg_type) = self.compile_expr(arg)?;
+
+                            // Get expected type for this parameter
+                            if i < params.len() {
+                                let (_param_name, param_type_str, _default) = &params[i];
+                                let expected_type = self.substitute_type(param_type_str, type_params, &type_args);
+
+                                // Cast int to float if needed
+                                if arg_type == BrixType::Int && expected_type == "float" {
+                                    arg_val = self.builder
+                                        .build_signed_int_to_float(
+                                            arg_val.into_int_value(),
+                                            self.context.f64_type(),
+                                            "int_to_float_cast",
+                                        )
+                                        .map_err(|_| CodegenError::LLVMError {
+                                            operation: "build_signed_int_to_float".to_string(),
+                                            details: "Failed to cast int to float for generic call".to_string(),
+                                            span: Some(expr.span.clone()),
+                                        })?
+                                        .into();
+                                }
+                            }
+
+                            llvm_args.push(arg_val.into());
+                        }
+
+                        // Call the specialized function
+                        let call_result = self.builder
+                            .build_call(llvm_fn, &llvm_args, "generic_inferred_call")
+                            .map_err(|_| CodegenError::LLVMError {
+                                operation: "build_call".to_string(),
+                                details: format!("Failed to call specialized function '{}'", specialized_name),
+                                span: Some(expr.span.clone()),
+                            })?;
+
+                        // Get return value
+                        if let Some(ret_val) = call_result.try_as_basic_value().left() {
+                            // Infer return type from LLVM function signature
+                            let ret_type = if let Some((_, Some(ret_types))) = self.functions.get(&specialized_name) {
+                                if ret_types.len() == 1 {
+                                    ret_types[0].clone()
+                                } else {
+                                    BrixType::Tuple(ret_types.clone())
+                                }
+                            } else {
+                                BrixType::Int  // Fallback
+                            };
+                            return Ok((ret_val, ret_type));
+                        } else {
+                            // Void function
+                            return Ok((self.context.i64_type().const_int(0, false).into(), BrixType::Void));
+                        }
                     }
                 }
 

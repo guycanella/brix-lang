@@ -1,0 +1,13 @@
+// Test: Generic identity function with type inference
+function identity<T>(x: T) -> T {
+    return x
+}
+
+// Different types automatically inferred
+var a := identity(42)          // T = int
+var b := identity(3.14)        // T = float
+var c := identity("hello")     // T = string
+
+println(a)
+println(b)
+println(c)
