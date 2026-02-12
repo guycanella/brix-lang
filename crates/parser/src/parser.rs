@@ -1,4 +1,4 @@
-use crate::ast::{BinaryOp, Expr, ExprKind, FStringPart, Literal, MatchArm, Pattern, Program, Stmt, StmtKind, UnaryOp, StructDef, MethodDef};
+use crate::ast::{BinaryOp, Expr, ExprKind, FStringPart, Literal, MatchArm, Pattern, Program, Stmt, StmtKind, UnaryOp, StructDef, MethodDef, TypeParam};
 use chumsky::prelude::*;
 use lexer::token::Token;
 
@@ -316,9 +316,18 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
             .ignore_then(expr_parser().delimited_by(just(Token::LParen), just(Token::RParen)))
             .map_with_span(|expr, span| Stmt::new(StmtKind::Println { expr }, span));
 
-        // Function definition
+        // Function definition: function swap<T, U>(a: T, b: U) -> (U, T) { }
         let function_def = just(Token::Function)
             .ignore_then(select! { Token::Identifier(name) => name })
+            .then(
+                // Parse type parameters <T, U> (optional)
+                select! { Token::Identifier(name) => TypeParam { name } }
+                    .separated_by(just(Token::Comma))
+                    .allow_trailing()
+                    .delimited_by(just(Token::Lt), just(Token::Gt))
+                    .or_not()
+                    .map(|opt| opt.unwrap_or_default())
+            )
             .then(
                 // Parameters: (name: type, name: type = default)
                 select! { Token::Identifier(param_name) => param_name }
@@ -344,9 +353,9 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
                     .or_not(), // Optional for void functions
             )
             .then(block.clone())
-            .map_with_span(|(((name, params), return_type), body), span| Stmt::new(StmtKind::FunctionDef {
+            .map_with_span(|((((name, type_params), params), return_type), body), span| Stmt::new(StmtKind::FunctionDef {
                 name,
-                type_params: vec![], // TODO: Parse generic type parameters
+                type_params,
                 params,
                 return_type,
                 body: Box::new(body),
@@ -371,9 +380,18 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
                 values: values.unwrap_or_default(),
             }, span));
 
-        // Struct definition: struct Point { x: int = 0; y: int }
+        // Struct definition: struct Box<T> { value: T }
         let struct_def = just(Token::Struct)
             .ignore_then(select! { Token::Identifier(name) => name })
+            .then(
+                // Parse type parameters <T> (optional)
+                select! { Token::Identifier(name) => TypeParam { name } }
+                    .separated_by(just(Token::Comma))
+                    .allow_trailing()
+                    .delimited_by(just(Token::Lt), just(Token::Gt))
+                    .or_not()
+                    .map(|opt| opt.unwrap_or_default())
+            )
             .then(
                 // Fields: name: type = default (semicolon separated for inline, newline separated for multi-line)
                 select! { Token::Identifier(field_name) => field_name }
@@ -385,9 +403,9 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
                     .allow_trailing()
                     .delimited_by(just(Token::LBrace), just(Token::RBrace)),
             )
-            .map_with_span(|(name, fields), span| Stmt::new(StmtKind::StructDef(StructDef {
+            .map_with_span(|((name, type_params), fields), span| Stmt::new(StmtKind::StructDef(StructDef {
                 name,
-                type_params: vec![], // TODO: Parse generic type parameters
+                type_params,
                 fields,
             }), span));
 
@@ -627,8 +645,17 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
             .delimited_by(just(Token::LBracket), just(Token::RBracket))
             .map_with_span(|exprs, span| Expr::new(ExprKind::Array(exprs), span));
 
-        // Struct initialization: Point { x: 10, y: 20 }
+        // Struct initialization: Box<int>{ value: 42 } or Point { x: 10, y: 20 }
         let struct_init = select! { Token::Identifier(name) => name }
+            .then(
+                // Parse type arguments <int> (optional)
+                select! { Token::Identifier(name) => name }
+                    .separated_by(just(Token::Comma))
+                    .allow_trailing()
+                    .delimited_by(just(Token::Lt), just(Token::Gt))
+                    .or_not()
+                    .map(|opt| opt.unwrap_or_default())
+            )
             .then(
                 select! { Token::Identifier(field_name) => field_name }
                     .then_ignore(just(Token::Colon))
@@ -637,9 +664,9 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
                     .allow_trailing()
                     .delimited_by(just(Token::LBrace), just(Token::RBrace)),
             )
-            .map_with_span(|(struct_name, fields), span| Expr::new(ExprKind::StructInit {
+            .map_with_span(|((struct_name, type_args), fields), span| Expr::new(ExprKind::StructInit {
                 struct_name,
-                type_args: vec![], // TODO: Parse type arguments for generic structs
+                type_args,
                 fields,
             }, span));
 
@@ -684,13 +711,14 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
                 dimensions,
             }, span));
 
-        // Postfix operations: field access, indexing, and function calls
+        // Postfix operations: field access, indexing, function calls, and generic calls
         // Can be chained in any order: get_matrix().rows, arr[0].len, get_func()()
-        // Define the three types of postfix operations
+        // Define the four types of postfix operations
         enum PostfixOp {
             Field(String),
             Index(Expr),
             Call(Vec<Expr>),
+            GenericCall(Vec<String>, Vec<Expr>),
         }
 
         let postfix_chain = static_init
@@ -704,7 +732,21 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
                     .or(expr.clone()
                         .delimited_by(just(Token::LBracket), just(Token::RBracket))
                         .map(PostfixOp::Index))
-                    // Function call: (args)
+                    // Generic call: <int, float>(args)
+                    .or(
+                        select! { Token::Identifier(name) => name }
+                            .separated_by(just(Token::Comma))
+                            .allow_trailing()
+                            .delimited_by(just(Token::Lt), just(Token::Gt))
+                            .then(
+                                expr.clone()
+                                    .separated_by(just(Token::Comma))
+                                    .allow_trailing()
+                                    .delimited_by(just(Token::LParen), just(Token::RParen))
+                            )
+                            .map(|(type_args, args)| PostfixOp::GenericCall(type_args, args))
+                    )
+                    // Regular function call: (args)
                     .or(expr.clone()
                         .separated_by(just(Token::Comma))
                         .allow_trailing()
@@ -733,6 +775,11 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
                     },
                     PostfixOp::Call(args) => Expr::new(ExprKind::Call {
                         func: Box::new(lhs),
+                        args,
+                    }, span),
+                    PostfixOp::GenericCall(type_args, args) => Expr::new(ExprKind::GenericCall {
+                        func: Box::new(lhs),
+                        type_args,
                         args,
                     }, span),
                 }

@@ -164,11 +164,21 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     fn compile_function_def(
         &mut self,
         name: &str,
+        type_params: &[parser::ast::TypeParam],
         params: &[(String, String, Option<Expr>)],
         return_type: &Option<Vec<String>>,
         body: &Stmt,
         _parent_function: inkwell::values::FunctionValue<'ctx>,
     ) -> CodegenResult<()> {
+        // TODO: Handle generic functions with type_params
+        if !type_params.is_empty() {
+            return Err(CodegenError::General(
+                format!("Generic function definition not yet implemented: {}<{}>",
+                    name,
+                    type_params.iter().map(|tp| tp.name.as_str()).collect::<Vec<_>>().join(", "))
+            ));
+        }
+
         // 1. Parse return type
         let ret_types: Vec<BrixType> = match return_type {
             None => vec![], // void
@@ -285,8 +295,18 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     fn compile_struct_def(
         &mut self,
         name: &str,
+        type_params: &[parser::ast::TypeParam],
         fields: &[(String, String, Option<Expr>)],
     ) -> CodegenResult<()> {
+        // TODO: Handle generic structs with type_params
+        if !type_params.is_empty() {
+            return Err(CodegenError::General(
+                format!("Generic struct definition not yet implemented: {}<{}>",
+                    name,
+                    type_params.iter().map(|tp| tp.name.as_str()).collect::<Vec<_>>().join(", "))
+            ));
+        }
+
         // 1. Parse field types
         let field_metadata: Vec<(String, BrixType, Option<Expr>)> = fields
             .iter()
@@ -458,8 +478,19 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     fn compile_struct_init(
         &mut self,
         struct_name: &str,
+        type_args: &[String],
         field_inits: &[(String, Expr)],
+        _expr: &Expr,
     ) -> CodegenResult<(BasicValueEnum<'ctx>, BrixType)> {
+        // TODO: Handle generic structs with type_args
+        if !type_args.is_empty() {
+            return Err(CodegenError::General(
+                format!("Generic struct instantiation not yet implemented: {}<{}>",
+                    struct_name,
+                    type_args.join(", "))
+            ));
+        }
+
         // 1. Get struct definition
         let struct_def = self.struct_defs.get(struct_name)
             .ok_or_else(|| CodegenError::UndefinedSymbol {
@@ -1268,17 +1299,17 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
             StmtKind::FunctionDef {
                 name,
+                type_params,
                 params,
                 return_type,
                 body,
-                ..
             } => {
-                self.compile_function_def(name, params, return_type, body, function)?;
+                self.compile_function_def(name, type_params, params, return_type, body, function)?;
                 Ok(())
             }
 
             StmtKind::StructDef(struct_def) => {
-                self.compile_struct_def(&struct_def.name, &struct_def.fields)?;
+                self.compile_struct_def(&struct_def.name, &struct_def.type_params, &struct_def.fields)?;
                 Ok(())
             }
 
@@ -4140,6 +4171,17 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 Err(CodegenError::MissingValue { what: "expression value".to_string(), context: "compile_expr".to_string(), span: None })
             }
 
+            ExprKind::GenericCall { func, type_args, args } => {
+                // TODO: Implement generic function calls with monomorphization
+                let type_args_str = type_args.join(", ");
+                Err(CodegenError::General(
+                    format!("Generic function call not yet implemented: {:?}<{}>({} args)",
+                        func,
+                        type_args_str,
+                        args.len())
+                ))
+            }
+
             ExprKind::FieldAccess { target, field } => {
                 // Special handling for struct field access on identifiers
                 // We need the pointer to the struct, not the loaded value
@@ -5136,9 +5178,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
             ExprKind::StructInit {
                 struct_name,
+                type_args,
                 fields,
-                ..
-            } => self.compile_struct_init(struct_name, fields),
+            } => self.compile_struct_init(struct_name, type_args, fields, expr),
 
             #[allow(unreachable_patterns)]
             _ => {

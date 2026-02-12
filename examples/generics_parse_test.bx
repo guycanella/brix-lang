@@ -1,0 +1,17 @@
+// Test: Generic function parsing (should show "not yet implemented" error)
+function swap<T, U>(a: T, b: U) -> (U, T) {
+    return (b, a)
+}
+
+// Test: Generic struct parsing (should show "not yet implemented" error)
+struct Box<T> {
+    value: T
+}
+
+// Test: Non-generic function (should work)
+function add(a: int, b: int) -> int {
+    return a + b
+}
+
+var result := add(10, 20)
+println(result)
