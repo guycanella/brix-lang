@@ -168,15 +168,13 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         params: &[(String, String, Option<Expr>)],
         return_type: &Option<Vec<String>>,
         body: &Stmt,
+        stmt: &Stmt,  // Full statement for storing generics
         _parent_function: inkwell::values::FunctionValue<'ctx>,
     ) -> CodegenResult<()> {
-        // TODO: Handle generic functions with type_params
+        // Handle generic functions - store for later monomorphization
         if !type_params.is_empty() {
-            return Err(CodegenError::General(
-                format!("Generic function definition not yet implemented: {}<{}>",
-                    name,
-                    type_params.iter().map(|tp| tp.name.as_str()).collect::<Vec<_>>().join(", "))
-            ));
+            self.generic_functions.insert(name.to_string(), stmt.clone());
+            return Ok(());  // Don't compile yet
         }
 
         // 1. Parse return type
@@ -297,14 +295,12 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         name: &str,
         type_params: &[parser::ast::TypeParam],
         fields: &[(String, String, Option<Expr>)],
+        struct_def: &StructDef,  // Full struct definition for storing generics
     ) -> CodegenResult<()> {
-        // TODO: Handle generic structs with type_params
+        // Handle generic structs - store for later monomorphization
         if !type_params.is_empty() {
-            return Err(CodegenError::General(
-                format!("Generic struct definition not yet implemented: {}<{}>",
-                    name,
-                    type_params.iter().map(|tp| tp.name.as_str()).collect::<Vec<_>>().join(", "))
-            ));
+            self.generic_structs.insert(name.to_string(), struct_def.clone());
+            return Ok(());  // Don't compile yet
         }
 
         // 1. Parse field types
@@ -478,18 +474,12 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     fn compile_struct_init(
         &mut self,
         struct_name: &str,
-        type_args: &[String],
+        _type_args: &[String],  // Not used yet (parser doesn't send them)
         field_inits: &[(String, Expr)],
         _expr: &Expr,
     ) -> CodegenResult<(BasicValueEnum<'ctx>, BrixType)> {
-        // TODO: Handle generic structs with type_args
-        if !type_args.is_empty() {
-            return Err(CodegenError::General(
-                format!("Generic struct instantiation not yet implemented: {}<{}>",
-                    struct_name,
-                    type_args.join(", "))
-            ));
-        }
+        // NOTE: Type args in struct init not supported yet due to parser limitations
+        // For now, we only support non-generic struct instantiation
 
         // 1. Get struct definition
         let struct_def = self.struct_defs.get(struct_name)
@@ -1304,12 +1294,12 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 return_type,
                 body,
             } => {
-                self.compile_function_def(name, type_params, params, return_type, body, function)?;
+                self.compile_function_def(name, type_params, params, return_type, body, stmt, function)?;
                 Ok(())
             }
 
             StmtKind::StructDef(struct_def) => {
-                self.compile_struct_def(&struct_def.name, &struct_def.type_params, &struct_def.fields)?;
+                self.compile_struct_def(&struct_def.name, &struct_def.type_params, &struct_def.fields, struct_def)?;
                 Ok(())
             }
 

@@ -499,6 +499,7 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
             },
         }
         .map_with_span(|lit, span| Expr::new(ExprKind::Literal(lit), span))
+        // Plain identifier (struct init will be detected in postfix chain later if followed by {})
         .or(select! { Token::Identifier(s) => s }
             .map_with_span(|s, span| Expr::new(ExprKind::Identifier(s), span)));
 
@@ -645,17 +646,10 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
             .delimited_by(just(Token::LBracket), just(Token::RBracket))
             .map_with_span(|exprs, span| Expr::new(ExprKind::Array(exprs), span));
 
-        // Struct initialization: Box<int>{ value: 42 } or Point { x: 10, y: 20 }
+        // Struct initialization: Point { x: 10, y: 20 }
+        // NOTE: Type args in struct init (Box<int>{ value: 42 }) not supported yet
+        // due to parser ambiguity with comparison operators
         let struct_init = select! { Token::Identifier(name) => name }
-            .then(
-                // Parse type arguments <int> (optional)
-                select! { Token::Identifier(name) => name }
-                    .separated_by(just(Token::Comma))
-                    .allow_trailing()
-                    .delimited_by(just(Token::Lt), just(Token::Gt))
-                    .or_not()
-                    .map(|opt| opt.unwrap_or_default())
-            )
             .then(
                 select! { Token::Identifier(field_name) => field_name }
                     .then_ignore(just(Token::Colon))
@@ -664,9 +658,9 @@ fn expr_parser() -> impl Parser<Token, Expr, Error = Simple<Token>> {
                     .allow_trailing()
                     .delimited_by(just(Token::LBrace), just(Token::RBrace)),
             )
-            .map_with_span(|((struct_name, type_args), fields), span| Expr::new(ExprKind::StructInit {
+            .map_with_span(|(struct_name, fields), span| Expr::new(ExprKind::StructInit {
                 struct_name,
-                type_args,
+                type_args: vec![],  // Type args not supported in struct init yet
                 fields,
             }, span));
 
