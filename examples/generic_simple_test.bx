@@ -1,0 +1,9 @@
+// Test: Simple generic function call
+function identity<T>(x: T) -> T {
+    return x
+}
+
+// Call with explicit type argument
+var result := identity<int>(42)
+
+println(result)

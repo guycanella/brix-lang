@@ -2,6 +2,7 @@ use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::{Linkage, Module};
 use inkwell::types::{BasicMetadataTypeEnum, BasicType, BasicTypeEnum};
+use inkwell::values::BasicMetadataValueEnum;
 use inkwell::values::{BasicValue, BasicValueEnum, FloatValue, IntValue, PointerValue};
 use inkwell::{AddressSpace, FloatPredicate, IntPredicate};
 use parser::ast::{BinaryOp, Expr, ExprKind, Literal, Program, Stmt, StmtKind, StructDef, UnaryOp};
@@ -531,6 +532,131 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
         // Return struct value
         Ok((struct_val.into(), BrixType::Struct(struct_name.to_string())))
+    }
+
+    // --- GENERICS: MONOMORPHIZATION ---
+
+    /// Generate mangled name for a specialized generic function
+    /// Example: swap<int, float> -> "swap_int_float"
+    fn mangle_generic_name(&self, base_name: &str, type_args: &[String]) -> String {
+        format!("{}_{}", base_name, type_args.join("_"))
+    }
+
+    /// Substitute type parameters in a type string
+    /// Example: T -> int, U -> float in "T" returns "int"
+    fn substitute_type(
+        &self,
+        type_str: &str,
+        type_params: &[parser::ast::TypeParam],
+        type_args: &[String],
+    ) -> String {
+        // Create substitution map
+        let mut subst_map: HashMap<String, String> = HashMap::new();
+        for (param, arg) in type_params.iter().zip(type_args.iter()) {
+            subst_map.insert(param.name.clone(), arg.clone());
+        }
+
+        // Apply substitution
+        subst_map.get(type_str).cloned().unwrap_or_else(|| type_str.to_string())
+    }
+
+    /// Substitute type parameters in function parameters
+    fn substitute_params(
+        &self,
+        params: &[(String, String, Option<Expr>)],
+        type_params: &[parser::ast::TypeParam],
+        type_args: &[String],
+    ) -> Vec<(String, String, Option<Expr>)> {
+        params
+            .iter()
+            .map(|(name, type_str, default)| {
+                let new_type = self.substitute_type(type_str, type_params, type_args);
+                (name.clone(), new_type, default.clone())
+            })
+            .collect()
+    }
+
+    /// Substitute type parameters in return type
+    fn substitute_return_type(
+        &self,
+        return_type: &Option<Vec<String>>,
+        type_params: &[parser::ast::TypeParam],
+        type_args: &[String],
+    ) -> Option<Vec<String>> {
+        return_type.as_ref().map(|types| {
+            types
+                .iter()
+                .map(|t| self.substitute_type(t, type_params, type_args))
+                .collect()
+        })
+    }
+
+    /// Monomorphize and compile a generic function
+    fn monomorphize_function(
+        &mut self,
+        func_name: &str,
+        type_args: &[String],
+        parent_function: inkwell::values::FunctionValue<'ctx>,
+    ) -> CodegenResult<String> {
+        // Check cache first
+        let cache_key = (func_name.to_string(), type_args.to_vec());
+        if let Some(mangled_name) = self.monomorphized_cache.get(&cache_key) {
+            return Ok(mangled_name.clone());
+        }
+
+        // Get generic function definition
+        let generic_stmt = self.generic_functions.get(func_name)
+            .ok_or_else(|| CodegenError::UndefinedSymbol {
+                name: func_name.to_string(),
+                context: "generic function call".to_string(),
+                span: None,
+            })?
+            .clone();
+
+        // Extract function details
+        let (type_params, params, return_type, body) = match &generic_stmt.kind {
+            StmtKind::FunctionDef {
+                type_params,
+                params,
+                return_type,
+                body,
+                ..
+            } => (type_params, params, return_type, body),
+            _ => return Err(CodegenError::General(
+                format!("Stored generic '{}' is not a function", func_name)
+            )),
+        };
+
+        // Validate type argument count
+        if type_args.len() != type_params.len() {
+            return Err(CodegenError::General(
+                format!("Generic function '{}' expects {} type arguments, got {}",
+                    func_name, type_params.len(), type_args.len())
+            ));
+        }
+
+        // Generate mangled name
+        let mangled_name = self.mangle_generic_name(func_name, type_args);
+
+        // Substitute types in parameters and return type
+        let specialized_params = self.substitute_params(params, type_params, type_args);
+        let specialized_return_type = self.substitute_return_type(return_type, type_params, type_args);
+
+        // Compile specialized function
+        self.compile_function_def(
+            &mangled_name,
+            &[],  // No type params in specialized version
+            &specialized_params,
+            &specialized_return_type,
+            body,
+            &generic_stmt,
+            parent_function,
+        )?;
+
+        // Cache the result
+        self.monomorphized_cache.insert(cache_key, mangled_name.clone());
+
+        Ok(mangled_name)
     }
 
     // --- MAIN COMPILATION ---
@@ -4162,14 +4288,61 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             }
 
             ExprKind::GenericCall { func, type_args, args } => {
-                // TODO: Implement generic function calls with monomorphization
-                let type_args_str = type_args.join(", ");
-                Err(CodegenError::General(
-                    format!("Generic function call not yet implemented: {:?}<{}>({} args)",
-                        func,
-                        type_args_str,
-                        args.len())
-                ))
+                // Get function name
+                let func_name = match &func.kind {
+                    ExprKind::Identifier(name) => name.clone(),
+                    _ => return Err(CodegenError::General(
+                        "Generic calls only supported on identifiers (e.g., swap<int, float>)".to_string()
+                    )),
+                };
+
+                // Get parent function for context
+                let parent_function = self.current_function.ok_or_else(|| {
+                    CodegenError::General("Generic call outside function context".to_string())
+                })?;
+
+                // Monomorphize the function
+                let specialized_name = self.monomorphize_function(&func_name, type_args, parent_function)?;
+
+                // Get the specialized function
+                let llvm_fn = self.module.get_function(&specialized_name)
+                    .ok_or_else(|| CodegenError::General(
+                        format!("Specialized function '{}' not found after monomorphization", specialized_name)
+                    ))?;
+
+                // Compile arguments
+                let mut llvm_args: Vec<BasicMetadataValueEnum> = Vec::new();
+                for arg in args {
+                    let (arg_val, _arg_type) = self.compile_expr(arg)?;
+                    llvm_args.push(arg_val.into());
+                }
+
+                // Call the specialized function
+                let call_result = self.builder
+                    .build_call(llvm_fn, &llvm_args, "generic_call")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: format!("Failed to call specialized function '{}'", specialized_name),
+                        span: Some(expr.span.clone()),
+                    })?;
+
+                // Get return value
+                if let Some(ret_val) = call_result.try_as_basic_value().left() {
+                    // Infer return type from LLVM function signature
+                    let ret_type = if let Some((_, Some(ret_types))) = self.functions.get(&specialized_name) {
+                        if ret_types.len() == 1 {
+                            ret_types[0].clone()
+                        } else {
+                            BrixType::Tuple(ret_types.clone())
+                        }
+                    } else {
+                        BrixType::Int  // Fallback
+                    };
+                    Ok((ret_val, ret_type))
+                } else {
+                    // Void function
+                    Ok((self.context.i64_type().const_int(0, false).into(), BrixType::Void))
+                }
             }
 
             ExprKind::FieldAccess { target, field } => {
