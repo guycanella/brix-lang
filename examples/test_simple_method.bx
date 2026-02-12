@@ -1,0 +1,12 @@
+struct Point {
+    x: int,
+    y: int
+}
+
+fn (p: Point) getX() -> int {
+    return p.x
+}
+
+var pt := Point{ x: 10, y: 20 }
+var x := pt.getX()
+println(x)

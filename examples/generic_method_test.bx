@@ -1,0 +1,20 @@
+// Test: Generic struct with methods
+struct Box<T> {
+    value: T
+}
+
+// Method that returns the value
+fn (b: Box) get() -> T {
+    return b.value
+}
+
+// Create instances
+var int_box := Box<int>{ value: 42 }
+var float_box := Box<float>{ value: 3.14 }
+
+// Call methods
+var x := int_box.get()
+var y := float_box.get()
+
+println(x)
+println(y)
