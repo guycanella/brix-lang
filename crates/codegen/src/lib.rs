@@ -5,7 +5,7 @@ use inkwell::types::{BasicMetadataTypeEnum, BasicType, BasicTypeEnum};
 use inkwell::values::BasicMetadataValueEnum;
 use inkwell::values::{BasicValue, BasicValueEnum, FloatValue, IntValue, PointerValue};
 use inkwell::{AddressSpace, FloatPredicate, IntPredicate};
-use parser::ast::{BinaryOp, Expr, ExprKind, Literal, MethodDef, Program, Stmt, StmtKind, StructDef, UnaryOp};
+use parser::ast::{BinaryOp, Closure, Expr, ExprKind, Literal, MethodDef, Program, Stmt, StmtKind, StructDef, UnaryOp};
 use std::collections::HashMap;
 
 // --- MODULE DECLARATIONS ---
@@ -61,6 +61,9 @@ pub struct Compiler<'a, 'ctx> {
     pub generic_structs: HashMap<String, StructDef>,                    // Generic struct definitions
     pub generic_methods: HashMap<String, Vec<MethodDef>>,               // struct_name -> methods
     pub monomorphized_cache: HashMap<(String, Vec<String>), String>,    // (name, type_args) -> specialized_name
+
+    // Closures support
+    pub closure_counter: usize,  // Counter for unique closure names
 }
 
 impl<'a, 'ctx> Compiler<'a, 'ctx> {
@@ -87,6 +90,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             generic_structs: HashMap::new(),
             generic_methods: HashMap::new(),
             monomorphized_cache: HashMap::new(),
+            closure_counter: 0,
         }
     }
 
@@ -560,6 +564,273 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
         // Return struct value
         Ok((struct_val.into(), BrixType::Struct(actual_struct_name)))
+    }
+
+    // --- CLOSURES ---
+
+    /// Compile a closure expression
+    ///
+    /// Creates:
+    /// 1. Environment struct with captured variables (as pointers)
+    /// 2. Closure function that receives env_ptr as first parameter
+    /// 3. Returns a struct { fn_ptr, env_ptr }
+    fn compile_closure(
+        &mut self,
+        closure: &Closure,
+        expr: &Expr,
+    ) -> CodegenResult<(BasicValueEnum<'ctx>, BrixType)> {
+        // Generate unique closure name
+        let closure_name = format!("__closure_{}", self.closure_counter);
+        self.closure_counter += 1;
+
+        // 1. Create environment struct type if there are captured variables
+        let env_struct_type = if !closure.captured_vars.is_empty() {
+            let mut field_types = Vec::new();
+            for _var in &closure.captured_vars {
+                // All captured variables are stored as pointers (i8*)
+                field_types.push(self.context.ptr_type(AddressSpace::default()).into());
+            }
+            let env_type = self.context.struct_type(&field_types, false);
+            Some(env_type)
+        } else {
+            None
+        };
+
+        // 2. Build closure function signature
+        // Function takes: (env_ptr, param1, param2, ...) -> return_type
+        let mut param_types: Vec<BasicMetadataTypeEnum> = Vec::new();
+
+        // First parameter is always env_ptr (even if empty, for consistency)
+        param_types.push(self.context.ptr_type(AddressSpace::default()).into());
+
+        // Add user parameters
+        let mut param_brix_types = Vec::new();
+        for (_param_name, param_type_str) in &closure.params {
+            let brix_type = self.string_to_brix_type(param_type_str);
+            param_brix_types.push(brix_type.clone());
+            param_types.push(self.brix_type_to_llvm(&brix_type).into());
+        }
+
+        // Return type
+        let return_brix_type = if let Some(ret_type_str) = &closure.return_type {
+            self.string_to_brix_type(ret_type_str)
+        } else {
+            BrixType::Void
+        };
+
+        let fn_type = if return_brix_type == BrixType::Void {
+            self.context.void_type().fn_type(&param_types, false)
+        } else {
+            self.brix_type_to_llvm(&return_brix_type).fn_type(&param_types, false)
+        };
+
+        // 3. Create the closure function
+        let closure_fn = self.module.add_function(&closure_name, fn_type, None);
+
+        // Save current function and switch to closure function
+        let prev_function = self.current_function;
+        self.current_function = Some(closure_fn);
+
+        // Save current variable scope
+        let prev_variables = self.variables.clone();
+
+        // Create entry block for closure function
+        let entry = self.context.append_basic_block(closure_fn, "entry");
+        self.builder.position_at_end(entry);
+
+        // 4. Set up parameters in the closure function
+        let env_ptr = closure_fn.get_nth_param(0).unwrap().into_pointer_value();
+
+        // Load captured variables from environment
+        if let Some(env_type) = env_struct_type {
+            for (i, var_name) in closure.captured_vars.iter().enumerate() {
+                // Get pointer to field in environment struct
+                let field_ptr = self.builder
+                    .build_struct_gep(env_type, env_ptr, i as u32, &format!("{}_ptr", var_name))
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_struct_gep".to_string(),
+                        details: format!("Failed to access captured variable {}", var_name),
+                        span: Some(expr.span.clone()),
+                    })?;
+
+                // Load the actual variable pointer
+                let var_ptr = self.builder
+                    .build_load(
+                        self.context.ptr_type(AddressSpace::default()),
+                        field_ptr,
+                        var_name
+                    )
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_load".to_string(),
+                        details: format!("Failed to load captured variable {}", var_name),
+                        span: Some(expr.span.clone()),
+                    })?
+                    .into_pointer_value();
+
+                // Get the type of the captured variable from outer scope
+                let var_type = prev_variables.get(var_name)
+                    .map(|(_, t)| t.clone())
+                    .ok_or_else(|| CodegenError::UndefinedSymbol {
+                        name: var_name.clone(),
+                        context: "closure captured variable".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+
+                // Add to current scope
+                self.variables.insert(var_name.clone(), (var_ptr, var_type));
+            }
+        }
+
+        // Add closure parameters to scope
+        for (i, (param_name, _param_type)) in closure.params.iter().enumerate() {
+            let param_val = closure_fn.get_nth_param((i + 1) as u32).unwrap(); // +1 for env_ptr
+            let param_type = &param_brix_types[i];
+
+            // Allocate space for parameter and store it
+            let param_llvm_type = self.brix_type_to_llvm(param_type);
+            let param_ptr = self.create_entry_block_alloca(param_llvm_type, param_name)?;
+            self.builder.build_store(param_ptr, param_val)
+                .map_err(|_| CodegenError::LLVMError {
+                    operation: "build_store".to_string(),
+                    details: format!("Failed to store parameter {}", param_name),
+                    span: Some(expr.span.clone()),
+                })?;
+
+            self.variables.insert(param_name.clone(), (param_ptr, param_type.clone()));
+        }
+
+        // 5. Compile closure body
+        self.compile_stmt(&closure.body, closure_fn)?;
+
+        // If no return was emitted and return type is void, add ret void
+        if return_brix_type == BrixType::Void {
+            let current_block = self.builder.get_insert_block().unwrap();
+            if current_block.get_terminator().is_none() {
+                self.builder.build_return(None)
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_return".to_string(),
+                        details: "Failed to build return for void closure".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+            }
+        }
+
+        // Restore previous function and variables
+        self.current_function = prev_function;
+        self.variables = prev_variables;
+
+        // Position builder back in original function
+        if let Some(prev_fn) = prev_function {
+            if let Some(bb) = prev_fn.get_last_basic_block() {
+                self.builder.position_at_end(bb);
+            }
+        }
+
+        // 6. Allocate environment and store captured variable pointers
+        let env_ptr_in_caller = if !closure.captured_vars.is_empty() {
+            let env_type = env_struct_type.unwrap();
+
+            // Allocate environment (for simplicity, using stack allocation)
+            // TODO: In production, this should use heap allocation (malloc)
+            let env_alloca = self.builder.build_alloca(env_type, "closure_env")
+                .map_err(|_| CodegenError::LLVMError {
+                    operation: "build_alloca".to_string(),
+                    details: "Failed to allocate closure environment".to_string(),
+                    span: Some(expr.span.clone()),
+                })?;
+
+            // Store pointers to captured variables
+            for (i, var_name) in closure.captured_vars.iter().enumerate() {
+                let (var_ptr, _) = self.variables.get(var_name)
+                    .ok_or_else(|| CodegenError::UndefinedSymbol {
+                        name: var_name.clone(),
+                        context: "closure environment".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+
+                let field_ptr = self.builder
+                    .build_struct_gep(env_type, env_alloca, i as u32, &format!("{}_field", var_name))
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_struct_gep".to_string(),
+                        details: format!("Failed to get field pointer for {}", var_name),
+                        span: Some(expr.span.clone()),
+                    })?;
+
+                self.builder.build_store(field_ptr, *var_ptr)
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_store".to_string(),
+                        details: format!("Failed to store pointer for {}", var_name),
+                        span: Some(expr.span.clone()),
+                    })?;
+            }
+
+            env_alloca
+        } else {
+            // No captured variables, use null pointer
+            self.context.ptr_type(AddressSpace::default()).const_null()
+        };
+
+        // 7. Create closure struct { fn_ptr, env_ptr }
+        let closure_struct_type = self.context.struct_type(&[
+            self.context.ptr_type(AddressSpace::default()).into(), // fn_ptr
+            self.context.ptr_type(AddressSpace::default()).into(), // env_ptr
+        ], false);
+
+        let closure_alloca = self.builder.build_alloca(closure_struct_type, "closure")
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_alloca".to_string(),
+                details: "Failed to allocate closure struct".to_string(),
+                span: Some(expr.span.clone()),
+            })?;
+
+        // Store function pointer
+        let fn_ptr_field = self.builder
+            .build_struct_gep(closure_struct_type, closure_alloca, 0, "fn_ptr_field")
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_struct_gep".to_string(),
+                details: "Failed to get fn_ptr field".to_string(),
+                span: Some(expr.span.clone()),
+            })?;
+
+        let fn_ptr = closure_fn.as_global_value().as_pointer_value();
+        self.builder.build_store(fn_ptr_field, fn_ptr)
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_store".to_string(),
+                details: "Failed to store function pointer".to_string(),
+                span: Some(expr.span.clone()),
+            })?;
+
+        // Store environment pointer
+        let env_ptr_field = self.builder
+            .build_struct_gep(closure_struct_type, closure_alloca, 1, "env_ptr_field")
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_struct_gep".to_string(),
+                details: "Failed to get env_ptr field".to_string(),
+                span: Some(expr.span.clone()),
+            })?;
+
+        self.builder.build_store(env_ptr_field, env_ptr_in_caller)
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_store".to_string(),
+                details: "Failed to store environment pointer".to_string(),
+                span: Some(expr.span.clone()),
+            })?;
+
+        // Load and return the closure struct
+        let closure_val = self.builder
+            .build_load(closure_struct_type, closure_alloca, "closure_val")
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_load".to_string(),
+                details: "Failed to load closure struct".to_string(),
+                span: Some(expr.span.clone()),
+            })?;
+
+        // Return closure as a special type
+        // For now, we'll use a Tuple type to represent closure
+        Ok((closure_val, BrixType::Tuple(vec![
+            BrixType::Int, // Placeholder - fn_ptr
+            BrixType::Int, // Placeholder - env_ptr
+        ])))
     }
 
     // --- GENERICS: MONOMORPHIZATION ---
@@ -5670,6 +5941,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 type_args,
                 fields,
             } => self.compile_struct_init(struct_name, type_args, fields, expr),
+
+            ExprKind::Closure(closure) => self.compile_closure(closure, expr),
 
             #[allow(unreachable_patterns)]
             _ => {
