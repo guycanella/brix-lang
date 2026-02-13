@@ -676,6 +676,26 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
         use crate::BrixType;
 
         let (target_ptr, target_type) = self.compile_lvalue_addr(target)?;
+
+        // ARC: If target was a closure, release it before reassigning
+        if let BrixType::Tuple(ref fields) = target_type {
+            if fields.len() == 3 && fields[0] == BrixType::Int && fields[1] == BrixType::Int && fields[2] == BrixType::Int {
+                // Target is a closure - load old value and release
+                let ptr_type = self.context.ptr_type(AddressSpace::default());
+                let old_closure = self.builder
+                    .build_load(ptr_type, target_ptr, "old_closure")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_load".to_string(),
+                        details: "Failed to load old closure for release".to_string(),
+                        span: None,
+                    })?
+                    .into_pointer_value();
+
+                // Release the old closure
+                self.closure_release(old_closure)?;
+            }
+        }
+
         let (val, val_type) = self.compile_expr(value)?;
 
         // Only cast Int→Float if the target expects Float
