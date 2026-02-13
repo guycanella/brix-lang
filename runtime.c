@@ -4,6 +4,27 @@
 #include <math.h>
 
 // ==========================================
+// SECTION -2: MEMORY ALLOCATION (v1.3 - Closures)
+// ==========================================
+
+// Heap allocation for closures and future ARC
+// These wrappers ensure proper error handling
+void* brix_malloc(size_t size) {
+    void* ptr = malloc(size);
+    if (!ptr && size > 0) {
+        fprintf(stderr, "Error: Out of memory (failed to allocate %zu bytes)\n", size);
+        exit(1);
+    }
+    return ptr;
+}
+
+void brix_free(void* ptr) {
+    if (ptr) {
+        free(ptr);
+    }
+}
+
+// ==========================================
 // SECTION -1: ATOMS (v1.1 - Elixir-style)
 // ==========================================
 
