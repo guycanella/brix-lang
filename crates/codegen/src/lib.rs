@@ -4928,21 +4928,42 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 }
 
                 // Check if func is a closure (indirect call)
-                // Only compile func if it's NOT a simple identifier (which would be a regular function)
-                // Closures can be: variables, field access, or other expressions that evaluate to closures
-                if !matches!(&func.kind, ExprKind::Identifier(_)) {
-                    // Closures are represented as structs { fn_ptr, env_ptr }
-                    // We need to: 1) load the closure, 2) extract fn_ptr and env_ptr, 3) indirect call
-                    let (func_val, func_type) = self.compile_expr(func)?;
+                // Try to compile func and check if it's a closure
+                // Closures can be: variables (Identifier), field access, or other expressions
 
+                // First, try to compile the func expression to see its type
+                let func_result = self.compile_expr(func);
+
+                if let Ok((func_val, func_type)) = func_result {
                     // Check if this is a closure call
                     // Closures are represented as Tuple(Int, Int, Int) - {ref_count, fn_ptr, env_ptr}
                     if let BrixType::Tuple(ref fields) = func_type {
                         if fields.len() == 3 && fields[0] == BrixType::Int && fields[1] == BrixType::Int && fields[2] == BrixType::Int {
                         // This is a closure! Perform indirect call
 
-                        // func_val is a struct value { ref_count, fn_ptr, env_ptr }
-                        let closure_struct = func_val.into_struct_value();
+                        // func_val might be a pointer (from closure_retain) or a struct value
+                        // If it's a pointer, we need to load it
+                        let closure_struct = if func_val.is_pointer_value() {
+                            // Load the closure struct from the pointer
+                            let closure_ptr = func_val.into_pointer_value();
+                            let closure_struct_type = self.context.struct_type(&[
+                                self.context.i64_type().into(),                         // ref_count
+                                self.context.ptr_type(AddressSpace::default()).into(), // fn_ptr
+                                self.context.ptr_type(AddressSpace::default()).into(), // env_ptr
+                            ], false);
+
+                            self.builder
+                                .build_load(closure_struct_type, closure_ptr, "closure_struct")
+                                .map_err(|_| CodegenError::LLVMError {
+                                    operation: "build_load".to_string(),
+                                    details: "Failed to load closure struct from pointer".to_string(),
+                                    span: Some(expr.span.clone()),
+                                })?
+                                .into_struct_value()
+                        } else {
+                            // Already a struct value
+                            func_val.into_struct_value()
+                        };
 
                         // Extract fn_ptr (field 1)
                         let fn_ptr = self.builder
@@ -5020,6 +5041,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         return Ok((result, BrixType::Int));
                         }
                     }
+
+                    // Not a closure, fall through to check other function types below
                 }
 
                 // Check if it's a user-defined function
