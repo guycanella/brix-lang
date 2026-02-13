@@ -4784,6 +4784,101 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     }
                 }
 
+                // Check if func is a closure (indirect call)
+                // Only compile func if it's NOT a simple identifier (which would be a regular function)
+                // Closures can be: variables, field access, or other expressions that evaluate to closures
+                if !matches!(&func.kind, ExprKind::Identifier(_)) {
+                    // Closures are represented as structs { fn_ptr, env_ptr }
+                    // We need to: 1) load the closure, 2) extract fn_ptr and env_ptr, 3) indirect call
+                    let (func_val, func_type) = self.compile_expr(func)?;
+
+                    // Check if this is a closure call
+                    // Closures are currently represented as Tuple(Int, Int) - placeholder for {fn_ptr, env_ptr}
+                    if let BrixType::Tuple(ref fields) = func_type {
+                        if fields.len() == 2 && fields[0] == BrixType::Int && fields[1] == BrixType::Int {
+                        // This is a closure! Perform indirect call
+
+                        // func_val is a struct value { fn_ptr, env_ptr }
+                        let closure_struct = func_val.into_struct_value();
+
+                        // Extract fn_ptr (field 0)
+                        let fn_ptr = self.builder
+                            .build_extract_value(closure_struct, 0, "fn_ptr")
+                            .map_err(|_| CodegenError::LLVMError {
+                                operation: "build_extract_value".to_string(),
+                                details: "Failed to extract fn_ptr from closure".to_string(),
+                                span: Some(expr.span.clone()),
+                            })?
+                            .into_pointer_value();
+
+                        // Extract env_ptr (field 1)
+                        let env_ptr = self.builder
+                            .build_extract_value(closure_struct, 1, "env_ptr")
+                            .map_err(|_| CodegenError::LLVMError {
+                                operation: "build_extract_value".to_string(),
+                                details: "Failed to extract env_ptr from closure".to_string(),
+                                span: Some(expr.span.clone()),
+                            })?
+                            .into_pointer_value();
+
+                        // Compile arguments
+                        let mut llvm_args: Vec<BasicMetadataValueEnum> = Vec::new();
+
+                        // First argument is always env_ptr
+                        llvm_args.push(env_ptr.into());
+
+                        // Add user arguments
+                        for arg in args {
+                            let (arg_val, _) = self.compile_expr(arg)?;
+                            llvm_args.push(arg_val.into());
+                        }
+
+                        // TODO: Get proper function type from closure metadata
+                        // For now, we'll infer it from arguments and assume int return
+                        // This is a limitation - we need to store closure signature in BrixType
+
+                        // Build parameter types: env_ptr + user args
+                        let mut param_types: Vec<BasicMetadataTypeEnum> = Vec::new();
+                        param_types.push(self.context.ptr_type(AddressSpace::default()).into()); // env_ptr
+
+                        for _ in args {
+                            // HACK: Assume all params are i64 for now
+                            // TODO: Store proper signature in BrixType::Closure
+                            param_types.push(self.context.i64_type().into());
+                        }
+
+                        // Assume return type is i64 for now
+                        // TODO: Get from closure signature
+                        let return_type = self.context.i64_type();
+                        let fn_type = return_type.fn_type(&param_types, false);
+
+                        // Perform indirect call
+                        let call_result = self.builder
+                            .build_indirect_call(
+                                fn_type,
+                                fn_ptr,
+                                &llvm_args,
+                                "closure_call"
+                            )
+                            .map_err(|_| CodegenError::LLVMError {
+                                operation: "build_indirect_call".to_string(),
+                                details: "Failed to call closure".to_string(),
+                                span: Some(expr.span.clone()),
+                            })?;
+
+                        let result = call_result.try_as_basic_value().left()
+                            .ok_or_else(|| CodegenError::MissingValue {
+                                what: "closure call result".to_string(),
+                                context: "closure invocation".to_string(),
+                                span: Some(expr.span.clone()),
+                            })?;
+
+                        // TODO: Return proper type from closure signature
+                        return Ok((result, BrixType::Int));
+                        }
+                    }
+                }
+
                 // Check if it's a user-defined function
                 if let ExprKind::Identifier(fn_name) = &func.kind {
                     // Clone the data we need to avoid borrow conflicts
