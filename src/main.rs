@@ -83,7 +83,7 @@ fn main() {
         tokens_with_spans.iter().map(|(tok, span)| (tok.clone(), span.clone()))
     );
 
-    let ast = match parser().parse(token_stream) {
+    let mut ast = match parser().parse(token_stream) {
         Ok(ast) => ast,
         Err(errs) => {
             // Use Ariadne for beautiful error reporting
@@ -95,6 +95,9 @@ fn main() {
             exit(2); // Parser error exit code
         }
     };
+
+    // Analyze closures to identify captured variables
+    parser::closure_analysis::analyze_closures(&mut ast);
 
     println!("--- 2. Generating LLVM IR ---");
     let context = Context::create();
