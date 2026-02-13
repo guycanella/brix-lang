@@ -24,6 +24,42 @@ void brix_free(void* ptr) {
     }
 }
 
+// Closure structure for ARC:
+// struct { i64 ref_count; void* fn_ptr; void* env_ptr }
+typedef struct {
+    long ref_count;
+    void* fn_ptr;
+    void* env_ptr;
+} BrixClosure;
+
+// Increment reference count (called on copy/assignment)
+void* closure_retain(void* closure_ptr) {
+    if (!closure_ptr) return NULL;
+
+    BrixClosure* closure = (BrixClosure*)closure_ptr;
+    closure->ref_count++;
+    return closure_ptr;
+}
+
+// Decrement reference count (called when going out of scope)
+// Frees memory when ref_count reaches 0
+void closure_release(void* closure_ptr) {
+    if (!closure_ptr) return;
+
+    BrixClosure* closure = (BrixClosure*)closure_ptr;
+    closure->ref_count--;
+
+    if (closure->ref_count == 0) {
+        // Free environment (if not null)
+        if (closure->env_ptr) {
+            brix_free(closure->env_ptr);
+        }
+        // Note: fn_ptr points to code, not heap data - don't free it
+        // Free the closure struct itself
+        brix_free(closure_ptr);
+    }
+}
+
 // ==========================================
 // SECTION -1: ATOMS (v1.1 - Elixir-style)
 // ==========================================

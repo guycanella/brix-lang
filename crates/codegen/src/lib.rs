@@ -797,22 +797,64 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             self.context.ptr_type(AddressSpace::default()).const_null()
         };
 
-        // 7. Create closure struct { fn_ptr, env_ptr }
+        // 7. Create closure struct { ref_count, fn_ptr, env_ptr } on HEAP
+        // ARC: ref_count tracks how many references exist to this closure
         let closure_struct_type = self.context.struct_type(&[
+            self.context.i64_type().into(),                         // ref_count
             self.context.ptr_type(AddressSpace::default()).into(), // fn_ptr
             self.context.ptr_type(AddressSpace::default()).into(), // env_ptr
         ], false);
 
-        let closure_alloca = self.builder.build_alloca(closure_struct_type, "closure")
+        // Allocate closure struct on heap (for ARC to work)
+        let i64_type = self.context.i64_type();
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let malloc_fn_type = ptr_type.fn_type(&[i64_type.into()], false);
+        let malloc_fn = self.module.get_function("brix_malloc").unwrap_or_else(|| {
+            self.module.add_function("brix_malloc", malloc_fn_type, Some(Linkage::External))
+        });
+
+        let closure_size = closure_struct_type.size_of().ok_or_else(|| CodegenError::LLVMError {
+            operation: "size_of".to_string(),
+            details: "Failed to get size of closure struct".to_string(),
+            span: Some(expr.span.clone()),
+        })?;
+
+        let closure_malloc = self.builder
+            .build_call(malloc_fn, &[closure_size.into()], "closure_malloc")
             .map_err(|_| CodegenError::LLVMError {
-                operation: "build_alloca".to_string(),
-                details: "Failed to allocate closure struct".to_string(),
+                operation: "build_call".to_string(),
+                details: "Failed to call brix_malloc for closure".to_string(),
                 span: Some(expr.span.clone()),
             })?;
 
-        // Store function pointer
+        let closure_ptr = closure_malloc.try_as_basic_value().left()
+            .ok_or_else(|| CodegenError::MissingValue {
+                what: "brix_malloc result for closure".to_string(),
+                context: "closure struct allocation".to_string(),
+                span: Some(expr.span.clone()),
+            })?
+            .into_pointer_value();
+
+        // Store ref_count = 1 (initial reference)
+        let ref_count_field = self.builder
+            .build_struct_gep(closure_struct_type, closure_ptr, 0, "ref_count_field")
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_struct_gep".to_string(),
+                details: "Failed to get ref_count field".to_string(),
+                span: Some(expr.span.clone()),
+            })?;
+
+        let one = self.context.i64_type().const_int(1, false);
+        self.builder.build_store(ref_count_field, one)
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_store".to_string(),
+                details: "Failed to store initial ref_count".to_string(),
+                span: Some(expr.span.clone()),
+            })?;
+
+        // Store function pointer (field 1)
         let fn_ptr_field = self.builder
-            .build_struct_gep(closure_struct_type, closure_alloca, 0, "fn_ptr_field")
+            .build_struct_gep(closure_struct_type, closure_ptr, 1, "fn_ptr_field")
             .map_err(|_| CodegenError::LLVMError {
                 operation: "build_struct_gep".to_string(),
                 details: "Failed to get fn_ptr field".to_string(),
@@ -827,9 +869,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 span: Some(expr.span.clone()),
             })?;
 
-        // Store environment pointer
+        // Store environment pointer (field 2)
         let env_ptr_field = self.builder
-            .build_struct_gep(closure_struct_type, closure_alloca, 1, "env_ptr_field")
+            .build_struct_gep(closure_struct_type, closure_ptr, 2, "env_ptr_field")
             .map_err(|_| CodegenError::LLVMError {
                 operation: "build_struct_gep".to_string(),
                 details: "Failed to get env_ptr field".to_string(),
@@ -843,21 +885,76 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 span: Some(expr.span.clone()),
             })?;
 
-        // Load and return the closure struct
-        let closure_val = self.builder
-            .build_load(closure_struct_type, closure_alloca, "closure_val")
-            .map_err(|_| CodegenError::LLVMError {
-                operation: "build_load".to_string(),
-                details: "Failed to load closure struct".to_string(),
-                span: Some(expr.span.clone()),
-            })?;
+        // Return the closure pointer directly (not loaded - we want the pointer)
+        let closure_val = closure_ptr.into();
 
         // Return closure as a special type
-        // For now, we'll use a Tuple type to represent closure
+        // For now, we'll use a Tuple type to represent closure with ARC
         Ok((closure_val, BrixType::Tuple(vec![
-            BrixType::Int, // Placeholder - fn_ptr
-            BrixType::Int, // Placeholder - env_ptr
+            BrixType::Int, // ref_count
+            BrixType::Int, // fn_ptr
+            BrixType::Int, // env_ptr
         ])))
+    }
+
+    // --- ARC: AUTOMATIC REFERENCE COUNTING FOR CLOSURES ---
+
+    /// Call closure_retain() to increment ref_count
+    /// Returns the same closure pointer
+    fn closure_retain(
+        &self,
+        closure_ptr: PointerValue<'ctx>,
+    ) -> CodegenResult<PointerValue<'ctx>> {
+        // Declare closure_retain: void* closure_retain(void* closure_ptr)
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let retain_fn_type = ptr_type.fn_type(&[ptr_type.into()], false);
+        let retain_fn = self.module.get_function("closure_retain").unwrap_or_else(|| {
+            self.module.add_function("closure_retain", retain_fn_type, Some(Linkage::External))
+        });
+
+        // Call closure_retain(closure_ptr)
+        let result = self.builder
+            .build_call(retain_fn, &[closure_ptr.into()], "retain_call")
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_call".to_string(),
+                details: "Failed to call closure_retain".to_string(),
+                span: None,
+            })?;
+
+        let retained_ptr = result.try_as_basic_value().left()
+            .ok_or_else(|| CodegenError::MissingValue {
+                what: "closure_retain result".to_string(),
+                context: "ARC retain".to_string(),
+                span: None,
+            })?
+            .into_pointer_value();
+
+        Ok(retained_ptr)
+    }
+
+    /// Call closure_release() to decrement ref_count and free if zero
+    fn closure_release(
+        &self,
+        closure_ptr: PointerValue<'ctx>,
+    ) -> CodegenResult<()> {
+        // Declare closure_release: void closure_release(void* closure_ptr)
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let void_type = self.context.void_type();
+        let release_fn_type = void_type.fn_type(&[ptr_type.into()], false);
+        let release_fn = self.module.get_function("closure_release").unwrap_or_else(|| {
+            self.module.add_function("closure_release", release_fn_type, Some(Linkage::External))
+        });
+
+        // Call closure_release(closure_ptr)
+        self.builder
+            .build_call(release_fn, &[closure_ptr.into()], "release_call")
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_call".to_string(),
+                details: "Failed to call closure_release".to_string(),
+                span: None,
+            })?;
+
+        Ok(())
     }
 
     // --- GENERICS: MONOMORPHIZATION ---
@@ -2064,11 +2161,30 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             Ok((val, BrixType::ComplexMatrix))
                         }
                         BrixType::Tuple(types) => {
-                            // Load the tuple struct
-                            let struct_type =
-                                self.brix_type_to_llvm(&BrixType::Tuple(types.clone()));
-                            let val = self.builder.build_load(struct_type, *ptr, name).map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in compile_expr".to_string(), span: None })?;
-                            Ok((val, BrixType::Tuple(types.clone())))
+                            // Check if this is a closure (Tuple with 3 Int fields = {ref_count, fn_ptr, env_ptr})
+                            if types.len() == 3 && types[0] == BrixType::Int && types[1] == BrixType::Int && types[2] == BrixType::Int {
+                                // This is a closure! Load it and retain (ARC)
+                                let ptr_type = self.context.ptr_type(AddressSpace::default());
+                                let closure_ptr = self.builder
+                                    .build_load(ptr_type, *ptr, name)
+                                    .map_err(|_| CodegenError::LLVMError {
+                                        operation: "build_load".to_string(),
+                                        details: format!("Failed to load closure variable '{}'", name),
+                                        span: Some(expr.span.clone()),
+                                    })?
+                                    .into_pointer_value();
+
+                                // ARC: Retain the closure when loading from variable (copying reference)
+                                let retained_closure = self.closure_retain(closure_ptr)?;
+
+                                Ok((retained_closure.into(), BrixType::Tuple(types.clone())))
+                            } else {
+                                // Regular tuple - load the tuple struct
+                                let struct_type =
+                                    self.brix_type_to_llvm(&BrixType::Tuple(types.clone()));
+                                let val = self.builder.build_load(struct_type, *ptr, name).map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in compile_expr".to_string(), span: None })?;
+                                Ok((val, BrixType::Tuple(types.clone())))
+                            }
                         }
                         BrixType::Complex => {
                             // Load the complex struct { f64 real, f64 imag }
@@ -4820,17 +4936,17 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     let (func_val, func_type) = self.compile_expr(func)?;
 
                     // Check if this is a closure call
-                    // Closures are currently represented as Tuple(Int, Int) - placeholder for {fn_ptr, env_ptr}
+                    // Closures are represented as Tuple(Int, Int, Int) - {ref_count, fn_ptr, env_ptr}
                     if let BrixType::Tuple(ref fields) = func_type {
-                        if fields.len() == 2 && fields[0] == BrixType::Int && fields[1] == BrixType::Int {
+                        if fields.len() == 3 && fields[0] == BrixType::Int && fields[1] == BrixType::Int && fields[2] == BrixType::Int {
                         // This is a closure! Perform indirect call
 
-                        // func_val is a struct value { fn_ptr, env_ptr }
+                        // func_val is a struct value { ref_count, fn_ptr, env_ptr }
                         let closure_struct = func_val.into_struct_value();
 
-                        // Extract fn_ptr (field 0)
+                        // Extract fn_ptr (field 1)
                         let fn_ptr = self.builder
-                            .build_extract_value(closure_struct, 0, "fn_ptr")
+                            .build_extract_value(closure_struct, 1, "fn_ptr")
                             .map_err(|_| CodegenError::LLVMError {
                                 operation: "build_extract_value".to_string(),
                                 details: "Failed to extract fn_ptr from closure".to_string(),
@@ -4838,9 +4954,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             })?
                             .into_pointer_value();
 
-                        // Extract env_ptr (field 1)
+                        // Extract env_ptr (field 2)
                         let env_ptr = self.builder
-                            .build_extract_value(closure_struct, 1, "env_ptr")
+                            .build_extract_value(closure_struct, 2, "env_ptr")
                             .map_err(|_| CodegenError::LLVMError {
                                 operation: "build_extract_value".to_string(),
                                 details: "Failed to extract env_ptr from closure".to_string(),
