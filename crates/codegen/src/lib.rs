@@ -730,14 +730,41 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         let env_ptr_in_caller = if !closure.captured_vars.is_empty() {
             let env_type = env_struct_type.unwrap();
 
-            // Allocate environment (for simplicity, using stack allocation)
-            // TODO: In production, this should use heap allocation (malloc)
-            let env_alloca = self.builder.build_alloca(env_type, "closure_env")
+            // Allocate environment on HEAP (not stack) so closures can be returned from functions
+            // Declare brix_malloc: void* brix_malloc(size_t size)
+            let i64_type = self.context.i64_type();
+            let ptr_type = self.context.ptr_type(AddressSpace::default());
+            let malloc_fn_type = ptr_type.fn_type(&[i64_type.into()], false);
+            let malloc_fn = self.module.get_function("brix_malloc").unwrap_or_else(|| {
+                self.module.add_function("brix_malloc", malloc_fn_type, Some(Linkage::External))
+            });
+
+            // Calculate size of environment struct
+            let env_size = env_type.size_of().ok_or_else(|| CodegenError::LLVMError {
+                operation: "size_of".to_string(),
+                details: "Failed to get size of environment struct".to_string(),
+                span: Some(expr.span.clone()),
+            })?;
+
+            // Call brix_malloc(size)
+            let malloc_call = self.builder
+                .build_call(malloc_fn, &[env_size.into()], "env_malloc")
                 .map_err(|_| CodegenError::LLVMError {
-                    operation: "build_alloca".to_string(),
-                    details: "Failed to allocate closure environment".to_string(),
+                    operation: "build_call".to_string(),
+                    details: "Failed to call brix_malloc".to_string(),
                     span: Some(expr.span.clone()),
                 })?;
+
+            let env_ptr_raw = malloc_call.try_as_basic_value().left()
+                .ok_or_else(|| CodegenError::MissingValue {
+                    what: "brix_malloc result".to_string(),
+                    context: "closure environment allocation".to_string(),
+                    span: Some(expr.span.clone()),
+                })?
+                .into_pointer_value();
+
+            // Cast i8* to env_type*
+            let env_alloca = env_ptr_raw; // No cast needed - LLVM treats all pointers uniformly
 
             // Store pointers to captured variables
             for (i, var_name) in closure.captured_vars.iter().enumerate() {
