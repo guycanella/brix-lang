@@ -193,11 +193,12 @@ pub struct MethodDef {
 }
 
 // Closure (anonymous function with capture)
+// Syntax: (x: int, y: int) -> int { return x + y }
 #[derive(Debug, Clone, PartialEq)]
 pub struct Closure {
     pub params: Vec<(String, String)>,    // Type annotations required: (name, type)
     pub return_type: Option<String>,      // Optional return type
-    pub body: Box<Expr>,                  // Closure body (expression that gets returned)
+    pub body: Box<Stmt>,                  // Closure body is a block (Statement)
     pub captured_vars: Vec<String>,       // Filled by analysis pass
 }
 
