@@ -1,6 +1,7 @@
 // Codegen Test Modules
 
 mod builtin_tests;
+mod closure_tests;
 mod complex_tests;
 mod control_flow_tests;
 mod edge_cases;
