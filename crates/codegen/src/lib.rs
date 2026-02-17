@@ -1002,6 +1002,153 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         )
     }
 
+    // --- OPTIONAL TYPES (v1.4) ---
+
+    /// Create an Optional with a value (Some)
+    /// - For ref-counted types: returns the pointer as-is
+    /// - For primitives: creates struct { i1 true, T value }
+    fn create_optional_some(
+        &self,
+        value: BasicValueEnum<'ctx>,
+        inner_type: &BrixType,
+    ) -> CodegenResult<BasicValueEnum<'ctx>> {
+        if Self::is_ref_counted(inner_type) {
+            // Ref-counted: Optional is just the pointer (Some = pointer, nil = nullptr)
+            Ok(value)
+        } else {
+            // Primitive: Create struct { i1 has_value, T value }
+            let i1_type = self.context.bool_type();
+            let value_type = self.brix_type_to_llvm(inner_type);
+            let struct_type = self.context.struct_type(&[i1_type.into(), value_type], false);
+
+            // Build struct: { true, value }
+            let has_value = i1_type.const_int(1, false); // true
+            let mut optional_struct = struct_type.get_undef();
+
+            optional_struct = self.builder
+                .build_insert_value(optional_struct, has_value, 0, "set_has_value")
+                .map_err(|_| CodegenError::LLVMError {
+                    operation: "build_insert_value".to_string(),
+                    details: "Failed to set has_value in Optional".to_string(),
+                    span: None,
+                })?
+                .into_struct_value();
+
+            optional_struct = self.builder
+                .build_insert_value(optional_struct, value, 1, "set_value")
+                .map_err(|_| CodegenError::LLVMError {
+                    operation: "build_insert_value".to_string(),
+                    details: "Failed to set value in Optional".to_string(),
+                    span: None,
+                })?
+                .into_struct_value();
+
+            Ok(optional_struct.into())
+        }
+    }
+
+    /// Create an Optional without value (nil/None)
+    /// - For ref-counted types: returns nullptr
+    /// - For primitives: creates struct { i1 false, T undef }
+    fn create_optional_nil(&self, inner_type: &BrixType) -> BasicValueEnum<'ctx> {
+        if Self::is_ref_counted(inner_type) {
+            // Ref-counted: nil = nullptr
+            let ptr_type = self.context.ptr_type(AddressSpace::default());
+            ptr_type.const_null().into()
+        } else {
+            // Primitive: Create struct { i1 false, T undef }
+            let i1_type = self.context.bool_type();
+            let value_type = self.brix_type_to_llvm(inner_type);
+            let struct_type = self.context.struct_type(&[i1_type.into(), value_type], false);
+
+            let has_value = i1_type.const_int(0, false); // false
+
+            // Get undef value for the inner type
+            let undef_value: BasicValueEnum = match value_type {
+                BasicTypeEnum::IntType(t) => t.get_undef().into(),
+                BasicTypeEnum::FloatType(t) => t.get_undef().into(),
+                BasicTypeEnum::PointerType(t) => t.const_null().into(), // Use null instead of undef for pointers
+                BasicTypeEnum::StructType(t) => t.get_undef().into(),
+                BasicTypeEnum::ArrayType(t) => t.get_undef().into(),
+                BasicTypeEnum::VectorType(t) => t.get_undef().into(),
+            };
+
+            let optional_struct = struct_type.const_named_struct(&[has_value.as_basic_value_enum(), undef_value]);
+            optional_struct.into()
+        }
+    }
+
+    /// Check if Optional has a value (is not nil)
+    /// - For ref-counted types: checks if pointer != nullptr
+    /// - For primitives: extracts has_value flag from struct
+    fn optional_has_value(
+        &self,
+        optional_val: BasicValueEnum<'ctx>,
+        inner_type: &BrixType,
+    ) -> CodegenResult<IntValue<'ctx>> {
+        if Self::is_ref_counted(inner_type) {
+            // Ref-counted: Check if pointer != nullptr
+            let ptr_val = optional_val.into_pointer_value();
+            let null_ptr = self.context.ptr_type(AddressSpace::default()).const_null();
+
+            let is_not_null = self.builder
+                .build_int_compare(
+                    inkwell::IntPredicate::NE,
+                    ptr_val,
+                    null_ptr,
+                    "is_not_nil"
+                )
+                .map_err(|_| CodegenError::LLVMError {
+                    operation: "build_int_compare".to_string(),
+                    details: "Failed to compare Optional pointer with null".to_string(),
+                    span: None,
+                })?;
+
+            Ok(is_not_null)
+        } else {
+            // Primitive: Extract has_value flag (field 0)
+            let struct_val = optional_val.into_struct_value();
+
+            let has_value = self.builder
+                .build_extract_value(struct_val, 0, "has_value")
+                .map_err(|_| CodegenError::LLVMError {
+                    operation: "build_extract_value".to_string(),
+                    details: "Failed to extract has_value from Optional".to_string(),
+                    span: None,
+                })?
+                .into_int_value();
+
+            Ok(has_value)
+        }
+    }
+
+    /// Extract value from Optional (without checking if it has value - caller must check first!)
+    /// - For ref-counted types: returns the pointer
+    /// - For primitives: extracts value field from struct
+    fn optional_get_value(
+        &self,
+        optional_val: BasicValueEnum<'ctx>,
+        inner_type: &BrixType,
+    ) -> CodegenResult<BasicValueEnum<'ctx>> {
+        if Self::is_ref_counted(inner_type) {
+            // Ref-counted: Just return the pointer
+            Ok(optional_val)
+        } else {
+            // Primitive: Extract value field (field 1)
+            let struct_val = optional_val.into_struct_value();
+
+            let value = self.builder
+                .build_extract_value(struct_val, 1, "optional_value")
+                .map_err(|_| CodegenError::LLVMError {
+                    operation: "build_extract_value".to_string(),
+                    details: "Failed to extract value from Optional".to_string(),
+                    span: None,
+                })?;
+
+            Ok(value)
+        }
+    }
+
     /// Check if a print/println expression produces a temporary BrixString
     /// that should be released after printing.
     ///
@@ -2408,6 +2555,17 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                 })?;
                             Ok((val, BrixType::Struct(struct_name.clone())))
                         }
+                        BrixType::Optional(_) => {
+                            // Load Optional value (struct or pointer depending on inner type)
+                            let llvm_type = self.brix_type_to_llvm(brix_type);
+                            let val = self.builder.build_load(llvm_type, *ptr, name)
+                                .map_err(|_| CodegenError::LLVMError {
+                                    operation: "build_load".to_string(),
+                                    details: format!("Failed to load Optional variable '{}'", name),
+                                    span: Some(expr.span.clone()),
+                                })?;
+                            Ok((val, brix_type.clone()))
+                        }
                         _ => {
                             Err(CodegenError::TypeError {
                                 expected: "Nil, Error, or Atom".to_string(),
@@ -2999,6 +3157,59 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             | BrixType::FloatPtr
                     )
                 };
+
+                // --- OPTIONAL NIL COMPARISON (v1.4) ---
+                // Handle: optional_var == nil or optional_var != nil
+                if (matches!(op, BinaryOp::Eq) || matches!(op, BinaryOp::NotEq)) {
+                    let (optional_val, optional_type, is_eq) = if matches!(&lhs_type, BrixType::Optional(_)) && rhs_type == BrixType::Nil {
+                        (lhs_val, &lhs_type, matches!(op, BinaryOp::Eq))
+                    } else if matches!(&rhs_type, BrixType::Optional(_)) && lhs_type == BrixType::Nil {
+                        (rhs_val, &rhs_type, matches!(op, BinaryOp::Eq))
+                    } else {
+                        // Not an Optional-nil comparison, continue to regular logic
+                        (BasicValueEnum::IntValue(self.context.i64_type().const_zero()), &lhs_type, false)
+                    };
+
+                    if matches!(optional_type, BrixType::Optional(_)) {
+                        // Extract inner type
+                        let inner_type = if let BrixType::Optional(inner) = optional_type {
+                            inner.as_ref()
+                        } else {
+                            unreachable!()
+                        };
+
+                        // Check if Optional has value (i1)
+                        let has_value = self.optional_has_value(optional_val, inner_type)?;
+
+                        // For "== nil": check if has_value is false (negate)
+                        // For "!= nil": check if has_value is true (direct)
+                        let result_i1 = if is_eq {
+                            // x == nil → !has_value
+                            self.builder
+                                .build_not(has_value, "eq_nil")
+                                .map_err(|_| CodegenError::LLVMError {
+                                    operation: "build_not".to_string(),
+                                    details: "Failed to negate has_value for == nil".to_string(),
+                                    span: Some(expr.span.clone()),
+                                })?
+                        } else {
+                            // x != nil → has_value
+                            has_value
+                        };
+
+                        // Extend i1 to i64 for consistency
+                        let result = self
+                            .builder
+                            .build_int_z_extend(result_i1, self.context.i64_type(), "optional_nil_cmp")
+                            .map_err(|_| CodegenError::LLVMError {
+                                operation: "build_int_z_extend".to_string(),
+                                details: "Failed to extend Optional nil comparison result".to_string(),
+                                span: Some(expr.span.clone()),
+                            })?;
+
+                        return Ok((result.into(), BrixType::Int));
+                    }
+                }
 
                 if (is_pointer_type(&lhs_type) || is_pointer_type(&rhs_type))
                     && (matches!(op, BinaryOp::Eq) || matches!(op, BinaryOp::NotEq))

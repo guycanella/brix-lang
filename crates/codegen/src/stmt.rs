@@ -502,8 +502,53 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
 
         // --- AUTOMATIC CASTING ---
         if let Some(hint) = type_hint {
-            match hint.as_str() {
-                "int" => {
+            // Check for Optional type (ends with "?")
+            if let Some(base_type_str) = hint.strip_suffix('?') {
+                // Optional type: int?, string?, Matrix?, etc.
+                let inner_type = self.string_to_brix_type(base_type_str);
+
+                // If value is nil, create Optional::nil
+                if val_type == BrixType::Nil {
+                    final_val = self.create_optional_nil(&inner_type);
+                    val_type = BrixType::Optional(Box::new(inner_type));
+                } else {
+                    // Otherwise, wrap value in Optional::Some
+                    // First, ensure value type matches inner type (or is compatible)
+                    if val_type != inner_type {
+                        // Try automatic casting (int -> float for int? if needed)
+                        if inner_type == BrixType::Float && val_type == BrixType::Int {
+                            final_val = self
+                                .builder
+                                .build_signed_int_to_float(
+                                    init_val.into_int_value(),
+                                    self.context.f64_type(),
+                                    "cast_i2f_optional",
+                                )
+                                .map_err(|_| CodegenError::LLVMError {
+                                    operation: "build_signed_int_to_float".to_string(),
+                                    details: "Failed to cast int to float for Optional".to_string(),
+                                    span: None,
+                                })?
+                                .into();
+                            val_type = BrixType::Float;
+                        } else if inner_type != val_type {
+                            return Err(CodegenError::TypeError {
+                                expected: format!("{}?", base_type_str),
+                                found: format!("{:?}", val_type),
+                                context: format!("Variable declaration '{}'", name),
+                                span: None,
+                            });
+                        }
+                    }
+
+                    // Wrap in Optional::Some
+                    final_val = self.create_optional_some(final_val, &inner_type)?;
+                    val_type = BrixType::Optional(Box::new(inner_type));
+                }
+            } else {
+                // Non-optional types - existing logic
+                match hint.as_str() {
+                    "int" => {
                     if val_type == BrixType::Float {
                         final_val = self
                             .builder
@@ -564,21 +609,22 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
                     // Accept both Error and Nil for error type
                     // val_type remains as-is (Error or Nil)
                 }
-                _ => {
-                    // Allow matrix, intmatrix, complex, and struct types
-                    if hint != "matrix" && hint != "intmatrix" && hint != "complex" {
-                        // Check if it's a struct type
-                        if !matches!(val_type, BrixType::Struct(_)) {
-                            return Err(CodegenError::TypeError {
-                                expected: "Known type".to_string(),
-                                found: hint.clone(),
-                                context: format!("Variable declaration '{}'", name),
-                                                        span: None,
-                            });
+                    _ => {
+                        // Allow matrix, intmatrix, complex, and struct types
+                        if hint != "matrix" && hint != "intmatrix" && hint != "complex" {
+                            // Check if it's a struct type
+                            if !matches!(val_type, BrixType::Struct(_)) {
+                                return Err(CodegenError::TypeError {
+                                    expected: "Known type".to_string(),
+                                    found: hint.clone(),
+                                    context: format!("Variable declaration '{}'", name),
+                                    span: None,
+                                });
+                            }
                         }
                     }
                 }
-            }
+            } // End of else block for non-optional types
         }
 
         // --- ALLOCATION ---
@@ -604,12 +650,16 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
                 // Allocate space for user-defined struct
                 self.brix_type_to_llvm(&val_type)
             }
+            BrixType::Optional(_) => {
+                // Allocate space for Optional (struct or pointer depending on inner type)
+                self.brix_type_to_llvm(&val_type)
+            }
             _ => {
                 return Err(CodegenError::TypeError {
                     expected: "Known type".to_string(),
                     found: format!("{:?}", val_type),
                     context: format!("Variable declaration '{}'", name),
-                                    span: None,
+                    span: None,
                 });
             }
         };
