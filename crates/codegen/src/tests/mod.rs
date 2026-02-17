@@ -12,6 +12,7 @@ mod integration_tests;
 mod matrix_tests;
 mod pattern_tests;
 mod stmt_tests;
+mod stress_tests;
 mod string_tests;
 mod struct_tests;
 mod type_tests;

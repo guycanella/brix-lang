@@ -1,0 +1,17 @@
+// Stress test: Struct with many fields
+struct Config {
+    field1: int = 1,
+    field2: int = 2,
+    field3: int = 3,
+    field4: int = 4,
+    field5: int = 5,
+    field6: int = 6,
+    field7: int = 7,
+    field8: int = 8
+}
+
+var cfg := Config{ field1: 10, field2: 20, field3: 30, field4: 40, field5: 50, field6: 60, field7: 70, field8: 80 }
+
+println(cfg.field1)
+println(cfg.field4)
+println(cfg.field8)

@@ -1,0 +1,16 @@
+// Stress test: Multiple closures with different capture patterns
+var a := 1
+var b := 2
+var c := 3
+
+var cl1 := (x: int) -> int { return x + a }
+var cl2 := (x: int) -> int { return x + b }
+var cl3 := (x: int) -> int { return x + c }
+var cl4 := (x: int) -> int { return x + a + b }
+var cl5 := (x: int) -> int { return x + a + b + c }
+
+println(cl1(10))
+println(cl2(10))
+println(cl3(10))
+println(cl4(10))
+println(cl5(10))
