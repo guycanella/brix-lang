@@ -719,6 +719,42 @@ fn test_arc_mixed_types() {
 }
 
 // ==========================================
+// OPTIONAL TYPES (v1.4) - Tests 86-89
+// ==========================================
+
+#[test]
+fn test_optional_primitives() {
+    assert_success(
+        "tests/integration/success/86_optional_primitives.bx",
+        "x has value\ny is nil\nz has value\nw is nil"
+    );
+}
+
+#[test]
+fn test_optional_string() {
+    assert_success(
+        "tests/integration/success/87_optional_string.bx",
+        "greeting has value\nempty is nil\ngreeting is now nil\nempty now has value"
+    );
+}
+
+#[test]
+fn test_optional_loops() {
+    assert_success(
+        "tests/integration/success/88_optional_loops.bx",
+        "temp has value\ntemp has value\ntemp has value\nAll tests passed"
+    );
+}
+
+#[test]
+fn test_optional_ternary() {
+    assert_success(
+        "tests/integration/success/89_optional_ternary.bx",
+        "x is not nil\ny is nil\nboth have values\na is nil, b has value\nboth are nil"
+    );
+}
+
+// ==========================================
 // PARSER ERRORS - Exit Code 2
 // ==========================================
 
