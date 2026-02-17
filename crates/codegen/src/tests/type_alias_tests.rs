@@ -203,6 +203,32 @@ fn test_optional_float_as_union() {
     assert!(result.is_ok(), "Should create Optional<float> as Union(float, nil)");
 }
 
+// --- INTERSECTION TYPE TESTS ---
+
+#[test]
+fn test_intersection_type_parsing() {
+    // Intersection types parse correctly (even if full implementation is limited)
+    let program = Program {
+        statements: vec![
+            type_alias!("Combined", "int & float"),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok(), "Should parse intersection type alias");
+}
+
+#[test]
+fn test_intersection_in_typedef() {
+    let program = Program {
+        statements: vec![
+            type_alias!("MyIntersection", "int & string"),
+            type_alias!("AnotherType", "MyIntersection"),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok(), "Should handle intersection in type aliases");
+}
+
 // --- MULTIPLE TYPE ALIASES ---
 
 #[test]

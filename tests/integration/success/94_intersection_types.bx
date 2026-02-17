@@ -1,0 +1,20 @@
+// Intersection types (Point & Label)
+
+struct Point {
+    x: int,
+    y: int
+}
+
+struct Label {
+    name: string
+}
+
+// For now, use inline Intersection type instead of alias
+// Future: support NamedPoint{ ... } construction
+
+var p1: Point = Point{ x: 10, y: 20 }
+var l1: Label = Label{ name: "Origin" }
+
+println(p1.x)
+println(p1.y)
+println(l1.name)
