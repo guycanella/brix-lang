@@ -111,6 +111,12 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     // The BrixType enum itself is defined in types.rs
 
     fn string_to_brix_type(&self, type_str: &str) -> BrixType {
+        // Check for Optional type (suffix "?")
+        if let Some(base_type_str) = type_str.strip_suffix('?') {
+            let inner_type = self.string_to_brix_type(base_type_str);
+            return BrixType::Optional(Box::new(inner_type));
+        }
+
         match type_str {
             "int" => BrixType::Int,
             "float" => BrixType::Float,
@@ -167,6 +173,23 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 self.struct_types.get(name)
                     .expect(&format!("Struct type '{}' not found", name))
                     .as_basic_type_enum()
+            }
+            BrixType::Optional(inner_type) => {
+                // Optional representation depends on inner type:
+                // - Ref-counted types (String?, Matrix?): nullable pointer (8 bytes)
+                // - Primitives (int?, float?): struct { i1 has_value, T value }
+                if Self::is_ref_counted(inner_type) {
+                    // For ref-counted types, Optional is just a nullable pointer
+                    // nil = nullptr, Some(x) = pointer to x
+                    self.context.ptr_type(AddressSpace::default()).into()
+                } else {
+                    // For primitives, Optional is a struct with has_value flag + value
+                    let value_type = self.brix_type_to_llvm(inner_type);
+                    let i1_type = self.context.bool_type();
+                    self.context
+                        .struct_type(&[i1_type.into(), value_type], false)
+                        .into()
+                }
             }
         }
     }
@@ -3717,6 +3740,19 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             BrixType::Error => "error".to_string(),
                             BrixType::Atom => "atom".to_string(),
                             BrixType::Struct(name) => name.clone(),
+                            BrixType::Optional(inner) => {
+                                // Recursively get inner type name and append "?"
+                                let inner_str = match inner.as_ref() {
+                                    BrixType::Int => "int",
+                                    BrixType::Float => "float",
+                                    BrixType::String => "string",
+                                    BrixType::Matrix => "matrix",
+                                    BrixType::IntMatrix => "intmatrix",
+                                    BrixType::Struct(name) => name,
+                                    _ => "unknown",
+                                };
+                                format!("{}?", inner_str)
+                            }
                         };
 
                         return self
