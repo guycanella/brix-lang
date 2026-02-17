@@ -627,6 +627,26 @@ fn test_combined_features() {
 }
 
 // ==========================================
+// CLOSURES - Additional Tests (65-66)
+// ==========================================
+
+#[test]
+fn test_closure_simple() {
+    assert_success(
+        "tests/integration/success/65_closure_simple.bx",
+        "10\n20"
+    );
+}
+
+#[test]
+fn test_closure_single_capture() {
+    assert_success(
+        "tests/integration/success/66_closure_single_capture.bx",
+        "15\n30"
+    );
+}
+
+// ==========================================
 // STRESS TESTS - Edge Cases (67-70)
 // ==========================================
 
@@ -659,6 +679,42 @@ fn test_stress_closure_multiple_captures() {
     assert_success(
         "tests/integration/success/70_stress_closure_multiple_captures.bx",
         "25"
+    );
+}
+
+// ==========================================
+// ARC TESTS (71-74)
+// ==========================================
+
+#[test]
+fn test_arc_string_basic() {
+    assert_success(
+        "tests/integration/success/71_arc_string_basic.bx",
+        "world\nhello\nworld"
+    );
+}
+
+#[test]
+fn test_arc_matrix_reassignment() {
+    assert_success(
+        "tests/integration/success/72_arc_matrix_reassignment.bx",
+        "1\n2\n4\n1"
+    );
+}
+
+#[test]
+fn test_arc_intmatrix_basic() {
+    assert_success(
+        "tests/integration/success/73_arc_intmatrix_basic.bx",
+        "10\n20\n40\n10\n60"
+    );
+}
+
+#[test]
+fn test_arc_mixed_types() {
+    assert_success(
+        "tests/integration/success/74_arc_mixed_types.bx",
+        "test\n1\n20\nupdated\n4\n30"
     );
 }
 

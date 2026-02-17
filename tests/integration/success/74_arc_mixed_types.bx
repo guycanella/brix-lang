@@ -1,0 +1,12 @@
+var s := "test"
+var m := [1.0, 2.0]
+var arr := [10, 20]
+println(s)
+println(m[0])
+println(arr[1])
+s := "updated"
+m := [3.0, 4.0]
+arr := [30, 40]
+println(s)
+println(m[1])
+println(arr[0])

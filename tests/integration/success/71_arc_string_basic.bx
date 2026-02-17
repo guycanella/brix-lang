@@ -1,0 +1,7 @@
+var s1 := "hello"
+var s2 := s1
+var s3 := "world"
+s1 := s3
+println(s1)
+println(s2)
+println(s3)
