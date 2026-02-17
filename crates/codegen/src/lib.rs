@@ -62,6 +62,9 @@ pub struct Compiler<'a, 'ctx> {
     pub generic_methods: HashMap<String, Vec<MethodDef>>,               // struct_name -> methods
     pub monomorphized_cache: HashMap<(String, Vec<String>), String>,    // (name, type_args) -> specialized_name
 
+    // Type Aliases (v1.4)
+    pub type_aliases: HashMap<String, String>,                          // type_name -> definition (e.g., "MyInt" -> "int")
+
     // Closures support
     pub closure_counter: usize,  // Counter for unique closure names
 
@@ -93,6 +96,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             generic_structs: HashMap::new(),
             generic_methods: HashMap::new(),
             monomorphized_cache: HashMap::new(),
+            type_aliases: HashMap::new(),
             closure_counter: 0,
             function_scope_vars: Vec::new(),
         }
@@ -111,13 +115,39 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     // The BrixType enum itself is defined in types.rs
 
     fn string_to_brix_type(&self, type_str: &str) -> BrixType {
-        // Check for Optional type (suffix "?")
-        if let Some(base_type_str) = type_str.strip_suffix('?') {
+        // Step 1: Resolve type aliases
+        let resolved_type_str = if let Some(definition) = self.type_aliases.get(type_str) {
+            definition.as_str()
+        } else {
+            type_str
+        };
+
+        // Step 2: Check for Union type (contains " | ")
+        if resolved_type_str.contains(" | ") {
+            let types: Vec<BrixType> = resolved_type_str
+                .split(" | ")
+                .map(|s| self.string_to_brix_type(s.trim()))
+                .collect();
+            return BrixType::Union(types);
+        }
+
+        // Step 3: Check for Intersection type (contains " & ")
+        if resolved_type_str.contains(" & ") {
+            let types: Vec<BrixType> = resolved_type_str
+                .split(" & ")
+                .map(|s| self.string_to_brix_type(s.trim()))
+                .collect();
+            return BrixType::Intersection(types);
+        }
+
+        // Step 4: Check for Optional type (suffix "?")
+        if let Some(base_type_str) = resolved_type_str.strip_suffix('?') {
             let inner_type = self.string_to_brix_type(base_type_str);
             return BrixType::Optional(Box::new(inner_type));
         }
 
-        match type_str {
+        // Step 5: Base types
+        match resolved_type_str {
             "int" => BrixType::Int,
             "float" => BrixType::Float,
             "string" => BrixType::String,
@@ -130,10 +160,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             "void" => BrixType::Void,
             _ => {
                 // Check if it's a struct type
-                if self.struct_defs.contains_key(type_str) {
-                    BrixType::Struct(type_str.to_string())
+                if self.struct_defs.contains_key(resolved_type_str) {
+                    BrixType::Struct(resolved_type_str.to_string())
                 } else {
-                    eprintln!("Warning: Unknown type '{}', defaulting to Int", type_str);
+                    eprintln!("Warning: Unknown type '{}', defaulting to Int", resolved_type_str);
                     BrixType::Int
                 }
             }
@@ -173,6 +203,52 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 self.struct_types.get(name)
                     .expect(&format!("Struct type '{}' not found", name))
                     .as_basic_type_enum()
+            }
+            BrixType::Union(types) => {
+                // Union type (tagged union): struct { i64 tag, largest_type value }
+                // Tag indicates which variant is active (0, 1, 2, ...)
+                // Value holds the largest type to accommodate all variants
+
+                // Find largest type for union value field
+                let mut max_size = 0;
+                let mut max_type = self.context.i64_type().as_basic_type_enum();
+
+                for t in types {
+                    let llvm_type = self.brix_type_to_llvm(t);
+                    let size = llvm_type.size_of().unwrap().get_zero_extended_constant().unwrap_or(8);
+                    if size > max_size {
+                        max_size = size;
+                        max_type = llvm_type;
+                    }
+                }
+
+                // Tagged union: { i64 tag, max_type value }
+                let i64_type = self.context.i64_type();
+                self.context.struct_type(&[i64_type.into(), max_type], false).into()
+            }
+            BrixType::Intersection(types) => {
+                // Intersection type: merge all struct fields into one struct
+                // For now, just create a struct with all fields from all types
+                let mut all_fields: Vec<BasicTypeEnum> = Vec::new();
+
+                for t in types {
+                    match t {
+                        BrixType::Struct(name) => {
+                            // Get struct fields and add to merged fields
+                            if let Some(fields) = self.struct_defs.get(name) {
+                                for (_, field_type, _) in fields {
+                                    all_fields.push(self.brix_type_to_llvm(field_type));
+                                }
+                            }
+                        }
+                        _ => {
+                            // For non-struct types, just add the type itself
+                            all_fields.push(self.brix_type_to_llvm(t));
+                        }
+                    }
+                }
+
+                self.context.struct_type(&all_fields, false).into()
             }
             BrixType::Optional(inner_type) => {
                 // Optional representation depends on inner type:
@@ -2381,6 +2457,12 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 Ok(())
             }
 
+            StmtKind::TypeAlias { name, definition } => {
+                // Store type alias in symbol table
+                self.type_aliases.insert(name.clone(), definition.clone());
+                Ok(())
+            }
+
             StmtKind::FunctionDef {
                 name,
                 type_params,
@@ -2562,6 +2644,28 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                 .map_err(|_| CodegenError::LLVMError {
                                     operation: "build_load".to_string(),
                                     details: format!("Failed to load Optional variable '{}'", name),
+                                    span: Some(expr.span.clone()),
+                                })?;
+                            Ok((val, brix_type.clone()))
+                        }
+                        BrixType::Union(_) => {
+                            // Load Union value (tagged union struct)
+                            let llvm_type = self.brix_type_to_llvm(brix_type);
+                            let val = self.builder.build_load(llvm_type, *ptr, name)
+                                .map_err(|_| CodegenError::LLVMError {
+                                    operation: "build_load".to_string(),
+                                    details: format!("Failed to load Union variable '{}'", name),
+                                    span: Some(expr.span.clone()),
+                                })?;
+                            Ok((val, brix_type.clone()))
+                        }
+                        BrixType::Intersection(_) => {
+                            // Load Intersection value (merged struct)
+                            let llvm_type = self.brix_type_to_llvm(brix_type);
+                            let val = self.builder.build_load(llvm_type, *ptr, name)
+                                .map_err(|_| CodegenError::LLVMError {
+                                    operation: "build_load".to_string(),
+                                    details: format!("Failed to load Intersection variable '{}'", name),
                                     span: Some(expr.span.clone()),
                                 })?;
                             Ok((val, brix_type.clone()))
@@ -3963,6 +4067,24 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                     _ => "unknown",
                                 };
                                 format!("{}?", inner_str)
+                            }
+                            BrixType::Union(types) => {
+                                // Format as "int | float | string"
+                                types.iter().map(|t| match t {
+                                    BrixType::Int => "int",
+                                    BrixType::Float => "float",
+                                    BrixType::String => "string",
+                                    BrixType::Nil => "nil",
+                                    BrixType::Struct(name) => name.as_str(),
+                                    _ => "unknown",
+                                }).collect::<Vec<_>>().join(" | ")
+                            }
+                            BrixType::Intersection(types) => {
+                                // Format as "Point & Label"
+                                types.iter().map(|t| match t {
+                                    BrixType::Struct(name) => name.as_str(),
+                                    _ => "unknown",
+                                }).collect::<Vec<_>>().join(" & ")
                             }
                         };
 
@@ -7796,6 +7918,69 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             details: "Function did not return a value".to_string(),
                                                     span: None,
                         })?;
+
+                Ok(brix_string)
+            }
+
+            BrixType::Union(types) => {
+                // Extract tag from union (field 0)
+                let tag_val = self.builder.build_extract_value(val.into_struct_value(), 0, "extract_tag")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_extract_value".to_string(),
+                        details: "Failed to extract tag from union".to_string(),
+                        span: None,
+                    })?;
+
+                // Extract value from union (field 1)
+                let inner_val = self.builder.build_extract_value(val.into_struct_value(), 1, "extract_value")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_extract_value".to_string(),
+                        details: "Failed to extract value from union".to_string(),
+                        span: None,
+                    })?;
+
+                // For now, just try to print based on the first type in the union
+                // TODO: Properly handle based on tag at runtime
+                if !types.is_empty() {
+                    self.value_to_string(inner_val, &types[0], format)
+                } else {
+                    Err(CodegenError::MissingValue {
+                        what: "value_to_string conversion".to_string(),
+                        context: "Empty Union type".to_string(),
+                        span: None
+                    })
+                }
+            }
+
+            BrixType::Intersection(_) => {
+                // For Intersection, just print as struct for now
+                eprintln!("value_to_string for Intersection not fully implemented");
+                let str_ptr = self.builder.build_global_string_ptr("<Intersection>", "intersection_str")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_global_string_ptr".to_string(),
+                        details: "Failed to create Intersection string".to_string(),
+                        span: None,
+                    })?;
+
+                let str_new_fn = self.module.get_function("str_new").unwrap_or_else(|| {
+                    let ptr_type = self.context.ptr_type(AddressSpace::default());
+                    let fn_type = ptr_type.fn_type(&[ptr_type.into()], false);
+                    self.module.add_function("str_new", fn_type, Some(Linkage::External))
+                });
+
+                let brix_string = self.builder.build_call(str_new_fn, &[str_ptr.as_pointer_value().into()], "intersection_brix_str")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: "Failed to call str_new".to_string(),
+                        span: None,
+                    })?
+                    .try_as_basic_value()
+                    .left()
+                    .ok_or_else(|| CodegenError::LLVMError {
+                        operation: "try_as_basic_value".to_string(),
+                        details: "str_new did not return a value".to_string(),
+                        span: None,
+                    })?;
 
                 Ok(brix_string)
             }

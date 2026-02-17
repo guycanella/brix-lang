@@ -755,6 +755,42 @@ fn test_optional_ternary() {
 }
 
 // ==========================================
+// TYPE ALIASES & UNION TYPES (v1.4) - Tests 90-93
+// ==========================================
+
+#[test]
+fn test_type_alias_simple() {
+    assert_success(
+        "tests/integration/success/90_type_alias_simple.bx",
+        "42\n3.14"
+    );
+}
+
+#[test]
+fn test_union_types() {
+    assert_success(
+        "tests/integration/success/91_union_types.bx",
+        "42\n3.14"
+    );
+}
+
+#[test]
+fn test_type_alias_union() {
+    assert_success(
+        "tests/integration/success/92_type_alias_union.bx",
+        "42\n3.14"
+    );
+}
+
+#[test]
+fn test_optional_as_union() {
+    assert_success(
+        "tests/integration/success/93_optional_as_union.bx",
+        "42\ny is nil"
+    );
+}
+
+// ==========================================
 // PARSER ERRORS - Exit Code 2
 // ==========================================
 

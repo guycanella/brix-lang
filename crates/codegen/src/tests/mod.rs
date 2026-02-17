@@ -18,3 +18,4 @@ mod stress_tests;
 mod string_tests;
 mod struct_tests;
 mod type_tests;
+mod type_alias_tests;

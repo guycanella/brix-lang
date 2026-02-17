@@ -28,6 +28,8 @@ pub enum BrixType {
     Atom,                 // Elixir-style atom (interned string, i64 ID)
     Struct(String),       // User-defined struct (name stored as String)
     Optional(Box<BrixType>), // Optional type: int?, String?, Matrix? (v1.4)
+    Union(Vec<BrixType>), // Union type: int | float | string (v1.4)
+    Intersection(Vec<BrixType>), // Intersection type: Point & Label (v1.4)
 }
 
 // Type-related helper functions will be implemented as methods on Compiler

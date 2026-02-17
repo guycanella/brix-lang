@@ -252,6 +252,11 @@ pub enum StmtKind {
         alias: Option<String>,
     },
 
+    TypeAlias {
+        name: String,       // Alias name (e.g., "MyInt", "Callback")
+        definition: String, // Type definition as string (e.g., "int", "int | float", "Point & Label")
+    },
+
     Printf {
         format: String,
         args: Vec<Expr>,
