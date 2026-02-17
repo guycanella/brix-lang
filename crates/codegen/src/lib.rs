@@ -979,6 +979,25 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         )
     }
 
+    /// Check if a print/println expression produces a temporary BrixString
+    /// that should be released after printing.
+    ///
+    /// Returns true when value_to_string created a new allocation OR when
+    /// compile_expr produced a temporary string (literal, f-string, concat, etc.).
+    /// Returns false for variable references and field accesses (borrowed pointers).
+    pub fn is_print_temp(brix_type: &BrixType, expr_kind: &parser::ast::ExprKind) -> bool {
+        use parser::ast::ExprKind;
+        match brix_type {
+            // Non-String types: value_to_string always allocates a new BrixString
+            BrixType::String => {
+                // For String type, only Identifier and FieldAccess are "borrowed"
+                !matches!(expr_kind, ExprKind::Identifier(_) | ExprKind::FieldAccess { .. })
+            }
+            // Non-string types: value_to_string creates a temp BrixString
+            _ => true,
+        }
+    }
+
     /// Insert retain() call for ref-counted types
     /// Returns the same pointer (retains are transparent)
     fn insert_retain(
@@ -1450,6 +1469,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         for stmt in &program.statements {
             self.compile_stmt(stmt, function)?;
         }
+
+        // ARC: Release all ref-counted variables before exiting main
+        self.release_function_scope_vars()?;
 
         // Build return instruction
         self.builder
