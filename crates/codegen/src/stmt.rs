@@ -121,6 +121,14 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
                             span: None,
             })?;
 
+        // ARC: Release temporary BrixString created by value_to_string or str_new.
+        // For non-String types, value_to_string always allocates a new BrixString.
+        // For String types, only release if the expression is a temporary (not a
+        // variable reference or field access which are "borrowed").
+        if Self::is_print_temp(&brix_type, &expr.kind) {
+            self.insert_release(struct_ptr, &crate::BrixType::String)?;
+        }
+
         Ok(())
     }
 
@@ -175,6 +183,11 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
                 details: "Failed to call printf".to_string(),
                             span: None,
             })?;
+
+        // ARC: Release temporary BrixString (same logic as compile_print_stmt)
+        if Self::is_print_temp(&brix_type, &expr.kind) {
+            self.insert_release(struct_ptr, &crate::BrixType::String)?;
+        }
 
         Ok(())
     }
@@ -240,7 +253,22 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
     }
 
     fn compile_expr_stmt(&mut self, expr: &Expr) -> CodegenResult<()> {
-        self.compile_expr(expr)?;
+        let (val, brix_type) = self.compile_expr(expr)?;
+
+        // ARC: Release discarded ref-counted temporaries.
+        // If the expression produced a ref-counted value that's not stored anywhere,
+        // it would leak. Release it unless it's a variable reference (which is owned
+        // by the variable and will be released at scope exit).
+        if Compiler::is_ref_counted(&brix_type) {
+            let is_borrowed = matches!(
+                &expr.kind,
+                parser::ast::ExprKind::Identifier(_) | parser::ast::ExprKind::FieldAccess { .. }
+            );
+            if !is_borrowed {
+                self.insert_release(val.into_pointer_value(), &brix_type)?;
+            }
+        }
+
         Ok(())
     }
 
