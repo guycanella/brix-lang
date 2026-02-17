@@ -64,6 +64,9 @@ pub struct Compiler<'a, 'ctx> {
 
     // Closures support
     pub closure_counter: usize,  // Counter for unique closure names
+
+    // ARC scope tracking (v1.4)
+    pub function_scope_vars: Vec<(String, BrixType)>,  // Variables in current function scope (for ARC release)
 }
 
 impl<'a, 'ctx> Compiler<'a, 'ctx> {
@@ -91,6 +94,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             generic_methods: HashMap::new(),
             monomorphized_cache: HashMap::new(),
             closure_counter: 0,
+            function_scope_vars: Vec::new(),
         }
     }
 
@@ -244,6 +248,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         let saved_vars = self.variables.clone();
         self.current_function = Some(llvm_function);
 
+        // ARC: Clear function scope vars for new function
+        self.function_scope_vars.clear();
+
         // 7. Create allocas for parameters and store them
         for (i, (param_name, param_type_str, _default)) in params.iter().enumerate() {
             let param_value = llvm_function.get_nth_param(i as u32)
@@ -274,6 +281,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             // Check if last instruction is already a return
             if let Some(block) = self.builder.get_insert_block() {
                 if block.get_terminator().is_none() {
+                    // ARC: Release all ref-counted variables before returning
+                    self.release_function_scope_vars()?;
+
                     self.builder.build_return(None)
                         .map_err(|_| CodegenError::LLVMError {
                             operation: "build_return".to_string(),
@@ -953,6 +963,129 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 details: "Failed to call closure_release".to_string(),
                 span: None,
             })?;
+
+        Ok(())
+    }
+
+    // --- ARC FOR HEAP TYPES (v1.4) ---
+
+    /// Check if a type is reference-counted (needs retain/release)
+    fn is_ref_counted(brix_type: &BrixType) -> bool {
+        matches!(
+            brix_type,
+            BrixType::String | BrixType::Matrix | BrixType::IntMatrix | BrixType::ComplexMatrix
+        )
+    }
+
+    /// Insert retain() call for ref-counted types
+    /// Returns the same pointer (retains are transparent)
+    fn insert_retain(
+        &self,
+        value: BasicValueEnum<'ctx>,
+        brix_type: &BrixType,
+    ) -> CodegenResult<BasicValueEnum<'ctx>> {
+        if !Self::is_ref_counted(brix_type) {
+            return Ok(value); // No retain needed
+        }
+
+        let ptr_value = value.into_pointer_value();
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+
+        // Determine which retain function to call
+        let fn_name = match brix_type {
+            BrixType::String => "string_retain",
+            BrixType::Matrix => "matrix_retain",
+            BrixType::IntMatrix => "intmatrix_retain",
+            BrixType::ComplexMatrix => "complexmatrix_retain",
+            _ => unreachable!("is_ref_counted should have filtered this"),
+        };
+
+        // Declare: void* xxx_retain(void* ptr)
+        let retain_fn_type = ptr_type.fn_type(&[ptr_type.into()], false);
+        let retain_fn = self.module.get_function(fn_name).unwrap_or_else(|| {
+            self.module.add_function(fn_name, retain_fn_type, Some(Linkage::External))
+        });
+
+        // Call xxx_retain(ptr) - returns same ptr
+        let retained_ptr = self.builder
+            .build_call(retain_fn, &[ptr_value.into()], "retain_call")
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_call".to_string(),
+                details: format!("Failed to call {}", fn_name),
+                span: None,
+            })?
+            .try_as_basic_value()
+            .left()
+            .ok_or_else(|| CodegenError::LLVMError {
+                operation: "try_as_basic_value".to_string(),
+                details: format!("{} should return a pointer", fn_name),
+                span: None,
+            })?;
+
+        Ok(retained_ptr)
+    }
+
+    /// Insert release() call for ref-counted types
+    fn insert_release(
+        &self,
+        ptr_value: PointerValue<'ctx>,
+        brix_type: &BrixType,
+    ) -> CodegenResult<()> {
+        if !Self::is_ref_counted(brix_type) {
+            return Ok(()); // No release needed
+        }
+
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+
+        // Determine which release function to call
+        let fn_name = match brix_type {
+            BrixType::String => "string_release",
+            BrixType::Matrix => "matrix_release",
+            BrixType::IntMatrix => "intmatrix_release",
+            BrixType::ComplexMatrix => "complexmatrix_release",
+            _ => unreachable!("is_ref_counted should have filtered this"),
+        };
+
+        // Declare: void xxx_release(void* ptr)
+        let void_type = self.context.void_type();
+        let release_fn_type = void_type.fn_type(&[ptr_type.into()], false);
+        let release_fn = self.module.get_function(fn_name).unwrap_or_else(|| {
+            self.module.add_function(fn_name, release_fn_type, Some(Linkage::External))
+        });
+
+        // Call xxx_release(ptr)
+        self.builder
+            .build_call(release_fn, &[ptr_value.into()], "release_call")
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_call".to_string(),
+                details: format!("Failed to call {}", fn_name),
+                span: None,
+            })?;
+
+        Ok(())
+    }
+
+    /// Release all ref-counted variables in current function scope
+    /// Called at function exit (for void functions) or before return
+    fn release_function_scope_vars(&mut self) -> CodegenResult<()> {
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+
+        for (var_name, var_type) in &self.function_scope_vars {
+            if let Some((var_ptr, _)) = self.variables.get(var_name) {
+                // Load the pointer value
+                let value = self.builder
+                    .build_load(ptr_type, *var_ptr, &format!("{}_load", var_name))
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_load".to_string(),
+                        details: format!("Failed to load variable '{}' for release", var_name),
+                        span: None,
+                    })?
+                    .into_pointer_value();
+
+                // Release it
+                self.insert_release(value, var_type)?;
+            }
+        }
 
         Ok(())
     }
