@@ -1,0 +1,10 @@
+// Test: Generic function with type inference
+fn double<T>(x: T) -> T {
+    return x + x
+}
+
+println(double(10))
+println(double(5))
+
+println(int(double(1.0)))
+println(int(double(0.5)))

@@ -1,0 +1,17 @@
+// Test: Combining Structs + Generics + Closures
+struct Container<T> {
+    value: T
+}
+
+fn (c: Container) get() -> T {
+    return c.value
+}
+
+var int_container := Container<int>{ value: 10 }
+
+var double := (x: int) -> int {
+    return x * 2
+}
+
+var result := double(int_container.get())
+println(result)

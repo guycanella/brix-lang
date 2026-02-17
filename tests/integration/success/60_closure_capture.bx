@@ -1,0 +1,16 @@
+// Test: Closure with captured variables
+var x := 10
+var y := 20
+
+var add_xy := (a: int) -> int {
+    return a + x + y
+}
+
+println(add_xy(5))
+
+var multiplier := 3
+var mul := (n: int) -> int {
+    return n * multiplier
+}
+
+println(mul(4))

@@ -1,0 +1,14 @@
+// Test: Struct with default values
+struct Config {
+    timeout: int = 30,
+    retries: int = 3,
+    debug: int = 0
+}
+
+var cfg1 := Config{ timeout: 60, retries: 5, debug: 1 }
+var cfg2 := Config{ timeout: 45, retries: 3, debug: 0 }
+
+println(cfg1.timeout)
+println(cfg1.retries)
+println(cfg2.timeout)
+println(cfg2.debug)

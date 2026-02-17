@@ -1,0 +1,20 @@
+// Test: Generic struct with construction and method
+struct Box<T> {
+    value: T
+}
+
+fn (b: Box) get() -> T {
+    return b.value
+}
+
+fn (b: Box) double() -> T {
+    return b.value + b.value
+}
+
+var int_box := Box<int>{ value: 5 }
+var float_box := Box<float>{ value: 2.5 }
+
+println(int_box.get())
+println(float_box.get())
+println(int_box.double())
+println(float_box.double())
