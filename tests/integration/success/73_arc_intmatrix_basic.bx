@@ -1,0 +1,9 @@
+var arr1 := [10, 20, 30]
+var arr2 := arr1
+var arr3 := [40, 50, 60]
+println(arr1[0])
+println(arr2[1])
+arr1 := arr3
+println(arr1[0])
+println(arr2[0])
+println(arr3[2])

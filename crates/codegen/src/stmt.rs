@@ -584,8 +584,18 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
             }
         };
 
-        // ARC: Constructors already return with ref_count=1, so ownership is transferred
-        // No need to retain on initial assignment
+        // ARC: Retain if value is ref-counted (except for literals which come with ref_count=1)
+        // We need to retain when copying from another variable
+        let should_retain = Compiler::is_ref_counted(&val_type) && !matches!(
+            &value.kind,
+            parser::ast::ExprKind::Literal(_) |
+            parser::ast::ExprKind::Array(_) |
+            parser::ast::ExprKind::Binary { .. }  // String concatenation returns new string
+        );
+
+        if should_retain {
+            final_val = self.insert_retain(final_val, &val_type)?;
+        }
 
         let alloca = self.create_entry_block_alloca(llvm_type, name)?;
         self.builder.build_store(alloca, final_val)
