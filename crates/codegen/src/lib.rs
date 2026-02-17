@@ -282,7 +282,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             if let Some(block) = self.builder.get_insert_block() {
                 if block.get_terminator().is_none() {
                     // ARC: Release all ref-counted variables before returning
-                    // TODO: Temporarily disabled to debug SIGSEGV
+                    // TODO: Temporarily disabled - needs investigation (causes SIGSEGV in 64 tests)
                     // self.release_function_scope_vars()?;
 
                     self.builder.build_return(None)
