@@ -1,5 +1,6 @@
 // Codegen Test Modules
 
+mod arc_tests;
 mod builtin_tests;
 mod closure_tests;
 mod complex_tests;
