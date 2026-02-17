@@ -405,7 +405,9 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
         use crate::BrixType;
 
         if values.is_empty() {
-            // Void return
+            // ARC: Release all ref-counted variables before explicit void return
+            self.release_function_scope_vars()?;
+
             self.builder.build_return(None)
                 .map_err(|_| CodegenError::LLVMError {
                     operation: "build_return".to_string(),
@@ -597,7 +599,31 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
             final_val = self.insert_retain(final_val, &val_type)?;
         }
 
-        let alloca = self.create_entry_block_alloca(llvm_type, name)?;
+        let alloca = if Compiler::is_ref_counted(&val_type) {
+            // Ref-counted types use null-initialized alloca so that:
+            // 1. Conditional declarations don't leave garbage (prevents SIGSEGV on release)
+            // 2. Loop re-declarations can safely release the old value on every iteration
+            let alloca = self.create_null_init_entry_block_alloca(llvm_type, name)?;
+
+            // Release old value before overwriting. On first execution the alloca
+            // holds null, so the runtime release function returns immediately (no-op).
+            // On subsequent loop iterations this frees the previous allocation.
+            let ptr_type = self.context.ptr_type(inkwell::AddressSpace::default());
+            let old_val = self.builder
+                .build_load(ptr_type, alloca, &format!("{}_old_release", name))
+                .map_err(|_| CodegenError::LLVMError {
+                    operation: "build_load".to_string(),
+                    details: format!("Failed to load old value for variable '{}' release", name),
+                    span: None,
+                })?
+                .into_pointer_value();
+            self.insert_release(old_val, &val_type)?;
+
+            alloca
+        } else {
+            self.create_entry_block_alloca(llvm_type, name)?
+        };
+
         self.builder.build_store(alloca, final_val)
             .map_err(|_| CodegenError::LLVMError {
                 operation: "build_store".to_string(),
@@ -608,8 +634,11 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
         self.variables.insert(name.to_string(), (alloca, val_type.clone()));
 
         // ARC: Track ref-counted variables for cleanup at function exit
+        // Avoid duplicates (e.g., same variable compiled inside a loop body)
         if Compiler::is_ref_counted(&val_type) {
-            self.function_scope_vars.push((name.to_string(), val_type));
+            if !self.function_scope_vars.iter().any(|(n, _)| n == name) {
+                self.function_scope_vars.push((name.to_string(), val_type));
+            }
         }
 
         Ok(())
