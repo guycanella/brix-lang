@@ -6,7 +6,7 @@ use inkwell::values::BasicMetadataValueEnum;
 use inkwell::values::{BasicValue, BasicValueEnum, FloatValue, IntValue, PointerValue};
 use inkwell::{AddressSpace, FloatPredicate, IntPredicate};
 use parser::ast::{BinaryOp, Closure, Expr, ExprKind, Literal, MethodDef, Program, Stmt, StmtKind, StructDef, UnaryOp};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 // --- MODULE DECLARATIONS ---
 // These modules will be gradually populated during refactoring
@@ -246,6 +246,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
         // 6. Save current state and set current function
         let saved_vars = self.variables.clone();
+        let saved_scope_vars = self.function_scope_vars.clone();
         self.current_function = Some(llvm_function);
 
         // ARC: Clear function scope vars for new function
@@ -281,9 +282,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             // Check if last instruction is already a return
             if let Some(block) = self.builder.get_insert_block() {
                 if block.get_terminator().is_none() {
-                    // ARC: Release all ref-counted variables before returning
-                    // TODO: Temporarily disabled - needs investigation (causes SIGSEGV in 64 tests)
-                    // self.release_function_scope_vars()?;
+                    // ARC: Release all ref-counted variables before implicit void return
+                    self.release_function_scope_vars()?;
 
                     self.builder.build_return(None)
                         .map_err(|_| CodegenError::LLVMError {
@@ -297,6 +297,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
         // 10. Restore state
         self.variables = saved_vars;
+        self.function_scope_vars = saved_scope_vars;
         self.current_function = Some(_parent_function);
 
         // 11. Position builder back at the end of parent function
@@ -1066,16 +1067,24 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         Ok(())
     }
 
-    /// Release all ref-counted variables in current function scope
-    /// Called at function exit (for void functions) or before return
+    /// Release all ref-counted variables in current function scope.
+    /// Called at function exit (for void functions) or before return.
+    ///
+    /// Clones function_scope_vars to avoid borrow conflicts with insert_release.
+    /// Deduplicates by variable name to prevent double-release when the same
+    /// variable is tracked multiple times (e.g. loop re-declarations).
     fn release_function_scope_vars(&mut self) -> CodegenResult<()> {
         let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let scope_vars = self.function_scope_vars.clone();
+        let mut released = HashSet::new();
 
-        for (var_name, var_type) in &self.function_scope_vars {
+        for (var_name, var_type) in &scope_vars {
+            if !released.insert(var_name.clone()) {
+                continue;
+            }
             if let Some((var_ptr, _)) = self.variables.get(var_name) {
-                // Load the pointer value
                 let value = self.builder
-                    .build_load(ptr_type, *var_ptr, &format!("{}_load", var_name))
+                    .build_load(ptr_type, *var_ptr, &format!("{}_release_load", var_name))
                     .map_err(|_| CodegenError::LLVMError {
                         operation: "build_load".to_string(),
                         details: format!("Failed to load variable '{}' for release", var_name),
@@ -1083,7 +1092,6 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     })?
                     .into_pointer_value();
 
-                // Release it
                 self.insert_release(value, var_type)?;
             }
         }
