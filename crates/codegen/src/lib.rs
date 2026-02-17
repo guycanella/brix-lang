@@ -7923,13 +7923,21 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             }
 
             BrixType::Union(types) => {
+                if types.is_empty() {
+                    return Err(CodegenError::MissingValue {
+                        what: "value_to_string conversion".to_string(),
+                        context: "Empty Union type".to_string(),
+                        span: None
+                    });
+                }
+
                 // Extract tag from union (field 0)
                 let tag_val = self.builder.build_extract_value(val.into_struct_value(), 0, "extract_tag")
                     .map_err(|_| CodegenError::LLVMError {
                         operation: "build_extract_value".to_string(),
                         details: "Failed to extract tag from union".to_string(),
                         span: None,
-                    })?;
+                    })?.into_int_value();
 
                 // Extract value from union (field 1)
                 let inner_val = self.builder.build_extract_value(val.into_struct_value(), 1, "extract_value")
@@ -7939,16 +7947,194 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         span: None,
                     })?;
 
-                // For now, just try to print based on the first type in the union
-                // TODO: Properly handle based on tag at runtime
-                if !types.is_empty() {
-                    self.value_to_string(inner_val, &types[0], format)
+                // Use if/else chain based on tag (simpler than switch)
+                let current_fn = self.current_function.expect("No current function");
+                let merge_block = self.context.append_basic_block(current_fn, "union_print_merge");
+
+                // Allocate space for result string
+                let result_ptr = self.builder.build_alloca(self.context.ptr_type(AddressSpace::default()), "union_str_result")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_alloca".to_string(),
+                        details: "Failed to allocate union string result".to_string(),
+                        span: None,
+                    })?;
+
+                // Build if/else chain
+                for (i, typ) in types.iter().enumerate() {
+                    let case_block = self.context.append_basic_block(current_fn, &format!("union_case_{}", i));
+                    let next_block = if i < types.len() - 1 {
+                        self.context.append_basic_block(current_fn, &format!("union_check_{}", i + 1))
+                    } else {
+                        merge_block
+                    };
+
+                    // Check if tag == i
+                    let case_val = self.context.i64_type().const_int(i as u64, false);
+                    let is_case = self.builder.build_int_compare(
+                        inkwell::IntPredicate::EQ,
+                        tag_val,
+                        case_val,
+                        "is_case"
+                    ).map_err(|_| CodegenError::LLVMError {
+                        operation: "build_int_compare".to_string(),
+                        details: "Failed to compare union tag".to_string(),
+                        span: None,
+                    })?;
+
+                    self.builder.build_conditional_branch(is_case, case_block, next_block)
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_conditional_branch".to_string(),
+                            details: "Failed to branch on union tag".to_string(),
+                            span: None,
+                        })?;
+
+                    // Case block: convert to string
+                    self.builder.position_at_end(case_block);
+                    let str_val = self.value_to_string(inner_val, typ, format)?;
+                    self.builder.build_store(result_ptr, str_val)
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_store".to_string(),
+                            details: "Failed to store union string result".to_string(),
+                            span: None,
+                        })?;
+                    self.builder.build_unconditional_branch(merge_block)
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_unconditional_branch".to_string(),
+                            details: "Failed to branch to merge".to_string(),
+                            span: None,
+                        })?;
+
+                    // Position for next check
+                    if i < types.len() - 1 {
+                        self.builder.position_at_end(next_block);
+                    }
+                }
+
+                // Merge block: load result
+                self.builder.position_at_end(merge_block);
+                let result = self.builder.build_load(self.context.ptr_type(AddressSpace::default()), result_ptr, "union_str")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_load".to_string(),
+                        details: "Failed to load union string result".to_string(),
+                        span: None,
+                    })?;
+
+                Ok(result)
+            }
+
+            BrixType::Optional(inner_type) => {
+                // Check if Optional has value (for primitives) or is null (for ref-counted)
+                if Self::is_ref_counted(inner_type) {
+                    // Ref-counted Optional: check if pointer is null
+                    let ptr_val = val.into_pointer_value();
+                    let is_null = self.builder.build_is_null(ptr_val, "is_null")
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_is_null".to_string(),
+                            details: "Failed to check if Optional is null".to_string(),
+                            span: None,
+                        })?;
+
+                    let current_fn = self.current_function.expect("No current function");
+                    let then_block = self.context.append_basic_block(current_fn, "opt_nil");
+                    let else_block = self.context.append_basic_block(current_fn, "opt_value");
+                    let merge_block = self.context.append_basic_block(current_fn, "opt_merge");
+
+                    self.builder.build_conditional_branch(is_null, then_block, else_block)
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_conditional_branch".to_string(),
+                            details: "Failed to branch on Optional null check".to_string(),
+                            span: None,
+                        })?;
+
+                    // Nil block
+                    self.builder.position_at_end(then_block);
+                    let nil_str = self.value_to_string(val, &BrixType::Nil, format)?;
+                    self.builder.build_unconditional_branch(merge_block)
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_unconditional_branch".to_string(),
+                            details: "Failed to branch to merge".to_string(),
+                            span: None,
+                        })?;
+
+                    // Value block
+                    self.builder.position_at_end(else_block);
+                    let inner_str = self.value_to_string(val, inner_type, format)?;
+                    self.builder.build_unconditional_branch(merge_block)
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_unconditional_branch".to_string(),
+                            details: "Failed to branch to merge".to_string(),
+                            span: None,
+                        })?;
+
+                    // Merge block
+                    self.builder.position_at_end(merge_block);
+                    let phi = self.builder.build_phi(self.context.ptr_type(AddressSpace::default()), "opt_str")
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_phi".to_string(),
+                            details: "Failed to build phi for Optional string".to_string(),
+                            span: None,
+                        })?;
+
+                    phi.add_incoming(&[(&nil_str, then_block), (&inner_str, else_block)]);
+                    Ok(phi.as_basic_value())
                 } else {
-                    Err(CodegenError::MissingValue {
-                        what: "value_to_string conversion".to_string(),
-                        context: "Empty Union type".to_string(),
-                        span: None
-                    })
+                    // Primitive Optional: check has_value field
+                    let has_value = self.builder.build_extract_value(val.into_struct_value(), 0, "has_value")
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_extract_value".to_string(),
+                            details: "Failed to extract has_value from Optional".to_string(),
+                            span: None,
+                        })?.into_int_value();
+
+                    let current_fn = self.current_function.expect("No current function");
+                    let then_block = self.context.append_basic_block(current_fn, "opt_nil");
+                    let else_block = self.context.append_basic_block(current_fn, "opt_value");
+                    let merge_block = self.context.append_basic_block(current_fn, "opt_merge");
+
+                    self.builder.build_conditional_branch(has_value, else_block, then_block)
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_conditional_branch".to_string(),
+                            details: "Failed to branch on Optional has_value".to_string(),
+                            span: None,
+                        })?;
+
+                    // Nil block
+                    self.builder.position_at_end(then_block);
+                    let nil_str = self.value_to_string(val, &BrixType::Nil, format)?;
+                    self.builder.build_unconditional_branch(merge_block)
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_unconditional_branch".to_string(),
+                            details: "Failed to branch to merge".to_string(),
+                            span: None,
+                        })?;
+
+                    // Value block
+                    self.builder.position_at_end(else_block);
+                    let inner_val = self.builder.build_extract_value(val.into_struct_value(), 1, "value")
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_extract_value".to_string(),
+                            details: "Failed to extract value from Optional".to_string(),
+                            span: None,
+                        })?;
+                    let inner_str = self.value_to_string(inner_val, inner_type, format)?;
+                    self.builder.build_unconditional_branch(merge_block)
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_unconditional_branch".to_string(),
+                            details: "Failed to branch to merge".to_string(),
+                            span: None,
+                        })?;
+
+                    // Merge block
+                    self.builder.position_at_end(merge_block);
+                    let phi = self.builder.build_phi(self.context.ptr_type(AddressSpace::default()), "opt_str")
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_phi".to_string(),
+                            details: "Failed to build phi for Optional string".to_string(),
+                            span: None,
+                        })?;
+
+                    phi.add_incoming(&[(&nil_str, then_block), (&inner_str, else_block)]);
+                    Ok(phi.as_basic_value())
                 }
             }
 

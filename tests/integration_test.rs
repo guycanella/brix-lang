@@ -790,6 +790,14 @@ fn test_optional_as_union() {
     );
 }
 
+#[test]
+fn test_intersection_types() {
+    assert_success(
+        "tests/integration/success/94_intersection_types.bx",
+        "10\n20\nOrigin"
+    );
+}
+
 // ==========================================
 // PARSER ERRORS - Exit Code 2
 // ==========================================
