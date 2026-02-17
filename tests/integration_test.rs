@@ -575,6 +575,58 @@ fn test_struct_methods() {
 }
 
 // ==========================================
+// V1.3 FEATURES - Structs + Generics + Closures (59-64)
+// ==========================================
+
+#[test]
+fn test_generic_struct() {
+    assert_success(
+        "tests/integration/success/59_generic_struct.bx",
+        "5\n2.5\n10\n5"
+    );
+}
+
+#[test]
+fn test_closure_capture() {
+    assert_success(
+        "tests/integration/success/60_closure_capture.bx",
+        "35\n12"
+    );
+}
+
+#[test]
+fn test_generic_function() {
+    assert_success(
+        "tests/integration/success/61_generic_function.bx",
+        "20\n10\n2\n1"
+    );
+}
+
+#[test]
+fn test_closure_direct_call() {
+    assert_success(
+        "tests/integration/success/62_closure_as_parameter.bx",
+        "10\n25"
+    );
+}
+
+#[test]
+fn test_struct_default_values() {
+    assert_success(
+        "tests/integration/success/63_struct_default_values.bx",
+        "60\n5\n45\n0"
+    );
+}
+
+#[test]
+fn test_combined_features() {
+    assert_success(
+        "tests/integration/success/64_combined_features.bx",
+        "20"
+    );
+}
+
+// ==========================================
 // PARSER ERRORS - Exit Code 2
 // ==========================================
 

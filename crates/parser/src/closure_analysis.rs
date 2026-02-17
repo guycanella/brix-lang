@@ -8,8 +8,20 @@ use std::collections::HashSet;
 
 /// Analyze all closures in the program and fill their `captured_vars` fields
 pub fn analyze_closures(program: &mut Program) {
+    let mut program_scope = HashSet::new();
+
     for stmt in &mut program.statements {
-        analyze_stmt_closures(stmt, &HashSet::new());
+        analyze_stmt_closures(stmt, &program_scope);
+
+        // Add variables declared in this statement to the program scope
+        // so subsequent closures can capture them
+        if let StmtKind::VariableDecl { name, .. } = &stmt.kind {
+            program_scope.insert(name.clone());
+        } else if let StmtKind::DestructuringDecl { names, .. } = &stmt.kind {
+            for name in names {
+                program_scope.insert(name.clone());
+            }
+        }
     }
 }
 
@@ -242,8 +254,8 @@ fn analyze_expr_closures(expr: &mut Expr, outer_scope: &HashSet<String>) {
 
 /// Analyze a single closure and fill its captured_vars field
 fn analyze_closure(closure: &mut Closure, outer_scope: &HashSet<String>) {
-    // Build the closure's local scope (parameters)
-    let mut closure_scope = outer_scope.clone();
+    // Build the closure's local scope (parameters ONLY, not outer scope)
+    let mut closure_scope = HashSet::new();
     for (param_name, _) in &closure.params {
         closure_scope.insert(param_name.clone());
     }

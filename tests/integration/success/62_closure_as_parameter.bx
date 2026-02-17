@@ -1,0 +1,11 @@
+// Test: Closures can be called directly
+var double := (n: int) -> int {
+    return n * 2
+}
+
+var square := (n: int) -> int {
+    return n * n
+}
+
+println(double(5))
+println(square(5))

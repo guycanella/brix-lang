@@ -1,0 +1,9 @@
+// Test: Closure with single captured variable
+var offset := 10
+
+var add_offset := (x: int) -> int {
+    return x + offset
+}
+
+println(add_offset(5))
+println(add_offset(20))

@@ -1,0 +1,7 @@
+// Test: Simple closure without capture
+var double := (x: int) -> int {
+    return x * 2
+}
+
+println(double(5))
+println(double(10))
