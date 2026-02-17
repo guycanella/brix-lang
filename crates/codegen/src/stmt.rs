@@ -90,7 +90,7 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
         let str_type = self.get_string_type();
         let data_ptr_ptr = self
             .builder
-            .build_struct_gep(str_type, struct_ptr, 1, "str_data_ptr")
+            .build_struct_gep(str_type, struct_ptr, 2, "str_data_ptr")
             .map_err(|_| CodegenError::LLVMError {
                 operation: "build_struct_gep".to_string(),
                 details: "Failed to get string data pointer".to_string(),
@@ -145,7 +145,7 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
         let str_type = self.get_string_type();
         let data_ptr_ptr = self
             .builder
-            .build_struct_gep(str_type, struct_ptr, 1, "str_data_ptr")
+            .build_struct_gep(str_type, struct_ptr, 2, "str_data_ptr")
             .map_err(|_| CodegenError::LLVMError {
                 operation: "build_struct_gep".to_string(),
                 details: "Failed to get string data pointer".to_string(),
@@ -204,7 +204,7 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
                     let str_type = self.get_string_type();
                     let data_ptr_ptr = self
                         .builder
-                        .build_struct_gep(str_type, struct_ptr, 1, "str_data_ptr")
+                        .build_struct_gep(str_type, struct_ptr, 2, "str_data_ptr")
                         .map_err(|_| CodegenError::LLVMError {
                             operation: "build_struct_gep".to_string(),
                             details: "Failed to get string data pointer".to_string(),
@@ -584,8 +584,8 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
             }
         };
 
-        // ARC: Retain if ref-counted type (String, Matrix, IntMatrix, ComplexMatrix)
-        let final_val = self.insert_retain(final_val, &val_type)?;
+        // ARC: Constructors already return with ref_count=1, so ownership is transferred
+        // No need to retain on initial assignment
 
         let alloca = self.create_entry_block_alloca(llvm_type, name)?;
         self.builder.build_store(alloca, final_val)

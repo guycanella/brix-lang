@@ -282,7 +282,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             if let Some(block) = self.builder.get_insert_block() {
                 if block.get_terminator().is_none() {
                     // ARC: Release all ref-counted variables before returning
-                    self.release_function_scope_vars()?;
+                    // TODO: Temporarily disabled to debug SIGSEGV
+                    // self.release_function_scope_vars()?;
 
                     self.builder.build_return(None)
                         .map_err(|_| CodegenError::LLVMError {
@@ -1492,7 +1493,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
                 let cols_ptr = self
                     .builder
-                    .build_struct_gep(matrix_type, matrix_ptr, 1, "cols")
+                    .build_struct_gep(matrix_type, matrix_ptr, 2, "cols")
                     .map_err(|_| CodegenError::LLVMError {
                         operation: "build_struct_gep".to_string(),
                         details: "Failed to get matrix columns pointer".to_string(),
@@ -1510,7 +1511,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
                 let data_ptr_ptr = self
                     .builder
-                    .build_struct_gep(matrix_type, matrix_ptr, 2, "data")
+                    .build_struct_gep(matrix_type, matrix_ptr, 3, "data")
                     .map_err(|_| CodegenError::LLVMError {
                         operation: "build_struct_gep".to_string(),
                         details: "Failed to get matrix data pointer".to_string(),
@@ -1772,11 +1773,11 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
                             let rows_ptr = self
                                 .builder
-                                .build_struct_gep(matrix_type, matrix_ptr, 0, "rows")
+                                .build_struct_gep(matrix_type, matrix_ptr, 1, "rows")
                                 .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string(), span: None })?;
                             let cols_ptr = self
                                 .builder
-                                .build_struct_gep(matrix_type, matrix_ptr, 1, "cols")
+                                .build_struct_gep(matrix_type, matrix_ptr, 2, "cols")
                                 .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string(), span: None })?;
 
                             let rows = self
@@ -1876,7 +1877,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
                             let data_ptr_ptr = self
                                 .builder
-                                .build_struct_gep(matrix_type, matrix_ptr, 2, "data_ptr")
+                                .build_struct_gep(matrix_type, matrix_ptr, 3, "data_ptr")
                                 .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string(), span: None })?;
                             let data_base = self
                                 .builder
@@ -1985,11 +1986,11 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
                             let rows_ptr = self
                                 .builder
-                                .build_struct_gep(matrix_type, matrix_ptr, 0, "rows")
+                                .build_struct_gep(matrix_type, matrix_ptr, 1, "rows")
                                 .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string(), span: None })?;
                             let cols_ptr = self
                                 .builder
-                                .build_struct_gep(matrix_type, matrix_ptr, 1, "cols")
+                                .build_struct_gep(matrix_type, matrix_ptr, 2, "cols")
                                 .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string(), span: None })?;
 
                             let rows = self
@@ -2076,7 +2077,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
                             let data_ptr_ptr = self
                                 .builder
-                                .build_struct_gep(matrix_type, matrix_ptr, 2, "data_ptr")
+                                .build_struct_gep(matrix_type, matrix_ptr, 3, "data_ptr")
                                 .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string(), span: None })?;
                             let data_base = self
                                 .builder
@@ -3729,7 +3730,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                 let str_type = self.get_string_type();
                                 let data_ptr_ptr = self
                                     .builder
-                                    .build_struct_gep(str_type, struct_ptr, 1, "str_data_ptr")
+                                    .build_struct_gep(str_type, struct_ptr, 2, "str_data_ptr")
                                     .map_err(|_| CodegenError::LLVMError {
                                         operation: "build_struct_gep".to_string(),
                                         details: "Failed to get string data ptr for int()".to_string(),
@@ -3826,7 +3827,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                 let str_type = self.get_string_type();
                                 let data_ptr_ptr = self
                                     .builder
-                                    .build_struct_gep(str_type, struct_ptr, 1, "str_data_ptr")
+                                    .build_struct_gep(str_type, struct_ptr, 2, "str_data_ptr")
                                     .map_err(|_| CodegenError::LLVMError {
                                         operation: "build_struct_gep".to_string(),
                                         details: "Failed to get string data ptr for float()".to_string(),
@@ -3958,7 +3959,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                 let str_type = self.get_string_type();
                                 let len_ptr = self
                                     .builder
-                                    .build_struct_gep(str_type, struct_ptr, 0, "str_len_ptr")
+                                    .build_struct_gep(str_type, struct_ptr, 1, "str_len_ptr")
                                     .map_err(|_| CodegenError::LLVMError {
                                         operation: "build_struct_gep".to_string(),
                                         details: "Failed to get string len ptr for bool()".to_string(),
@@ -5432,7 +5433,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         let str_type = self.get_string_type();
                         let len_ptr = self
                             .builder
-                            .build_struct_gep(str_type, ptr, 0, "len_ptr")
+                            .build_struct_gep(str_type, ptr, 1, "len_ptr")
                             .map_err(|_| CodegenError::LLVMError {
                                 operation: "build_struct_gep".to_string(),
                                 details: "Failed to get string len pointer".to_string(),
@@ -5459,9 +5460,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     };
 
                     let index = match field.as_str() {
-                        "rows" => 0,
-                        "cols" => 1,
-                        "data" => 2,
+                        "rows" => 1,
+                        "cols" => 2,
+                        "data" => 3,
                         _ => return Err(CodegenError::General(format!("unknown field '{}'", field))),
                     };
 
@@ -5475,7 +5476,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         })?;
 
                     let val = match index {
-                        0 | 1 => {
+                        1 | 2 => {
                             let v = self
                                 .builder
                                 .build_load(self.context.i64_type(), field_ptr, "load_field")
@@ -5566,7 +5567,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 // Get cols (same for both Matrix and IntMatrix)
                 let cols_ptr = self
                     .builder
-                    .build_struct_gep(matrix_type, matrix_ptr, 1, "cols")
+                    .build_struct_gep(matrix_type, matrix_ptr, 2, "cols")
                     .map_err(|_| CodegenError::LLVMError {
                         operation: "build_struct_gep".to_string(),
                         details: "Failed to get matrix cols pointer".to_string(),
@@ -5585,7 +5586,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 // Get data pointer (field 2 for both)
                 let data_ptr_ptr = self
                     .builder
-                    .build_struct_gep(matrix_type, matrix_ptr, 2, "data")
+                    .build_struct_gep(matrix_type, matrix_ptr, 3, "data")
                     .map_err(|_| CodegenError::LLVMError {
                         operation: "build_struct_gep".to_string(),
                         details: "Failed to get matrix data pointer".to_string(),
@@ -5736,7 +5737,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
                     let data_ptr_ptr = self
                         .builder
-                        .build_struct_gep(intmatrix_type, new_intmatrix_ptr, 2, "data_ptr")
+                        .build_struct_gep(intmatrix_type, new_intmatrix_ptr, 3, "data_ptr")
                         .map_err(|_| CodegenError::LLVMError {
                             operation: "build_struct_gep".to_string(),
                             details: "Failed to get IntMatrix data pointer".to_string(),
@@ -5811,7 +5812,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
                     let data_ptr_ptr = self
                         .builder
-                        .build_struct_gep(matrix_type, new_matrix_ptr, 2, "data_ptr")
+                        .build_struct_gep(matrix_type, new_matrix_ptr, 3, "data_ptr")
                         .map_err(|_| CodegenError::LLVMError {
                             operation: "build_struct_gep".to_string(),
                             details: "Failed to get Matrix data pointer".to_string(),
@@ -6529,7 +6530,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let (rows, cols) = {
                     let rows_ptr = self
                         .builder
-                        .build_struct_gep(matrix_type, matrix_ptr, 0, "rows_ptr")
+                        .build_struct_gep(matrix_type, matrix_ptr, 1, "rows_ptr")
                         .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string(), span: None })?;
                     let rows = self
                         .builder
@@ -6539,7 +6540,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
                     let cols_ptr = self
                         .builder
-                        .build_struct_gep(matrix_type, matrix_ptr, 1, "cols_ptr")
+                        .build_struct_gep(matrix_type, matrix_ptr, 2, "cols_ptr")
                         .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string(), span: None })?;
                     let cols = self
                         .builder
@@ -6554,7 +6555,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let data_ptr = {
                     let data_ptr_ptr = self
                         .builder
-                        .build_struct_gep(matrix_type, matrix_ptr, 2, "data_ptr_ptr")
+                        .build_struct_gep(matrix_type, matrix_ptr, 3, "data_ptr_ptr")
                         .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string(), span: None })?;
                     self.builder
                         .build_load(
@@ -6890,7 +6891,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let (rows, cols) = {
                     let rows_ptr = self
                         .builder
-                        .build_struct_gep(complexmatrix_type, matrix_ptr, 0, "rows_ptr")
+                        .build_struct_gep(complexmatrix_type, matrix_ptr, 1, "rows_ptr")
                         .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string(), span: None })?;
                     let rows = self
                         .builder
@@ -6900,7 +6901,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
                     let cols_ptr = self
                         .builder
-                        .build_struct_gep(complexmatrix_type, matrix_ptr, 1, "cols_ptr")
+                        .build_struct_gep(complexmatrix_type, matrix_ptr, 2, "cols_ptr")
                         .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string(), span: None })?;
                     let cols = self
                         .builder
@@ -6915,7 +6916,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let data_ptr = {
                     let data_ptr_ptr = self
                         .builder
-                        .build_struct_gep(complexmatrix_type, matrix_ptr, 2, "data_ptr_ptr")
+                        .build_struct_gep(complexmatrix_type, matrix_ptr, 3, "data_ptr_ptr")
                         .map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in value_to_string".to_string(), span: None })?;
                     self.builder
                         .build_load(ptr_type, data_ptr_ptr, "data_ptr")
@@ -7670,24 +7671,25 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     fn get_matrix_type(&self) -> inkwell::types::StructType<'ctx> {
         let i64_type = self.context.i64_type();
         let ptr_type = self.context.ptr_type(AddressSpace::default());
+        // Struct { ref_count: i64, rows: i64, cols: i64, data: f64* }
         self.context
-            .struct_type(&[i64_type.into(), i64_type.into(), ptr_type.into()], false)
+            .struct_type(&[i64_type.into(), i64_type.into(), i64_type.into(), ptr_type.into()], false)
     }
 
     fn get_intmatrix_type(&self) -> inkwell::types::StructType<'ctx> {
-        // Same structure as Matrix: { rows: i64, cols: i64, data: i64* }
+        // Same structure as Matrix: { ref_count: i64, rows: i64, cols: i64, data: i64* }
         let i64_type = self.context.i64_type();
         let ptr_type = self.context.ptr_type(AddressSpace::default());
         self.context
-            .struct_type(&[i64_type.into(), i64_type.into(), ptr_type.into()], false)
+            .struct_type(&[i64_type.into(), i64_type.into(), i64_type.into(), ptr_type.into()], false)
     }
 
     fn get_string_type(&self) -> inkwell::types::StructType<'ctx> {
         let i64_type = self.context.i64_type();
         let ptr_type = self.context.ptr_type(AddressSpace::default());
-        // Struct { len: i64, data: char* }
+        // Struct { ref_count: i64, len: i64, data: char* }
         self.context
-            .struct_type(&[i64_type.into(), ptr_type.into()], false)
+            .struct_type(&[i64_type.into(), i64_type.into(), ptr_type.into()], false)
     }
 
     fn compile_matrix_constructor(&mut self, args: &[Expr]) -> Option<BasicValueEnum<'ctx>> {
@@ -8214,7 +8216,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                 self.get_intmatrix_type()
                             },
                             matrix_ptr,
-                            0,
+                            1,
                             "rows_ptr",
                         )
                         .map_err(|_| CodegenError::LLVMError { operation: "build_struct_gep".to_string(), details: "failed to get rows_ptr in list comprehension".to_string(), span: None })?;
@@ -8224,7 +8226,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         .map_err(|_| CodegenError::LLVMError { operation: "build_load".to_string(), details: "failed to load rows in list comprehension".to_string(), span: None })?
                         .into_int_value();
 
-                    // Load cols (field 1)
+                    // Load cols (field 2)
                     let cols_ptr = self
                         .builder
                         .build_struct_gep(
@@ -8234,7 +8236,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                 self.get_intmatrix_type()
                             },
                             matrix_ptr,
-                            1,
+                            2,
                             "cols_ptr",
                         )
                         .map_err(|_| CodegenError::LLVMError { operation: "build_struct_gep".to_string(), details: "failed to get cols_ptr in list comprehension".to_string(), span: None })?;
@@ -8434,7 +8436,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 // Get temp data pointer
                 let temp_data_ptr_ptr = self
                     .builder
-                    .build_struct_gep(matrix_type, temp_matrix_ptr, 2, "temp_data_ptr_ptr")
+                    .build_struct_gep(matrix_type, temp_matrix_ptr, 3, "temp_data_ptr_ptr")
                     .map_err(|_| CodegenError::LLVMError { operation: "build_struct_gep".to_string(), details: "failed to get temp data_ptr_ptr in copy loop".to_string(), span: None })?;
                 let temp_data_ptr = self
                     .builder
@@ -8449,7 +8451,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 // Get result data pointer
                 let result_data_ptr_ptr = self
                     .builder
-                    .build_struct_gep(matrix_type, result_matrix_ptr, 2, "result_data_ptr_ptr")
+                    .build_struct_gep(matrix_type, result_matrix_ptr, 3, "result_data_ptr_ptr")
                     .map_err(|_| CodegenError::LLVMError { operation: "build_struct_gep".to_string(), details: "failed to get result data_ptr_ptr in copy loop".to_string(), span: None })?;
                 let result_data_ptr = self
                     .builder
@@ -8485,7 +8487,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 // Get temp data pointer
                 let temp_data_ptr_ptr = self
                     .builder
-                    .build_struct_gep(matrix_type, temp_matrix_ptr, 2, "temp_data_ptr_ptr")
+                    .build_struct_gep(matrix_type, temp_matrix_ptr, 3, "temp_data_ptr_ptr")
                     .map_err(|_| CodegenError::LLVMError { operation: "build_struct_gep".to_string(), details: "failed to get int temp data_ptr_ptr in copy loop".to_string(), span: None })?;
                 let temp_data_ptr = self
                     .builder
@@ -8500,7 +8502,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 // Get result data pointer
                 let result_data_ptr_ptr = self
                     .builder
-                    .build_struct_gep(matrix_type, result_matrix_ptr, 2, "result_data_ptr_ptr")
+                    .build_struct_gep(matrix_type, result_matrix_ptr, 3, "result_data_ptr_ptr")
                     .map_err(|_| CodegenError::LLVMError { operation: "build_struct_gep".to_string(), details: "failed to get int result data_ptr_ptr in copy loop".to_string(), span: None })?;
                 let result_data_ptr = self
                     .builder
@@ -8585,7 +8587,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
                     let data_ptr_ptr = self
                         .builder
-                        .build_struct_gep(matrix_type, temp_matrix_ptr, 2, "data_ptr_ptr")
+                        .build_struct_gep(matrix_type, temp_matrix_ptr, 3, "data_ptr_ptr")
                         .map_err(|_| CodegenError::LLVMError { operation: "build_struct_gep".to_string(), details: "failed to get data_ptr_ptr in comp loop base case".to_string(), span: None })?;
                     let data_ptr = self
                         .builder
@@ -8624,7 +8626,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
                     let data_ptr_ptr = self
                         .builder
-                        .build_struct_gep(matrix_type, temp_matrix_ptr, 2, "data_ptr_ptr")
+                        .build_struct_gep(matrix_type, temp_matrix_ptr, 3, "data_ptr_ptr")
                         .map_err(|_| CodegenError::LLVMError { operation: "build_struct_gep".to_string(), details: "failed to get int data_ptr_ptr in comp loop base case".to_string(), span: None })?;
                     let data_ptr = self
                         .builder
@@ -8680,7 +8682,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 // Load dimensions
                 let rows_ptr = self
                     .builder
-                    .build_struct_gep(matrix_type, matrix_ptr, 0, "rows_ptr")
+                    .build_struct_gep(matrix_type, matrix_ptr, 1, "rows_ptr")
                     .map_err(|_| CodegenError::LLVMError { operation: "build_struct_gep".to_string(), details: "failed to get rows_ptr in comp loop Matrix".to_string(), span: None })?;
                 let rows = self
                     .builder
@@ -8690,7 +8692,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
                 let cols_ptr = self
                     .builder
-                    .build_struct_gep(matrix_type, matrix_ptr, 1, "cols_ptr")
+                    .build_struct_gep(matrix_type, matrix_ptr, 2, "cols_ptr")
                     .map_err(|_| CodegenError::LLVMError { operation: "build_struct_gep".to_string(), details: "failed to get cols_ptr in comp loop Matrix".to_string(), span: None })?;
                 let cols = self
                     .builder
@@ -8701,7 +8703,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 // Load data pointer
                 let data_ptr_ptr = self
                     .builder
-                    .build_struct_gep(matrix_type, matrix_ptr, 2, "data_ptr_ptr")
+                    .build_struct_gep(matrix_type, matrix_ptr, 3, "data_ptr_ptr")
                     .map_err(|_| CodegenError::LLVMError { operation: "build_struct_gep".to_string(), details: "failed to get data_ptr_ptr in comp loop Matrix".to_string(), span: None })?;
                 let data_base = self
                     .builder
@@ -8937,7 +8939,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 // Load dimensions
                 let rows_ptr = self
                     .builder
-                    .build_struct_gep(matrix_type, matrix_ptr, 0, "rows_ptr")
+                    .build_struct_gep(matrix_type, matrix_ptr, 1, "rows_ptr")
                     .map_err(|_| CodegenError::LLVMError { operation: "build_struct_gep".to_string(), details: "failed to get rows_ptr in comp loop IntMatrix".to_string(), span: None })?;
                 let rows = self
                     .builder
@@ -8947,7 +8949,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
                 let cols_ptr = self
                     .builder
-                    .build_struct_gep(matrix_type, matrix_ptr, 1, "cols_ptr")
+                    .build_struct_gep(matrix_type, matrix_ptr, 2, "cols_ptr")
                     .map_err(|_| CodegenError::LLVMError { operation: "build_struct_gep".to_string(), details: "failed to get cols_ptr in comp loop IntMatrix".to_string(), span: None })?;
                 let cols = self
                     .builder
@@ -8958,7 +8960,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 // Load data pointer
                 let data_ptr_ptr = self
                     .builder
-                    .build_struct_gep(matrix_type, matrix_ptr, 2, "data_ptr_ptr")
+                    .build_struct_gep(matrix_type, matrix_ptr, 3, "data_ptr_ptr")
                     .map_err(|_| CodegenError::LLVMError { operation: "build_struct_gep".to_string(), details: "failed to get data_ptr_ptr in comp loop IntMatrix".to_string(), span: None })?;
                 let data_base = self
                     .builder
