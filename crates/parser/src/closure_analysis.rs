@@ -122,6 +122,7 @@ fn analyze_stmt_closures(stmt: &mut Stmt, outer_scope: &HashSet<String>) {
         }
 
         StmtKind::Import { .. }
+        | StmtKind::TypeAlias { .. }
         | StmtKind::Printf { .. }
         | StmtKind::Print { .. }
         | StmtKind::Println { .. }

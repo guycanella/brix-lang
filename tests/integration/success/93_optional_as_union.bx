@@ -1,0 +1,11 @@
+// Optional as syntactic sugar for T | nil
+
+var x: int? = 42
+var y: int? = nil
+
+// x is int | nil, so we can check with typeof
+println(x)
+
+if y == nil {
+    println("y is nil")
+}

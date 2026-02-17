@@ -1,0 +1,9 @@
+// Type alias with union
+
+type IntOrFloat = int | float
+
+var x: IntOrFloat = 42
+var y: IntOrFloat = 3.14
+
+println(x)
+println(y)

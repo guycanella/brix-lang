@@ -1,0 +1,7 @@
+// Union types (int | float)
+
+var x: int | float = 42
+var y: int | float = 3.14
+
+println(x)
+println(y)

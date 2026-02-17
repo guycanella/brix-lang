@@ -1,0 +1,10 @@
+// Simple type alias
+
+type MyInt = int
+type MyFloat = float
+
+var x: MyInt = 42
+var y: MyFloat = 3.14
+
+println(x)
+println(y)

@@ -502,8 +502,65 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
 
         // --- AUTOMATIC CASTING ---
         if let Some(hint) = type_hint {
+            // Resolve type aliases before processing
+            let resolved_hint = if let Some(definition) = self.type_aliases.get(hint) {
+                definition.clone()
+            } else {
+                hint.clone()
+            };
+            let hint = &resolved_hint;
+
+            // Check for Union type (contains " | ")
+            // Check for Intersection type (contains " & ")
             // Check for Optional type (ends with "?")
-            if let Some(base_type_str) = hint.strip_suffix('?') {
+            // Otherwise, process as normal type with casting
+            if hint.contains(" | ") {
+                let union_type = self.string_to_brix_type(hint);
+                if let BrixType::Union(types) = &union_type {
+                    // Find which variant of the union matches the value type
+                    let mut tag = None;
+                    for (i, t) in types.iter().enumerate() {
+                        if t == &val_type {
+                            tag = Some(i);
+                            break;
+                        }
+                    }
+
+                    if tag.is_none() {
+                        return Err(CodegenError::TypeError {
+                            expected: hint.clone(),
+                            found: format!("{:?}", val_type),
+                            context: format!("Variable declaration '{}'", name),
+                            span: None,
+                        });
+                    }
+
+                    // Create tagged union: { i64 tag, value }
+                    let tag_val = self.context.i64_type().const_int(tag.unwrap() as u64, false);
+                    let union_llvm_type = self.brix_type_to_llvm(&union_type);
+                    let struct_type = union_llvm_type.into_struct_type();
+                    let mut union_val = struct_type.get_undef();
+
+                    // Insert tag
+                    union_val = self.builder.build_insert_value(union_val, tag_val, 0, "insert_tag")
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_insert_value".to_string(),
+                            details: "Failed to insert tag in union".to_string(),
+                            span: None,
+                        })?.into_struct_value();
+
+                    // Insert value
+                    union_val = self.builder.build_insert_value(union_val, final_val, 1, "insert_value")
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_insert_value".to_string(),
+                            details: "Failed to insert value in union".to_string(),
+                            span: None,
+                        })?.into_struct_value();
+
+                    final_val = union_val.into();
+                    val_type = union_type.clone();
+                }
+            } else if let Some(base_type_str) = hint.strip_suffix('?') {
                 // Optional type: int?, string?, Matrix?, etc.
                 let inner_type = self.string_to_brix_type(base_type_str);
 
@@ -652,6 +709,14 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
             }
             BrixType::Optional(_) => {
                 // Allocate space for Optional (struct or pointer depending on inner type)
+                self.brix_type_to_llvm(&val_type)
+            }
+            BrixType::Union(_) => {
+                // Allocate space for Union (tagged union: { i64 tag, largest_type value })
+                self.brix_type_to_llvm(&val_type)
+            }
+            BrixType::Intersection(_) => {
+                // Allocate space for Intersection (merged struct)
                 self.brix_type_to_llvm(&val_type)
             }
             _ => {

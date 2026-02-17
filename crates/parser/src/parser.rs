@@ -35,18 +35,70 @@ fn process_escape_sequences(s: &str) -> String {
     result
 }
 
-/// Parse type annotation with optional `?` suffix for Optional types
-/// Examples: "int" -> "int", "int?" -> "int?", "String?" -> "String?"
+/// Parse type expressions: int, int?, int | float, Point & Label
+/// Supports: base types, optionals (?), unions (|), intersections (&), generics (<>)
 fn type_annotation_parser() -> impl Parser<Token, String, Error = Simple<Token>> + Clone {
-    select! { Token::Identifier(t) => t }
-        .then(just(Token::Question).or_not())
-        .map(|(base_type, opt_question)| {
-            if opt_question.is_some() {
-                format!("{}?", base_type)
-            } else {
-                base_type
-            }
-        })
+    recursive(|_type_expr| {
+        // Base type: identifier with optional generic params
+        let base_type = select! { Token::Identifier(t) => t }
+            .then(
+                // Generic type params: Box<int>, Map<string, int>
+                just(Token::Lt)
+                    .ignore_then(
+                        select! { Token::Identifier(t) => t }
+                            .separated_by(just(Token::Comma))
+                            .at_least(1)
+                    )
+                    .then_ignore(just(Token::Gt))
+                    .or_not()
+            )
+            .then(just(Token::Question).or_not())
+            .map(|((base, generics), opt_question)| {
+                let mut result = if let Some(params) = generics {
+                    format!("{}<{}>", base, params.join(", "))
+                } else {
+                    base
+                };
+                if opt_question.is_some() {
+                    result.push('?');
+                }
+                result
+            });
+
+        // Intersection types: Point & Label & Named
+        let intersection = base_type.clone()
+            .then(
+                just(Token::Ampersand)
+                    .ignore_then(base_type.clone())
+                    .repeated()
+            )
+            .map(|(first, rest)| {
+                if rest.is_empty() {
+                    first
+                } else {
+                    let mut types = vec![first];
+                    types.extend(rest);
+                    types.join(" & ")
+                }
+            });
+
+        // Union types: int | float | string
+        intersection.clone()
+            .then(
+                just(Token::Pipe)
+                    .ignore_then(intersection)
+                    .repeated()
+            )
+            .map(|(first, rest)| {
+                if rest.is_empty() {
+                    first
+                } else {
+                    let mut types = vec![first];
+                    types.extend(rest);
+                    types.join(" | ")
+                }
+            })
+    })
 }
 
 pub fn parser() -> impl Parser<Token, Program, Error = Simple<Token>> {
@@ -304,6 +356,77 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
             )
             .map_with_span(|(module, alias), span| Stmt::new(StmtKind::Import { module, alias }, span));
 
+        // Type expression parser (supports Union | and Intersection &)
+        let type_expr = recursive(|_type_expr| {
+            // Base type: identifier with optional generic params
+            let base_type = select! { Token::Identifier(t) => t }
+                .then(
+                    // Generic type params: Box<int>, Map<string, int>
+                    just(Token::Lt)
+                        .ignore_then(
+                            select! { Token::Identifier(t) => t }
+                                .separated_by(just(Token::Comma))
+                                .at_least(1)
+                        )
+                        .then_ignore(just(Token::Gt))
+                        .or_not()
+                )
+                .then(just(Token::Question).or_not())
+                .map(|((base, generics), opt_question)| {
+                    let mut result = if let Some(params) = generics {
+                        format!("{}<{}>", base, params.join(", "))
+                    } else {
+                        base
+                    };
+                    if opt_question.is_some() {
+                        result.push('?');
+                    }
+                    result
+                });
+
+            // Intersection types: Point & Label & Named
+            let intersection = base_type.clone()
+                .then(
+                    just(Token::Ampersand)
+                        .ignore_then(base_type.clone())
+                        .repeated()
+                )
+                .map(|(first, rest)| {
+                    if rest.is_empty() {
+                        first
+                    } else {
+                        let mut types = vec![first];
+                        types.extend(rest);
+                        types.join(" & ")
+                    }
+                });
+
+            // Union types: int | float | string
+            intersection.clone()
+                .then(
+                    just(Token::Pipe)
+                        .ignore_then(intersection)
+                        .repeated()
+                )
+                .map(|(first, rest)| {
+                    if rest.is_empty() {
+                        first
+                    } else {
+                        let mut types = vec![first];
+                        types.extend(rest);
+                        types.join(" | ")
+                    }
+                })
+        });
+
+        let type_alias_stmt = just(Token::Type)
+            .ignore_then(select! { Token::Identifier(name) => name })
+            .then_ignore(just(Token::Eq))
+            .then(type_expr)
+            .map_with_span(|(name, definition), span| {
+                Stmt::new(StmtKind::TypeAlias { name, definition }, span)
+            });
+
         let printf_stmt = just(Token::Printf)
             .ignore_then(
                 select! { Token::String(s) => {
@@ -500,6 +623,7 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
             .or(while_stmt)
             .or(for_stmt)
             .or(import_stmt)
+            .or(type_alias_stmt)
             .or(printf_stmt)
             .or(print_stmt)
             .or(println_stmt)
