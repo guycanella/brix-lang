@@ -35,6 +35,20 @@ fn process_escape_sequences(s: &str) -> String {
     result
 }
 
+/// Parse type annotation with optional `?` suffix for Optional types
+/// Examples: "int" -> "int", "int?" -> "int?", "String?" -> "String?"
+fn type_annotation_parser() -> impl Parser<Token, String, Error = Simple<Token>> + Clone {
+    select! { Token::Identifier(t) => t }
+        .then(just(Token::Question).or_not())
+        .map(|(base_type, opt_question)| {
+            if opt_question.is_some() {
+                format!("{}?", base_type)
+            } else {
+                base_type
+            }
+        })
+}
+
 pub fn parser() -> impl Parser<Token, Program, Error = Simple<Token>> {
     let stmt = stmt_parser();
 
@@ -149,9 +163,9 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
             .or(just(Token::Const).to(true))
             .then(select! { Token::Identifier(name) => name })
             .then(
-                // Path 1: Explicit (: int =)
+                // Path 1: Explicit (: int =) or (: int? =)
                 just(Token::Colon)
-                    .ignore_then(select! { Token::Identifier(t) => t })
+                    .ignore_then(type_annotation_parser())
                     .then_ignore(just(Token::Eq))
                     .map(Some)
                     // Path 2: Inference (:=)
@@ -330,7 +344,7 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
                 // Starts with LParen (for receiver), so won't conflict with function path
                 select! { Token::Identifier(receiver_name) => receiver_name }
                     .then_ignore(just(Token::Colon))
-                    .then(select! { Token::Identifier(receiver_type) => receiver_type })
+                    .then(type_annotation_parser())
                     .delimited_by(just(Token::LParen), just(Token::RParen))
                     .then(select! { Token::Identifier(method_name) => method_name })
                     .then(
@@ -346,7 +360,7 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
                         // Parameters (optional): (name: type, name: type = default)
                         select! { Token::Identifier(param_name) => param_name }
                             .then_ignore(just(Token::Colon))
-                            .then(select! { Token::Identifier(param_type) => param_type })
+                            .then(type_annotation_parser())
                             .then(just(Token::Eq).ignore_then(expr_p.clone()).or_not())
                             .map(|((name, ty), default)| (name, ty, default))
                             .separated_by(just(Token::Comma))
@@ -354,11 +368,11 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
                             .delimited_by(just(Token::LParen), just(Token::RParen)),
                     )
                     .then(
-                        // Return type: -> type or -> (type1, type2)
+                        // Return type: -> type or -> (type1, type2) (supports Optional: -> int?)
                         just(Token::Arrow)
                             .ignore_then(
-                                select! { Token::Identifier(t) => vec![t] }.or(
-                                    select! { Token::Identifier(t) => t }
+                                type_annotation_parser().map(|t| vec![t]).or(
+                                    type_annotation_parser()
                                         .separated_by(just(Token::Comma))
                                         .at_least(1)
                                         .delimited_by(just(Token::LParen), just(Token::RParen)),
@@ -392,10 +406,10 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
                                 .map(|opt| opt.unwrap_or_default())
                         )
                         .then(
-                            // Parameters: (name: type, name: type = default)
+                            // Parameters: (name: type, name: type = default) (supports Optional: x: int?)
                             select! { Token::Identifier(param_name) => param_name }
                                 .then_ignore(just(Token::Colon))
-                                .then(select! { Token::Identifier(param_type) => param_type })
+                                .then(type_annotation_parser())
                                 .then(just(Token::Eq).ignore_then(expr_p.clone()).or_not())
                                 .map(|((name, ty), default)| (name, ty, default))
                                 .separated_by(just(Token::Comma))
@@ -403,11 +417,11 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
                                 .delimited_by(just(Token::LParen), just(Token::RParen)),
                         )
                         .then(
-                            // Return type: -> type or -> (type1, type2)
+                            // Return type: -> type or -> (type1, type2) (supports Optional: -> int?)
                             just(Token::Arrow)
                                 .ignore_then(
-                                    select! { Token::Identifier(t) => vec![t] }.or(
-                                        select! { Token::Identifier(t) => t }
+                                    type_annotation_parser().map(|t| vec![t]).or(
+                                        type_annotation_parser()
                                             .separated_by(just(Token::Comma))
                                             .at_least(1)
                                             .delimited_by(just(Token::LParen), just(Token::RParen)),
@@ -461,10 +475,10 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
                     .map(|opt| opt.unwrap_or_default())
             )
             .then(
-                // Fields: name: type = default (semicolon separated for inline, newline separated for multi-line)
+                // Fields: name: type = default (supports Optional: x: int?) (comma separated)
                 select! { Token::Identifier(field_name) => field_name }
                     .then_ignore(just(Token::Colon))
-                    .then(select! { Token::Identifier(field_type) => field_type })
+                    .then(type_annotation_parser())
                     .then(just(Token::Eq).ignore_then(expr_p.clone()).or_not())
                     .map(|((name, ty), default)| (name, ty, default))
                     .separated_by(just(Token::Comma))
@@ -673,17 +687,17 @@ where
                 generators,
             }, span));
 
-        // Closure: (x: int, y: int) -> int { return x + y }
+        // Closure: (x: int, y: int) -> int { return x + y } (supports Optional: (x: int?) -> int?)
         // Parens required, types required, return type optional, block body required
         let closure = select! { Token::Identifier(param_name) => param_name }
             .then_ignore(just(Token::Colon))
-            .then(select! { Token::Identifier(param_type) => param_type })
+            .then(type_annotation_parser())
             .separated_by(just(Token::Comma))
             .allow_trailing()
             .delimited_by(just(Token::LParen), just(Token::RParen))
             .then(
                 just(Token::Arrow)
-                    .ignore_then(select! { Token::Identifier(t) => t })
+                    .ignore_then(type_annotation_parser())
                     .or_not(),
             )
             .then(block)
