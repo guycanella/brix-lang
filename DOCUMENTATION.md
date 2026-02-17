@@ -87,8 +87,8 @@
     - ✅ All constructors return with ref_count=1 (ownership transfer)
     - ✅ 10 ARC unit tests + 4 integration tests
     - ✅ Stress tests: 100k iterations validated
-    - ⚠️ **Known Issue:** Small memory leak in long loops (see Section 9.1.1)
-    - 📝 `release_function_scope_vars()` disabled (causes SIGSEGV - needs investigation)
+    - ✅ **Memory leak in loops FIXED** (see Section 9.1.1)
+    - ✅ `release_function_scope_vars()` fully operational with null-init allocas
   - ✅ **Stress Tests (Phase 4):**
     - Closures: 10 captured variables, 3 levels nesting, 5 closure chain
     - Structs: 15 fields, 10 default values
@@ -783,34 +783,45 @@ typedef struct {
 ✅ **Stress Tests:**
 - 1,000 iterações: ~2s sem crashes
 - 10,000 iterações: ~4.8 MB máximo
-- 100,000 iterações: ~17 MB máximo ⚠️ (pequeno leak detectado)
+- 100,000 iterações: sem leak (corrigido Fev 2026)
 
-**⚠️ LIMITAÇÃO CONHECIDA - Memory Leak em Loops:**
+**✅ RESOLVIDO - Memory Leak em Loops (Fevereiro 2026):**
 
-**Problema Identificado (Fevereiro 2026):**
+**Problema Original:**
 
-Existe um **pequeno memory leak** (~0.17 MB por 10,000 iterações) causado por variáveis criadas dentro de loops `while` que não são liberadas até o fim da função.
+Existia um memory leak (~0.17 MB por 10,000 iterações) causado por variáveis ref-counted (String, Matrix, IntMatrix, ComplexMatrix) criadas dentro de loops que nunca eram liberadas. A função `release_function_scope_vars()` existia mas estava desabilitada porque causava SIGSEGV em 64 testes.
 
-**Causa Raiz:**
+**Causas Raiz Identificadas:**
 
-A função `release_function_scope_vars()` existe em `lib.rs:1071` mas está **desabilitada** na linha 286:
+1. **Allocas não inicializadas em caminhos condicionais:** Variáveis declaradas dentro de `if` tinham alloca criada no entry block mas o store era condicional. Se o branch não era tomado, a alloca continha lixo → `release(lixo)` → SIGSEGV.
 
-```rust
-// crates/codegen/src/lib.rs:286
-if block.get_terminator().is_none() {
-    // ARC: Release all ref-counted variables before returning
-    // TODO: Temporarily disabled - needs investigation (causes SIGSEGV in 64 tests)
-    // self.release_function_scope_vars()?;
+2. **`function_scope_vars` não preservado entre funções aninhadas:** Ao compilar uma função interna, `function_scope_vars.clear()` destruía o tracking da função externa.
 
-    self.builder.build_return(None)
-    // ...
-}
-```
+3. **Valores antigos em loops nunca liberados:** Cada iteração de loop sobrescrevia o ponteiro na alloca sem liberar o valor anterior → leak acumulativo.
 
-**Por que está desabilitada:**
-- Quando ativada, causa **SIGSEGV em 64 testes de integração**
-- O problema está na lógica de tracking de variáveis em `function_scope_vars`
-- Variáveis de loops são adicionadas mas ponteiros podem ficar inválidos
+**Solução Implementada:**
+
+1. **Null-inicialização de allocas ref-counted** (`helpers.rs`):
+   - Nova função `create_null_init_entry_block_alloca()` cria alloca + store null no entry block
+   - Garante que o alloca sempre contém null ou um ponteiro válido (nunca lixo)
+   - Release functions em C já checam null → seguro para caminhos condicionais
+
+2. **Release antes de sobrescrever em loops** (`stmt.rs`):
+   - Antes de armazenar novo valor, carrega e libera o valor antigo
+   - Na primeira execução: carrega null → release(null) → no-op
+   - Em iterações subsequentes: carrega ponteiro anterior → libera → sem leak
+
+3. **Save/restore de `function_scope_vars`** (`lib.rs`):
+   - `function_scope_vars` salvo/restaurado junto com `variables` ao compilar funções aninhadas
+   - Previne corrupção do tracking da função externa
+
+4. **Deduplicação no release** (`lib.rs`):
+   - `release_function_scope_vars()` usa HashSet para processar cada variável apenas uma vez
+   - Previne double-free
+
+5. **Release em retornos void explícitos** (`stmt.rs`):
+   - `return` sem valor em funções void agora chama `release_function_scope_vars()`
+   - Previne leak em retornos antecipados
 
 **Comportamento Atual:**
 ```brix
@@ -819,76 +830,12 @@ while i < 1000 {
     var s := "temp string"    // Aloca com ref_count=1
     var m := [1.0, 2.0, 3.0]  // Aloca com ref_count=1
     i := i + 1
-    // ⚠️ s e m NÃO são liberados aqui (deveriam ser)
-    // Só serão liberados ao final da função (quando release_function_scope_vars executar)
+    // ✅ Na próxima iteração, s e m são liberados antes de receber novos valores
 }
-// Em funções sem release_function_scope_vars, acumula até o fim da execução
+// ✅ Ao final da função, os últimos valores de s e m são liberados
 ```
 
-**Impacto:**
-- ✅ **Programas normais**: Leak negligível (memória liberada ao fim de cada função)
-- ✅ **Loops curtos**: Sem problemas visíveis
-- ⚠️ **Loops longos (>10k iterações)**: Acumula ~17 MB para 100k iterações
-- ❌ **Long-running servers**: Leak cresceria indefinidamente (não recomendado até fix)
-
-**Evidência do Leak:**
-
-| Iterações | Memória Máxima | Leak Rate |
-|-----------|----------------|-----------|
-| 10 | - | - |
-| 1,000 | ~2 MB | Desprezível |
-| 10,000 | ~4.8 MB | 0.48 KB/iteração |
-| 100,000 | ~17 MB | 0.17 KB/iteração |
-
-**Solução Planejada (v1.4):**
-
-1. **Investigar SIGSEGV:**
-   - Identificar por que `release_function_scope_vars()` causa crashes
-   - Provavelmente problema com:
-     - Variáveis redeclaradas em loops (mesmo nome, diferentes allocas)
-     - Ponteiros inválidos em `function_scope_vars` após saída de escopo
-
-2. **Implementar Scope-Level Release:**
-   - Adicionar release ao final de cada bloco `{...}`, não só ao final de funções
-   - Criar `block_scope_vars` separado de `function_scope_vars`
-   - Liberar variáveis ao sair do bloco do loop
-
-3. **Alternativa (Curto Prazo):**
-   - Adicionar `defer` statement (Go-style) para release manual explícito
-   - Documentar limitação e recomendar evitar loops muito longos
-
-**Workaround Atual:**
-
-Para evitar leak em loops longos, extraia o corpo do loop para uma função:
-
-```brix
-// ❌ Leak em loops longos
-var i := 0
-while i < 100000 {
-    var s := "temp"
-    var m := [1.0, 2.0, 3.0]
-    i := i + 1
-}
-
-// ✅ Sem leak (release_function_scope_vars ao fim de cada chamada)
-function process_iteration(i: int) {
-    var s := "temp"
-    var m := [1.0, 2.0, 3.0]
-}
-
-var i := 0
-while i < 100000 {
-    process_iteration(i)
-    i := i + 1
-}
-```
-
-**Status do Tracking:**
-
-- 📝 **Issue criada**: Documentada em DOCUMENTATION.md e CLAUDE.md
-- 🔍 **Investigação**: Necessária para v1.4
-- ✅ **Testes validando**: 85/85 integration tests passando
-- ⚠️ **Produção**: Não recomendado para long-running servers até fix
+**Status:** Todos os 1060 unit tests + 85 integration tests passando (100%)
 
 ### 9.2. Passagem de Parâmetros (Cópia vs. Referência)
 
