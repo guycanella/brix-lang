@@ -351,6 +351,7 @@ char* complex_to_string(Complex z) {
 // ==========================================
 
 typedef struct {
+  long ref_count;  // ARC reference counting
   long rows;
   long cols;
   double *data;
@@ -358,10 +359,31 @@ typedef struct {
 
 Matrix *matrix_new(long rows, long cols) {
   Matrix *m = (Matrix *)malloc(sizeof(Matrix));
+  m->ref_count = 1;  // Initialize ARC
   m->rows = rows;
   m->cols = cols;
   m->data = (double *)malloc(rows * cols * sizeof(double));
   return m;
+}
+
+// ARC: Increment reference count
+void* matrix_retain(Matrix* m) {
+    if (!m) return NULL;
+    m->ref_count++;
+    return m;
+}
+
+// ARC: Decrement reference count and free if zero
+void matrix_release(Matrix* m) {
+    if (!m) return;
+    m->ref_count--;
+
+    if (m->ref_count == 0) {
+        if (m->data) {
+            free(m->data);
+        }
+        free(m);
+    }
 }
 
 Matrix *read_csv(char *filename) {
@@ -417,6 +439,7 @@ Matrix *read_csv(char *filename) {
 // ==========================================
 
 typedef struct {
+  long ref_count;  // ARC reference counting
   long rows;
   long cols;
   long *data;  // i64* instead of double*
@@ -424,10 +447,31 @@ typedef struct {
 
 IntMatrix *intmatrix_new(long rows, long cols) {
   IntMatrix *m = (IntMatrix *)malloc(sizeof(IntMatrix));
+  m->ref_count = 1;  // Initialize ARC
   m->rows = rows;
   m->cols = cols;
   m->data = (long *)calloc(rows * cols, sizeof(long));  // calloc zeros memory
   return m;
+}
+
+// ARC: Increment reference count
+void* intmatrix_retain(IntMatrix* m) {
+    if (!m) return NULL;
+    m->ref_count++;
+    return m;
+}
+
+// ARC: Decrement reference count and free if zero
+void intmatrix_release(IntMatrix* m) {
+    if (!m) return;
+    m->ref_count--;
+
+    if (m->ref_count == 0) {
+        if (m->data) {
+            free(m->data);
+        }
+        free(m);
+    }
 }
 
 // Convert IntMatrix to Matrix (automatic promotion for mixed operations)
@@ -924,6 +968,7 @@ IntMatrix *intmatrix_pow_intmatrix(IntMatrix *m1, IntMatrix *m2) {
 // ==========================================
 
 typedef struct {
+  long ref_count;  // ARC reference counting
   long rows;
   long cols;
   Complex *data;  // Array of Complex structs
@@ -931,10 +976,31 @@ typedef struct {
 
 ComplexMatrix *complexmatrix_new(long rows, long cols) {
   ComplexMatrix *m = (ComplexMatrix *)malloc(sizeof(ComplexMatrix));
+  m->ref_count = 1;  // Initialize ARC
   m->rows = rows;
   m->cols = cols;
   m->data = (Complex *)calloc(rows * cols, sizeof(Complex));  // calloc zeros memory
   return m;
+}
+
+// ARC: Increment reference count
+void* complexmatrix_retain(ComplexMatrix* m) {
+    if (!m) return NULL;
+    m->ref_count++;
+    return m;
+}
+
+// ARC: Decrement reference count and free if zero
+void complexmatrix_release(ComplexMatrix* m) {
+    if (!m) return;
+    m->ref_count--;
+
+    if (m->ref_count == 0) {
+        if (m->data) {
+            free(m->data);
+        }
+        free(m);
+    }
 }
 
 // ==========================================
@@ -1166,6 +1232,7 @@ void brix_error_free(BrixError* err) {
 // ==========================================
 
 typedef struct {
+  long ref_count;  // ARC reference counting
   long len;
   char *data;
 } BrixString;
@@ -1173,6 +1240,7 @@ typedef struct {
 // Create a new string copying a C literal (e.g: "ola")
 BrixString *str_new(char *raw_text) {
   BrixString *s = (BrixString *)malloc(sizeof(BrixString));
+  s->ref_count = 1;  // Initialize ARC
   if (raw_text == NULL) {
     s->len = 0;
     s->data = (char *)malloc(1);
@@ -1188,6 +1256,7 @@ BrixString *str_new(char *raw_text) {
 // Concatenate two strings (a + b)
 BrixString *str_concat(BrixString *a, BrixString *b) {
   BrixString *s = (BrixString *)malloc(sizeof(BrixString));
+  s->ref_count = 1;  // Initialize ARC
   s->len = a->len + b->len;
 
   // Allocate space for both strings
@@ -1197,6 +1266,26 @@ BrixString *str_concat(BrixString *a, BrixString *b) {
   strcat(s->data, b->data);
 
   return s;
+}
+
+// ARC: Increment reference count
+void* string_retain(BrixString* str) {
+    if (!str) return NULL;
+    str->ref_count++;
+    return str;
+}
+
+// ARC: Decrement reference count and free if zero
+void string_release(BrixString* str) {
+    if (!str) return;
+    str->ref_count--;
+
+    if (str->ref_count == 0) {
+        if (str->data) {
+            free(str->data);
+        }
+        free(str);
+    }
 }
 
 // Compare equality (a == b) -> Returns 1 (true) or 0 (false)
