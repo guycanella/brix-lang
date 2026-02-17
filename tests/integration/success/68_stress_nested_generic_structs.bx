@@ -1,0 +1,22 @@
+// Stress test: Nested generic structs
+struct Outer<T> {
+    value: T
+}
+
+struct Inner<U> {
+    data: U
+}
+
+fn (o: Outer) get() -> T {
+    return o.value
+}
+
+fn (i: Inner) get() -> U {
+    return i.data
+}
+
+var outer_int := Outer<int>{ value: 42 }
+var inner_float := Inner<float>{ data: 3.14 }
+
+println(outer_int.get())
+println(int(inner_float.get()))

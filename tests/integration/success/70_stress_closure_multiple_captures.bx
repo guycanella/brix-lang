@@ -1,0 +1,12 @@
+// Stress test: Closure capturing multiple variables
+var v1 := 1
+var v2 := 2
+var v3 := 3
+var v4 := 4
+var v5 := 5
+
+var sum_all := (x: int) -> int {
+    return x + v1 + v2 + v3 + v4 + v5
+}
+
+println(sum_all(10))

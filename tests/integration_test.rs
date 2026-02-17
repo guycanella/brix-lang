@@ -627,6 +627,42 @@ fn test_combined_features() {
 }
 
 // ==========================================
+// STRESS TESTS - Edge Cases (67-70)
+// ==========================================
+
+#[test]
+fn test_stress_many_closures() {
+    assert_success(
+        "tests/integration/success/67_stress_many_closures.bx",
+        "11\n12\n13\n13\n16"
+    );
+}
+
+#[test]
+fn test_stress_nested_generic_structs() {
+    assert_success(
+        "tests/integration/success/68_stress_nested_generic_structs.bx",
+        "42\n3"
+    );
+}
+
+#[test]
+fn test_stress_struct_many_fields() {
+    assert_success(
+        "tests/integration/success/69_stress_struct_many_fields.bx",
+        "10\n40\n80"
+    );
+}
+
+#[test]
+fn test_stress_closure_multiple_captures() {
+    assert_success(
+        "tests/integration/success/70_stress_closure_multiple_captures.bx",
+        "25"
+    );
+}
+
+// ==========================================
 // PARSER ERRORS - Exit Code 2
 // ==========================================
 
