@@ -1,6 +1,6 @@
 # Brix Language (Design Document v1.0)
 
-> ✅ **Status do Projeto (Fev 2026):** O compilador Brix **v1.3 COMPLETO** - Type System Expansion finalizado! Core funcional com error handling robusto, **Structs**, **Generics**, e **Closures** totalmente implementados - 1038/1038 testes unitários + 69 testes de integração passando (100%). Todas as 3 features principais do v1.3 completas: Structs (Go-style receivers), Generics (monomorphization), e Closures (ARC + heap allocation).
+> ✅ **Status do Projeto (Fev 2026):** O compilador Brix **v1.3 COMPLETO** - Type System Expansion finalizado! Core funcional com error handling robusto, **Structs**, **Generics**, e **Closures** totalmente implementados - 1050/1050 testes unitários + 79 testes de integração passando (100%). Todas as 3 features principais do v1.3 completas: Structs (Go-style receivers), Generics (monomorphization), e Closures (ARC + heap allocation). Inclui stress tests para edge cases.
 
 ## Status Atual (Fevereiro 2026)
 
@@ -56,8 +56,8 @@
     - Documentação completa em CLAUDE.md
     - Fluxo de propagação de erros
     - Tabela de exit codes
-  - ✅ **1038/1038 testes unitários passando** (Lexer: 292, Parser: 158, Codegen: 588)
-  - ✅ **69/69 testes de integração passando**
+  - ✅ **1050/1050 testes unitários passando** (Lexer: 292, Parser: 158, Codegen: 600)
+  - ✅ **79/79 testes de integração passando**
   - ✅ **Phase E COMPLETE!** 🎉
 - **v1.3 - Type System Expansion (COMPLETE - Feb 2026):**
   - ✅ **Structs (Phase 1):**
@@ -79,7 +79,14 @@
     - Automatic retain/release on assignment
     - Indirect calls via function pointers
     - Closure tests (capture, calls, ARC)
-  - ✅ **All 1038 unit tests + 69 integration tests passing!** 🎉
+    - **Bug Fix:** Closure analysis now accumulates scope correctly (segfault fix)
+  - ✅ **Stress Tests (Phase 4):**
+    - Closures: 10 captured variables, 3 levels nesting, 5 closure chain
+    - Structs: 15 fields, 10 default values
+    - Generics: 3 type parameters
+    - Integration tests: Complex combinations of all v1.3 features
+    - 7 unit stress tests + 4 integration stress tests
+  - ✅ **All 1050 unit tests + 79 integration tests passing!** 🎉
 - **LLVM Optimizations (COMPLETE - Feb 2026):**
   - ✅ Optimization levels: `-O0`, `-O1`, `-O2`, `-O3`
   - ✅ `--release` flag (equivalent to `-O3`)
@@ -91,8 +98,9 @@
 ### ✅ **v1.3 - Type System Expansion (COMPLETE - Feb 2026):**
 - ✅ **Structs (COMPLETE)** - Go-style receivers, default values, generic support
 - ✅ **Generics (COMPLETE)** - Functions, structs, methods com monomorphization
-- ✅ **Closures (COMPLETE)** - Capture by reference, heap allocation, ARC
-- **Total: 1107 tests (1038 unit + 69 integration) - 100% passing!** 🎉
+- ✅ **Closures (COMPLETE)** - Capture by reference, heap allocation, ARC, bug fix for scope accumulation
+- ✅ **Stress Tests (COMPLETE)** - Edge cases for all v1.3 features
+- **Total: 1129 tests (1050 unit + 79 integration) - 100% passing!** 🎉
 
 ### 🔮 **Planejado (v1.4+):**
 - Concurrency (async/await via state machines)
@@ -764,7 +772,7 @@ cargo run -- program.bx --release  # Equivalente a -O3
 - **TargetMachine OptimizationLevel:** Otimizações aplicadas durante geração de código objeto
 - **Zero Overhead:** Flags processadas via clap sem impacto em performance
 - **LLVM 18 Backend:** Aproveita otimizações modernas do LLVM (GVN, DCE, inlining, etc.)
-- **Compatibilidade:** Todos os 1069 testes (1001 unit + 68 integration) passam com `-O3`
+- **Compatibilidade:** Todos os 1129 testes (1050 unit + 79 integration) passam com `-O3`
 
 **O que LLVM Otimiza:**
 
@@ -2192,8 +2200,9 @@ tests/
 - ✅ **Phase 1: Structs (COMPLETE)** - Go-style receivers, default values, generic support
 - ✅ **Phase 2: Generics (COMPLETE)** - All 6 sub-phases complete
 - ✅ **Phase 3: Closures (COMPLETE)** - Full implementation with ARC
+- ✅ **Phase 4: Stress Tests (COMPLETE)** - Edge cases and performance limits
 
-Esta versão introduz features fundamentais do sistema de tipos: **Closures**, **Structs** e **Generics**. Todas as 3 features implementadas e testadas (Fev 2026). **Total: 1107 tests (1038 unit + 69 integration) - 100% passing!** 🎉
+Esta versão introduz features fundamentais do sistema de tipos: **Closures**, **Structs** e **Generics**. Todas as 3 features implementadas e testadas (Fev 2026). **Total: 1129 tests (1050 unit + 79 integration) - 100% passing!** 🎉
 
 ---
 
@@ -2490,8 +2499,8 @@ if err != nil {
 7. ✅ ARC: Automatic Reference Counting (retain/release)
 8. ✅ Tests: Closure tests (capture, calls, ARC, heap allocation)
 
-**Progresso final:** Todas as 3 fases completas (100%)! 🎉
-**Total de testes:** 1107 (1038 unit + 69 integration) - 100% passing
+**Progresso final:** Todas as 4 fases completas (100%)! 🎉
+**Total de testes:** 1129 (1050 unit + 79 integration) - 100% passing
 **v1.3 Type System Expansion:** **COMPLETE (Feb 2026)** ✅
 
 ---
@@ -2926,10 +2935,10 @@ v0.8 ████████████████████ 100% ✅ User-
 v0.9 ████████████████████ 100% ✅ List comprehensions, zip(), destructuring
 v1.0 ████████████████████ 100% ✅ Pattern matching, Complex, LAPACK, Nil/Error
 v1.1 ████████████████████ 100% ✅ Atoms, Escapes, Type checkers (10), Strings (7)
-v1.2.1 ██████████████████ 100% ✅ Error Handling (Result types, 1107 tests)
-TESTES ████████████████████ 100% ✅ Testing Infrastructure (1107 tests) - COMPLETO
+v1.2.1 ██████████████████ 100% ✅ Error Handling (Result types, 1129 tests)
+TESTES ████████████████████ 100% ✅ Testing Infrastructure (1129 tests) - COMPLETO
 v1.2 ░░░░░░░░░░░░░░░░░░░░   0% ⏸️ Docs, panic, modules (ADIADO)
-v1.3 ████████████████████ 100% ✅ Structs, Generics, Closures (ALL COMPLETE) 🎉
+v1.3 ████████████████████ 100% ✅ Structs, Generics, Closures, Stress Tests 🎉
 v1.4 ░░░░░░░░░░░░░░░░░░░░   0% ⏸️ Async/Await, Test Library, Iterators (PLANEJADO)
 ```
 
