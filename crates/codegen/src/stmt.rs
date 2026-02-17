@@ -584,6 +584,9 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
             }
         };
 
+        // ARC: Retain if ref-counted type (String, Matrix, IntMatrix, ComplexMatrix)
+        let final_val = self.insert_retain(final_val, &val_type)?;
+
         let alloca = self.create_entry_block_alloca(llvm_type, name)?;
         self.builder.build_store(alloca, final_val)
             .map_err(|_| CodegenError::LLVMError {
@@ -592,7 +595,13 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
                             span: None,
             })?;
 
-        self.variables.insert(name.to_string(), (alloca, val_type));
+        self.variables.insert(name.to_string(), (alloca, val_type.clone()));
+
+        // ARC: Track ref-counted variables for cleanup at function exit
+        if Compiler::is_ref_counted(&val_type) {
+            self.function_scope_vars.push((name.to_string(), val_type));
+        }
+
         Ok(())
     }
 
@@ -677,29 +686,36 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
 
         let (target_ptr, target_type) = self.compile_lvalue_addr(target)?;
 
-        // ARC: If target was a closure, release it before reassigning
-        if let BrixType::Tuple(ref fields) = target_type {
-            if fields.len() == 3 && fields[0] == BrixType::Int && fields[1] == BrixType::Int && fields[2] == BrixType::Int {
-                // Target is a closure - load old value and release
-                let ptr_type = self.context.ptr_type(AddressSpace::default());
-                let old_closure = self.builder
-                    .build_load(ptr_type, target_ptr, "old_closure")
-                    .map_err(|_| CodegenError::LLVMError {
-                        operation: "build_load".to_string(),
-                        details: "Failed to load old closure for release".to_string(),
-                        span: None,
-                    })?
-                    .into_pointer_value();
+        // ARC: Release old value if it's ref-counted or a closure
+        let is_closure = if let BrixType::Tuple(ref fields) = target_type {
+            fields.len() == 3 && fields[0] == BrixType::Int && fields[1] == BrixType::Int && fields[2] == BrixType::Int
+        } else {
+            false
+        };
 
-                // Release the old closure
-                self.closure_release(old_closure)?;
+        if is_closure || Compiler::is_ref_counted(&target_type) {
+            let ptr_type = self.context.ptr_type(AddressSpace::default());
+            let old_value = self.builder
+                .build_load(ptr_type, target_ptr, "old_value")
+                .map_err(|_| CodegenError::LLVMError {
+                    operation: "build_load".to_string(),
+                    details: "Failed to load old value for release".to_string(),
+                    span: None,
+                })?
+                .into_pointer_value();
+
+            // Release the old value (closure or ref-counted type)
+            if is_closure {
+                self.closure_release(old_value)?;
+            } else {
+                self.insert_release(old_value, &target_type)?;
             }
         }
 
         let (val, val_type) = self.compile_expr(value)?;
 
         // Only cast Int→Float if the target expects Float
-        let final_val = if target_type == BrixType::Float && val_type == BrixType::Int {
+        let mut final_val = if target_type == BrixType::Float && val_type == BrixType::Int {
             self.builder
                 .build_signed_int_to_float(
                     val.into_int_value(),
@@ -715,6 +731,9 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
         } else {
             val
         };
+
+        // ARC: Retain new value if ref-counted
+        final_val = self.insert_retain(final_val, &val_type)?;
 
         self.builder.build_store(target_ptr, final_val)
             .map_err(|_| CodegenError::LLVMError {
