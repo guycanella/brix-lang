@@ -1,0 +1,12 @@
+// Optional types in loops
+
+var i := 0
+while i < 3 {
+    var temp: int? = i
+    if temp != nil {
+        println("temp has value")
+    }
+    i := i + 1
+}
+
+println("All tests passed")

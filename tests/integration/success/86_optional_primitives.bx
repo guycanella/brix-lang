@@ -1,0 +1,22 @@
+// Optional types with primitives (int?, float?)
+
+var x: int? = 42
+var y: int? = nil
+var z: float? = 3.14
+var w: float? = nil
+
+if x != nil {
+    println("x has value")
+}
+
+if y == nil {
+    println("y is nil")
+}
+
+if z != nil {
+    println("z has value")
+}
+
+if w == nil {
+    println("w is nil")
+}

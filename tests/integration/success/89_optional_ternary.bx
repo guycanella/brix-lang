@@ -1,0 +1,34 @@
+// Optional types with ternary operator and logical conditions
+
+var x: int? = 42
+var y: int? = nil
+
+// Ternary with Optional comparison
+var result1 := x != nil ? 1 : 0
+var result2 := y == nil ? 1 : 0
+
+if result1 == 1 {
+    println("x is not nil")
+}
+
+if result2 == 1 {
+    println("y is nil")
+}
+
+// Chained conditions
+var a: int? = 10
+var b: int? = 20
+
+if a != nil && b != nil {
+    println("both have values")
+}
+
+a := nil
+if a == nil && b != nil {
+    println("a is nil, b has value")
+}
+
+b := nil
+if a == nil && b == nil {
+    println("both are nil")
+}

@@ -1,0 +1,23 @@
+// Optional types with ref-counted types (string?)
+
+var greeting: string? = "Hello, Optional!"
+var empty: string? = nil
+
+if greeting != nil {
+    println("greeting has value")
+}
+
+if empty == nil {
+    println("empty is nil")
+}
+
+// Reassignment
+greeting := nil
+if greeting == nil {
+    println("greeting is now nil")
+}
+
+empty := "Now has value"
+if empty != nil {
+    println("empty now has value")
+}
