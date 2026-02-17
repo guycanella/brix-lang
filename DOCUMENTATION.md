@@ -835,6 +835,20 @@ while i < 1000 {
 // ✅ Ao final da função, os últimos valores de s e m são liberados
 ```
 
+6. **Release de temporários em print/println** (`stmt.rs`):
+   - `value_to_string()` cria BrixString temporário para tipos não-String (Int, Float, etc.)
+   - Agora liberado após `printf()` via `insert_release()`
+   - Strings temporárias (literais, f-strings, concatenações) também liberadas
+   - Apenas referências a variáveis (`Identifier`, `FieldAccess`) são preservadas
+
+7. **Release de temporários em expressões descartadas** (`stmt.rs`):
+   - `compile_expr_stmt` agora libera valores ref-counted que não são armazenados
+   - Chamadas de função retornando String/Matrix que são descartadas são liberadas
+
+8. **Release no programa principal** (`lib.rs`):
+   - `compile_program()` agora chama `release_function_scope_vars()` antes de retornar
+   - Variáveis de top-level são liberadas ao final da execução
+
 **Status:** Todos os 1060 unit tests + 85 integration tests passando (100%)
 
 ### 9.2. Passagem de Parâmetros (Cópia vs. Referência)
