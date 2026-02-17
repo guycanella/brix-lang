@@ -422,7 +422,7 @@ Example: In `var x := a + foo * b`, error on `foo` highlights only `foo`, not en
 
 ### Unit Tests
 
-**Automated Unit Tests:** 1038 tests total, **1038 passing (100%)** 🎉
+**Automated Unit Tests:** 1060 tests total, **1060 passing (100%)**
 ```bash
 cargo test --all              # Run all tests
 cargo test <pattern>          # Run tests matching pattern
@@ -448,11 +448,11 @@ cargo test -- --nocapture     # Show output from tests
   - integration_tests.rs (15 tests) - Complex feature combinations
   - generic_tests.rs (21 tests) - Generic functions, structs, type inference, monomorphization, generic methods
 
-**Remaining Ignored Tests:** None! 🎉 All 1038 tests passing (100%)
+**Remaining Ignored Tests:** None! All 1060 tests passing (100%)
 
 ### Integration Tests
 
-**End-to-End Tests:** 69 tests total, **69 passing (100%)** 🎉
+**End-to-End Tests:** 85 tests total, **85 passing (100%)**
 ```bash
 # IMPORTANT: Must run sequentially to avoid file conflicts
 cargo test --test integration_test -- --test-threads=1
@@ -524,7 +524,7 @@ cargo test --test integration_test -- --test-threads=1 --nocapture
 - **unwrap() calls in helpers** - Isolated in Option-returning I/O helper functions and test utilities
 - **Single-file compilation** - multi-file imports not yet implemented
 - **Operator refactoring postponed** - Binary/Unary operators still in lib.rs (see operators.rs annotations)
-- **ARC only for closures** - String, Matrix, and other heap types still use manual memory management (planned for v1.4+)
+- **ARC for closures and ref-counted types** - String, Matrix, IntMatrix, ComplexMatrix use ARC with `release_function_scope_vars()` at function exit and loop re-declaration release. Scope-level release (block-level) planned for v1.4+.
 
 ## Recent Fixes (Feb 2026)
 
