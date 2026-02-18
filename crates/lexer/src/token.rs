@@ -190,6 +190,9 @@ pub enum Token {
     #[token("&")]
     Ampersand, // Intersection (TypeA & TypeB)
 
+    #[token("?:")]
+    QuestionColon, // Elvis operator (a ?: b)
+
     #[token("?")]
     Question, // Ternary
 

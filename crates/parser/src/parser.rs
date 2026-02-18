@@ -1283,11 +1283,31 @@ where
             })
             .boxed();
 
-        // 10. Range (1:10 or 1:2:10)
-        let range_end_parser = logic_or.clone();
-        let range_step_parser = logic_or.clone();
+        // 10. Elvis operator (a ?: b)
+        let elvis = logic_or
+            .clone()
+            .then(
+                just(Token::QuestionColon)
+                    .to(BinaryOp::Elvis)
+                    .then(logic_or)
+                    .repeated(),
+            )
+            .foldl(|lhs, (op, rhs)| {
+                let lhs_span = lhs.span.clone();
+                let rhs_span = rhs.span.clone();
+                Expr::new(ExprKind::Binary {
+                    op,
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                }, lhs_span.start..rhs_span.end)
+            })
+            .boxed();
 
-        let range = logic_or
+        // 11. Range (1:10 or 1:2:10)
+        let range_end_parser = elvis.clone();
+        let range_step_parser = elvis.clone();
+
+        let range = elvis
             .clone()
             .then(
                 just(Token::Colon)
@@ -1313,15 +1333,15 @@ where
                 },
             });
 
-        // 11. Ternary (condition ? true_expr : false_expr)
-        // Use logic_or for branches to avoid conflict with range's colon
+        // 12. Ternary (condition ? true_expr : false_expr)
+        // Use elvis for branches to support all operators except range
         let ternary = range
             .clone()
             .then(
                 just(Token::Question)
-                    .ignore_then(logic_or.clone())
+                    .ignore_then(elvis.clone())
                     .then_ignore(just(Token::Colon))
-                    .then(logic_or.clone())
+                    .then(elvis.clone())
                     .or_not(),
             )
             .map_with_span(|(condition, maybe_branches), span| match maybe_branches {

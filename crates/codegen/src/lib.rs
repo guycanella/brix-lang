@@ -2624,6 +2624,146 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             }
 
             ExprKind::Binary { op, lhs, rhs } => {
+                // --- ELVIS OPERATOR (v1.4) ---
+                // a ?: b → returns a if a is not nil, otherwise returns b
+                if matches!(op, BinaryOp::Elvis) {
+                    let (lhs_val, lhs_type) = self.compile_expr(lhs)?;
+
+                    let parent_fn = self.builder.get_insert_block()
+                        .ok_or_else(|| CodegenError::LLVMError {
+                            operation: "get_insert_block".to_string(),
+                            details: "No current block for Elvis operator".to_string(),
+                            span: Some(expr.span.clone()),
+                        })?
+                        .get_parent()
+                        .ok_or_else(|| CodegenError::LLVMError {
+                            operation: "get_parent".to_string(),
+                            details: "Block has no parent for Elvis operator".to_string(),
+                            span: Some(expr.span.clone()),
+                        })?;
+
+                    let lhs_not_nil_bb = self.context.append_basic_block(parent_fn, "elvis_lhs");
+                    let rhs_bb = self.context.append_basic_block(parent_fn, "elvis_rhs");
+                    let merge_bb = self.context.append_basic_block(parent_fn, "elvis_merge");
+
+                    let _entry_bb = self.builder.get_insert_block()
+                        .ok_or_else(|| CodegenError::LLVMError {
+                            operation: "get_insert_block".to_string(),
+                            details: "No current block for Elvis entry".to_string(),
+                            span: Some(expr.span.clone()),
+                        })?;
+
+                    // Check if lhs is nil
+                    let is_nil = if let BrixType::Union(types) = &lhs_type {
+                        // For Union types, check if tag == nil_index
+                        if let Some(nil_index) = types.iter().position(|t| t == &BrixType::Nil) {
+                            let tag_val = self.builder.build_extract_value(lhs_val.into_struct_value(), 0, "extract_tag")
+                                .map_err(|_| CodegenError::LLVMError {
+                                    operation: "build_extract_value".to_string(),
+                                    details: "Failed to extract tag from union in Elvis".to_string(),
+                                    span: Some(expr.span.clone()),
+                                })?.into_int_value();
+
+                            let nil_tag = self.context.i64_type().const_int(nil_index as u64, false);
+                            self.builder.build_int_compare(IntPredicate::EQ, tag_val, nil_tag, "is_nil")
+                                .map_err(|_| CodegenError::LLVMError {
+                                    operation: "build_int_compare".to_string(),
+                                    details: "Failed to compare tag with nil in Elvis".to_string(),
+                                    span: Some(expr.span.clone()),
+                                })?
+                        } else {
+                            // Union without nil variant - never nil
+                            self.context.bool_type().const_int(0, false)
+                        }
+                    } else if Self::is_ref_counted(&lhs_type) {
+                        // For ref-counted types, check if pointer is null
+                        let ptr_val = lhs_val.into_pointer_value();
+                        self.builder.build_is_null(ptr_val, "is_nil")
+                            .map_err(|_| CodegenError::LLVMError {
+                                operation: "build_is_null".to_string(),
+                                details: "Failed to check null in Elvis".to_string(),
+                                span: Some(expr.span.clone()),
+                            })?
+                    } else if lhs_type == BrixType::Nil {
+                        // Literal nil - always nil
+                        self.context.bool_type().const_int(1, false)
+                    } else {
+                        // Non-nullable type - never nil
+                        self.context.bool_type().const_int(0, false)
+                    };
+
+                    // Branch: if nil, go to rhs_bb; if not nil, go to lhs_not_nil_bb
+                    self.builder.build_conditional_branch(is_nil, rhs_bb, lhs_not_nil_bb)
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_conditional_branch".to_string(),
+                            details: "Failed to branch in Elvis".to_string(),
+                            span: Some(expr.span.clone()),
+                        })?;
+
+                    // LHS block: lhs is not nil, extract value if it's a Union
+                    self.builder.position_at_end(lhs_not_nil_bb);
+
+                    // If lhs is Union, extract the actual value (field 1)
+                    let lhs_result = if let BrixType::Union(types) = &lhs_type {
+                        // Extract inner value from Union
+                        let inner_val = self.builder.build_extract_value(lhs_val.into_struct_value(), 1, "extract_value")
+                            .map_err(|_| CodegenError::LLVMError {
+                                operation: "build_extract_value".to_string(),
+                                details: "Failed to extract value from union in Elvis".to_string(),
+                                span: Some(expr.span.clone()),
+                            })?;
+
+                        // Determine inner type (first non-nil type)
+                        let inner_type = types.iter().find(|t| t != &&BrixType::Nil)
+                            .cloned()
+                            .unwrap_or(BrixType::Nil);
+
+                        (inner_val, inner_type)
+                    } else {
+                        (lhs_val, lhs_type.clone())
+                    };
+
+                    self.builder.build_unconditional_branch(merge_bb)
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_unconditional_branch".to_string(),
+                            details: "Failed to branch to merge in Elvis lhs".to_string(),
+                            span: Some(expr.span.clone()),
+                        })?;
+
+                    // RHS block: lhs is nil, evaluate and use rhs
+                    self.builder.position_at_end(rhs_bb);
+                    let (rhs_val, _rhs_type) = self.compile_expr(rhs)?;
+                    self.builder.build_unconditional_branch(merge_bb)
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_unconditional_branch".to_string(),
+                            details: "Failed to branch to merge in Elvis rhs".to_string(),
+                            span: Some(expr.span.clone()),
+                        })?;
+                    let rhs_end_bb = self.builder.get_insert_block()
+                        .ok_or_else(|| CodegenError::LLVMError {
+                            operation: "get_insert_block".to_string(),
+                            details: "No block after Elvis rhs".to_string(),
+                            span: Some(expr.span.clone()),
+                        })?;
+
+                    // Merge block: PHI node to select result
+                    self.builder.position_at_end(merge_bb);
+
+                    // Result type should match the inner type (non-Union)
+                    let result_type = lhs_result.1.clone();
+
+                    let phi_type = self.brix_type_to_llvm(&result_type);
+                    let phi = self.builder.build_phi(phi_type, "elvis_result")
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_phi".to_string(),
+                            details: "Failed to build PHI for Elvis result".to_string(),
+                            span: Some(expr.span.clone()),
+                        })?;
+
+                    phi.add_incoming(&[(&lhs_result.0, lhs_not_nil_bb), (&rhs_val, rhs_end_bb)]);
+                    return Ok((phi.as_basic_value(), result_type));
+                }
+
                 if matches!(op, BinaryOp::LogicalAnd) || matches!(op, BinaryOp::LogicalOr) {
                     let (lhs_val, _) = self.compile_expr(lhs)?;
                     let lhs_int = lhs_val.into_int_value();
