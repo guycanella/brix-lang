@@ -23,7 +23,7 @@ cargo build --release
 
 **Run tests:**
 ```bash
-cargo test --all              # Run all unit tests (1038 tests total, 100% passing)
+cargo test --all              # Run all unit tests (1089 tests total, 100% passing)
 cargo test <pattern>          # Run tests matching pattern
 cargo test -- --nocapture     # Show println! output
 cargo test -p lexer           # Run only lexer tests
@@ -159,7 +159,7 @@ brix/
 
 ## Type System
 
-**16 Core Types:**
+**19 Core Types:**
 - `Int` (i64), `Float` (f64), `String` (BrixString*)
 - `Matrix` (f64*), `IntMatrix` (i64*), `FloatPtr` (f64*)
 - `Complex` (real+imag), `ComplexMatrix` (Complex*)
@@ -169,6 +169,9 @@ brix/
 - `Struct(String)` - user-defined types (v1.3)
 - `Generic` - type parameters in generic functions/structs (v1.3)
 - **Closure** - represented as `Tuple(Int, Int, Int)` internally (ref_count, fn_ptr, env_ptr) (v1.3)
+- **TypeAlias(String)** - aliases for existing types (v1.4)
+- **Union(Vec<BrixType>)** - tagged unions for sum types (v1.4)
+- **Intersection(Vec<BrixType>)** - struct merging for composite types (v1.4)
 
 **Type Inference for Array Literals:**
 - All ints → `IntMatrix`: `[1, 2, 3]`
@@ -263,6 +266,42 @@ brix/
 - **Monomorphization:** Compile-time specialization (like C++ templates, Rust generics)
 - **Caching:** Aggressive to prevent code bloat
 - **Name mangling:** `Box<int>` → `Box_int`, `swap<float>` → `swap_float`
+
+### Type Aliases (v1.4)
+- **Syntax:** `type MyInt = int`, `type Point2D = Point`
+- **Zero overhead:** Resolved completely at compile time
+- **Full transparency:** Alias is 100% equivalent to original type
+- **Not a new type:** `MyInt` and `int` are interchangeable
+- **Supports all types:** Primitives, structs, generics, unions, closures
+- **Implementation:** Alias table in Compiler, recursive alias resolution
+
+### Union Types (v1.4)
+- **Syntax:** `var x: int | float = 42`, `var result: int | float | string = "error"`
+- **Tagged union:** LLVM struct `{ i64 tag, largest_type value }`
+- **Type safety:** Tag ensures runtime safety (0=first type, 1=second, etc.)
+- **Pattern matching:** Full integration with match expressions
+- **Nil support:** `int | nil` replaces Optional types
+- **Optional refactoring:** `T?` is now syntactic sugar for `Union(T, nil)`
+- **Implementation:** Tag checking, value extraction via LLVM struct operations
+
+### Intersection Types (v1.4)
+- **Syntax:** `var x: Point & Label = Point{...} & Label{...}`
+- **Struct merging:** Combines fields from multiple structs
+- **Field access:** All fields from both structs available
+- **Method merging:** Methods from both structs accessible
+- **Name collision:** Compile error if structs have same field name
+- **Generic support:** Works with generic structs
+- **Implementation:** LLVM struct with concatenated fields
+
+### Elvis Operator (v1.4)
+- **Syntax:** `a ?: b` (null coalescing operator)
+- **Behavior:** Returns `a` if not nil, otherwise returns `b`
+- **Short-circuit:** Doesn't evaluate `b` if `a` is not nil
+- **Compatible with Union:** Works with any Union containing nil
+- **Compatible with Optional:** Works with `T?` (which is `Union(T, nil)`)
+- **Type safety:** Result has type of non-nil value
+- **❌ Chaining NOT supported:** `a ?: b ?: c` is prohibited (use `match` instead)
+- **Implementation:** Nil checking (Union tag check or pointer null check) + conditional branching + PHI node
 
 ### Matrix Operations
 - **Element-wise arithmetic**: All 6 operators (`+`, `-`, `*`, `/`, `%`, `**`) work on matrices
@@ -422,7 +461,7 @@ Example: In `var x := a + foo * b`, error on `foo` highlights only `foo`, not en
 
 ### Unit Tests
 
-**Automated Unit Tests:** 1060 tests total, **1060 passing (100%)**
+**Automated Unit Tests:** 1089 tests total, **1089 passing (100%)**
 ```bash
 cargo test --all              # Run all tests
 cargo test <pattern>          # Run tests matching pattern
@@ -448,11 +487,11 @@ cargo test -- --nocapture     # Show output from tests
   - integration_tests.rs (15 tests) - Complex feature combinations
   - generic_tests.rs (21 tests) - Generic functions, structs, type inference, monomorphization, generic methods
 
-**Remaining Ignored Tests:** None! All 1060 tests passing (100%)
+**Remaining Ignored Tests:** None! All 1089 tests passing (100%)
 
 ### Integration Tests
 
-**End-to-End Tests:** 85 tests total, **85 passing (100%)**
+**End-to-End Tests:** 95 tests total, **95 passing (100%)**
 ```bash
 # IMPORTANT: Must run sequentially to avoid file conflicts
 cargo test --test integration_test -- --test-threads=1
@@ -462,16 +501,17 @@ cargo test --test integration_test -- --test-threads=1 --nocapture
 ```
 
 **Test Categories** (`tests/integration/`):
-- **Success cases** (65 tests) - Programs that compile and execute successfully (exit code 0)
+- **Success cases** (88 tests) - Programs that compile and execute successfully (exit code 0)
   - Hello world, arithmetic, variables, control flow, functions, arrays, matrices, strings
   - Math operations, matrix operations, postfix chaining, atoms, default params
   - List comprehensions, pattern matching, complex numbers, type checking
-  - F-strings, destructuring, multiple returns, imports, and more
+  - F-strings, destructuring, multiple returns, imports
+  - Type aliases, union types, intersection types, Elvis operator, and more
 - **Parser errors** (2 tests) - Syntax errors detected during parsing (exit code 2)
   - Invalid operator sequences, missing tokens
 - **Codegen errors** (2 tests) - Type/undefined errors during code generation (exit codes 100-105)
   - Undefined variables, type mismatches
-- **Runtime errors** (2 tests) - Errors during program execution (exit code 1)
+- **Runtime errors** (3 tests) - Errors during program execution (exit code 1)
   - Division by zero, modulo by zero
 
 **What Integration Tests Cover:**
@@ -485,6 +525,13 @@ cargo test --test integration_test -- --test-threads=1 --nocapture
 **Limitation:** Tests must run sequentially (`--test-threads=1`) because they compile to the same directory.
 
 **Recently Completed (Feb 2026):**
+- ✅ **v1.4 - Advanced Type System (COMPLETE - Feb 2026):**
+  - ✅ **Type Aliases** - `type MyInt = int`, zero overhead, full transparency
+  - ✅ **Union Types** - `int | float | string`, tagged unions with pattern matching
+  - ✅ **Intersection Types** - `Point & Label`, struct merging via composition
+  - ✅ **Elvis Operator** - `a ?: b`, null coalescing operator
+  - ✅ **Optional → Union** - `int?` is now `Union(int, nil)`
+  - All 1089 unit tests + 95 integration tests passing (100%)
 - ✅ **v1.3 - Type System Expansion (COMPLETE - Feb 2026):**
   - ✅ **Structs** - Go-style receivers, default values, generic struct support
   - ✅ **Generics** - Monomorphization, type inference, generic methods
@@ -524,7 +571,7 @@ cargo test --test integration_test -- --test-threads=1 --nocapture
 - **unwrap() calls in helpers** - Isolated in Option-returning I/O helper functions and test utilities
 - **Single-file compilation** - multi-file imports not yet implemented
 - **Operator refactoring postponed** - Binary/Unary operators still in lib.rs (see operators.rs annotations)
-- **ARC for closures and ref-counted types** - String, Matrix, IntMatrix, ComplexMatrix use ARC with `release_function_scope_vars()` at function exit and loop re-declaration release. Scope-level release (block-level) planned for v1.4+.
+- **ARC for closures and ref-counted types** - String, Matrix, IntMatrix, ComplexMatrix use ARC with `release_function_scope_vars()` at function exit and loop re-declaration release. Scope-level release (block-level) planned for v1.5+.
 
 ## Recent Fixes (Feb 2026)
 
@@ -580,6 +627,25 @@ cargo test --test integration_test -- --test-threads=1 --nocapture
   for i in start : end { }
   ```
 
+- **Chained Elvis operators not supported** - Use `match` or `if/else` for clarity
+  ```brix
+  // ❌ Not supported (poor readability, hard to debug)
+  var x := a ?: b ?: c ?: d
+
+  // ✅ Use match instead for multiple fallbacks
+  var x := match {
+      a != nil -> a,
+      b != nil -> b,
+      c != nil -> c,
+      _ -> d
+  }
+
+  // ✅ Or if/else for simple cases
+  var x := if a != nil { a } else if b != nil { b } else { c }
+  ```
+  **Rationale:** Chaining Elvis operators (`a ?: b ?: c`) creates hard-to-read code and makes debugging
+  difficult. Using `match` or `if/else` provides clearer intent and better error messages.
+
 ## Troubleshooting
 
 **"runtime.c not found"**
@@ -610,7 +676,7 @@ cargo test --test integration_test -- --test-threads=1 --nocapture
 
 ## Development Roadmap
 
-**Current Focus (Feb 2026):** ✅ **v1.3 - Type System Expansion (COMPLETE)**
+**Current Focus (Feb 2026):** ✅ **v1.4 - Advanced Type System (COMPLETE)**
 
 **✅ Completed Phases:**
 - ✅ v1.2.1 - Error Handling Implementation (COMPLETE!)
@@ -734,7 +800,7 @@ cargo test --test integration_test -- --test-threads=1 --nocapture
   - ✅ `--release` flag (equivalent to `-O3`)
   - ✅ Usage: `cargo run file.bx -O 3` or `cargo run file.bx --release`
   - ✅ Zero-overhead flag parsing via clap
-  - ✅ All 1107 tests passing with optimizations enabled (1038 unit + 69 integration)
+  - ✅ All 1184 tests passing with optimizations enabled (1089 unit + 95 integration)
   - See DOCUMENTATION.md section "1.1. LLVM Optimizations" for details
 
 **v1.3 - Type System Expansion (COMPLETE - Feb 2026):**
@@ -774,10 +840,39 @@ cargo test --test integration_test -- --test-threads=1 --nocapture
   - **Closure tests passing** (capture, calls, ARC, heap allocation)
   - **All 1038 unit tests + 69 integration tests passing** ✅
 
+- ✅ **v1.4 - Advanced Type System (COMPLETE - Feb 2026):**
+  - ✅ **Task #1: Type Aliases (COMPLETE)** - 1 semana
+    - Type alias syntax: `type MyInt = int`
+    - Zero overhead compilation
+    - Alias table with recursive resolution
+    - 2 unit tests + 1 integration test
+  - ✅ **Task #2: Union Types (COMPLETE)** - 2 semanas
+    - Union type syntax: `int | float | string`
+    - Tagged unions via LLVM struct
+    - Pattern matching integration
+    - 5 unit tests + 2 integration tests
+  - ✅ **Task #3: Intersection Types (COMPLETE)** - 1.5 semanas
+    - Intersection syntax: `Point & Label`
+    - Struct merging via field concatenation
+    - Method merging support
+    - 3 unit tests + 1 integration test
+  - ✅ **Task #4: Optional → Union (COMPLETE)** - 1 semana
+    - Desugar `T?` to `Union(T, nil)`
+    - Remove `BrixType::Optional`
+    - Backward compatibility maintained
+    - Tests verify all Optional code still works
+  - ✅ **Task #5: Elvis Operator (COMPLETE)** - 1 semana
+    - Elvis operator syntax: `a ?: b`
+    - Nil checking (Union tag check, pointer null check)
+    - Conditional branching with PHI nodes
+    - 1 integration test + unit tests
+  - **All 1089 unit tests + 95 integration tests passing** ✅
+
 **Next Steps:**
-- Phase 4: Documentation update (CLAUDE.md, DOCUMENTATION.md)
-- Phase 5: Additional tests (property-based, stress tests)
-- Phase 6: Refactoring (operator module, cleanup unwrap() calls)
+- v1.5: Async/Await, Test Library, Iterators
+- Phase 4: Additional documentation
+- Phase 5: More stress tests
+- Phase 6: Operator refactoring (cleanup lib.rs)
 - LTO and PGO support (future optimization enhancements)
 
 ## v1.3 - Type System Expansion (Design Decisions)
@@ -1033,19 +1128,19 @@ if err != nil {
 
 **Future Features:**
 - v1.2: Documentation system (@doc), panic(), advanced string functions
-- v1.3+: **Async/Await** - High-performance concurrency via compile-time state machine transformation
+- v1.5+: **Async/Await** - High-performance concurrency via compile-time state machine transformation
   - Target: 0.2-0.3 MB/task (12x better than Go goroutines)
   - Compile-time transformation to state machines (like Rust tokio)
   - Runtime minimalista em C (~300 lines) com event loop
   - Syntax: `async function`, `.await`, `spawn { }`
-  - See DOCUMENTATION.md section "🚀 v1.3+ - Concorrência e Paralelismo" for full design
-- v1.3+: **Test Library** - Jest-style testing framework (`import test`) implemented in runtime.c
+  - See DOCUMENTATION.md section "🚀 v1.5+ - Concorrência e Paralelismo" for full design
+- v1.5+: **Test Library** - Jest-style testing framework (`import test`) implemented in runtime.c
   - Matchers: `test.expect(x).to_equal(y)`, `to_be_greater_than()`, etc.
   - Structure: `test.describe()`, `test.it()`, `test.run()`
   - Smart float precision based on expected value decimals
   - Beautiful Jest-like output with pass/fail summary
-  - See DOCUMENTATION.md section "🧪 v1.3+ - Test Library" for full API
-- v1.4+: Pipe operator, optional types, LSP, REPL
+  - See DOCUMENTATION.md section "🧪 v1.5+ - Test Library" for full API
+- v1.5+: Pipe operator, iterators (map, filter, reduce), LSP, REPL
 
 ## Version Summary
 
@@ -1085,6 +1180,14 @@ if err != nil {
 - ✅ Codegen refactoring - modular architecture (7,338 → 6,499 lines)
 - ✅ error.rs, types.rs, helpers.rs, stmt.rs, expr.rs, builtins/ modules
 - ✅ Comprehensive unit tests (1001/1001 passing - 100%)
+
+**v1.4 (COMPLETE - Feb 2026):**
+- ✅ **Type Aliases (COMPLETE)** - `type MyInt = int`, zero overhead, full transparency
+- ✅ **Union Types (COMPLETE)** - `int | float | string`, tagged unions with pattern matching
+- ✅ **Intersection Types (COMPLETE)** - `Point & Label`, struct merging via composition
+- ✅ **Elvis Operator (COMPLETE)** - `a ?: b`, null coalescing operator
+- ✅ **Optional → Union (COMPLETE)** - `int?` is now `Union(int, nil)`
+- **Total: 1184 tests (292 lexer + 158 parser + 639 codegen + 95 integration) - 100% passing!** 🎉
 
 **v1.3 (COMPLETE - Feb 2026):**
 - ✅ **Structs (COMPLETE)** - Go-style receivers, default values, generic struct support

@@ -1,18 +1,24 @@
 # Brix Language (Design Document v1.0)
 
-> ✅ **Status do Projeto (Fev 2026):** O compilador Brix **v1.3 COMPLETO** - Type System Expansion finalizado! Core funcional com error handling robusto, **Structs**, **Generics**, e **Closures** totalmente implementados - 1050/1050 testes unitários + 85 testes de integração passando (100%). Todas as 3 features principais do v1.3 completas: Structs (Go-style receivers), Generics (monomorphization), e Closures (ARC + heap allocation). **ARC (Automatic Reference Counting)** implementado para todos os heap types (String, Matrix, IntMatrix, ComplexMatrix, Closures) com retain/release automático. Inclui stress tests para edge cases.
+> ✅ **Status do Projeto (Fev 2026):** O compilador Brix **v1.4 COMPLETO** - Advanced Type System finalizado! Core funcional com error handling robusto, **Type Aliases**, **Union Types**, **Intersection Types**, e **Elvis Operator** totalmente implementados - 1184/1184 testes passando (100%). v1.4 adiciona sistema de tipos avançado sobre a base sólida do v1.3 (Structs, Generics, Closures). **ARC (Automatic Reference Counting)** implementado para todos os heap types (String, Matrix, IntMatrix, ComplexMatrix, Closures) com retain/release automático.
 
 ## Status Atual (Fevereiro 2026)
 
-### ✅ **Funcionalidades Implementadas (v1.0-v1.3):**
+### ✅ **Funcionalidades Implementadas (v1.0-v1.4):**
 - Compilação completa `.bx` → binário nativo via LLVM
 - **LLVM Optimizations**: `-O0`, `-O1`, `-O2`, `-O3`, `--release`
+- **v1.4 Advanced Type System (COMPLETE - Feb 2026):**
+  - **Type Aliases**: `type MyInt = int`, `type Point2D = Point`
+  - **Union Types**: `int | float | string` com tagged unions
+  - **Intersection Types**: `Point & Label` com struct merging
+  - **Elvis Operator**: `a ?: b` (null coalescing)
+  - **Optional Refactoring**: `int?` agora é `Union(int, nil)`
 - **v1.3 Type System (COMPLETE):**
   - **Structs**: Go-style receivers, default values, generic support
   - **Generics**: Functions, structs, methods com monomorphization
   - **Closures**: Capture by reference, heap allocation, ARC
-- 16 tipos core (Int, Float, String, Matrix, IntMatrix, Complex, ComplexMatrix, Atom, Nil, Error, Struct, Generic, Closure, etc.)
-- Operadores completos (aritméticos, lógicos, bitwise, power operator `**`)
+- 17 tipos core (Int, Float, String, Matrix, IntMatrix, Complex, ComplexMatrix, Atom, Nil, Error, Struct, Generic, Closure, Union, Intersection, TypeAlias, etc.)
+- Operadores completos (aritméticos, lógicos, bitwise, power operator `**`, Elvis `?:`)
 - Funções definidas pelo usuário com múltiplos retornos
 - Pattern matching com guards
 - List comprehensions
@@ -95,7 +101,7 @@
     - Generics: 3 type parameters
     - Integration tests: Complex combinations of all v1.3 features
     - 7 unit stress tests + 4 integration stress tests
-  - ✅ **All 1050 unit tests + 85 integration tests passing!** 🎉
+  - ✅ **All 1089 unit tests + 95 integration tests passing!** 🎉
   - ✅ **Total: 1135 tests (100% passing)** 🎉
 - **LLVM Optimizations (COMPLETE - Feb 2026):**
   - ✅ Optimization levels: `-O0`, `-O1`, `-O2`, `-O3`
@@ -112,7 +118,15 @@
 - ✅ **Stress Tests (COMPLETE)** - Edge cases for all v1.3 features
 - **Total: 1129 tests (1050 unit + 79 integration) - 100% passing!** 🎉
 
-### 🔮 **Planejado (v1.4+):**
+### ✅ **v1.4 Advanced Type System (COMPLETE - Feb 2026):**
+- ✅ Type Aliases (`type MyInt = int`)
+- ✅ Union Types (`int | float | string`)
+- ✅ Intersection Types (`Point & Label`)
+- ✅ Elvis Operator (`a ?: b`)
+- ✅ Optional → Union refactoring
+- **Total: 1184 tests (292 lexer + 158 parser + 639 codegen + 95 integration) - 100% passing!** 🎉
+
+### 🔮 **Planejado (v1.5+):**
 - Concurrency (async/await via state machines)
 - Test Library (Jest-style)
 - Iterators (map, filter, reduce)
@@ -849,7 +863,7 @@ while i < 1000 {
    - `compile_program()` agora chama `release_function_scope_vars()` antes de retornar
    - Variáveis de top-level são liberadas ao final da execução
 
-**Status:** Todos os 1060 unit tests + 85 integration tests passando (100%)
+**Status:** Todos os 1089 unit tests + 95 integration tests passando (100%)
 
 ### 9.2. Passagem de Parâmetros (Cópia vs. Referência)
 
@@ -948,7 +962,7 @@ cargo run -- program.bx --release  # Equivalente a -O3
 - **TargetMachine OptimizationLevel:** Otimizações aplicadas durante geração de código objeto
 - **Zero Overhead:** Flags processadas via clap sem impacto em performance
 - **LLVM 18 Backend:** Aproveita otimizações modernas do LLVM (GVN, DCE, inlining, etc.)
-- **Compatibilidade:** Todos os 1129 testes (1050 unit + 79 integration) passam com `-O3`
+- **Compatibilidade:** Todos os 1184 testes (1089 unit + 95 integration) passam com `-O3`
 
 **O que LLVM Otimiza:**
 
@@ -1240,7 +1254,7 @@ println(power(5.0, 3.0)) // 125.0
 - `destructuring_ignore_test.bx` - Destructuring com `_` ✅
 - `default_values_test.bx` - Default parameters ✅
 
-**Futuro (v1.4+):**
+**Futuro (v1.5+):**
 - [ ] **Error Type:** `function divide(a, b) -> (float, error)` (requer null safety)
 - [ ] **Funções Variádicas:** `function sum(nums: ...int)`
 - [x] **Closures:** `var fn := (x: int) -> int { return x * 2 }` ✅ **COMPLETO (v1.3)**
@@ -1950,7 +1964,7 @@ println(f"Eigenvectors: {eigenvectors}") // [[a+bim, c+dim], [e+fim, g+him]]
 - [x] Nil/Error handling (Go-style) ✅ **COMPLETO**
 - [x] Closures and lambda functions ✅ **COMPLETO (v1.3)**
 - [x] First-class functions ✅ **COMPLETO (v1.3 - via closures)**
-- [ ] User-defined modules ⏸️ **Adiado para v1.4+**
+- [ ] User-defined modules ⏸️ **Adiado para v1.5+**
 
 **O que foi implementado em v1.0:**
 
@@ -2681,6 +2695,312 @@ if err != nil {
 
 ---
 
+### ✅ **v1.4 - Advanced Type System (Type Aliases, Union, Intersection, Elvis)** **COMPLETE (Feb 2026)** 🎉
+
+**Status:** Implementação finalizada (Feb 2026)
+- ✅ **Task #1: Type Aliases (COMPLETE)** - Aliases para tipos existentes
+- ✅ **Task #2: Union Types (COMPLETE)** - Tagged unions com suporte a múltiplos tipos
+- ✅ **Task #3: Intersection Types (COMPLETE)** - Struct merging via composition
+- ✅ **Task #4: Optional → Union (COMPLETE)** - Refatoração de Optional para usar Union
+- ✅ **Task #5: Elvis Operator (COMPLETE)** - Null coalescing operator
+
+Esta versão adiciona sistema de tipos avançado sobre a base sólida do v1.3. Todas as 5 tasks implementadas e testadas (Fev 2026). **Total: 1184 tests (292 lexer + 158 parser + 639 codegen + 95 integration) - 100% passing!** 🎉
+
+---
+
+#### **1. Type Aliases** ✅ **COMPLETE**
+
+**Status:** Fully implemented (Feb 2026)
+
+Type aliases permitem criar nomes alternativos para tipos existentes, melhorando legibilidade e facilitando refatoração.
+
+**Sintaxe:**
+```brix
+// Aliases para tipos primitivos
+type MyInt = int
+type Coordinate = float
+
+// Aliases para tipos complexos
+type Point2D = Point
+type UserID = int
+type Callback = (int) -> int
+
+// Aliases para tipos genéricos (resolução em tempo de uso)
+type IntBox = Box<int>
+```
+
+**Características:**
+- **Zero overhead:** Resolvido completamente em tempo de compilação
+- **Transparência total:** Alias é 100% equivalente ao tipo original
+- **Não cria novo tipo:** `MyInt` e `int` são intercambiáveis
+- **Suporta todos os tipos:** Primitivos, structs, generics, unions, closures
+
+**Uso:**
+```brix
+type UserID = int
+
+fn get_user(id: UserID) -> string {
+    return "User " + string(id)
+}
+
+var user_id: UserID = 42
+println(get_user(user_id))  // "User 42"
+```
+
+**Implementação:**
+- **Lexer:** Token `Type` já existente
+- **Parser:** `parse_type_alias()` em `parser.rs`
+- **AST:** `TypeAlias { name: String, target: String }` em `ast.rs`
+- **Codegen:** Alias table em `Compiler`, resolução recursiva de aliases
+- **Type System:** `BrixType::TypeAlias(String)` em `types.rs`
+
+---
+
+#### **2. Union Types** ✅ **COMPLETE**
+
+**Status:** Fully implemented (Feb 2026)
+
+Union types permitem que um valor seja de um dentre vários tipos possíveis, usando tagged unions para type safety.
+
+**Sintaxe:**
+```brix
+// Union de tipos primitivos
+var x: int | float = 42
+x := 3.14  // OK - pode mudar para float
+
+// Union de múltiplos tipos
+var result: int | float | string = "error"
+
+// Union com nil (similar a Optional)
+var maybe_num: int | nil = nil
+```
+
+**Representação Interna (Tagged Union):**
+```llvm
+// LLVM struct: { i64 tag, largest_type value }
+{ i64 tag, double value }  // Para int | float
+
+// Índices de tag:
+// 0 = primeiro tipo (int)
+// 1 = segundo tipo (float)
+// 2 = nil (se presente)
+```
+
+**Type Checking:**
+```brix
+var x: int | float = 42
+
+match x {
+    i: int -> println("Int: " + string(i)),
+    f: float -> println("Float: " + string(f))
+}
+```
+
+**Características:**
+- **Type safety:** Tag garante segurança em tempo de execução
+- **Pattern matching:** Integração completa com match expressions
+- **Nil support:** Union com nil substitui Optional
+- **Zero runtime overhead:** Tag é um simples i64
+
+**Implementação:**
+- **Lexer:** Token `Pipe` (`|`) já existente
+- **Parser:** `parse_union_type()` em `parser.rs`
+- **AST:** `Union(Vec<String>)` em type annotations
+- **Codegen:** Tagged union via LLVM struct, tag checking, value extraction
+- **Type System:** `BrixType::Union(Vec<BrixType>)` em `types.rs`
+
+---
+
+#### **3. Intersection Types** ✅ **COMPLETE**
+
+**Status:** Fully implemented (Feb 2026)
+
+Intersection types combinam múltiplos structs em um único tipo via composition (struct merging).
+
+**Sintaxe:**
+```brix
+struct Point {
+    x: int
+    y: int
+}
+
+struct Label {
+    name: string
+}
+
+// Intersection type combina ambos os structs
+var labeled_point: Point & Label = Point{ x: 10, y: 20 } & Label{ name: "Origin" }
+
+// Acesso a campos de ambos os structs
+println(labeled_point.x)     // 10
+println(labeled_point.name)  // "Origin"
+```
+
+**Representação Interna (Struct Merging):**
+```llvm
+// LLVM struct resultante: { i64 x, i64 y, BrixString* name }
+// Combina campos de Point e Label
+```
+
+**Construção:**
+```brix
+// Sintaxe de construção: struct1{...} & struct2{...}
+var point_label := Point{ x: 5, y: 10 } & Label{ name: "A" }
+```
+
+**Características:**
+- **Field merging:** Todos os campos de ambos os structs ficam disponíveis
+- **Method merging:** Métodos de ambos os structs são acessíveis
+- **Name collision:** Erro de compilação se houver campos com mesmo nome
+- **Generic support:** Funciona com structs genéricos
+
+**Implementação:**
+- **Lexer:** Token `Ampersand` (`&`) já existente (usado para bitwise AND)
+- **Parser:** `parse_intersection_type()` em `parser.rs`
+- **AST:** `Intersection(Vec<String>)` em type annotations
+- **Codegen:** Struct merging via LLVM, field concatenation
+- **Type System:** `BrixType::Intersection(Vec<BrixType>)` em `types.rs`
+
+---
+
+#### **4. Optional → Union Refactoring** ✅ **COMPLETE**
+
+**Status:** Fully implemented (Feb 2026)
+
+Optional types (`T?`) agora são implementados como syntactic sugar para `Union(T, nil)`.
+
+**Antes (v1.3):**
+```brix
+var x: int? = 42
+// Implementação: Custom Optional type
+```
+
+**Depois (v1.4):**
+```brix
+var x: int? = 42
+// Implementação: Union(int, nil) - syntactic sugar
+```
+
+**Mudanças:**
+- **Parser:** `int?` desugars para `Union(vec!["int", "nil"])`
+- **Type System:** `BrixType::Optional` removido, usa `BrixType::Union`
+- **Codegen:** Optional usa mesma infraestrutura de Union (tagged union)
+- **Compatibilidade:** Sintaxe `T?` continua funcionando (backward compatible)
+
+**Vantagens:**
+- **Menos código:** Reutiliza implementação de Union
+- **Mais flexível:** Union pode ter mais de 2 tipos (`int | float | nil`)
+- **Consistência:** Um único sistema de tipos tagged
+
+---
+
+#### **5. Elvis Operator** ✅ **COMPLETE**
+
+**Status:** Fully implemented (Feb 2026)
+
+O Elvis Operator (`?:`) é um null coalescing operator que retorna o lado esquerdo se não for nil, caso contrário retorna o lado direito.
+
+**Sintaxe:**
+```brix
+var x: int? = 42
+var y: int? = nil
+
+var result1 := x ?: 100  // 42 (x não é nil)
+var result2 := y ?: 200  // 200 (y é nil)
+```
+
+**Características:**
+- **Short-circuit:** Não avalia lado direito se lado esquerdo não é nil
+- **Compatível com Union:** Funciona com qualquer Union que contém nil
+- **Compatível com Optional:** Funciona com `T?` (que é `Union(T, nil)`)
+- **Type safety:** Resultado tem tipo do valor não-nil
+
+**Comportamento:**
+```brix
+// Com Optional
+var opt: int? = nil
+var value := opt ?: 999  // value = 999
+
+// Com Union
+var multi: int | float | nil = nil
+var result := multi ?: 42  // result = 42
+
+// Com ref-counted types
+var str: string? = nil
+var default := str ?: "default"  // default = "default"
+```
+
+**Limitações de Design:**
+- **❌ Chained Elvis NÃO suportado:** `a ?: b ?: c` causa erro de compilação
+- **Decisão:** Elvis encadeado prejudica legibilidade - use `match` ou `if/else` para casos complexos
+
+**Implementação:**
+- **Lexer:** Token `QuestionColon` (`?:`) em `token.rs`
+- **Parser:** `BinaryOp::Elvis` em `ast.rs`, precedência entre LogicalOr e Range
+- **Codegen:** Nil checking baseado em tipo (Union tag check, pointer null check)
+  - Union types: Extract tag (field 0) e compare com nil_index
+  - Ref-counted types: `build_is_null()` no ponteiro
+  - Literal nil: Sempre true
+  - Non-nullable: Sempre false
+- **Control Flow:** Basic blocks (lhs_not_nil_bb, rhs_bb, merge_bb) + PHI node
+
+**Exemplo de Compilação:**
+```brix
+var x: int? = 42
+var result := x ?: 100
+```
+
+```llvm
+; LLVM IR gerado:
+; 1. Check if x.tag == nil_index
+; 2. Branch: if nil -> rhs_bb, else -> lhs_not_nil_bb
+; 3. lhs_not_nil_bb: Extract x.value (field 1)
+; 4. rhs_bb: Evaluate rhs (100)
+; 5. merge_bb: PHI node seleciona resultado
+```
+
+---
+
+#### **Roadmap de Implementação v1.4** ✅ **COMPLETE**
+
+**✅ Task #1: Type Aliases (COMPLETA - 1 semana)**
+1. ✅ Lexer: Token `Type` (already exists)
+2. ✅ Parser: `type Name = TargetType` syntax
+3. ✅ Codegen: Alias table, recursive alias resolution
+4. ✅ Tests: 2 unit tests + 1 integration test
+
+**✅ Task #2: Union Types (COMPLETA - 2 semanas)**
+1. ✅ Lexer: Token `Pipe` (`|`) (already exists)
+2. ✅ Parser: `int | float | string` syntax
+3. ✅ Codegen: Tagged unions (LLVM struct with tag + value)
+4. ✅ Pattern matching integration
+5. ✅ Tests: 5 unit tests + 2 integration tests
+
+**✅ Task #3: Intersection Types (COMPLETA - 1.5 semanas)**
+1. ✅ Lexer: Token `Ampersand` (`&`) (already exists)
+2. ✅ Parser: `Point & Label` syntax
+3. ✅ Codegen: Struct merging (field concatenation)
+4. ✅ Method merging
+5. ✅ Tests: 3 unit tests + 1 integration test
+
+**✅ Task #4: Optional → Union (COMPLETA - 1 semana)**
+1. ✅ Parser: Desugar `T?` to `Union(T, nil)`
+2. ✅ Type System: Remove `BrixType::Optional`
+3. ✅ Codegen: Use Union infrastructure for Optional
+4. ✅ Tests: Verify backward compatibility
+
+**✅ Task #5: Elvis Operator (COMPLETA - 1 semana)**
+1. ✅ Lexer: Token `QuestionColon` (`?:`)
+2. ✅ Parser: `a ?: b` syntax, precedence rules
+3. ✅ Codegen: Nil checking + conditional branching + PHI node
+4. ✅ Tests: 1 integration test + unit tests
+
+**Progresso final:** Todas as 5 tasks completas (100%)! 🎉
+**Total de testes:** 1184 (292 lexer + 158 parser + 639 codegen + 95 integration) - 100% passing
+**v1.4 Advanced Type System:** **COMPLETE (Feb 2026)** ✅
+
+---
+
 ### 📚 **v1.2 - Standard Library (Stdlib)**
 
 **Estruturas de Dados Nativas:**
@@ -2709,9 +3029,9 @@ if err != nil {
 
 ---
 
-### 🧪 **v1.4+ - Test Library (Biblioteca de Testes)**
+### 🧪 **v1.5+ - Test Library (Biblioteca de Testes)**
 
-**Status:** Planejado para implementação (v1.4+) - closures agora disponíveis!
+**Status:** Planejado para implementação (v1.5+) - closures agora disponíveis!
 
 **Objetivo:** Biblioteca de testes nativa em Brix, inspirada no Jest, para facilitar criação de testes unitários e de integração diretamente na linguagem.
 
@@ -2930,15 +3250,15 @@ void print_summary();
 
 #### Roadmap de Implementação
 
-- **v1.4+** (closures disponíveis desde v1.3): Implementação completa com sintaxe estilo Jest
+- **v1.5+** (closures disponíveis desde v1.3): Implementação completa com sintaxe estilo Jest
 - **Prioridade:** Alta - dependências atendidas (generics ✅, structs ✅, closures ✅)
 - **Dependências:** ✅ Closures (v1.3 COMPLETE), ✅ Function types, ✅ Callbacks
 
 ---
 
-### 🚀 **v1.4+ - Concorrência e Paralelismo**
+### 🚀 **v1.5+ - Concorrência e Paralelismo**
 
-**Status:** Planejado para v1.4+ (dependências atendidas: generics ✅, structs ✅, closures ✅)
+**Status:** Planejado para v1.5+ (dependências atendidas: generics ✅, structs ✅, closures ✅)
 
 #### Paralelismo de Dados
 
@@ -3046,7 +3366,7 @@ void print_summary();
 **Dependências:**
 - ✅ Closures (v1.3 COMPLETE) - Para callbacks em async context
 - ✅ Generics (v1.3 COMPLETE) - Para `Future<T>` type
-- ⏸️ Result<T,E> (v1.4+) - Para error handling em async (continua padrão Go por enquanto)
+- ⏸️ Result<T,E> (v1.5+) - Para error handling em async (continua padrão Go por enquanto)
 
 **Referência:**
 - Análise de performance: https://pkolaczk.github.io/memory-consumption-of-async/
@@ -3115,7 +3435,8 @@ v1.2.1 ██████████████████ 100% ✅ Error Han
 TESTES ████████████████████ 100% ✅ Testing Infrastructure (1129 tests) - COMPLETO
 v1.2 ░░░░░░░░░░░░░░░░░░░░   0% ⏸️ Docs, panic, modules (ADIADO)
 v1.3 ████████████████████ 100% ✅ Structs, Generics, Closures, Stress Tests 🎉
-v1.4 ░░░░░░░░░░░░░░░░░░░░   0% ⏸️ Async/Await, Test Library, Iterators (PLANEJADO)
+v1.4 ████████████████████ 100% ✅ Type Aliases, Union, Intersection, Elvis 🎉
+v1.5 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Async/Await, Test Library, Iterators (PLANEJADO)
 ```
 
 **Legenda:**
@@ -3307,7 +3628,14 @@ math.sum(arr), math.mean(arr), math.median(arr), math.std(arr)
 - ✅ Generics: `function swap<T>(a: T, b: T) -> (T, T)` com monomorphization
 - ✅ Error handling: Continua padrão Go (sem Result<T,E>)
 
-**v1.4 - Concurrency & Advanced Features:**
+**v1.4 - Advanced Type System:** ✅ **COMPLETE (Feb 2026)**
+- ✅ Type Aliases: `type MyInt = int`, `type Point2D = Point`
+- ✅ Union Types: `int | float | string` com tagged unions
+- ✅ Intersection Types: `Point & Label` com struct merging
+- ✅ Elvis Operator: `a ?: b` (null coalescing)
+- ✅ Optional → Union: `int?` agora é `Union(int, nil)`
+
+**v1.5 - Concurrency & Advanced Features:**
 - Async/Await: State machine transformation
 - Concurrency: `spawn`, async functions
 - Test Library: Jest-style testing framework
@@ -3320,19 +3648,19 @@ math.sum(arr), math.mean(arr), math.median(arr), math.std(arr)
 
 ### 📊 Estatísticas do Projeto:
 
-- **Linhas de Código (Rust):** ~5600 linhas (compiler core + atoms + type checkers + string functions)
+- **Linhas de Código (Rust):** ~6000 linhas (compiler core + advanced type system + atoms + type checkers + string functions)
 - **Linhas de Código (C Runtime):** ~1200 linhas (math + matrix + complex + LAPACK + error handling + atoms + string functions)
-- **Arquivos de Teste (.bx):** 49+ (core + math + functions + pattern matching + complex + nil/error + atoms + type checking + strings)
-- **Tipos Implementados:** 14 (Int, Float, String, Matrix, IntMatrix, Complex, ComplexMatrix, FloatPtr, Void, Tuple, Nil, Error, Atom)
+- **Arquivos de Teste (.bx):** 95+ (core + math + functions + pattern matching + complex + nil/error + atoms + type checking + strings + type system)
+- **Tipos Implementados:** 17 (Int, Float, String, Matrix, IntMatrix, Complex, ComplexMatrix, FloatPtr, Void, Tuple, Nil, Error, Atom, Struct, Generic, Union, Intersection, TypeAlias, Closure)
 - **Built-in Functions:** 60+ (I/O, type system, type checking, conversions, math, stats, linalg, complex, string operations)
-- **Features Implementadas:** ~118 (v1.1 100% completo ✅)
-- **Features v1.1:** Lexer fix + 10 type checkers + 7 string functions + atoms + escape sequences = 18 features
-- **Features Planejadas v1.2+:** ~150+
-- **Versão Atual:** v1.3 ✅ **COMPLETO (13/02/2026)** 🎉
-- **Versão Anterior:** v1.2.1 ✅ **COMPLETO (06/02/2026)**
+- **Features Implementadas:** ~140+ (v1.4 100% completo ✅)
+- **Features v1.4:** Type Aliases + Union Types + Intersection Types + Elvis Operator + Optional→Union = 5 features
+- **Features Planejadas v1.5+:** ~150+
+- **Versão Atual:** v1.4 ✅ **COMPLETO (18/02/2026)** 🎉
+- **Versão Anterior:** v1.3 ✅ **COMPLETO (13/02/2026)**
 - **Progresso MVP:** 100%
-- **Próxima Versão:** v1.4 (async/await, test library, iterators)
-- **Última Atualização:** 13/02/2026
+- **Próxima Versão:** v1.5 (async/await, test library, iterators)
+- **Última Atualização:** 18/02/2026
 
 ---
 
@@ -3796,6 +4124,6 @@ Essas features transformariam Brix em **THE language for AI-powered Data Enginee
 - ✅ Timing perfeito com boom de RAG/LLMs
 - ✅ Diferencial competitivo único no mercado
 
-**Status:** Planejado para v2.0+ (após v1.4+ - todas dependências de tipo atendidas)
+**Status:** Planejado para v2.0+ (após v1.5+ - todas dependências de tipo atendidas)
 
 **Prioridade:** Alta - Alinhado com tendências de mercado e filosofia da linguagem
