@@ -514,15 +514,41 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
             // Check for Intersection type (contains " & ")
             // Check for Optional type (ends with "?")
             // Otherwise, process as normal type with casting
-            if hint.contains(" | ") {
+            if hint.contains(" | ") || hint.ends_with('?') {
                 let union_type = self.string_to_brix_type(hint);
                 if let BrixType::Union(types) = &union_type {
                     // Find which variant of the union matches the value type
                     let mut tag = None;
+
+                    // Try exact match first
                     for (i, t) in types.iter().enumerate() {
                         if t == &val_type {
                             tag = Some(i);
                             break;
+                        }
+                    }
+
+                    // If no exact match, try with casting (int -> float)
+                    if tag.is_none() {
+                        for (i, t) in types.iter().enumerate() {
+                            if *t == BrixType::Float && val_type == BrixType::Int {
+                                // Cast int to float
+                                final_val = self.builder
+                                    .build_signed_int_to_float(
+                                        init_val.into_int_value(),
+                                        self.context.f64_type(),
+                                        "cast_i2f_union",
+                                    )
+                                    .map_err(|_| CodegenError::LLVMError {
+                                        operation: "build_signed_int_to_float".to_string(),
+                                        details: "Failed to cast int to float for Union".to_string(),
+                                        span: None,
+                                    })?
+                                    .into();
+                                val_type = BrixType::Float;
+                                tag = Some(i);
+                                break;
+                            }
                         }
                     }
 
@@ -560,49 +586,8 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
                     final_val = union_val.into();
                     val_type = union_type.clone();
                 }
-            } else if let Some(base_type_str) = hint.strip_suffix('?') {
-                // Optional type: int?, string?, Matrix?, etc.
-                let inner_type = self.string_to_brix_type(base_type_str);
-
-                // If value is nil, create Optional::nil
-                if val_type == BrixType::Nil {
-                    final_val = self.create_optional_nil(&inner_type);
-                    val_type = BrixType::Optional(Box::new(inner_type));
-                } else {
-                    // Otherwise, wrap value in Optional::Some
-                    // First, ensure value type matches inner type (or is compatible)
-                    if val_type != inner_type {
-                        // Try automatic casting (int -> float for int? if needed)
-                        if inner_type == BrixType::Float && val_type == BrixType::Int {
-                            final_val = self
-                                .builder
-                                .build_signed_int_to_float(
-                                    init_val.into_int_value(),
-                                    self.context.f64_type(),
-                                    "cast_i2f_optional",
-                                )
-                                .map_err(|_| CodegenError::LLVMError {
-                                    operation: "build_signed_int_to_float".to_string(),
-                                    details: "Failed to cast int to float for Optional".to_string(),
-                                    span: None,
-                                })?
-                                .into();
-                            val_type = BrixType::Float;
-                        } else if inner_type != val_type {
-                            return Err(CodegenError::TypeError {
-                                expected: format!("{}?", base_type_str),
-                                found: format!("{:?}", val_type),
-                                context: format!("Variable declaration '{}'", name),
-                                span: None,
-                            });
-                        }
-                    }
-
-                    // Wrap in Optional::Some
-                    final_val = self.create_optional_some(final_val, &inner_type)?;
-                    val_type = BrixType::Optional(Box::new(inner_type));
-                }
             } else {
+                // Non-Union types - existing logic
                 // Non-optional types - existing logic
                 match hint.as_str() {
                     "int" => {
@@ -869,13 +854,14 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
         let (target_ptr, target_type) = self.compile_lvalue_addr(target)?;
 
         // ARC: Release old value if it's ref-counted or a closure
+        // Skip release for Union types (managed internally)
         let is_closure = if let BrixType::Tuple(ref fields) = target_type {
             fields.len() == 3 && fields[0] == BrixType::Int && fields[1] == BrixType::Int && fields[2] == BrixType::Int
         } else {
             false
         };
 
-        if is_closure || Compiler::is_ref_counted(&target_type) {
+        if !matches!(target_type, BrixType::Union(_)) && (is_closure || Compiler::is_ref_counted(&target_type)) {
             let ptr_type = self.context.ptr_type(AddressSpace::default());
             let old_value = self.builder
                 .build_load(ptr_type, target_ptr, "old_value")
@@ -896,9 +882,81 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
 
         let (val, val_type) = self.compile_expr(value)?;
 
-        // Only cast Int→Float if the target expects Float
-        let mut final_val = if target_type == BrixType::Float && val_type == BrixType::Int {
-            self.builder
+        // Check if target is Union - if so, wrap value in Union
+        let mut final_val = val;
+        let mut final_type = val_type.clone();
+
+        if let BrixType::Union(types) = &target_type {
+            // Find which variant of the union matches the value type
+            let mut tag = None;
+
+            // Try exact match first
+            for (i, t) in types.iter().enumerate() {
+                if t == &val_type {
+                    tag = Some(i);
+                    break;
+                }
+            }
+
+            // If no exact match, try with casting (int -> float)
+            if tag.is_none() {
+                for (i, t) in types.iter().enumerate() {
+                    if *t == BrixType::Float && val_type == BrixType::Int {
+                        // Cast int to float
+                        final_val = self.builder
+                            .build_signed_int_to_float(
+                                val.into_int_value(),
+                                self.context.f64_type(),
+                                "cast_i2f_union_assign",
+                            )
+                            .map_err(|_| CodegenError::LLVMError {
+                                operation: "build_signed_int_to_float".to_string(),
+                                details: "Failed to cast int to float for Union assignment".to_string(),
+                                span: None,
+                            })?
+                            .into();
+                        final_type = BrixType::Float;
+                        tag = Some(i);
+                        break;
+                    }
+                }
+            }
+
+            if tag.is_none() {
+                return Err(CodegenError::TypeError {
+                    expected: format!("{:?}", target_type),
+                    found: format!("{:?}", val_type),
+                    context: "Union assignment".to_string(),
+                    span: None,
+                });
+            }
+
+            // Create tagged union: { i64 tag, value }
+            let tag_val = self.context.i64_type().const_int(tag.unwrap() as u64, false);
+            let union_llvm_type = self.brix_type_to_llvm(&target_type);
+            let struct_type = union_llvm_type.into_struct_type();
+            let mut union_val = struct_type.get_undef();
+
+            // Insert tag
+            union_val = self.builder.build_insert_value(union_val, tag_val, 0, "insert_tag")
+                .map_err(|_| CodegenError::LLVMError {
+                    operation: "build_insert_value".to_string(),
+                    details: "Failed to insert tag in union assignment".to_string(),
+                    span: None,
+                })?.into_struct_value();
+
+            // Insert value
+            union_val = self.builder.build_insert_value(union_val, final_val, 1, "insert_value")
+                .map_err(|_| CodegenError::LLVMError {
+                    operation: "build_insert_value".to_string(),
+                    details: "Failed to insert value in union assignment".to_string(),
+                    span: None,
+                })?.into_struct_value();
+
+            final_val = union_val.into();
+        } else if target_type == BrixType::Float && val_type == BrixType::Int {
+            // Only cast Int→Float if the target expects Float
+            final_val = self.builder
                 .build_signed_int_to_float(
                     val.into_int_value(),
                     self.context.f64_type(),
@@ -909,13 +967,14 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
                     details: "Failed to cast int to float in assignment".to_string(),
                                     span: None,
                 })?
-                .into()
-        } else {
-            val
-        };
+                .into();
+        }
 
         // ARC: Retain new value if ref-counted
-        final_val = self.insert_retain(final_val, &val_type)?;
+        // Skip retain for Union types (already wrapped)
+        if !matches!(target_type, BrixType::Union(_)) {
+            final_val = self.insert_retain(final_val, &final_type)?;
+        }
 
         self.builder.build_store(target_ptr, final_val)
             .map_err(|_| CodegenError::LLVMError {
