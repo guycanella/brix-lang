@@ -798,6 +798,14 @@ fn test_intersection_types() {
     );
 }
 
+#[test]
+fn test_elvis_operator() {
+    assert_success(
+        "tests/integration/success/95_elvis_operator.bx",
+        "42\n200\n300"
+    );
+}
+
 // ==========================================
 // PARSER ERRORS - Exit Code 2
 // ==========================================

@@ -1,0 +1,17 @@
+// Elvis operator (a ?: b)
+// Returns a if a is not nil, otherwise returns b
+
+var x: int? = 42
+var y: int? = nil
+
+// Elvis with Optional types
+var result1 := x ?: 100  // x is 42, so result1 = 42
+var result2 := y ?: 200  // y is nil, so result2 = 200
+
+println(result1)
+println(result2)
+
+// Elvis with reassignment
+x := nil
+var result3 := x ?: 300  // x is now nil, so result3 = 300
+println(result3)

@@ -40,6 +40,7 @@ pub enum BinaryOp {
     GtEq,
     LogicalAnd,
     LogicalOr,
+    Elvis, // Elvis operator: a ?: b
 }
 
 #[derive(Debug, Clone, PartialEq)]
