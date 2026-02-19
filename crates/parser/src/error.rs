@@ -123,12 +123,23 @@ pub fn check_and_report_invalid_sequences(
     source: &str,
     tokens: &[(Token, Range<usize>)],
 ) -> bool {
-    for window in tokens.windows(2) {
+    for window in tokens.windows(3) {
         let (prev_tok, prev_span) = &window[0];
         let (curr_tok, curr_span) = &window[1];
+        let (next_tok, next_span) = &window[2];
 
-        // Check for: literal/ident followed by ++ (which would be parsed as two separate things)
-        if matches_value_token(prev_tok) && matches!(curr_tok, Token::PlusPlus) {
+        // Helper: true if there is a newline in source between two byte offsets
+        let has_newline_between = |a: usize, b: usize| -> bool {
+            source.get(a..b).map_or(false, |s| s.contains('\n'))
+        };
+
+        // Check for: value ++ value on the same line (binary usage).
+        // x++ at end of line is valid postfix — detected by newline between ++ and next token.
+        if matches_value_token(prev_tok)
+            && matches!(curr_tok, Token::PlusPlus)
+            && matches_value_token(next_tok)
+            && !has_newline_between(curr_span.end, next_span.start)
+        {
             let combined_span = prev_span.start..curr_span.end;
 
             Report::build(ReportKind::Error, filename, combined_span.start)
@@ -147,8 +158,13 @@ pub fn check_and_report_invalid_sequences(
             return true;
         }
 
-        // Check for: literal/ident followed by -- (similar issue)
-        if matches_value_token(prev_tok) && matches!(curr_tok, Token::MinusMinus) {
+        // Check for: value -- value on the same line (binary usage).
+        // x-- at end of line is valid postfix.
+        if matches_value_token(prev_tok)
+            && matches!(curr_tok, Token::MinusMinus)
+            && matches_value_token(next_tok)
+            && !has_newline_between(curr_span.end, next_span.start)
+        {
             let combined_span = prev_span.start..curr_span.end;
 
             Report::build(ReportKind::Error, filename, combined_span.start)

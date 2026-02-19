@@ -1565,6 +1565,15 @@ double brix_std(Matrix *m) {
   return sqrt(brix_variance(m));
 }
 
+// math.stddev alias for brix_std
+double brix_stddev(Matrix *m) { return brix_std(m); }
+
+// Math utility wrappers (brix_ prefix avoids LLVM treating fabs/fmin/fmax as intrinsics)
+double brix_abs(double x) { return fabs(x); }
+double brix_min(double a, double b) { return fmin(a, b); }
+double brix_max(double a, double b) { return fmax(a, b); }
+double brix_mod(double a, double b) { return fmod(a, b); }
+
 // ==========================================
 // SECTION 4: LINEAR ALGEBRA (v0.7)
 // ==========================================

@@ -70,6 +70,9 @@ pub struct Compiler<'a, 'ctx> {
 
     // ARC scope tracking (v1.4)
     pub function_scope_vars: Vec<(String, BrixType)>,  // Variables in current function scope (for ARC release)
+
+    // Imported modules tracking: (module_name, prefix)
+    pub imported_modules: Vec<(String, String)>,
 }
 
 impl<'a, 'ctx> Compiler<'a, 'ctx> {
@@ -99,6 +102,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             type_aliases: HashMap::new(),
             closure_counter: 0,
             function_scope_vars: Vec::new(),
+            imported_modules: Vec::new(),
         }
     }
 
@@ -145,6 +149,12 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         if let Some(base_type_str) = resolved_type_str.strip_suffix('?') {
             let inner_type = self.string_to_brix_type(base_type_str);
             return BrixType::Union(vec![inner_type, BrixType::Nil]);
+        }
+
+        // Step 4b: Check for closure/function type: "(int) -> int", "(int, float) -> string", "() -> int"
+        // Closures are represented internally as Tuple(Int, Int, Int) = { ref_count, fn_ptr, env_ptr }
+        if resolved_type_str.starts_with('(') && resolved_type_str.contains(" -> ") {
+            return BrixType::Tuple(vec![BrixType::Int, BrixType::Int, BrixType::Int]);
         }
 
         // Step 5: Base types
@@ -799,7 +809,19 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             self.variables.insert(param_name.clone(), (param_ptr, param_type.clone()));
         }
 
-        // 5. Compile closure body
+        // 5. Re-register module constants inside closure scope
+        // Math constants (pi, e, tau, etc.) are stack-allocated in the outer function
+        // and don't exist in the closure's LLVM function. Re-create them here.
+        {
+            use crate::builtins::math::MathFunctions;
+            for (module_name, prefix) in self.imported_modules.clone() {
+                if module_name == "math" {
+                    self.register_math_constants(&prefix);
+                }
+            }
+        }
+
+        // 6. Compile closure body
         self.compile_stmt(&closure.body, closure_fn)?;
 
         // If no return was emitted and return type is void, add ret void
@@ -1709,6 +1731,53 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 }
             }
 
+            ExprKind::FieldAccess { target, field } => {
+                if let ExprKind::Identifier(var_name) = &target.kind {
+                    if let Some((target_ptr, target_type)) = self.variables.get(var_name) {
+                        if let BrixType::Struct(struct_name) = target_type.clone() {
+                            let target_ptr = *target_ptr;
+                            let struct_def = self.struct_defs.get(&struct_name).ok_or_else(|| {
+                                CodegenError::UndefinedSymbol {
+                                    name: struct_name.clone(),
+                                    context: "struct field assignment".to_string(),
+                                    span: Some(expr.span.clone()),
+                                }
+                            })?;
+
+                            let (field_index, field_type) = struct_def
+                                .iter()
+                                .enumerate()
+                                .find(|(_, (name, _, _))| name == field)
+                                .map(|(idx, (_, ty, _))| (idx as u32, ty.clone()))
+                                .ok_or_else(|| CodegenError::General(format!(
+                                    "Struct '{}' has no field '{}'", struct_name, field
+                                )))?;
+
+                            let llvm_struct_type = *self.struct_types.get(&struct_name).ok_or_else(|| {
+                                CodegenError::General(format!("Struct type '{}' not found", struct_name))
+                            })?;
+
+                            let field_ptr = self
+                                .builder
+                                .build_struct_gep(llvm_struct_type, target_ptr, field_index, "field_ptr_lval")
+                                .map_err(|_| CodegenError::LLVMError {
+                                    operation: "build_struct_gep".to_string(),
+                                    details: format!("Failed to get field '{}' pointer for assignment", field),
+                                    span: Some(expr.span.clone()),
+                                })?;
+
+                            return Ok((field_ptr, field_type));
+                        }
+                    }
+                }
+
+                Err(CodegenError::InvalidOperation {
+                    operation: "Assignment".to_string(),
+                    reason: "Struct field assignment requires a local struct variable".to_string(),
+                    span: Some(expr.span.clone()),
+                })
+            }
+
             _ => {
                 Err(CodegenError::InvalidOperation {
                     operation: "Assignment".to_string(),
@@ -2533,6 +2602,12 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             let im_val =
                                 complex_type.const_named_struct(&[zero.into(), one.into()]);
                             return Ok((im_val.into(), BrixType::Complex));
+                        }
+
+                        // Special case: struct name used as expression → zero-field StructInit
+                        // Handles `Config { }` parsed as bare identifier when all fields have defaults
+                        if self.struct_defs.contains_key(name.as_str()) {
+                            return self.compile_struct_init(name, &[], &[], expr);
                         }
 
                         Err(CodegenError::UndefinedSymbol {
@@ -3724,7 +3799,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                 })?;
                             return Ok((result, BrixType::String));
                         }
-                        BinaryOp::Eq => {
+                        BinaryOp::Eq | BinaryOp::NotEq => {
                             let ptr_type = self.context.ptr_type(AddressSpace::default());
                             let i64_type = self.context.i64_type();
                             let fn_type =
@@ -3743,18 +3818,30 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                     details: "Failed to call str_eq".to_string(),
                                                                     span: Some(expr.span.clone()),
                                 })?;
-                            let result = res.try_as_basic_value().left()
+                            let eq_result = res.try_as_basic_value().left()
                                 .ok_or_else(|| CodegenError::MissingValue {
                                     what: "str_eq result".to_string(),
                                     context: "String equality".to_string(),
                                                                     span: Some(expr.span.clone()),
                                 })?;
-                            return Ok((result, BrixType::Int));
+
+                            if matches!(op, BinaryOp::NotEq) {
+                                let one = i64_type.const_int(1, false);
+                                let negated = self.builder
+                                    .build_xor(eq_result.into_int_value(), one, "str_neq")
+                                    .map_err(|_| CodegenError::LLVMError {
+                                        operation: "build_xor".to_string(),
+                                        details: "Failed to negate str_eq for !=".to_string(),
+                                        span: Some(expr.span.clone()),
+                                    })?;
+                                return Ok((negated.into(), BrixType::Int));
+                            }
+                            return Ok((eq_result, BrixType::Int));
                         }
                         _ => {
                             return Err(CodegenError::InvalidOperation {
                                 operation: format!("{:?}", op),
-                                reason: "Only + and == are supported for strings".to_string(),
+                                reason: "Only +, == and != are supported for strings".to_string(),
                                                             span: Some(expr.span.clone()),
                             });
                         }
@@ -3787,6 +3874,68 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             span: Some(expr.span.clone()),
                         })?;
                     return Ok((extended.into(), BrixType::Int));
+                }
+
+                // --- Intersection construction (Struct & Struct) ---
+                if matches!(op, BinaryOp::BitAnd) {
+                    if let (BrixType::Struct(lhs_name), BrixType::Struct(rhs_name)) = (&lhs_type, &rhs_type) {
+                        let lhs_name = lhs_name.clone();
+                        let rhs_name = rhs_name.clone();
+                        let intersection_type = BrixType::Intersection(vec![
+                            BrixType::Struct(lhs_name.clone()),
+                            BrixType::Struct(rhs_name.clone()),
+                        ]);
+                        let llvm_type = self.brix_type_to_llvm(&intersection_type).into_struct_type();
+
+                        // Extract all fields from lhs struct then rhs struct
+                        let lhs_struct = lhs_val.into_struct_value();
+                        let rhs_struct = rhs_val.into_struct_value();
+
+                        let lhs_field_count = self.struct_defs.get(&lhs_name)
+                            .map(|d| d.len()).unwrap_or(0);
+                        let rhs_field_count = self.struct_defs.get(&rhs_name)
+                            .map(|d| d.len()).unwrap_or(0);
+
+                        let mut merged = llvm_type.get_undef();
+
+                        for i in 0..lhs_field_count {
+                            let field_val = self.builder
+                                .build_extract_value(lhs_struct, i as u32, "lhs_field")
+                                .map_err(|_| CodegenError::LLVMError {
+                                    operation: "build_extract_value".to_string(),
+                                    details: format!("Failed to extract field {} from {}", i, lhs_name),
+                                    span: Some(expr.span.clone()),
+                                })?;
+                            merged = self.builder
+                                .build_insert_value(merged, field_val, i as u32, "merge_field")
+                                .map_err(|_| CodegenError::LLVMError {
+                                    operation: "build_insert_value".to_string(),
+                                    details: format!("Failed to insert field {} into intersection", i),
+                                    span: Some(expr.span.clone()),
+                                })?
+                                .into_struct_value();
+                        }
+
+                        for i in 0..rhs_field_count {
+                            let field_val = self.builder
+                                .build_extract_value(rhs_struct, i as u32, "rhs_field")
+                                .map_err(|_| CodegenError::LLVMError {
+                                    operation: "build_extract_value".to_string(),
+                                    details: format!("Failed to extract field {} from {}", i, rhs_name),
+                                    span: Some(expr.span.clone()),
+                                })?;
+                            merged = self.builder
+                                .build_insert_value(merged, field_val, (lhs_field_count + i) as u32, "merge_field")
+                                .map_err(|_| CodegenError::LLVMError {
+                                    operation: "build_insert_value".to_string(),
+                                    details: format!("Failed to insert rhs field {} into intersection", i),
+                                    span: Some(expr.span.clone()),
+                                })?
+                                .into_struct_value();
+                        }
+
+                        return Ok((merged.into(), intersection_type));
+                    }
                 }
 
                 // --- Numbers (Int and Float) ---
@@ -3884,7 +4033,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         // Check if this is a math module function
                         let fn_name = field.as_str();
 
-                        // Check for brix_ prefixed functions (stats/linalg)
+                        // Check for brix_ prefixed functions (stats/linalg/utility wrappers)
                         let brix_fn_name = format!("brix_{}", fn_name);
                         let lookup_name = if self.module.get_function(&brix_fn_name).is_some() {
                             &brix_fn_name
@@ -4467,6 +4616,37 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                     })?
                                     .into()
                             }
+                            BrixType::Union(ref types) => {
+                                // For Union types, check if the tag matches the Nil variant
+                                if let Some(nil_idx) = types.iter().position(|t| t == &BrixType::Nil) {
+                                    use inkwell::IntPredicate;
+                                    let tag = self.builder
+                                        .build_extract_value(val.into_struct_value(), 0, "union_tag_nil")
+                                        .map_err(|_| CodegenError::LLVMError {
+                                            operation: "build_extract_value".to_string(),
+                                            details: "Failed to extract union tag for is_nil".to_string(),
+                                            span: Some(expr.span.clone()),
+                                        })?;
+                                    let nil_tag = self.context.i64_type().const_int(nil_idx as u64, false);
+                                    let is_match = self.builder
+                                        .build_int_compare(IntPredicate::EQ, tag.into_int_value(), nil_tag, "is_nil_tag")
+                                        .map_err(|_| CodegenError::LLVMError {
+                                            operation: "build_int_compare".to_string(),
+                                            details: "Failed to compare union tag for is_nil".to_string(),
+                                            span: Some(expr.span.clone()),
+                                        })?;
+                                    self.builder
+                                        .build_int_z_extend(is_match, self.context.i64_type(), "is_nil_zext")
+                                        .map_err(|_| CodegenError::LLVMError {
+                                            operation: "build_int_z_extend".to_string(),
+                                            details: "Failed to extend is_nil result".to_string(),
+                                            span: Some(expr.span.clone()),
+                                        })?
+                                        .into()
+                                } else {
+                                    self.context.i64_type().const_int(0, false).into()
+                                }
+                            }
                             _ => {
                                 // Non-pointer types are never nil
                                 self.context.i64_type().const_int(0, false).into()
@@ -4582,10 +4762,38 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                                             span: Some(expr.span.clone()),
                             });
                         }
-                        let (_, val_type) = self.compile_expr(&args[0])?;
+                        let (val, val_type) = self.compile_expr(&args[0])?;
 
                         let result = if val_type == BrixType::Int {
                             self.context.i64_type().const_int(1, false)
+                        } else if let BrixType::Union(ref types) = val_type {
+                            if let Some(int_idx) = types.iter().position(|t| t == &BrixType::Int) {
+                                use inkwell::IntPredicate;
+                                let tag = self.builder
+                                    .build_extract_value(val.into_struct_value(), 0, "union_tag")
+                                    .map_err(|_| CodegenError::LLVMError {
+                                        operation: "build_extract_value".to_string(),
+                                        details: "Failed to extract union tag for is_integer".to_string(),
+                                        span: Some(expr.span.clone()),
+                                    })?;
+                                let int_tag = self.context.i64_type().const_int(int_idx as u64, false);
+                                let is_match = self.builder
+                                    .build_int_compare(IntPredicate::EQ, tag.into_int_value(), int_tag, "is_int_tag")
+                                    .map_err(|_| CodegenError::LLVMError {
+                                        operation: "build_int_compare".to_string(),
+                                        details: "Failed to compare union tag for is_integer".to_string(),
+                                        span: Some(expr.span.clone()),
+                                    })?;
+                                self.builder
+                                    .build_int_z_extend(is_match, self.context.i64_type(), "is_int_zext")
+                                    .map_err(|_| CodegenError::LLVMError {
+                                        operation: "build_int_z_extend".to_string(),
+                                        details: "Failed to extend is_integer result".to_string(),
+                                        span: Some(expr.span.clone()),
+                                    })?
+                            } else {
+                                self.context.i64_type().const_int(0, false)
+                            }
                         } else {
                             self.context.i64_type().const_int(0, false)
                         };
@@ -4602,10 +4810,38 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                                             span: Some(expr.span.clone()),
                             });
                         }
-                        let (_, val_type) = self.compile_expr(&args[0])?;
+                        let (val, val_type) = self.compile_expr(&args[0])?;
 
                         let result = if val_type == BrixType::Float {
                             self.context.i64_type().const_int(1, false)
+                        } else if let BrixType::Union(ref types) = val_type {
+                            if let Some(float_idx) = types.iter().position(|t| t == &BrixType::Float) {
+                                use inkwell::IntPredicate;
+                                let tag = self.builder
+                                    .build_extract_value(val.into_struct_value(), 0, "union_tag_f")
+                                    .map_err(|_| CodegenError::LLVMError {
+                                        operation: "build_extract_value".to_string(),
+                                        details: "Failed to extract union tag for is_float".to_string(),
+                                        span: Some(expr.span.clone()),
+                                    })?;
+                                let float_tag = self.context.i64_type().const_int(float_idx as u64, false);
+                                let is_match = self.builder
+                                    .build_int_compare(IntPredicate::EQ, tag.into_int_value(), float_tag, "is_float_tag")
+                                    .map_err(|_| CodegenError::LLVMError {
+                                        operation: "build_int_compare".to_string(),
+                                        details: "Failed to compare union tag for is_float".to_string(),
+                                        span: Some(expr.span.clone()),
+                                    })?;
+                                self.builder
+                                    .build_int_z_extend(is_match, self.context.i64_type(), "is_float_zext")
+                                    .map_err(|_| CodegenError::LLVMError {
+                                        operation: "build_int_z_extend".to_string(),
+                                        details: "Failed to extend is_float result".to_string(),
+                                        span: Some(expr.span.clone()),
+                                    })?
+                            } else {
+                                self.context.i64_type().const_int(0, false)
+                            }
                         } else {
                             self.context.i64_type().const_int(0, false)
                         };
@@ -5369,6 +5605,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         let val = self.compile_izeros(args)?;
                         return Ok((val, BrixType::IntMatrix));
                     }
+                    if fn_name == "eye" {
+                        let val = self.compile_eye(args)?;
+                        return Ok((val, BrixType::Matrix));
+                    }
                     if fn_name == "zip" {
                         let (val, tuple_type) = self.compile_zip(args).ok_or_else(|| {
                             CodegenError::General("zip() call failed".to_string())
@@ -5757,6 +5997,49 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                                             span: Some(expr.span.clone()),
                             })?;
                         return Ok((loaded_val, brix_type.clone()));
+                    }
+
+                    // Check if it's an intersection variable - field access across merged structs
+                    if let Some((target_ptr, BrixType::Intersection(types))) = self.variables.get(var_name) {
+                        let target_ptr = *target_ptr;
+                        let types = types.clone();
+                        // Find the field across all component structs, tracking global index
+                        let mut global_index: u32 = 0;
+                        let mut found = None;
+                        for t in &types {
+                            if let BrixType::Struct(sname) = t {
+                                if let Some(sdef) = self.struct_defs.get(sname) {
+                                    for (fname, ftype, _) in sdef.clone().iter() {
+                                        if fname == field {
+                                            found = Some((global_index, ftype.clone()));
+                                            break;
+                                        }
+                                        global_index += 1;
+                                    }
+                                    if found.is_some() { break; }
+                                }
+                            }
+                        }
+                        if let Some((field_index, field_type)) = found {
+                            let intersection_type = BrixType::Intersection(types);
+                            let llvm_type = self.brix_type_to_llvm(&intersection_type).into_struct_type();
+                            let field_ptr = self.builder
+                                .build_struct_gep(llvm_type, target_ptr, field_index, "isect_field_ptr")
+                                .map_err(|_| CodegenError::LLVMError {
+                                    operation: "build_struct_gep".to_string(),
+                                    details: format!("Failed to get intersection field '{}'", field),
+                                    span: Some(expr.span.clone()),
+                                })?;
+                            let field_llvm_type = self.brix_type_to_llvm(&field_type);
+                            let field_val = self.builder
+                                .build_load(field_llvm_type, field_ptr, "load_isect_field")
+                                .map_err(|_| CodegenError::LLVMError {
+                                    operation: "build_load".to_string(),
+                                    details: format!("Failed to load intersection field '{}'", field),
+                                    span: Some(expr.span.clone()),
+                                })?;
+                            return Ok((field_val, field_type));
+                        }
                     }
 
                     // Check if it's a struct variable - if so, get pointer from symbol table
@@ -8362,6 +8645,42 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 details: "intmatrix_new did not return a value".to_string(),
                             span: None,
             })
+    }
+
+    pub(crate) fn compile_eye(&mut self, args: &[Expr]) -> CodegenResult<BasicValueEnum<'ctx>> {
+        // eye(n) → n×n identity matrix (calls brix_eye in runtime.c)
+        if args.len() != 1 {
+            return Err(CodegenError::InvalidOperation {
+                operation: "eye()".to_string(),
+                reason: format!("Expected 1 argument, got {}", args.len()),
+                span: None,
+            });
+        }
+
+        let i64_type = self.context.i64_type();
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let fn_type = ptr_type.fn_type(&[i64_type.into()], false);
+
+        let brix_eye_fn = self.module.get_function("brix_eye").unwrap_or_else(|| {
+            self.module
+                .add_function("brix_eye", fn_type, Some(Linkage::External))
+        });
+
+        let (n_val, _) = self.compile_expr(&args[0])?;
+        let call = self
+            .builder
+            .build_call(brix_eye_fn, &[n_val.into()], "eye_matrix")
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_call".to_string(),
+                details: "Failed to call brix_eye".to_string(),
+                span: None,
+            })?;
+
+        call.try_as_basic_value().left().ok_or_else(|| CodegenError::LLVMError {
+            operation: "try_as_basic_value".to_string(),
+            details: "brix_eye did not return a value".to_string(),
+            span: None,
+        })
     }
 
     fn compile_zip(&mut self, args: &[Expr]) -> Option<(BasicValueEnum<'ctx>, BrixType)> {

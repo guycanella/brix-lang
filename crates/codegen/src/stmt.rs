@@ -421,19 +421,20 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
         use crate::builtins::math::MathFunctions;
         use crate::builtins::test::TestFunctions;
 
+        let default_prefix = module.to_string();
+        let prefix = alias.as_ref().unwrap_or(&default_prefix).clone();
+
         // Register math functions when importing math module
         if module == "math" {
-            let default_prefix = module.to_string();
-            let prefix = alias.as_ref().unwrap_or(&default_prefix);
-            self.register_math_functions(prefix);
+            self.register_math_functions(&prefix);
         }
 
         // Register test library functions when importing test module
         if module == "test" {
-            let default_prefix = module.to_string();
-            let prefix = alias.as_ref().unwrap_or(&default_prefix);
-            self.register_test_functions(prefix);
+            self.register_test_functions(&prefix);
         }
+
+        self.imported_modules.push((module.to_string(), prefix));
 
         Ok(())
     }
@@ -663,8 +664,8 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
                     _ => {
                         // Allow matrix, intmatrix, complex, and struct types
                         if hint != "matrix" && hint != "intmatrix" && hint != "complex" {
-                            // Check if it's a struct type
-                            if !matches!(val_type, BrixType::Struct(_)) {
+                            // Check if it's a struct, intersection, or type alias
+                            if !matches!(val_type, BrixType::Struct(_) | BrixType::Intersection(_)) {
                                 return Err(CodegenError::TypeError {
                                     expected: "Known type".to_string(),
                                     found: hint.clone(),

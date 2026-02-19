@@ -38,7 +38,7 @@ fn process_escape_sequences(s: &str) -> String {
 /// Parse type expressions: int, int?, int | float, Point & Label
 /// Supports: base types, optionals (?), unions (|), intersections (&), generics (<>)
 fn type_annotation_parser() -> impl Parser<Token, String, Error = Simple<Token>> + Clone {
-    recursive(|_type_expr| {
+    recursive(|type_expr| {
         // Base type: identifier with optional generic params
         let base_type = select! { Token::Identifier(t) => t }
             .then(
@@ -65,11 +65,27 @@ fn type_annotation_parser() -> impl Parser<Token, String, Error = Simple<Token>>
                 result
             });
 
+        // Closure/function type: (int) -> int, (int, float) -> string, () -> int
+        let fn_type = just(Token::LParen)
+            .ignore_then(
+                type_expr.clone()
+                    .separated_by(just(Token::Comma))
+            )
+            .then_ignore(just(Token::RParen))
+            .then_ignore(just(Token::Arrow))
+            .then(type_expr.clone())
+            .map(|(params, ret): (Vec<String>, String)| {
+                format!("({}) -> {}", params.join(", "), ret)
+            });
+
+        // Any single type: closure type or base identifier type
+        let single_type = fn_type.or(base_type);
+
         // Intersection types: Point & Label & Named
-        let intersection = base_type.clone()
+        let intersection = single_type.clone()
             .then(
                 just(Token::Ampersand)
-                    .ignore_then(base_type.clone())
+                    .ignore_then(single_type.clone())
                     .repeated()
             )
             .map(|(first, rest)| {
@@ -291,7 +307,8 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
                     .or(just(Token::PlusEq).to(Some(BinaryOp::Add)))
                     .or(just(Token::MinusEq).to(Some(BinaryOp::Sub)))
                     .or(just(Token::StarEq).to(Some(BinaryOp::Mul)))
-                    .or(just(Token::SlashEq).to(Some(BinaryOp::Div))),
+                    .or(just(Token::SlashEq).to(Some(BinaryOp::Div)))
+                    .or(just(Token::PercentEq).to(Some(BinaryOp::Mod))),
             )
             .then(expr_p.clone())
             .map_with_span(|((target, maybe_op), value), span| match maybe_op {
@@ -316,15 +333,23 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
             .repeated()
             .delimited_by(just(Token::LBrace), just(Token::RBrace))
             .map_with_span(|stmts, span| Stmt::new(StmtKind::Block(stmts), span));
-        let if_stmt = just(Token::If)
-            .ignore_then(expr_p.clone())
-            .then(block.clone())
-            .then(just(Token::Else).ignore_then(block.clone()).or_not())
-            .map_with_span(|((c, t), e), span| Stmt::new(StmtKind::If {
-                condition: c,
-                then_block: Box::new(t),
-                else_block: e.map(Box::new),
-            }, span));
+        let if_stmt = recursive(|if_stmt| {
+            just(Token::If)
+                .ignore_then(expr_p.clone())
+                .then(block.clone())
+                .then(
+                    just(Token::Else)
+                        .ignore_then(
+                            if_stmt.or(block.clone())
+                        )
+                        .or_not()
+                )
+                .map_with_span(|((c, t), e), span| Stmt::new(StmtKind::If {
+                    condition: c,
+                    then_block: Box::new(t),
+                    else_block: e.map(Box::new),
+                }, span))
+        });
         let while_stmt = just(Token::While)
             .ignore_then(expr_p.clone())
             .then(block.clone())
