@@ -21,15 +21,24 @@ cargo build          # Debug
 cargo build --release
 ```
 
-**Run tests:**
+**Run Rust compiler tests (unit + integration):**
 ```bash
-cargo test --all              # Run all unit tests (1089 tests total, 100% passing)
-cargo test <pattern>          # Run tests matching pattern
-cargo test -- --nocapture     # Show println! output
-cargo test -p lexer           # Run only lexer tests
-cargo test -p parser          # Run only parser tests
-cargo test -p codegen         # Run only codegen tests
+cargo test --all                          # All unit tests (1089 tests, 100% passing)
+cargo test <pattern>                      # Tests matching pattern
+cargo test -- --nocapture                 # Show println! output
+cargo test -p lexer                       # Only lexer tests
+cargo test -p parser                      # Only parser tests
+cargo test -p codegen                     # Only codegen tests
+cargo test --test integration_test -- --test-threads=1   # Integration tests (sequential)
 ```
+
+**Run Brix language tests (Test Library — *.test.bx / *.spec.bx):**
+```bash
+cargo run -- test                         # Discover and run all *.test.bx and *.spec.bx
+cargo run -- test math                    # Only files matching "math" in the path
+cargo run -- test strings                 # Only files matching "strings"
+```
+See `BRIX_TESTS.md` for the full test plan and list of test files.
 
 **Clean build (fixes most linking errors):**
 ```bash
@@ -212,6 +221,17 @@ brix/
 - Format specifiers: `:x` (hex), `:o` (octal), `:.2f` (precision), `:e` (scientific)
 - Concatenation calls runtime `str_concat()`
 
+**Implemented string built-in functions (v1.1):**
+- `uppercase(s)` — convert to uppercase
+- `lowercase(s)` — convert to lowercase
+- `capitalize(s)` — first letter uppercase
+- `length(s)` — UTF-8 character count
+- `byte_size(s)` — size in bytes
+- `replace(s, old, new)` — replace first occurrence
+- `replace_all(s, old, new)` — replace all occurrences
+
+**Not yet implemented (planned):** `trim`, `split`, `join`, `starts_with`, `ends_with`, `contains`, `substring`, `reverse`
+
 ### Complex Numbers
 - Imaginary unit: `im` constant (not `i`) to avoid loop variable conflicts
 - Parser recognizes `(expr)im` and converts to `expr * im`
@@ -315,6 +335,47 @@ brix/
   - IntMatrix-Int, IntMatrix-IntMatrix (similar operations)
 - **Codegen detection**: Checks operand types and selects appropriate runtime function
 - **NOT matrix multiplication**: `*` is element-wise, use `matmul()` for true matrix product
+
+**Implemented matrix constructors:**
+- `zeros(n)` / `zeros(rows, cols)` — Float matrix of zeros
+- `izeros(n)` / `izeros(rows, cols)` — Int matrix of zeros
+- `eye(n)` — n×n identity matrix (Float)
+
+**Not yet implemented (planned):** `ones()`, `linspace()`, `arange()`, `rand()`
+
+## Built-in Functions Reference
+
+### Math Library (`import math`)
+
+**Trigonometric:** `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`
+**Hyperbolic:** `sinh`, `cosh`, `tanh`
+**Exponential/Log:** `exp`, `log`, `log10`, `log2`
+**Roots:** `sqrt`, `cbrt`
+**Rounding:** `floor`, `ceil`, `round`
+**Utilities:** `abs`, `fmod`, `hypot`, `min`, `max`
+**Statistics:** `sum`, `mean`, `median`, `std`, `var`
+**Linear Algebra:** `det`, `inv`, `tr`, `eigvals`, `eigvecs`
+**Constants:** `pi`, `e`, `tau`, `phi`, `sqrt2`, `ln2`
+
+### Type Conversion
+- `int(x)` — convert to Int (truncates floats, parses strings)
+- `float(x)` — convert to Float (promotes ints, parses strings)
+- `string(x)` — convert any type to String
+- `bool(x)` — convert to Bool (0/0.0/empty string = false)
+
+### Type Checking
+- `typeof(x)` — returns type name as string
+- `is_nil(x)`, `is_atom(x)`, `is_boolean(x)`, `is_number(x)`
+- `is_integer(x)`, `is_float(x)`, `is_string(x)`, `is_list(x)`
+- `is_tuple(x)`, `is_function(x)` — always 0 (functions not first-class yet)
+
+### I/O
+- `println(...)` — print with newline
+- `print(...)` — print without newline
+- `input("int"|"float"|"string")` — typed user input
+
+### Utility
+- `zip(a, b)` — combine two arrays into a Matrix of pairs
 
 ## Error Handling Architecture (v1.2.1)
 

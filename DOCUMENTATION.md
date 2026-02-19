@@ -253,7 +253,7 @@ var nums := [1, 2, 3, 4, 5]    // IntMatrix (todos ints)
 var vals := [1, 2.5, 3.7]      // Matrix (mixed → promoção float)
 ```
 
-##### b) Funções zeros() e izeros()
+##### b) Funções zeros(), izeros() e eye()
 
 Para clareza semântica entre Engenharia (Floats) e Matemática Discreta (Ints):
 
@@ -265,7 +265,12 @@ var m2 := zeros(3, 4)     // Matriz 3x4 de floats
 // Matrizes Int (i64) - para dados discretos/índices
 var i1 := izeros(5)       // Array 1D de 5 ints
 var i2 := izeros(3, 4)    // Matriz 3x4 de ints
+
+// Matriz identidade n×n (Float) - implementado
+var id := eye(3)           // Matriz identidade 3×3
 ```
+
+**Construtores não implementados ainda (planejados):** `ones()`, `linspace()`, `arange()`, `rand()`
 
 ##### c) Inicialização Estática (v0.6 - Implementado)
 
