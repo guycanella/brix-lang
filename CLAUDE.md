@@ -930,7 +930,8 @@ cargo test --test integration_test -- --test-threads=1 --nocapture
   - **All 1089 unit tests + 95 integration tests passing** ✅
 
 **Next Steps:**
-- v1.5: Async/Await, Test Library, Iterators
+- v1.5: Async/Await, Iterators
+- v1.6: String extensions (trim, split, join, etc.), Matrix constructors (ones, linspace, arange, rand), break/continue, nested closures, closures as function parameters
 - Phase 4: Additional documentation
 - Phase 5: More stress tests
 - Phase 6: Operator refactoring (cleanup lib.rs)
@@ -1195,13 +1196,27 @@ if err != nil {
   - Runtime minimalista em C (~300 lines) com event loop
   - Syntax: `async function`, `.await`, `spawn { }`
   - See DOCUMENTATION.md section "🚀 v1.5+ - Concorrência e Paralelismo" for full design
-- v1.5+: **Test Library** - Jest-style testing framework (`import test`) implemented in runtime.c
-  - Matchers: `test.expect(x).to_equal(y)`, `to_be_greater_than()`, etc.
-  - Structure: `test.describe()`, `test.it()`, `test.run()`
-  - Smart float precision based on expected value decimals
-  - Beautiful Jest-like output with pass/fail summary
-  - See DOCUMENTATION.md section "🧪 v1.5+ - Test Library" for full API
+- ✅ **Test Library** - Jest-style testing framework (COMPLETE - Feb 2026)
+  - `import test` → `test.describe()`, `test.it()`, `test.expect()`
+  - **28 matcher functions** across 14 categories implemented in runtime.c + codegen
+  - **Equality:** `toBe`, `not.toBe` (int, float, string)
+  - **Array equality:** `toEqual` (IntMatrix, Matrix)
+  - **Float precision:** `toBeCloseTo` (smart precision based on decimal places)
+  - **Truthiness:** `toBeTruthy`, `toBeFalsy`
+  - **Numeric:** `toBeGreaterThan`, `toBeLessThan`, `toBeGreaterThanOrEqual`, `toBeLessThanOrEqual` (int + float)
+  - **Containment:** `toContain` (string, int array, float array)
+  - **Collection size:** `toHaveLength` (string, int array, float array)
+  - **Nil:** `toBeNil`, `not.toBeNil`
+  - Beautiful Jest-like output with ✓/✗ per test, timing, and summary
+  - All 20 `.test.bx` files passing ✅
+  - See DOCUMENTATION.md section "🧪 Test Library" for full API
 - v1.5+: Pipe operator, iterators (map, filter, reduce), LSP, REPL
+
+**v1.6 - Extensions (Planned):**
+- **String functions:** `trim()`, `trim_start()`, `trim_end()`, `split()`, `join()`, `starts_with()`, `ends_with()`, `contains()`, `substring()`, `reverse()`
+- **Matrix constructors:** `ones()`, `linspace()`, `arange()`, `rand()`
+- **Control flow:** `break` and `continue` in loops (requires StmtKind::Break/Continue in AST + codegen jump to break_block/continue_block)
+- **Closures:** Fix nested closures ARC (double-free in nested scopes), closures as function parameters
 
 ## Version Summary
 
@@ -1241,6 +1256,13 @@ if err != nil {
 - ✅ Codegen refactoring - modular architecture (7,338 → 6,499 lines)
 - ✅ error.rs, types.rs, helpers.rs, stmt.rs, expr.rs, builtins/ modules
 - ✅ Comprehensive unit tests (1001/1001 passing - 100%)
+
+**v1.5 - Test Library (COMPLETE - Feb 2026):**
+- ✅ **Test Library** - Jest-style testing framework (`import test`)
+  - 28 matcher functions: `toBe`, `toEqual`, `toBeCloseTo`, `toBeTruthy`, `toBeFalsy`, `toBeGreaterThan`, `toBeLessThan`, `toBeGreaterThanOrEqual`, `toBeLessThanOrEqual`, `toContain`, `toHaveLength`, `toBeNil` (+ negations)
+  - `is_integer(x)` and `is_float(x)` extended to support Union types (runtime tag check)
+  - `is_nil(x)` extended to support Optional/Union types (runtime tag check)
+  - All 20 `.test.bx` files passing ✅
 
 **v1.4 (COMPLETE - Feb 2026):**
 - ✅ **Type Aliases (COMPLETE)** - `type MyInt = int`, zero overhead, full transparency
