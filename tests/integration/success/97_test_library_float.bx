@@ -1,0 +1,18 @@
+import test
+
+test.describe("Float matchers", () -> {
+    test.it("toBeCloseTo with matching decimals", () -> {
+        var x := 3.14
+        test.expect(x).toBeCloseTo(3.14)
+    })
+
+    test.it("toBeGreaterThan float", () -> {
+        var x := 2.5
+        test.expect(x).toBeGreaterThan(2.0)
+    })
+
+    test.it("toBeLessThan float", () -> {
+        var x := 1.5
+        test.expect(x).toBeLessThan(2.0)
+    })
+})

@@ -1,0 +1,28 @@
+import test
+
+test.describe("Integer matchers", () -> {
+    test.it("toBe with int", () -> {
+        var x := 2 + 2
+        test.expect(x).toBe(4)
+    })
+
+    test.it("toBeGreaterThan", () -> {
+        var x := 10
+        test.expect(x).toBeGreaterThan(5)
+    })
+
+    test.it("toBeLessThan", () -> {
+        var x := 3
+        test.expect(x).toBeLessThan(10)
+    })
+
+    test.it("toBeTruthy", () -> {
+        var x := 1
+        test.expect(x).toBeTruthy()
+    })
+
+    test.it("toBeFalsy", () -> {
+        var x := 0
+        test.expect(x).toBeFalsy()
+    })
+})

@@ -812,6 +812,7 @@ where
             }, span));
 
         // Closure: (x: int, y: int) -> int { return x + y } (supports Optional: (x: int?) -> int?)
+        // Also supports zero-param closures: () -> { ... } and () -> int { ... }
         // Parens required, types required, return type optional, block body required
         let closure = select! { Token::Identifier(param_name) => param_name }
             .then_ignore(just(Token::Colon))
@@ -821,8 +822,10 @@ where
             .delimited_by(just(Token::LParen), just(Token::RParen))
             .then(
                 just(Token::Arrow)
-                    .ignore_then(type_annotation_parser())
-                    .or_not(),
+                    // Return type after -> is optional: `-> int { }` OR `-> { }` (no type)
+                    .ignore_then(type_annotation_parser().or_not())
+                    .or_not()
+                    .map(|opt| opt.flatten()),
             )
             .then(block)
             .map_with_span(|((params, return_type), body), span| {
