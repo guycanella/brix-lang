@@ -166,6 +166,9 @@ pub enum Token {
     #[token("/=")]
     SlashEq,
 
+    #[token("%=")]
+    PercentEq,
+
     #[token("^")]
     Caret,
 

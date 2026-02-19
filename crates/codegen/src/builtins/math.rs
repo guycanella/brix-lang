@@ -13,6 +13,9 @@ pub trait MathFunctions<'ctx> {
     /// Declare a math function with signature: f64 function(f64, f64)
     fn declare_math_function_f64_f64_f64(&self, name: &str) -> inkwell::values::FunctionValue<'ctx>;
 
+    /// Declare a stats function with signature: f64 function(Matrix*)
+    fn declare_math_function_stats(&self, name: &str) -> inkwell::values::FunctionValue<'ctx>;
+
     /// Register all math functions and constants
     fn register_math_functions(&mut self, prefix: &str);
 
@@ -37,6 +40,18 @@ impl<'a, 'ctx> MathFunctions<'ctx> for Compiler<'a, 'ctx> {
         }
         let f64_type = self.context.f64_type();
         let fn_type = f64_type.fn_type(&[f64_type.into(), f64_type.into()], false);
+        self.module
+            .add_function(name, fn_type, Some(Linkage::External))
+    }
+
+    fn declare_math_function_stats(&self, name: &str) -> inkwell::values::FunctionValue<'ctx> {
+        if let Some(fn_val) = self.module.get_function(name) {
+            return fn_val;
+        }
+        use inkwell::AddressSpace;
+        let f64_type = self.context.f64_type();
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let fn_type = f64_type.fn_type(&[ptr_type.into()], false);
         self.module
             .add_function(name, fn_type, Some(Linkage::External))
     }
@@ -71,12 +86,19 @@ impl<'a, 'ctx> MathFunctions<'ctx> for Compiler<'a, 'ctx> {
         self.declare_math_function_f64_f64("ceil");
         self.declare_math_function_f64_f64("round");
 
-        // Utility functions (5)
-        self.declare_math_function_f64_f64("fabs"); // abs for float
-        self.declare_math_function_f64_f64_f64("fmod");
-        self.declare_math_function_f64_f64_f64("hypot");
-        self.declare_math_function_f64_f64_f64("fmin"); // min
-        self.declare_math_function_f64_f64_f64("fmax"); // max
+        // Utility functions (4): wrappers in runtime.c avoid LLVM intrinsic conflicts
+        self.declare_math_function_f64_f64("brix_abs");      // math.abs → brix_abs(x)
+        self.declare_math_function_f64_f64_f64("brix_mod");  // math.mod → brix_mod(a, b)
+        self.declare_math_function_f64_f64_f64("brix_min");  // math.min → brix_min(a, b)
+        self.declare_math_function_f64_f64_f64("brix_max");  // math.max → brix_max(a, b)
+
+        // Statistics functions (5): f64 fn(Matrix*)
+        self.declare_math_function_stats("brix_sum");        // math.sum
+        self.declare_math_function_stats("brix_mean");       // math.mean
+        self.declare_math_function_stats("brix_median");     // math.median
+        self.declare_math_function_stats("brix_variance");   // math.variance
+        self.declare_math_function_stats("brix_std");        // math.std
+        self.declare_math_function_stats("brix_stddev");     // math.stddev (alias for brix_std)
 
         // Register math constants as variables
         self.register_math_constants(prefix);
