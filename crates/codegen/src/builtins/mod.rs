@@ -21,3 +21,4 @@ pub mod linalg;
 pub mod string;
 pub mod io;
 pub mod matrix;
+pub mod test;

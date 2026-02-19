@@ -2,6 +2,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <time.h>
+#include <setjmp.h>
 
 // ==========================================
 // SECTION -2: MEMORY ALLOCATION (v1.3 - Closures)
@@ -1809,4 +1811,690 @@ Matrix *brix_zip_ff(Matrix *arr1, Matrix *arr2) {
   }
 
   return result;
+}
+
+// ==========================================
+// SECTION 8: TEST LIBRARY (v1.5)
+// Jest-style testing framework
+// ==========================================
+
+// ANSI color codes
+#define ANSI_RED     "\x1b[31m"
+#define ANSI_GREEN   "\x1b[32m"
+#define ANSI_YELLOW  "\x1b[33m"
+#define ANSI_GRAY    "\x1b[90m"
+#define ANSI_BOLD    "\x1b[1m"
+#define ANSI_RESET   "\x1b[0m"
+
+#define BRIX_MAX_TESTS  1024
+#define BRIX_MAX_HOOKS  32
+#define BRIX_ERR_BUF    2048
+
+// Closure type: fn_ptr(env_ptr)
+typedef void (*BrixClosureVoid)(void*);
+
+// Hook entry
+typedef struct {
+    void* fn_ptr;
+    void* env_ptr;
+} BrixHook;
+
+// Individual test entry
+typedef struct {
+    char*  name;
+    void*  fn_ptr;
+    void*  env_ptr;
+    int    passed;
+    double duration_ms;
+    char   error_msg[BRIX_ERR_BUF];
+    char   file[512];
+    int    line;
+} BrixTestEntry;
+
+// Test suite (one per describe block)
+typedef struct {
+    char*         suite_name;
+    BrixTestEntry tests[BRIX_MAX_TESTS];
+    int           test_count;
+    int           passed_count;
+    int           failed_count;
+
+    BrixHook before_all[BRIX_MAX_HOOKS];   int before_all_count;
+    BrixHook after_all[BRIX_MAX_HOOKS];    int after_all_count;
+    BrixHook before_each[BRIX_MAX_HOOKS];  int before_each_count;
+    BrixHook after_each[BRIX_MAX_HOOKS];   int after_each_count;
+} BrixTestSuite;
+
+// Global state
+static BrixTestSuite* g_suite            = NULL;
+static jmp_buf        g_test_jmp;
+static int            g_test_failed      = 0;
+static int            g_current_test_idx = -1;
+
+// ---- Timer ----
+static double brix_now_ms(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ts.tv_sec * 1000.0 + ts.tv_nsec / 1e6;
+}
+
+// ---- Run a void closure ----
+static void brix_call_void(void* fn_ptr, void* env_ptr) {
+    ((BrixClosureVoid)fn_ptr)(env_ptr);
+}
+
+// ---- Get current running test ----
+static BrixTestEntry* brix_get_current(void) {
+    if (!g_suite || g_current_test_idx < 0) return NULL;
+    return &g_suite->tests[g_current_test_idx];
+}
+
+// ---- Record failure and jump back to runner ----
+static void brix_test_fail(BrixTestEntry* e, const char* msg, const char* file, int line) {
+    snprintf(e->error_msg, BRIX_ERR_BUF, "%s", msg);
+    snprintf(e->file, sizeof(e->file), "%s", file ? file : "");
+    e->line        = line;
+    g_test_failed  = 1;
+    longjmp(g_test_jmp, 1);
+}
+
+// ==========================================
+// Lifecycle hook registration
+// ==========================================
+
+void test_before_all_register(void* closure_ptr) {
+    if (!g_suite) return;
+    BrixClosure* c = (BrixClosure*)closure_ptr;
+    int i = g_suite->before_all_count++;
+    g_suite->before_all[i].fn_ptr  = c->fn_ptr;
+    g_suite->before_all[i].env_ptr = c->env_ptr;
+}
+
+void test_after_all_register(void* closure_ptr) {
+    if (!g_suite) return;
+    BrixClosure* c = (BrixClosure*)closure_ptr;
+    int i = g_suite->after_all_count++;
+    g_suite->after_all[i].fn_ptr  = c->fn_ptr;
+    g_suite->after_all[i].env_ptr = c->env_ptr;
+}
+
+void test_before_each_register(void* closure_ptr) {
+    if (!g_suite) return;
+    BrixClosure* c = (BrixClosure*)closure_ptr;
+    int i = g_suite->before_each_count++;
+    g_suite->before_each[i].fn_ptr  = c->fn_ptr;
+    g_suite->before_each[i].env_ptr = c->env_ptr;
+}
+
+void test_after_each_register(void* closure_ptr) {
+    if (!g_suite) return;
+    BrixClosure* c = (BrixClosure*)closure_ptr;
+    int i = g_suite->after_each_count++;
+    g_suite->after_each[i].fn_ptr  = c->fn_ptr;
+    g_suite->after_each[i].env_ptr = c->env_ptr;
+}
+
+// ==========================================
+// Test registration: test.it()
+// ==========================================
+
+void test_it_register(BrixString* title, void* closure_ptr) {
+    if (!g_suite) return;
+    if (g_suite->test_count >= BRIX_MAX_TESTS) {
+        fprintf(stderr, "Error: too many tests (max %d)\n", BRIX_MAX_TESTS);
+        exit(1);
+    }
+    BrixClosure* c = (BrixClosure*)closure_ptr;
+    int idx = g_suite->test_count++;
+    BrixTestEntry* e = &g_suite->tests[idx];
+
+    e->name = (char*)malloc(title->len + 1);
+    memcpy(e->name, title->data, title->len);
+    e->name[title->len] = '\0';
+
+    e->fn_ptr       = c->fn_ptr;
+    e->env_ptr      = c->env_ptr;
+    e->passed       = 1;
+    e->duration_ms  = 0;
+    e->error_msg[0] = '\0';
+    e->file[0]      = '\0';
+    e->line         = 0;
+}
+
+// ==========================================
+// Test runner and reporter
+// ==========================================
+
+static void brix_test_run_all(void) {
+    BrixTestSuite* s = g_suite;
+    double suite_start = brix_now_ms();
+
+    // beforeAll hooks
+    for (int i = 0; i < s->before_all_count; i++)
+        brix_call_void(s->before_all[i].fn_ptr, s->before_all[i].env_ptr);
+
+    for (int t = 0; t < s->test_count; t++) {
+        BrixTestEntry* e = &s->tests[t];
+        g_current_test_idx = t;
+
+        // beforeEach hooks
+        for (int i = 0; i < s->before_each_count; i++)
+            brix_call_void(s->before_each[i].fn_ptr, s->before_each[i].env_ptr);
+
+        double start = brix_now_ms();
+        g_test_failed = 0;
+
+        if (setjmp(g_test_jmp) == 0) {
+            brix_call_void(e->fn_ptr, e->env_ptr);
+        }
+
+        e->duration_ms = brix_now_ms() - start;
+        e->passed = (g_test_failed == 0);
+
+        if (e->passed) s->passed_count++;
+        else           s->failed_count++;
+
+        // afterEach hooks
+        for (int i = 0; i < s->after_each_count; i++)
+            brix_call_void(s->after_each[i].fn_ptr, s->after_each[i].env_ptr);
+    }
+    g_current_test_idx = -1;
+
+    // afterAll hooks
+    for (int i = 0; i < s->after_all_count; i++)
+        brix_call_void(s->after_all[i].fn_ptr, s->after_all[i].env_ptr);
+
+    double total_ms = brix_now_ms() - suite_start;
+
+    // ---- Print report ----
+    int all_passed = (s->failed_count == 0);
+    if (all_passed)
+        printf(ANSI_BOLD ANSI_GREEN "PASS" ANSI_RESET "\n");
+    else
+        printf(ANSI_BOLD ANSI_RED   "FAIL" ANSI_RESET "\n");
+
+    printf("  " ANSI_BOLD "%s" ANSI_RESET "\n", s->suite_name);
+
+    for (int t = 0; t < s->test_count; t++) {
+        BrixTestEntry* e = &s->tests[t];
+        if (e->passed) {
+            printf(ANSI_GREEN "    ✓" ANSI_RESET " %s " ANSI_GRAY "(%.0fms)" ANSI_RESET "\n",
+                   e->name, e->duration_ms);
+        } else {
+            printf(ANSI_RED   "    ✗" ANSI_RESET " %s " ANSI_GRAY "(%.0fms)" ANSI_RESET "\n",
+                   e->name, e->duration_ms);
+            if (e->error_msg[0]) {
+                printf("\n%s\n\n", e->error_msg);
+            }
+            if (e->file[0]) {
+                printf(ANSI_YELLOW "      at %s:%d" ANSI_RESET "\n\n", e->file, e->line);
+            }
+        }
+    }
+
+    printf("\n");
+    if (all_passed)
+        printf(ANSI_GREEN "Test Suites: 1 passed, 1 total" ANSI_RESET "\n");
+    else
+        printf(ANSI_RED   "Test Suites: 0 passed, 1 failed, 1 total" ANSI_RESET "\n");
+
+    printf("Tests:       ");
+    if (s->passed_count > 0)
+        printf(ANSI_GREEN "%d passed" ANSI_RESET, s->passed_count);
+    if (s->passed_count > 0 && s->failed_count > 0) printf(", ");
+    if (s->failed_count > 0)
+        printf(ANSI_RED   "%d failed" ANSI_RESET, s->failed_count);
+    printf(", %d total\n", s->test_count);
+    printf(ANSI_GRAY "Time:        %.3fs" ANSI_RESET "\n", total_ms / 1000.0);
+
+    if (!all_passed) exit(1);
+}
+
+// ==========================================
+// test.describe() entry point
+// ==========================================
+
+void test_describe_start(BrixString* title, void* closure_ptr) {
+    BrixClosure* c = (BrixClosure*)closure_ptr;
+    g_suite = (BrixTestSuite*)calloc(1, sizeof(BrixTestSuite));
+    if (!g_suite) {
+        fprintf(stderr, "Error: out of memory for test suite\n");
+        exit(1);
+    }
+    g_suite->suite_name = (char*)malloc(title->len + 1);
+    memcpy(g_suite->suite_name, title->data, title->len);
+    g_suite->suite_name[title->len] = '\0';
+
+    // Run describe closure → registers test.it() calls
+    brix_call_void(c->fn_ptr, c->env_ptr);
+
+    // Run all registered tests
+    brix_test_run_all();
+
+    // Cleanup
+    for (int i = 0; i < g_suite->test_count; i++)
+        if (g_suite->tests[i].name) free(g_suite->tests[i].name);
+    free(g_suite->suite_name);
+    free(g_suite);
+    g_suite = NULL;
+}
+
+// ==========================================
+// Matchers
+// ==========================================
+
+// ---- int matchers ----
+
+void test_expect_toBe_int(long actual, long expected, char* file, int line) {
+    if (actual != expected) {
+        char msg[BRIX_ERR_BUF];
+        snprintf(msg, BRIX_ERR_BUF,
+            "      " ANSI_RED "Expected: %ld\n" ANSI_RESET
+            "      " ANSI_RED "Received: %ld" ANSI_RESET,
+            expected, actual);
+        BrixTestEntry* e = brix_get_current();
+        if (e) brix_test_fail(e, msg, file, line);
+    }
+}
+
+void test_expect_not_toBe_int(long actual, long not_expected, char* file, int line) {
+    if (actual == not_expected) {
+        char msg[BRIX_ERR_BUF];
+        snprintf(msg, BRIX_ERR_BUF,
+            "      " ANSI_RED "Expected: not %ld\n" ANSI_RESET
+            "      " ANSI_RED "Received:     %ld" ANSI_RESET,
+            not_expected, actual);
+        BrixTestEntry* e = brix_get_current();
+        if (e) brix_test_fail(e, msg, file, line);
+    }
+}
+
+// ---- float matchers ----
+
+void test_expect_toBe_float(double actual, double expected, char* file, int line) {
+    if (actual != expected) {
+        char msg[BRIX_ERR_BUF];
+        snprintf(msg, BRIX_ERR_BUF,
+            "      " ANSI_RED "Expected: %g\n" ANSI_RESET
+            "      " ANSI_RED "Received: %g" ANSI_RESET,
+            expected, actual);
+        BrixTestEntry* e = brix_get_current();
+        if (e) brix_test_fail(e, msg, file, line);
+    }
+}
+
+void test_expect_not_toBe_float(double actual, double not_expected, char* file, int line) {
+    if (actual == not_expected) {
+        char msg[BRIX_ERR_BUF];
+        snprintf(msg, BRIX_ERR_BUF,
+            "      " ANSI_RED "Expected: not %g\n" ANSI_RESET
+            "      " ANSI_RED "Received:     %g" ANSI_RESET,
+            not_expected, actual);
+        BrixTestEntry* e = brix_get_current();
+        if (e) brix_test_fail(e, msg, file, line);
+    }
+}
+
+// ---- bool matchers ----
+
+void test_expect_toBe_bool(long actual, long expected, char* file, int line) {
+    if ((actual != 0) != (expected != 0)) {
+        char msg[BRIX_ERR_BUF];
+        snprintf(msg, BRIX_ERR_BUF,
+            "      " ANSI_RED "Expected: %s\n" ANSI_RESET
+            "      " ANSI_RED "Received: %s" ANSI_RESET,
+            expected ? "true" : "false",
+            actual   ? "true" : "false");
+        BrixTestEntry* e = brix_get_current();
+        if (e) brix_test_fail(e, msg, file, line);
+    }
+}
+
+// ---- string matchers ----
+
+void test_expect_toBe_string(BrixString* actual, BrixString* expected, char* file, int line) {
+    int eq = (actual->len == expected->len) &&
+             (memcmp(actual->data, expected->data, actual->len) == 0);
+    if (!eq) {
+        char msg[BRIX_ERR_BUF];
+        int elen = (int)(expected->len < 200 ? expected->len : 200);
+        int alen = (int)(actual->len   < 200 ? actual->len   : 200);
+        snprintf(msg, BRIX_ERR_BUF,
+            "      " ANSI_RED "Expected: \"%.*s\"\n" ANSI_RESET
+            "      " ANSI_RED "Received: \"%.*s\"" ANSI_RESET,
+            elen, expected->data, alen, actual->data);
+        BrixTestEntry* e = brix_get_current();
+        if (e) brix_test_fail(e, msg, file, line);
+    }
+}
+
+void test_expect_not_toBe_string(BrixString* actual, BrixString* not_expected, char* file, int line) {
+    int eq = (actual->len == not_expected->len) &&
+             (memcmp(actual->data, not_expected->data, actual->len) == 0);
+    if (eq) {
+        char msg[BRIX_ERR_BUF];
+        int elen = (int)(not_expected->len < 200 ? not_expected->len : 200);
+        int alen = (int)(actual->len       < 200 ? actual->len       : 200);
+        snprintf(msg, BRIX_ERR_BUF,
+            "      " ANSI_RED "Expected: not \"%.*s\"\n" ANSI_RESET
+            "      " ANSI_RED "Received:     \"%.*s\"" ANSI_RESET,
+            elen, not_expected->data, alen, actual->data);
+        BrixTestEntry* e = brix_get_current();
+        if (e) brix_test_fail(e, msg, file, line);
+    }
+}
+
+// ---- toEqual (deep equality for arrays) ----
+
+void test_expect_toEqual_int_array(IntMatrix* actual, IntMatrix* expected, char* file, int line) {
+    long alen = (actual->rows == 1)   ? actual->cols   : actual->rows;
+    long elen = (expected->rows == 1) ? expected->cols : expected->rows;
+    int eq = (alen == elen);
+    if (eq) {
+        for (long i = 0; i < alen; i++) {
+            if (actual->data[i] != expected->data[i]) { eq = 0; break; }
+        }
+    }
+    if (!eq) {
+        char msg[BRIX_ERR_BUF];
+        snprintf(msg, BRIX_ERR_BUF,
+            "      " ANSI_RED "Arrays are not equal" ANSI_RESET);
+        BrixTestEntry* e = brix_get_current();
+        if (e) brix_test_fail(e, msg, file, line);
+    }
+}
+
+void test_expect_toEqual_float_array(Matrix* actual, Matrix* expected, char* file, int line) {
+    long alen = (actual->rows == 1)   ? actual->cols   : actual->rows;
+    long elen = (expected->rows == 1) ? expected->cols : expected->rows;
+    int eq = (alen == elen);
+    if (eq) {
+        for (long i = 0; i < alen; i++) {
+            if (actual->data[i] != expected->data[i]) { eq = 0; break; }
+        }
+    }
+    if (!eq) {
+        char msg[BRIX_ERR_BUF];
+        snprintf(msg, BRIX_ERR_BUF,
+            "      " ANSI_RED "Arrays are not equal" ANSI_RESET);
+        BrixTestEntry* e = brix_get_current();
+        if (e) brix_test_fail(e, msg, file, line);
+    }
+}
+
+// ---- toBeNil ----
+
+void test_expect_toBeNil(long is_nil_tag, char* file, int line) {
+    if (!is_nil_tag) {
+        char msg[BRIX_ERR_BUF];
+        snprintf(msg, BRIX_ERR_BUF,
+            "      " ANSI_RED "Expected: nil\n" ANSI_RESET
+            "      " ANSI_RED "Received: <non-nil value>" ANSI_RESET);
+        BrixTestEntry* e = brix_get_current();
+        if (e) brix_test_fail(e, msg, file, line);
+    }
+}
+
+void test_expect_not_toBeNil(long is_nil_tag, char* file, int line) {
+    if (is_nil_tag) {
+        char msg[BRIX_ERR_BUF];
+        snprintf(msg, BRIX_ERR_BUF,
+            "      " ANSI_RED "Expected: <non-nil value>\n" ANSI_RESET
+            "      " ANSI_RED "Received: nil" ANSI_RESET);
+        BrixTestEntry* e = brix_get_current();
+        if (e) brix_test_fail(e, msg, file, line);
+    }
+}
+
+// ---- toBeTruthy / toBeFalsy ----
+
+void test_expect_toBeTruthy(long value, char* file, int line) {
+    if (!value) {
+        char msg[BRIX_ERR_BUF];
+        snprintf(msg, BRIX_ERR_BUF,
+            "      " ANSI_RED "Expected: truthy value\n" ANSI_RESET
+            "      " ANSI_RED "Received: %ld (falsy)" ANSI_RESET, value);
+        BrixTestEntry* e = brix_get_current();
+        if (e) brix_test_fail(e, msg, file, line);
+    }
+}
+
+void test_expect_toBeFalsy(long value, char* file, int line) {
+    if (value) {
+        char msg[BRIX_ERR_BUF];
+        snprintf(msg, BRIX_ERR_BUF,
+            "      " ANSI_RED "Expected: falsy value\n" ANSI_RESET
+            "      " ANSI_RED "Received: %ld (truthy)" ANSI_RESET, value);
+        BrixTestEntry* e = brix_get_current();
+        if (e) brix_test_fail(e, msg, file, line);
+    }
+}
+
+// ---- Numeric comparison matchers ----
+
+void test_expect_toBeGreaterThan_int(long actual, long threshold, char* file, int line) {
+    if (actual <= threshold) {
+        char msg[BRIX_ERR_BUF];
+        snprintf(msg, BRIX_ERR_BUF,
+            "      " ANSI_RED "Expected: > %ld\n" ANSI_RESET
+            "      " ANSI_RED "Received:   %ld" ANSI_RESET, threshold, actual);
+        BrixTestEntry* e = brix_get_current();
+        if (e) brix_test_fail(e, msg, file, line);
+    }
+}
+
+void test_expect_toBeGreaterThan_float(double actual, double threshold, char* file, int line) {
+    if (actual <= threshold) {
+        char msg[BRIX_ERR_BUF];
+        snprintf(msg, BRIX_ERR_BUF,
+            "      " ANSI_RED "Expected: > %g\n" ANSI_RESET
+            "      " ANSI_RED "Received:   %g" ANSI_RESET, threshold, actual);
+        BrixTestEntry* e = brix_get_current();
+        if (e) brix_test_fail(e, msg, file, line);
+    }
+}
+
+void test_expect_toBeLessThan_int(long actual, long threshold, char* file, int line) {
+    if (actual >= threshold) {
+        char msg[BRIX_ERR_BUF];
+        snprintf(msg, BRIX_ERR_BUF,
+            "      " ANSI_RED "Expected: < %ld\n" ANSI_RESET
+            "      " ANSI_RED "Received:   %ld" ANSI_RESET, threshold, actual);
+        BrixTestEntry* e = brix_get_current();
+        if (e) brix_test_fail(e, msg, file, line);
+    }
+}
+
+void test_expect_toBeLessThan_float(double actual, double threshold, char* file, int line) {
+    if (actual >= threshold) {
+        char msg[BRIX_ERR_BUF];
+        snprintf(msg, BRIX_ERR_BUF,
+            "      " ANSI_RED "Expected: < %g\n" ANSI_RESET
+            "      " ANSI_RED "Received:   %g" ANSI_RESET, threshold, actual);
+        BrixTestEntry* e = brix_get_current();
+        if (e) brix_test_fail(e, msg, file, line);
+    }
+}
+
+void test_expect_toBeGreaterThanOrEqual_int(long actual, long threshold, char* file, int line) {
+    if (actual < threshold) {
+        char msg[BRIX_ERR_BUF];
+        snprintf(msg, BRIX_ERR_BUF,
+            "      " ANSI_RED "Expected: >= %ld\n" ANSI_RESET
+            "      " ANSI_RED "Received:    %ld" ANSI_RESET, threshold, actual);
+        BrixTestEntry* e = brix_get_current();
+        if (e) brix_test_fail(e, msg, file, line);
+    }
+}
+
+void test_expect_toBeGreaterThanOrEqual_float(double actual, double threshold, char* file, int line) {
+    if (actual < threshold) {
+        char msg[BRIX_ERR_BUF];
+        snprintf(msg, BRIX_ERR_BUF,
+            "      " ANSI_RED "Expected: >= %g\n" ANSI_RESET
+            "      " ANSI_RED "Received:    %g" ANSI_RESET, threshold, actual);
+        BrixTestEntry* e = brix_get_current();
+        if (e) brix_test_fail(e, msg, file, line);
+    }
+}
+
+void test_expect_toBeLessThanOrEqual_int(long actual, long threshold, char* file, int line) {
+    if (actual > threshold) {
+        char msg[BRIX_ERR_BUF];
+        snprintf(msg, BRIX_ERR_BUF,
+            "      " ANSI_RED "Expected: <= %ld\n" ANSI_RESET
+            "      " ANSI_RED "Received:    %ld" ANSI_RESET, threshold, actual);
+        BrixTestEntry* e = brix_get_current();
+        if (e) brix_test_fail(e, msg, file, line);
+    }
+}
+
+void test_expect_toBeLessThanOrEqual_float(double actual, double threshold, char* file, int line) {
+    if (actual > threshold) {
+        char msg[BRIX_ERR_BUF];
+        snprintf(msg, BRIX_ERR_BUF,
+            "      " ANSI_RED "Expected: <= %g\n" ANSI_RESET
+            "      " ANSI_RED "Received:    %g" ANSI_RESET, threshold, actual);
+        BrixTestEntry* e = brix_get_current();
+        if (e) brix_test_fail(e, msg, file, line);
+    }
+}
+
+// ---- toBeCloseTo (smart float precision) ----
+
+static int brix_count_decimals(double value) {
+    char buf[64];
+    snprintf(buf, sizeof(buf), "%.15f", fabs(value));
+    char* dot = strchr(buf, '.');
+    if (!dot) return 0;
+    int count = 0;
+    char* p = dot + 1;
+    while (*p) {
+        if (*p != '0') count = (int)(p - dot);
+        p++;
+    }
+    return count;
+}
+
+static double brix_round_to(double value, int decimals) {
+    double m = pow(10.0, decimals);
+    return round(value * m) / m;
+}
+
+void test_expect_toBeCloseTo(double actual, double expected, char* file, int line) {
+    int dec_a = brix_count_decimals(actual);
+    int dec_e = brix_count_decimals(expected);
+    int dec   = dec_a < dec_e ? dec_a : dec_e;
+    if (dec == 0) dec = 1;  // epsilon minimum: at least 1 decimal
+
+    double ra = brix_round_to(actual,   dec);
+    double re = brix_round_to(expected, dec);
+
+    if (ra != re) {
+        char msg[BRIX_ERR_BUF];
+        snprintf(msg, BRIX_ERR_BUF,
+            "      " ANSI_RED "Expected (close to): %.15g\n" ANSI_RESET
+            "      " ANSI_RED "Received:            %.15g\n" ANSI_RESET
+            "      " ANSI_GRAY "(rounded to %d decimal(s))" ANSI_RESET,
+            expected, actual, dec);
+        BrixTestEntry* e = brix_get_current();
+        if (e) brix_test_fail(e, msg, file, line);
+    }
+}
+
+// ---- toContain (string substring) ----
+
+void test_expect_toContain_string(BrixString* actual, BrixString* substring, char* file, int line) {
+    int found = 0;
+    if (substring->len == 0) { found = 1; }
+    else if (substring->len <= actual->len) {
+        for (long i = 0; i <= actual->len - (long)substring->len; i++) {
+            if (memcmp(actual->data + i, substring->data, substring->len) == 0) {
+                found = 1; break;
+            }
+        }
+    }
+    if (!found) {
+        char msg[BRIX_ERR_BUF];
+        int slen = (int)(substring->len < 100 ? substring->len : 100);
+        int alen = (int)(actual->len    < 100 ? actual->len    : 100);
+        snprintf(msg, BRIX_ERR_BUF,
+            "      " ANSI_RED "Expected string to contain: \"%.*s\"\n" ANSI_RESET
+            "      " ANSI_RED "Received:                   \"%.*s\"" ANSI_RESET,
+            slen, substring->data, alen, actual->data);
+        BrixTestEntry* e = brix_get_current();
+        if (e) brix_test_fail(e, msg, file, line);
+    }
+}
+
+// ---- toContain (int array element) ----
+
+void test_expect_toContain_int_array(IntMatrix* arr, long element, char* file, int line) {
+    long len = (arr->rows == 1) ? arr->cols : arr->rows;
+    int found = 0;
+    for (long i = 0; i < len; i++) {
+        if (arr->data[i] == element) { found = 1; break; }
+    }
+    if (!found) {
+        char msg[BRIX_ERR_BUF];
+        snprintf(msg, BRIX_ERR_BUF,
+            "      " ANSI_RED "Expected array to contain: %ld" ANSI_RESET, element);
+        BrixTestEntry* e = brix_get_current();
+        if (e) brix_test_fail(e, msg, file, line);
+    }
+}
+
+void test_expect_toContain_float_array(Matrix* arr, double element, char* file, int line) {
+    long len = (arr->rows == 1) ? arr->cols : arr->rows;
+    int found = 0;
+    for (long i = 0; i < len; i++) {
+        if (arr->data[i] == element) { found = 1; break; }
+    }
+    if (!found) {
+        char msg[BRIX_ERR_BUF];
+        snprintf(msg, BRIX_ERR_BUF,
+            "      " ANSI_RED "Expected array to contain: %g" ANSI_RESET, element);
+        BrixTestEntry* e = brix_get_current();
+        if (e) brix_test_fail(e, msg, file, line);
+    }
+}
+
+// ---- toHaveLength ----
+
+void test_expect_toHaveLength_int_array(IntMatrix* arr, long expected_len, char* file, int line) {
+    long actual_len = (arr->rows == 1) ? arr->cols : arr->rows;
+    if (actual_len != expected_len) {
+        char msg[BRIX_ERR_BUF];
+        snprintf(msg, BRIX_ERR_BUF,
+            "      " ANSI_RED "Expected length: %ld\n" ANSI_RESET
+            "      " ANSI_RED "Received length: %ld" ANSI_RESET,
+            expected_len, actual_len);
+        BrixTestEntry* e = brix_get_current();
+        if (e) brix_test_fail(e, msg, file, line);
+    }
+}
+
+void test_expect_toHaveLength_float_array(Matrix* arr, long expected_len, char* file, int line) {
+    long actual_len = (arr->rows == 1) ? arr->cols : arr->rows;
+    if (actual_len != expected_len) {
+        char msg[BRIX_ERR_BUF];
+        snprintf(msg, BRIX_ERR_BUF,
+            "      " ANSI_RED "Expected length: %ld\n" ANSI_RESET
+            "      " ANSI_RED "Received length: %ld" ANSI_RESET,
+            expected_len, actual_len);
+        BrixTestEntry* e = brix_get_current();
+        if (e) brix_test_fail(e, msg, file, line);
+    }
+}
+
+void test_expect_toHaveLength_string(BrixString* s, long expected_len, char* file, int line) {
+    if (s->len != expected_len) {
+        char msg[BRIX_ERR_BUF];
+        snprintf(msg, BRIX_ERR_BUF,
+            "      " ANSI_RED "Expected length: %ld\n" ANSI_RESET
+            "      " ANSI_RED "Received length: %ld" ANSI_RESET,
+            expected_len, s->len);
+        BrixTestEntry* e = brix_get_current();
+        if (e) brix_test_fail(e, msg, file, line);
+    }
 }

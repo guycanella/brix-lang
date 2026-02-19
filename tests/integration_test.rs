@@ -807,6 +807,37 @@ fn test_elvis_operator() {
 }
 
 // ==========================================
+// TEST LIBRARY (v1.5)
+// ==========================================
+
+#[test]
+fn test_library_basic_matchers() {
+    assert_output(
+        "tests/integration/success/96_test_library_basic.bx",
+        0,
+        Some("5 passed")
+    );
+}
+
+#[test]
+fn test_library_float_matchers() {
+    assert_output(
+        "tests/integration/success/97_test_library_float.bx",
+        0,
+        Some("3 passed")
+    );
+}
+
+#[test]
+fn test_library_string_matchers() {
+    assert_output(
+        "tests/integration/success/98_test_library_strings.bx",
+        0,
+        Some("2 passed")
+    );
+}
+
+// ==========================================
 // PARSER ERRORS - Exit Code 2
 // ==========================================
 

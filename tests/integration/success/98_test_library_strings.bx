@@ -1,0 +1,13 @@
+import test
+
+test.describe("String matchers", () -> {
+    test.it("toBe with string", () -> {
+        var s := "hello"
+        test.expect(s).toBe("hello")
+    })
+
+    test.it("toHaveLength for string", () -> {
+        var s := "brix"
+        test.expect(s).toHaveLength(4)
+    })
+})

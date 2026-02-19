@@ -419,6 +419,7 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
 
     fn compile_import_stmt(&mut self, module: &str, alias: &Option<String>) -> CodegenResult<()> {
         use crate::builtins::math::MathFunctions;
+        use crate::builtins::test::TestFunctions;
 
         // Register math functions when importing math module
         if module == "math" {
@@ -426,6 +427,14 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
             let prefix = alias.as_ref().unwrap_or(&default_prefix);
             self.register_math_functions(prefix);
         }
+
+        // Register test library functions when importing test module
+        if module == "test" {
+            let default_prefix = module.to_string();
+            let prefix = alias.as_ref().unwrap_or(&default_prefix);
+            self.register_test_functions(prefix);
+        }
+
         Ok(())
     }
 
