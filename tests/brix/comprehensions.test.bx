@@ -1,0 +1,79 @@
+import test
+
+test.describe("Basic list comprehension", () -> {
+    test.it("double each element", () -> {
+        var arr := [1, 2, 3, 4, 5]
+        var doubled := [x * 2 for x in arr]
+        test.expect(doubled[0]).toBe(2)
+        test.expect(doubled[1]).toBe(4)
+        test.expect(doubled[2]).toBe(6)
+        test.expect(doubled[3]).toBe(8)
+        test.expect(doubled[4]).toBe(10)
+    })
+
+    test.it("square each element", () -> {
+        var arr := [1, 2, 3, 4]
+        var squared := [x * x for x in arr]
+        test.expect(squared[0]).toBe(1)
+        test.expect(squared[1]).toBe(4)
+        test.expect(squared[2]).toBe(9)
+        test.expect(squared[3]).toBe(16)
+    })
+
+    test.it("preserves length", () -> {
+        var arr := [10, 20, 30, 40, 50]
+        var result := [x + 1 for x in arr]
+        test.expect(result.cols).toBe(5)
+    })
+})
+
+test.describe("Comprehension with condition (filter)", () -> {
+    test.it("keeps only even numbers doubled", () -> {
+        var arr := [1, 2, 3, 4, 5, 6]
+        var evens_doubled := [x * 2 for x in arr if x % 2 == 0]
+        test.expect(evens_doubled[0]).toBe(4)
+        test.expect(evens_doubled[1]).toBe(8)
+        test.expect(evens_doubled[2]).toBe(12)
+    })
+
+    test.it("keeps only positives", () -> {
+        var arr := [3, -1, 4, -1, 5, -9, 2]
+        var positives := [x for x in arr if x > 0]
+        test.expect(positives[0]).toBe(3)
+        test.expect(positives[1]).toBe(4)
+        test.expect(positives[2]).toBe(5)
+        test.expect(positives[3]).toBe(2)
+    })
+})
+
+test.describe("Float comprehension", () -> {
+    test.it("halve each float element", () -> {
+        var arr := [2.0, 4.0, 6.0]
+        var halved := [x / 2.0 for x in arr]
+        test.expect(halved[0]).toBeCloseTo(1.0)
+        test.expect(halved[1]).toBeCloseTo(2.0)
+        test.expect(halved[2]).toBeCloseTo(3.0)
+    })
+})
+
+test.describe("zip()", () -> {
+    test.it("zip combines two arrays into pairs", () -> {
+        var a := [1, 2, 3]
+        var b := [10, 20, 30]
+        var zipped := zip(a, b)
+        test.expect(zipped[0][0]).toBeCloseTo(1.0)
+        test.expect(zipped[0][1]).toBeCloseTo(10.0)
+        test.expect(zipped[1][0]).toBeCloseTo(2.0)
+        test.expect(zipped[1][1]).toBeCloseTo(20.0)
+        test.expect(zipped[2][0]).toBeCloseTo(3.0)
+        test.expect(zipped[2][1]).toBeCloseTo(30.0)
+    })
+
+    test.it("zip dimensions: rows = array length", () -> {
+        var a := [1, 2, 3, 4]
+        var b := [5, 6, 7, 8]
+        var zipped := zip(a, b)
+        test.expect(zipped.rows).toBe(4)
+        test.expect(zipped.cols).toBe(2)
+    })
+})

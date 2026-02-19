@@ -1,0 +1,160 @@
+import math
+import test
+
+test.describe("Trigonometric functions", () -> {
+    test.it("sin(0) = 0", () -> {
+        test.expect(math.sin(0.0)).toBeCloseTo(0.0)
+    })
+
+    test.it("cos(0) = 1", () -> {
+        test.expect(math.cos(0.0)).toBeCloseTo(1.0)
+    })
+
+    test.it("tan(0) = 0", () -> {
+        test.expect(math.tan(0.0)).toBeCloseTo(0.0)
+    })
+
+    test.it("sin(pi/2) = 1", () -> {
+        test.expect(math.sin(math.pi / 2.0)).toBeCloseTo(1.0)
+    })
+
+    test.it("cos(pi) = -1", () -> {
+        test.expect(math.cos(math.pi)).toBeCloseTo(-1.0)
+    })
+
+    test.it("asin(1) = pi/2", () -> {
+        test.expect(math.asin(1.0)).toBeCloseTo(math.pi / 2.0)
+    })
+
+    test.it("acos(1) = 0", () -> {
+        test.expect(math.acos(1.0)).toBeCloseTo(0.0)
+    })
+
+    test.it("atan(1) = pi/4", () -> {
+        test.expect(math.atan(1.0)).toBeCloseTo(math.pi / 4.0)
+    })
+
+    test.it("atan2(1, 1) = pi/4", () -> {
+        test.expect(math.atan2(1.0, 1.0)).toBeCloseTo(math.pi / 4.0)
+    })
+})
+
+test.describe("Hyperbolic functions", () -> {
+    test.it("sinh(0) = 0", () -> {
+        test.expect(math.sinh(0.0)).toBeCloseTo(0.0)
+    })
+
+    test.it("cosh(0) = 1", () -> {
+        test.expect(math.cosh(0.0)).toBeCloseTo(1.0)
+    })
+
+    test.it("tanh(0) = 0", () -> {
+        test.expect(math.tanh(0.0)).toBeCloseTo(0.0)
+    })
+})
+
+test.describe("Exponential and logarithmic", () -> {
+    test.it("exp(0) = 1", () -> {
+        test.expect(math.exp(0.0)).toBeCloseTo(1.0)
+    })
+
+    test.it("exp(1) = e", () -> {
+        test.expect(math.exp(1.0)).toBeCloseTo(math.e)
+    })
+
+    test.it("log(e) = 1", () -> {
+        test.expect(math.log(math.e)).toBeCloseTo(1.0)
+    })
+
+    test.it("log10(100) = 2", () -> {
+        test.expect(math.log10(100.0)).toBeCloseTo(2.0)
+    })
+
+    test.it("log2(8) = 3", () -> {
+        test.expect(math.log2(8.0)).toBeCloseTo(3.0)
+    })
+})
+
+test.describe("Roots", () -> {
+    test.it("sqrt(4) = 2", () -> {
+        test.expect(math.sqrt(4.0)).toBeCloseTo(2.0)
+    })
+
+    test.it("sqrt(9) = 3", () -> {
+        test.expect(math.sqrt(9.0)).toBeCloseTo(3.0)
+    })
+
+    test.it("sqrt(2) = sqrt2 constant", () -> {
+        test.expect(math.sqrt(2.0)).toBeCloseTo(math.sqrt2)
+    })
+
+    test.it("cbrt(8) = 2", () -> {
+        test.expect(math.cbrt(8.0)).toBeCloseTo(2.0)
+    })
+
+    test.it("cbrt(27) = 3", () -> {
+        test.expect(math.cbrt(27.0)).toBeCloseTo(3.0)
+    })
+})
+
+test.describe("Rounding functions", () -> {
+    test.it("floor rounds down", () -> {
+        test.expect(math.floor(3.9)).toBeCloseTo(3.0)
+        test.expect(math.floor(-3.1)).toBeCloseTo(-4.0)
+    })
+
+    test.it("ceil rounds up", () -> {
+        test.expect(math.ceil(3.1)).toBeCloseTo(4.0)
+        test.expect(math.ceil(-3.9)).toBeCloseTo(-3.0)
+    })
+
+    test.it("round to nearest", () -> {
+        test.expect(math.round(3.5)).toBeCloseTo(4.0)
+        test.expect(math.round(3.4)).toBeCloseTo(3.0)
+    })
+})
+
+test.describe("Utility functions", () -> {
+    test.it("abs of negative", () -> {
+        test.expect(math.abs(-5.0)).toBeCloseTo(5.0)
+        test.expect(math.abs(5.0)).toBeCloseTo(5.0)
+    })
+
+    test.it("mod(10.5, 3.0) = 1.5", () -> {
+        test.expect(math.mod(10.5, 3.0)).toBeCloseTo(1.5)
+    })
+
+    test.it("min and max", () -> {
+        test.expect(math.min(3.0, 7.0)).toBeCloseTo(3.0)
+        test.expect(math.max(3.0, 7.0)).toBeCloseTo(7.0)
+    })
+})
+
+test.describe("Mathematical constants", () -> {
+    test.it("pi ≈ 3.14159", () -> {
+        test.expect(math.pi).toBeGreaterThan(3.14)
+        test.expect(math.pi).toBeLessThan(3.15)
+    })
+
+    test.it("e ≈ 2.71828", () -> {
+        test.expect(math.e).toBeGreaterThan(2.71)
+        test.expect(math.e).toBeLessThan(2.72)
+    })
+
+    test.it("tau = 2 * pi", () -> {
+        test.expect(math.tau).toBeCloseTo(2.0 * math.pi)
+    })
+
+    test.it("phi = golden ratio ≈ 1.618", () -> {
+        test.expect(math.phi).toBeGreaterThan(1.61)
+        test.expect(math.phi).toBeLessThan(1.62)
+    })
+
+    test.it("sqrt2 = sqrt(2)", () -> {
+        test.expect(math.sqrt2).toBeCloseTo(math.sqrt(2.0))
+    })
+
+    test.it("ln2 = log(2)", () -> {
+        test.expect(math.ln2).toBeCloseTo(math.log(2.0))
+    })
+})

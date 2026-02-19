@@ -1,0 +1,89 @@
+import test
+
+test.describe("Atom literals", () -> {
+    test.it("atom is an atom", () -> {
+        var a := :ok
+        test.expect(is_atom(a)).toBeTruthy()
+    })
+
+    test.it("multiple atom literals", () -> {
+        var ok := :ok
+        var err := :error
+        var pending := :pending
+        var done := :done
+        test.expect(is_atom(ok)).toBeTruthy()
+        test.expect(is_atom(err)).toBeTruthy()
+        test.expect(is_atom(pending)).toBeTruthy()
+        test.expect(is_atom(done)).toBeTruthy()
+    })
+
+    test.it("typeof atom is atom", () -> {
+        test.expect(typeof(:ok)).toBe("atom")
+    })
+})
+
+test.describe("Atom comparison", () -> {
+    test.it("same atom equals itself", () -> {
+        test.expect(:ok == :ok).toBeTruthy()
+        test.expect(:error == :error).toBeTruthy()
+    })
+
+    test.it("different atoms are not equal", () -> {
+        test.expect(:ok == :error).toBeFalsy()
+        test.expect(:ok != :error).toBeTruthy()
+    })
+
+    test.it("atom variable equality", () -> {
+        var a := :ok
+        var b := :ok
+        test.expect(a == b).toBeTruthy()
+    })
+
+    test.it("atom variables inequality", () -> {
+        var a := :ok
+        var b := :error
+        test.expect(a == b).toBeFalsy()
+    })
+})
+
+test.describe("Atoms in match expressions", () -> {
+    test.it("match on :ok", () -> {
+        var status := :ok
+        var result := match status {
+            :ok -> 1
+            :error -> 2
+            _ -> 0
+        }
+        test.expect(result).toBe(1)
+    })
+
+    test.it("match on :error", () -> {
+        var status := :error
+        var result := match status {
+            :ok -> 1
+            :error -> 2
+            _ -> 0
+        }
+        test.expect(result).toBe(2)
+    })
+
+    test.it("match wildcard for unknown atom", () -> {
+        var status := :pending
+        var result := match status {
+            :ok -> 1
+            :error -> 2
+            _ -> 0
+        }
+        test.expect(result).toBe(0)
+    })
+
+    test.it("multi-atom match arms", () -> {
+        var s := :done
+        var result := match s {
+            :ok | :done -> 1
+            :error | :pending -> 0
+            _ -> -1
+        }
+        test.expect(result).toBe(1)
+    })
+})

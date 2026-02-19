@@ -1,0 +1,160 @@
+import test
+
+test.describe("Int arithmetic", () -> {
+    test.it("addition", () -> {
+        test.expect(3 + 4).toBe(7)
+        test.expect(-1 + 1).toBe(0)
+        test.expect(100 + 200).toBe(300)
+    })
+
+    test.it("subtraction", () -> {
+        test.expect(10 - 3).toBe(7)
+        test.expect(0 - 5).toBe(-5)
+        test.expect(100 - 100).toBe(0)
+    })
+
+    test.it("multiplication", () -> {
+        test.expect(6 * 7).toBe(42)
+        test.expect(-3 * 4).toBe(-12)
+        test.expect(0 * 999).toBe(0)
+    })
+
+    test.it("integer division truncates", () -> {
+        test.expect(7 / 2).toBe(3)
+        test.expect(10 / 3).toBe(3)
+        test.expect(9 / 3).toBe(3)
+    })
+
+    test.it("modulo", () -> {
+        test.expect(10 % 3).toBe(1)
+        test.expect(7 % 7).toBe(0)
+        test.expect(100 % 7).toBe(2)
+    })
+
+    test.it("power", () -> {
+        test.expect(2 ** 10).toBe(1024)
+        test.expect(3 ** 3).toBe(27)
+        test.expect(5 ** 0).toBe(1)
+    })
+
+    test.it("power is right-associative: 2**3**2 = 512", () -> {
+        test.expect(2 ** 3 ** 2).toBe(512)
+    })
+})
+
+test.describe("Float arithmetic", () -> {
+    test.it("addition", () -> {
+        test.expect(1.5 + 2.5).toBeCloseTo(4.0)
+        test.expect(0.1 + 0.9).toBeCloseTo(1.0)
+    })
+
+    test.it("subtraction", () -> {
+        test.expect(5.0 - 2.5).toBeCloseTo(2.5)
+    })
+
+    test.it("multiplication", () -> {
+        test.expect(2.5 * 4.0).toBeCloseTo(10.0)
+    })
+
+    test.it("division", () -> {
+        test.expect(7.0 / 2.0).toBeCloseTo(3.5)
+        test.expect(1.0 / 4.0).toBeCloseTo(0.25)
+    })
+
+    test.it("power with float exponent", () -> {
+        test.expect(4.0 ** 0.5).toBeCloseTo(2.0)
+        test.expect(9.0 ** 0.5).toBeCloseTo(3.0)
+    })
+})
+
+test.describe("Operator precedence", () -> {
+    test.it("multiplication before addition", () -> {
+        test.expect(2 + 3 * 4).toBe(14)
+        test.expect(10 - 2 * 3).toBe(4)
+    })
+
+    test.it("power before multiplication", () -> {
+        test.expect(2 * 3 ** 2).toBe(18)
+    })
+
+    test.it("parentheses override precedence", () -> {
+        test.expect((2 + 3) * 4).toBe(20)
+        test.expect(2 * (3 + 4)).toBe(14)
+    })
+
+    test.it("division before addition", () -> {
+        test.expect(10 + 8 / 2).toBe(14)
+    })
+})
+
+test.describe("Compound assignment", () -> {
+    test.it("+=", () -> {
+        var x := 10
+        x += 5
+        test.expect(x).toBe(15)
+    })
+
+    test.it("-=", () -> {
+        var x := 10
+        x -= 3
+        test.expect(x).toBe(7)
+    })
+
+    test.it("*=", () -> {
+        var x := 4
+        x *= 3
+        test.expect(x).toBe(12)
+    })
+
+    test.it("/=", () -> {
+        var x := 10
+        x /= 2
+        test.expect(x).toBe(5)
+    })
+
+    test.it("%=", () -> {
+        var x := 10
+        x %= 3
+        test.expect(x).toBe(1)
+    })
+})
+
+test.describe("Increment and decrement", () -> {
+    test.it("++ increments by 1", () -> {
+        var x := 5
+        x++
+        test.expect(x).toBe(6)
+    })
+
+    test.it("-- decrements by 1", () -> {
+        var x := 5
+        x--
+        test.expect(x).toBe(4)
+    })
+
+    test.it("multiple increments", () -> {
+        var x := 0
+        x++
+        x++
+        x++
+        test.expect(x).toBe(3)
+    })
+})
+
+test.describe("Ternary operator", () -> {
+    test.it("selects true branch", () -> {
+        var x := 10 > 5 ? 1 : 0
+        test.expect(x).toBe(1)
+    })
+
+    test.it("selects false branch", () -> {
+        var x := 3 > 5 ? 1 : 0
+        test.expect(x).toBe(0)
+    })
+
+    test.it("with variables", () -> {
+        var a := 42
+        var b := a == 42 ? 100 : 200
+        test.expect(b).toBe(100)
+    })
+})

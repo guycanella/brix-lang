@@ -1,0 +1,120 @@
+import test
+
+struct Point {
+    x: int,
+    y: int
+}
+
+struct Config {
+    timeout: int = 30,
+    retries: int = 3,
+    verbose: int = 0
+}
+
+struct Rectangle {
+    width: float,
+    height: float
+}
+
+fn (p: Point) sum() -> int {
+    return p.x + p.y
+}
+
+fn (p: Point) scale(factor: int) -> int {
+    return p.x * factor
+}
+
+fn (p: Point) move(dx: int, dy: int) {
+    p.x += dx
+    p.y += dy
+}
+
+fn (r: Rectangle) area() -> float {
+    return r.width * r.height
+}
+
+fn (r: Rectangle) perimeter() -> float {
+    return 2.0 * (r.width + r.height)
+}
+
+struct Box<T> {
+    value: T
+}
+
+fn (b: Box) get() -> T {
+    return b.value
+}
+
+test.describe("Struct instantiation and field access", () -> {
+    test.it("creates struct and reads fields", () -> {
+        var p := Point { x: 10, y: 20 }
+        test.expect(p.x).toBe(10)
+        test.expect(p.y).toBe(20)
+    })
+
+    test.it("field mutation", () -> {
+        var p := Point { x: 1, y: 2 }
+        p.x := 99
+        test.expect(p.x).toBe(99)
+        test.expect(p.y).toBe(2)
+    })
+})
+
+test.describe("Default values", () -> {
+    test.it("all defaults applied", () -> {
+        var cfg := Config { }
+        test.expect(cfg.timeout).toBe(30)
+        test.expect(cfg.retries).toBe(3)
+        test.expect(cfg.verbose).toBe(0)
+    })
+
+    test.it("partial override", () -> {
+        var cfg := Config { timeout: 60 }
+        test.expect(cfg.timeout).toBe(60)
+        test.expect(cfg.retries).toBe(3)
+    })
+
+    test.it("full override", () -> {
+        var cfg := Config { timeout: 10, retries: 1, verbose: 1 }
+        test.expect(cfg.timeout).toBe(10)
+        test.expect(cfg.retries).toBe(1)
+        test.expect(cfg.verbose).toBe(1)
+    })
+})
+
+test.describe("Struct methods (Go-style receivers)", () -> {
+    test.it("method reads fields", () -> {
+        var p := Point { x: 3, y: 4 }
+        test.expect(p.sum()).toBe(7)
+    })
+
+    test.it("method with parameter", () -> {
+        var p := Point { x: 5, y: 0 }
+        test.expect(p.scale(3)).toBe(15)
+    })
+
+    test.it("method mutates receiver fields", () -> {
+        var p := Point { x: 0, y: 0 }
+        p.move(10, 20)
+        test.expect(p.x).toBe(10)
+        test.expect(p.y).toBe(20)
+    })
+
+    test.it("float struct methods", () -> {
+        var r := Rectangle { width: 4.0, height: 3.0 }
+        test.expect(r.area()).toBeCloseTo(12.0)
+        test.expect(r.perimeter()).toBeCloseTo(14.0)
+    })
+})
+
+test.describe("Generic struct Box<T>", () -> {
+    test.it("Box<int> stores and retrieves int", () -> {
+        var b := Box<int> { value: 42 }
+        test.expect(b.get()).toBe(42)
+    })
+
+    test.it("Box<float> stores and retrieves float", () -> {
+        var b := Box<float> { value: 3.14 }
+        test.expect(b.get()).toBeCloseTo(3.14)
+    })
+})

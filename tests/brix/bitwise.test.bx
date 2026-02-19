@@ -1,0 +1,80 @@
+import test
+
+test.describe("Bitwise AND &", () -> {
+    test.it("5 & 3 = 1", () -> {
+        test.expect(5 & 3).toBe(1)
+    })
+
+    test.it("12 & 10 = 8", () -> {
+        test.expect(12 & 10).toBe(8)
+    })
+
+    test.it("0 & anything = 0", () -> {
+        test.expect(0 & 42).toBe(0)
+        test.expect(0 & 255).toBe(0)
+    })
+
+    test.it("x & x = x", () -> {
+        test.expect(42 & 42).toBe(42)
+    })
+
+    test.it("mask lower nibble: 255 & 15 = 15", () -> {
+        test.expect(255 & 15).toBe(15)
+    })
+})
+
+test.describe("Bitwise OR |", () -> {
+    test.it("5 | 2 = 7", () -> {
+        test.expect(5 | 2).toBe(7)
+    })
+
+    test.it("0 | 42 = 42", () -> {
+        test.expect(0 | 42).toBe(42)
+    })
+
+    test.it("3 | 5 = 7", () -> {
+        test.expect(3 | 5).toBe(7)
+    })
+
+    test.it("x | x = x", () -> {
+        test.expect(15 | 15).toBe(15)
+    })
+})
+
+test.describe("Bitwise XOR ^", () -> {
+    test.it("5 ^ 3 = 6", () -> {
+        test.expect(5 ^ 3).toBe(6)
+    })
+
+    test.it("x ^ x = 0 (self-cancel)", () -> {
+        test.expect(42 ^ 42).toBe(0)
+        test.expect(255 ^ 255).toBe(0)
+    })
+
+    test.it("x ^ 0 = x (identity)", () -> {
+        test.expect(42 ^ 0).toBe(42)
+    })
+
+    test.it("XOR swap: a ^ b ^ b = a", () -> {
+        var a := 13
+        var b := 7
+        test.expect(a ^ b ^ b).toBe(13)
+    })
+})
+
+test.describe("Bitwise precedence (tighter than comparison)", () -> {
+    test.it("5 & 3 == 1 is (5 & 3) == 1", () -> {
+        var result := 5 & 3 == 1
+        test.expect(result).toBeTruthy()
+    })
+
+    test.it("5 | 2 == 7 is (5 | 2) == 7", () -> {
+        var result := 5 | 2 == 7
+        test.expect(result).toBeTruthy()
+    })
+
+    test.it("6 ^ 3 == 5 is (6 ^ 3) == 5", () -> {
+        var result := 6 ^ 3 == 5
+        test.expect(result).toBeTruthy()
+    })
+})

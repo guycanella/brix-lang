@@ -1,0 +1,77 @@
+import math
+import test
+
+test.describe("sum", () -> {
+    test.it("sum of integers as floats", () -> {
+        var arr := [1.0, 2.0, 3.0, 4.0, 5.0]
+        test.expect(math.sum(arr)).toBeCloseTo(15.0)
+    })
+
+    test.it("sum of single element", () -> {
+        var arr := [42.0]
+        test.expect(math.sum(arr)).toBeCloseTo(42.0)
+    })
+
+    test.it("sum with negative values", () -> {
+        var arr := [-1.0, 0.0, 1.0]
+        test.expect(math.sum(arr)).toBeCloseTo(0.0)
+    })
+})
+
+test.describe("mean", () -> {
+    test.it("mean of uniform values", () -> {
+        var arr := [5.0, 5.0, 5.0, 5.0]
+        test.expect(math.mean(arr)).toBeCloseTo(5.0)
+    })
+
+    test.it("mean of 1 to 5", () -> {
+        var arr := [1.0, 2.0, 3.0, 4.0, 5.0]
+        test.expect(math.mean(arr)).toBeCloseTo(3.0)
+    })
+
+    test.it("mean of two values", () -> {
+        var arr := [10.0, 20.0]
+        test.expect(math.mean(arr)).toBeCloseTo(15.0)
+    })
+})
+
+test.describe("median", () -> {
+    test.it("median of sorted odd-length array", () -> {
+        var arr := [1.0, 2.0, 3.0, 4.0, 5.0]
+        test.expect(math.median(arr)).toBeCloseTo(3.0)
+    })
+
+    test.it("median of unsorted array", () -> {
+        var arr := [3.0, 1.0, 4.0, 1.0, 5.0]
+        test.expect(math.median(arr)).toBeCloseTo(3.0)
+    })
+
+    test.it("median of single value", () -> {
+        var arr := [7.0]
+        test.expect(math.median(arr)).toBeCloseTo(7.0)
+    })
+})
+
+test.describe("variance", () -> {
+    test.it("variance of identical values is 0", () -> {
+        var arr := [3.0, 3.0, 3.0, 3.0]
+        test.expect(math.variance(arr)).toBeCloseTo(0.0)
+    })
+
+    test.it("variance of [2,4,4,4,5,5,7,9] = 4", () -> {
+        var arr := [2.0, 4.0, 4.0, 4.0, 5.0, 5.0, 7.0, 9.0]
+        test.expect(math.variance(arr)).toBeCloseTo(4.0)
+    })
+})
+
+test.describe("stddev", () -> {
+    test.it("stddev of identical values is 0", () -> {
+        var arr := [5.0, 5.0, 5.0]
+        test.expect(math.stddev(arr)).toBeCloseTo(0.0)
+    })
+
+    test.it("stddev of [2,4,4,4,5,5,7,9] = 2", () -> {
+        var arr := [2.0, 4.0, 4.0, 4.0, 5.0, 5.0, 7.0, 9.0]
+        test.expect(math.stddev(arr)).toBeCloseTo(2.0)
+    })
+})
