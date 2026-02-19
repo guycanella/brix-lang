@@ -3761,6 +3761,34 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     }
                 }
 
+                // --- Atoms (i64 IDs, compare as integers) ---
+                if matches!(lhs_type, BrixType::Atom) && matches!(rhs_type, BrixType::Atom) {
+                    let pred = match op {
+                        BinaryOp::Eq => inkwell::IntPredicate::EQ,
+                        BinaryOp::NotEq => inkwell::IntPredicate::NE,
+                        _ => return Err(CodegenError::InvalidOperation {
+                            operation: format!("{:?}", op),
+                            reason: "Only == and != are supported for atoms".to_string(),
+                            span: Some(expr.span.clone()),
+                        }),
+                    };
+                    let result = self.builder
+                        .build_int_compare(pred, lhs_val.into_int_value(), rhs_val.into_int_value(), "atom_cmp")
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_int_compare".to_string(),
+                            details: "Failed to compare atoms".to_string(),
+                            span: Some(expr.span.clone()),
+                        })?;
+                    let extended = self.builder
+                        .build_int_z_extend(result, self.context.i64_type(), "atom_cmp_ext")
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_int_z_extend".to_string(),
+                            details: "Failed to extend atom comparison".to_string(),
+                            span: Some(expr.span.clone()),
+                        })?;
+                    return Ok((extended.into(), BrixType::Int));
+                }
+
                 // --- Numbers (Int and Float) ---
                 // Validate that both operands are numeric types
                 let is_numeric = |t: &BrixType| matches!(t, BrixType::Int | BrixType::Float);
