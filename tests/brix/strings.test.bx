@@ -1,0 +1,119 @@
+import test
+
+test.describe("String literals and comparison", () -> {
+    test.it("basic equality", () -> {
+        var s := "hello"
+        test.expect(s).toBe("hello")
+    })
+
+    test.it("inequality", () -> {
+        var a := "hello"
+        var b := "world"
+        test.expect(a == b).toBeFalsy()
+        test.expect(a != b).toBeTruthy()
+    })
+
+    test.it("empty string", () -> {
+        var s := ""
+        test.expect(s).toBe("")
+    })
+})
+
+test.describe("String concatenation", () -> {
+    test.it("two strings", () -> {
+        var result := "hello" + " world"
+        test.expect(result).toBe("hello world")
+    })
+
+    test.it("three strings", () -> {
+        var a := "foo"
+        var b := "bar"
+        var c := "baz"
+        test.expect(a + b + c).toBe("foobarbaz")
+    })
+
+    test.it("string + number via variable", () -> {
+        var prefix := "count: "
+        var s := prefix + string(42)
+        test.expect(s).toBe("count: 42")
+    })
+})
+
+test.describe("F-strings", () -> {
+    test.it("basic interpolation", () -> {
+        var x := 42
+        var s := f"x is {x}"
+        test.expect(s).toBe("x is 42")
+    })
+
+    test.it("float interpolation", () -> {
+        var pi := 3.14
+        var s := f"pi = {pi}"
+        test.expect(s).toBe("pi = 3.14")
+    })
+
+    test.it("expression in f-string", () -> {
+        var a := 3
+        var b := 4
+        var s := f"sum = {a + b}"
+        test.expect(s).toBe("sum = 7")
+    })
+})
+
+test.describe("F-string format specifiers", () -> {
+    test.it(":x hex format", () -> {
+        var n := 255
+        var s := f"{n:x}"
+        test.expect(s).toBe("ff")
+    })
+
+    test.it(":o octal format", () -> {
+        var n := 8
+        var s := f"{n:o}"
+        test.expect(s).toBe("10")
+    })
+
+    test.it(":.2f decimal precision", () -> {
+        var pi := 3.14159
+        var s := f"{pi:.2f}"
+        test.expect(s).toBe("3.14")
+    })
+})
+
+test.describe("String built-in functions", () -> {
+    test.it("uppercase", () -> {
+        test.expect(uppercase("hello")).toBe("HELLO")
+        test.expect(uppercase("brix")).toBe("BRIX")
+    })
+
+    test.it("lowercase", () -> {
+        test.expect(lowercase("HELLO")).toBe("hello")
+        test.expect(lowercase("BRIX")).toBe("brix")
+    })
+
+    test.it("capitalize", () -> {
+        test.expect(capitalize("hello world")).toBe("Hello world")
+        test.expect(capitalize("brix")).toBe("Brix")
+    })
+
+    test.it("length returns character count", () -> {
+        test.expect(length("hello")).toBe(5)
+        test.expect(length("")).toBe(0)
+        test.expect(length("brix lang")).toBe(9)
+    })
+
+    test.it("byte_size returns byte count", () -> {
+        test.expect(byte_size("hello")).toBe(5)
+        test.expect(byte_size("")).toBe(0)
+    })
+
+    test.it("replace first occurrence", () -> {
+        test.expect(replace("hello world", "world", "brix")).toBe("hello brix")
+        test.expect(replace("aaa", "a", "b")).toBe("baa")
+    })
+
+    test.it("replace_all replaces every occurrence", () -> {
+        test.expect(replace_all("aaa", "a", "b")).toBe("bbb")
+        test.expect(replace_all("hello world", "l", "L")).toBe("heLLo worLd")
+    })
+})

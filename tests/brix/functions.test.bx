@@ -1,0 +1,99 @@
+import test
+
+function add(a: int, b: int) -> int {
+    return a + b
+}
+
+function multiply(a: int, b: int) -> int {
+    return a * b
+}
+
+function abs_val(x: int) -> int {
+    return x < 0 ? -x : x
+}
+
+function swap(a: int, b: int) -> (int, int) {
+    return (b, a)
+}
+
+function sum_and_product(a: int, b: int) -> (int, int) {
+    return (a + b, a * b)
+}
+
+function greet(name: string, greeting: string = "Hello") -> string {
+    return greeting + ", " + name + "!"
+}
+
+function factorial(n: int) -> int {
+    if n <= 1 {
+        return 1
+    }
+    return n * factorial(n - 1)
+}
+
+function fibonacci(n: int) -> int {
+    if n <= 1 {
+        return n
+    }
+    return fibonacci(n - 1) + fibonacci(n - 2)
+}
+
+test.describe("Basic functions", () -> {
+    test.it("add", () -> {
+        test.expect(add(3, 4)).toBe(7)
+        test.expect(add(-1, 1)).toBe(0)
+        test.expect(add(0, 0)).toBe(0)
+    })
+
+    test.it("multiply", () -> {
+        test.expect(multiply(6, 7)).toBe(42)
+        test.expect(multiply(0, 100)).toBe(0)
+    })
+
+    test.it("conditional logic in function", () -> {
+        test.expect(abs_val(-5)).toBe(5)
+        test.expect(abs_val(5)).toBe(5)
+        test.expect(abs_val(0)).toBe(0)
+    })
+})
+
+test.describe("Multiple return values", () -> {
+    test.it("swap returns (b, a)", () -> {
+        var { a, b } := swap(10, 20)
+        test.expect(a).toBe(20)
+        test.expect(b).toBe(10)
+    })
+
+    test.it("sum and product", () -> {
+        var { s, p } := sum_and_product(3, 4)
+        test.expect(s).toBe(7)
+        test.expect(p).toBe(12)
+    })
+})
+
+test.describe("Default parameters", () -> {
+    test.it("uses default when not provided", () -> {
+        test.expect(greet("Brix")).toBe("Hello, Brix!")
+    })
+
+    test.it("overrides default when provided", () -> {
+        test.expect(greet("Brix", "Hi")).toBe("Hi, Brix!")
+    })
+})
+
+test.describe("Recursion", () -> {
+    test.it("factorial", () -> {
+        test.expect(factorial(0)).toBe(1)
+        test.expect(factorial(1)).toBe(1)
+        test.expect(factorial(5)).toBe(120)
+        test.expect(factorial(10)).toBe(3628800)
+    })
+
+    test.it("fibonacci", () -> {
+        test.expect(fibonacci(0)).toBe(0)
+        test.expect(fibonacci(1)).toBe(1)
+        test.expect(fibonacci(7)).toBe(13)
+        test.expect(fibonacci(10)).toBe(55)
+    })
+})
+

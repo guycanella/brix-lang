@@ -1,0 +1,110 @@
+import test
+
+test.describe("IntMatrix literals and indexing", () -> {
+    test.it("creates IntMatrix from int literals", () -> {
+        var arr := [1, 2, 3, 4, 5]
+        test.expect(arr[0]).toBe(1)
+        test.expect(arr[1]).toBe(2)
+        test.expect(arr[4]).toBe(5)
+    })
+
+    test.it(".cols returns element count", () -> {
+        var arr := [10, 20, 30]
+        test.expect(arr.cols).toBe(3)
+    })
+
+    test.it("single element array", () -> {
+        var arr := [42]
+        test.expect(arr[0]).toBe(42)
+        test.expect(arr.cols).toBe(1)
+    })
+})
+
+test.describe("IntMatrix arithmetic with scalar", () -> {
+    test.it("add scalar", () -> {
+        var arr := [1, 2, 3]
+        var result := arr + 10
+        test.expect(result[0]).toBe(11)
+        test.expect(result[1]).toBe(12)
+        test.expect(result[2]).toBe(13)
+    })
+
+    test.it("subtract scalar", () -> {
+        var arr := [10, 20, 30]
+        var result := arr - 5
+        test.expect(result[0]).toBe(5)
+        test.expect(result[1]).toBe(15)
+        test.expect(result[2]).toBe(25)
+    })
+
+    test.it("multiply scalar", () -> {
+        var arr := [1, 2, 3]
+        var result := arr * 3
+        test.expect(result[0]).toBe(3)
+        test.expect(result[1]).toBe(6)
+        test.expect(result[2]).toBe(9)
+    })
+
+    test.it("integer division truncates", () -> {
+        var arr := [6, 7, 8]
+        var result := arr / 2
+        test.expect(result[0]).toBe(3)
+        test.expect(result[1]).toBe(3)
+        test.expect(result[2]).toBe(4)
+    })
+
+    test.it("modulo scalar", () -> {
+        var arr := [10, 11, 12]
+        var result := arr % 3
+        test.expect(result[0]).toBe(1)
+        test.expect(result[1]).toBe(2)
+        test.expect(result[2]).toBe(0)
+    })
+
+    test.it("power scalar", () -> {
+        var arr := [1, 2, 3]
+        var result := arr ** 2
+        test.expect(result[0]).toBe(1)
+        test.expect(result[1]).toBe(4)
+        test.expect(result[2]).toBe(9)
+    })
+})
+
+test.describe("IntMatrix element-wise arithmetic", () -> {
+    test.it("add two arrays", () -> {
+        var a := [1, 2, 3]
+        var b := [4, 5, 6]
+        var result := a + b
+        test.expect(result[0]).toBe(5)
+        test.expect(result[1]).toBe(7)
+        test.expect(result[2]).toBe(9)
+    })
+
+    test.it("subtract two arrays", () -> {
+        var a := [10, 20, 30]
+        var b := [1, 2, 3]
+        var result := a - b
+        test.expect(result[0]).toBe(9)
+        test.expect(result[1]).toBe(18)
+        test.expect(result[2]).toBe(27)
+    })
+
+    test.it("multiply two arrays", () -> {
+        var a := [2, 3, 4]
+        var b := [5, 6, 7]
+        var result := a * b
+        test.expect(result[0]).toBe(10)
+        test.expect(result[1]).toBe(18)
+        test.expect(result[2]).toBe(28)
+    })
+})
+
+test.describe("IntMatrix promotes to Matrix with float scalar", () -> {
+    test.it("int array * float = Matrix", () -> {
+        var arr := [1, 2, 4]
+        var result := arr * 2.5
+        test.expect(result[0]).toBeCloseTo(2.5)
+        test.expect(result[1]).toBeCloseTo(5.0)
+        test.expect(result[2]).toBeCloseTo(10.0)
+    })
+})

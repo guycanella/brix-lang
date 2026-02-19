@@ -1,0 +1,112 @@
+import test
+
+test.describe("Literal patterns", () -> {
+    test.it("matches int literal", () -> {
+        var x := 2
+        var result := match x {
+            1 -> "one"
+            2 -> "two"
+            3 -> "three"
+            _ -> "other"
+        }
+        test.expect(result).toBe("two")
+    })
+
+    test.it("falls through to wildcard", () -> {
+        var x := 99
+        var result := match x {
+            1 -> "one"
+            2 -> "two"
+            _ -> "other"
+        }
+        test.expect(result).toBe("other")
+    })
+})
+
+test.describe("Binding patterns", () -> {
+    test.it("binds value to variable", () -> {
+        var x := 42
+        var result := match x {
+            n -> n * 2
+        }
+        test.expect(result).toBe(84)
+    })
+})
+
+test.describe("Or-patterns", () -> {
+    test.it("matches any of the listed values", () -> {
+        var day := 6
+        var result := match day {
+            1 | 2 | 3 | 4 | 5 -> "weekday"
+            6 | 7 -> "weekend"
+            _ -> "invalid"
+        }
+        test.expect(result).toBe("weekend")
+    })
+
+    test.it("first arm wins", () -> {
+        var x := 3
+        var result := match x {
+            1 | 2 | 3 -> "low"
+            3 | 4 | 5 -> "mid"
+            _ -> "high"
+        }
+        test.expect(result).toBe("low")
+    })
+})
+
+test.describe("Guards", () -> {
+    test.it("guard filters match arm", () -> {
+        var x := 15
+        var result := match x {
+            n if n > 10 -> "big"
+            n if n > 0  -> "small"
+            _ -> "zero or negative"
+        }
+        test.expect(result).toBe("big")
+    })
+
+    test.it("guard with equality", () -> {
+        var x := 7
+        var result := match x {
+            n if n % 2 == 0 -> "even"
+            _ -> "odd"
+        }
+        test.expect(result).toBe("odd")
+    })
+})
+
+test.describe("typeof in match", () -> {
+    test.it("matches int type", () -> {
+        var x := 42
+        var result := match typeof(x) {
+            "int" -> 1
+            "float" -> 2
+            "string" -> 3
+            _ -> 0
+        }
+        test.expect(result).toBe(1)
+    })
+
+    test.it("matches float type", () -> {
+        var x := 3.14
+        var result := match typeof(x) {
+            "int" -> 1
+            "float" -> 2
+            _ -> 0
+        }
+        test.expect(result).toBe(2)
+    })
+})
+
+test.describe("Type coercion across arms", () -> {
+    test.it("int arm and float arm coerce result to float", () -> {
+        var x := 1
+        var result := match x {
+            1 -> 10
+            2 -> 2
+            _ -> 0
+        }
+        test.expect(result).toBe(10)
+    })
+})

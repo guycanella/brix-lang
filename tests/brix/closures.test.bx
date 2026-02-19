@@ -1,0 +1,117 @@
+import test
+
+// Closures created inside regular functions (not inside closures)
+// This avoids nested-closure ARC issues
+
+function double_via_closure(x: int) -> int {
+    var f := (n: int) -> int { return n * 2 }
+    return f(x)
+}
+
+function add_via_closure(a: int, b: int) -> int {
+    var f := (x: int, y: int) -> int { return x + y }
+    return f(a, b)
+}
+
+function half_via_closure(x: float) -> float {
+    var f := (v: float) -> float { return v / 2.0 }
+    return f(x)
+}
+
+function add_offset_via_closure(x: int, offset: int) -> int {
+    var f := (n: int) -> int { return n + offset }
+    return f(x)
+}
+
+function sum_with_two(x: int, a: int, b: int) -> int {
+    var f := (n: int) -> int { return n + a + b }
+    return f(x)
+}
+
+function mul_by_capture(n: int, multiplier: int) -> int {
+    var f := (x: int) -> int { return x * multiplier }
+    return f(n)
+}
+
+function two_closures_double(x: int) -> int {
+    var double := (n: int) -> int { return n * 2 }
+    var triple := (n: int) -> int { return n * 3 }
+    return double(x)
+}
+
+function two_closures_triple(x: int) -> int {
+    var double := (n: int) -> int { return n * 2 }
+    var triple := (n: int) -> int { return n * 3 }
+    return triple(x)
+}
+
+function float_capture(x: float, scale: float) -> float {
+    var f := (v: float) -> float { return v * scale }
+    return f(x)
+}
+
+function get_constant() -> int {
+    var f := () -> int { return 42 }
+    return f()
+}
+
+function get_captured_value(value: int) -> int {
+    var f := () -> int { return value }
+    return f()
+}
+
+test.describe("Closure without capture", () -> {
+    test.it("simple arithmetic closure", () -> {
+        test.expect(double_via_closure(5)).toBe(10)
+        test.expect(double_via_closure(21)).toBe(42)
+    })
+
+    test.it("closure with two parameters", () -> {
+        test.expect(add_via_closure(3, 4)).toBe(7)
+        test.expect(add_via_closure(0, 0)).toBe(0)
+    })
+
+    test.it("closure returning float", () -> {
+        test.expect(half_via_closure(10.0)).toBeCloseTo(5.0)
+    })
+})
+
+test.describe("Closure with capture", () -> {
+    test.it("captures single variable", () -> {
+        test.expect(add_offset_via_closure(5, 100)).toBe(105)
+        test.expect(add_offset_via_closure(0, 100)).toBe(100)
+    })
+
+    test.it("captures multiple variables", () -> {
+        test.expect(sum_with_two(5, 10, 20)).toBe(35)
+    })
+
+    test.it("captures and uses in computation", () -> {
+        test.expect(mul_by_capture(4, 3)).toBe(12)
+        test.expect(mul_by_capture(7, 3)).toBe(21)
+    })
+})
+
+test.describe("Multiple closures in scope", () -> {
+    test.it("two independent closures - double", () -> {
+        test.expect(two_closures_double(5)).toBe(10)
+    })
+
+    test.it("two independent closures - triple", () -> {
+        test.expect(two_closures_triple(5)).toBe(15)
+    })
+
+    test.it("closure with float capture", () -> {
+        test.expect(float_capture(4.0, 2.5)).toBeCloseTo(10.0)
+    })
+})
+
+test.describe("Zero-parameter closures", () -> {
+    test.it("closure with no params returns constant", () -> {
+        test.expect(get_constant()).toBe(42)
+    })
+
+    test.it("zero-param closure captures variable", () -> {
+        test.expect(get_captured_value(99)).toBe(99)
+    })
+})

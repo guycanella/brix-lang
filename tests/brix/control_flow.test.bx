@@ -1,0 +1,114 @@
+import test
+
+test.describe("if / else", () -> {
+    test.it("takes true branch", () -> {
+        var x := 0
+        if 10 > 5 {
+            x := 1
+        } else {
+            x := 2
+        }
+        test.expect(x).toBe(1)
+    })
+
+    test.it("takes false branch", () -> {
+        var x := 0
+        if 3 > 5 {
+            x := 1
+        } else {
+            x := 2
+        }
+        test.expect(x).toBe(2)
+    })
+
+    test.it("else if chain", () -> {
+        var score := 75
+        var grade := 0
+        if score >= 90 {
+            grade := 4
+        } else if score >= 80 {
+            grade := 3
+        } else if score >= 70 {
+            grade := 2
+        } else {
+            grade := 1
+        }
+        test.expect(grade).toBe(2)
+    })
+})
+
+test.describe("Ternary operator", () -> {
+    test.it("selects true branch", () -> {
+        var result := 10 > 5 ? 100 : 200
+        test.expect(result).toBe(100)
+    })
+
+    test.it("selects false branch", () -> {
+        var result := 3 > 5 ? 100 : 200
+        test.expect(result).toBe(200)
+    })
+
+    test.it("nested in expression", () -> {
+        var x := 7
+        var label := x % 2 == 0 ? 1 : 0
+        test.expect(label).toBe(0)
+    })
+})
+
+test.describe("while loop", () -> {
+    test.it("counts to 5", () -> {
+        var i := 0
+        var count := 0
+        while i < 5 {
+            count += 1
+            i += 1
+        }
+        test.expect(count).toBe(5)
+    })
+
+    test.it("accumulates sum 1 to 10", () -> {
+        var i := 1
+        var sum := 0
+        while i <= 10 {
+            sum += i
+            i += 1
+        }
+        test.expect(sum).toBe(55)
+    })
+})
+
+test.describe("for loop with range", () -> {
+    test.it("for i in 1:5 runs 5 times (inclusive)", () -> {
+        var count := 0
+        for i in 1:5 {
+            count += 1
+        }
+        test.expect(count).toBe(5)
+    })
+
+    test.it("accumulates with for loop", () -> {
+        var sum := 0
+        for i in 1:4 {
+            sum += i
+        }
+        test.expect(sum).toBe(10)
+    })
+
+    test.it("for with step: 0:2:10 hits 0,2,4,6,8,10", () -> {
+        var count := 0
+        for i in 0:2:10 {
+            count += 1
+        }
+        test.expect(count).toBe(6)
+    })
+
+    test.it("sum of odd numbers 1..9 using if inside for", () -> {
+        var sum := 0
+        for i in 1:9 {
+            if i % 2 != 0 {
+                sum += i
+            }
+        }
+        test.expect(sum).toBe(25)
+    })
+})

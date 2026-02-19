@@ -1,0 +1,99 @@
+import test
+
+type MyInt = int
+type Score = float
+
+struct Point {
+    x: int,
+    y: int
+}
+
+struct Label {
+    name: string,
+    tag: int
+}
+
+type Point2D = Point
+
+test.describe("Type aliases", () -> {
+    test.it("MyInt is interchangeable with int", () -> {
+        var x: MyInt = 42
+        test.expect(x).toBe(42)
+    })
+
+    test.it("Score is interchangeable with float", () -> {
+        var s: Score = 9.5
+        test.expect(s).toBeCloseTo(9.5)
+    })
+
+    test.it("Point2D alias works like Point", () -> {
+        var p: Point2D = Point { x: 3, y: 4 }
+        test.expect(p.x).toBe(3)
+        test.expect(p.y).toBe(4)
+    })
+})
+
+test.describe("Union types", () -> {
+    test.it("union holds int value", () -> {
+        var x: int | float = 42
+        test.expect(is_integer(x)).toBeTruthy()
+    })
+
+    test.it("union holds float value", () -> {
+        var x: int | float = 3.14
+        test.expect(is_float(x)).toBeTruthy()
+    })
+
+    test.it("int union is not float", () -> {
+        var x: int | float = 10
+        test.expect(is_float(x)).toBeFalsy()
+        test.expect(is_integer(x)).toBeTruthy()
+    })
+
+    test.it("float union is not int", () -> {
+        var x: int | float = 2.5
+        test.expect(is_integer(x)).toBeFalsy()
+        test.expect(is_float(x)).toBeTruthy()
+    })
+})
+
+test.describe("Optional (T?) — sugar for Union(T, nil)", () -> {
+    test.it("optional holds value", () -> {
+        var x: int? = 42
+        test.expect(is_nil(x)).toBeFalsy()
+    })
+
+    test.it("optional holds nil", () -> {
+        var x: int? = nil
+        test.expect(is_nil(x)).toBeTruthy()
+    })
+})
+
+test.describe("Elvis operator ?:", () -> {
+    test.it("returns value when not nil", () -> {
+        var x: int? = 42
+        var result := x ?: 0
+        test.expect(result).toBe(42)
+    })
+
+    test.it("returns default when nil", () -> {
+        var x: int? = nil
+        var result := x ?: 99
+        test.expect(result).toBe(99)
+    })
+
+    test.it("chain of optional with elvis", () -> {
+        var a: int? = nil
+        var b := a ?: 100
+        test.expect(b).toBe(100)
+    })
+})
+
+test.describe("Intersection types (Point & Label)", () -> {
+    test.it("intersection has all fields", () -> {
+        var pl: Point & Label = Point { x: 1, y: 2 } & Label { name: "origin", tag: 0 }
+        test.expect(pl.x).toBe(1)
+        test.expect(pl.y).toBe(2)
+        test.expect(pl.tag).toBe(0)
+    })
+})

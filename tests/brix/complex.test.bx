@@ -1,0 +1,90 @@
+import test
+
+test.describe("Complex number creation", () -> {
+    test.it("imaginary unit im", () -> {
+        var z := 1.0 * im
+        test.expect(real(z)).toBeCloseTo(0.0)
+        test.expect(imag(z)).toBeCloseTo(1.0)
+    })
+
+    test.it("complex from real + imaginary", () -> {
+        var z := 3.0 + 4.0 * im
+        test.expect(real(z)).toBeCloseTo(3.0)
+        test.expect(imag(z)).toBeCloseTo(4.0)
+    })
+
+    test.it("pure real number (imaginary = 0)", () -> {
+        var z := 5.0 + 0.0 * im
+        test.expect(real(z)).toBeCloseTo(5.0)
+        test.expect(imag(z)).toBeCloseTo(0.0)
+    })
+
+    test.it("negative imaginary part", () -> {
+        var z := 2.0 - 3.0 * im
+        test.expect(real(z)).toBeCloseTo(2.0)
+        test.expect(imag(z)).toBeCloseTo(-3.0)
+    })
+})
+
+test.describe("Complex arithmetic", () -> {
+    test.it("addition: (3+4i) + (1+2i) = 4+6i", () -> {
+        var z1 := 3.0 + 4.0 * im
+        var z2 := 1.0 + 2.0 * im
+        var result := z1 + z2
+        test.expect(real(result)).toBeCloseTo(4.0)
+        test.expect(imag(result)).toBeCloseTo(6.0)
+    })
+
+    test.it("subtraction: (3+4i) - (1+2i) = 2+2i", () -> {
+        var z1 := 3.0 + 4.0 * im
+        var z2 := 1.0 + 2.0 * im
+        var result := z1 - z2
+        test.expect(real(result)).toBeCloseTo(2.0)
+        test.expect(imag(result)).toBeCloseTo(2.0)
+    })
+
+    test.it("multiplication: (1+2i)*(3+4i) = -5+10i", () -> {
+        var z1 := 1.0 + 2.0 * im
+        var z2 := 3.0 + 4.0 * im
+        var result := z1 * z2
+        test.expect(real(result)).toBeCloseTo(-5.0)
+        test.expect(imag(result)).toBeCloseTo(10.0)
+    })
+
+    test.it("division: (4+2i)/(1+1i) = 3-i", () -> {
+        var z1 := 4.0 + 2.0 * im
+        var z2 := 1.0 + 1.0 * im
+        var result := z1 / z2
+        test.expect(real(result)).toBeCloseTo(3.0)
+        test.expect(imag(result)).toBeCloseTo(-1.0)
+    })
+})
+
+test.describe("Complex built-in functions", () -> {
+    test.it("real() extracts real part", () -> {
+        var z := 7.0 + 3.0 * im
+        test.expect(real(z)).toBeCloseTo(7.0)
+    })
+
+    test.it("imag() extracts imaginary part", () -> {
+        var z := 7.0 + 3.0 * im
+        test.expect(imag(z)).toBeCloseTo(3.0)
+    })
+
+    test.it("abs() = modulus: |3+4i| = 5", () -> {
+        var z := 3.0 + 4.0 * im
+        test.expect(abs(z)).toBeCloseTo(5.0)
+    })
+
+    test.it("abs() of pure real = absolute value", () -> {
+        var z := -5.0 + 0.0 * im
+        test.expect(abs(z)).toBeCloseTo(5.0)
+    })
+
+    test.it("conj() negates imaginary: conj(3+4i) = 3-4i", () -> {
+        var z := 3.0 + 4.0 * im
+        var c := conj(z)
+        test.expect(real(c)).toBeCloseTo(3.0)
+        test.expect(imag(c)).toBeCloseTo(-4.0)
+    })
+})

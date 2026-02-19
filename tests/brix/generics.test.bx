@@ -1,0 +1,113 @@
+import test
+
+fn identity<T>(x: T) -> T {
+    return x
+}
+
+fn double_val<T>(x: T) -> T {
+    return x + x
+}
+
+fn swap_vals<A, B>(a: A, b: B) -> (B, A) {
+    return (b, a)
+}
+
+fn clamp<T>(val: T, lo: T, hi: T) -> T {
+    if val < lo {
+        return lo
+    }
+    if val > hi {
+        return hi
+    }
+    return val
+}
+
+struct Pair<A, B> {
+    first: A,
+    second: B
+}
+
+fn (p: Pair) get_first() -> A {
+    return p.first
+}
+
+fn (p: Pair) get_second() -> B {
+    return p.second
+}
+
+struct Container<T> {
+    value: T,
+    count: int
+}
+
+fn (c: Container) get() -> T {
+    return c.value
+}
+
+test.describe("Generic functions — explicit types", () -> {
+    test.it("identity<int>", () -> {
+        test.expect(identity<int>(42)).toBe(42)
+    })
+
+    test.it("identity<float>", () -> {
+        test.expect(identity<float>(3.14)).toBeCloseTo(3.14)
+    })
+
+    test.it("double_val<int>", () -> {
+        test.expect(double_val<int>(5)).toBe(10)
+        test.expect(double_val<int>(21)).toBe(42)
+    })
+
+    test.it("double_val<float>", () -> {
+        test.expect(double_val<float>(2.5)).toBeCloseTo(5.0)
+    })
+})
+
+test.describe("Generic functions — type inference", () -> {
+    test.it("identity infers int", () -> {
+        test.expect(identity(100)).toBe(100)
+    })
+
+    test.it("identity infers float", () -> {
+        test.expect(identity(2.71)).toBeCloseTo(2.71)
+    })
+
+    test.it("double_val infers int", () -> {
+        test.expect(double_val(7)).toBe(14)
+    })
+})
+
+test.describe("Generic functions — multiple type params", () -> {
+    test.it("swap_vals returns (b, a)", () -> {
+        var { b, a } := swap_vals(1, 2)
+        test.expect(b).toBe(2)
+        test.expect(a).toBe(1)
+    })
+
+    test.it("clamp within range", () -> {
+        test.expect(clamp(5, 1, 10)).toBe(5)
+        test.expect(clamp(0, 1, 10)).toBe(1)
+        test.expect(clamp(15, 1, 10)).toBe(10)
+    })
+})
+
+test.describe("Generic structs and methods", () -> {
+    test.it("Pair<int, int>", () -> {
+        var p := Pair<int, int> { first: 10, second: 20 }
+        test.expect(p.get_first()).toBe(10)
+        test.expect(p.get_second()).toBe(20)
+    })
+
+    test.it("Container<int>", () -> {
+        var c := Container<int> { value: 42, count: 1 }
+        test.expect(c.get()).toBe(42)
+        test.expect(c.count).toBe(1)
+    })
+
+    test.it("monomorphization: same struct, different types", () -> {
+        var ci := Container<int> { value: 10, count: 1 }
+        var cf := Container<float> { value: 3.14, count: 2 }
+        test.expect(ci.get()).toBe(10)
+        test.expect(cf.get()).toBeCloseTo(3.14)
+    })
+})

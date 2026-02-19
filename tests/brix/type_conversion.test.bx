@@ -1,0 +1,92 @@
+import test
+
+test.describe("int() conversion", () -> {
+    test.it("truncates float to int", () -> {
+        test.expect(int(3.9)).toBe(3)
+        test.expect(int(3.1)).toBe(3)
+        test.expect(int(-3.9)).toBe(-3)
+    })
+
+    test.it("int(int) is identity", () -> {
+        test.expect(int(42)).toBe(42)
+        test.expect(int(0)).toBe(0)
+    })
+
+    test.it("parses string to int", () -> {
+        test.expect(int("42")).toBe(42)
+        test.expect(int("0")).toBe(0)
+        test.expect(int("-10")).toBe(-10)
+    })
+})
+
+test.describe("float() conversion", () -> {
+    test.it("promotes int to float", () -> {
+        test.expect(float(10)).toBeCloseTo(10.0)
+        test.expect(float(0)).toBeCloseTo(0.0)
+        test.expect(float(-5)).toBeCloseTo(-5.0)
+    })
+
+    test.it("float(float) is identity", () -> {
+        test.expect(float(3.14)).toBeCloseTo(3.14)
+    })
+
+    test.it("parses string to float", () -> {
+        test.expect(float("3.14")).toBeCloseTo(3.14)
+        test.expect(float("0.0")).toBeCloseTo(0.0)
+    })
+})
+
+test.describe("string() conversion", () -> {
+    test.it("int to string", () -> {
+        test.expect(string(42)).toBe("42")
+        test.expect(string(0)).toBe("0")
+        test.expect(string(-7)).toBe("-7")
+    })
+
+    test.it("float to string", () -> {
+        test.expect(string(3.14)).toBe("3.14")
+    })
+
+    test.it("string(string) is identity", () -> {
+        test.expect(string("hello")).toBe("hello")
+    })
+})
+
+test.describe("bool() conversion", () -> {
+    test.it("0 is falsy", () -> {
+        test.expect(bool(0)).toBeFalsy()
+    })
+
+    test.it("1 is truthy", () -> {
+        test.expect(bool(1)).toBeTruthy()
+    })
+
+    test.it("any non-zero int is truthy", () -> {
+        test.expect(bool(42)).toBeTruthy()
+        test.expect(bool(-1)).toBeTruthy()
+        test.expect(bool(100)).toBeTruthy()
+    })
+
+    test.it("0.0 is falsy", () -> {
+        test.expect(bool(0.0)).toBeFalsy()
+    })
+
+    test.it("non-zero float is truthy", () -> {
+        test.expect(bool(3.14)).toBeTruthy()
+        test.expect(bool(-0.1)).toBeTruthy()
+    })
+})
+
+test.describe("Chained conversions", () -> {
+    test.it("int(float(int)) is identity for whole numbers", () -> {
+        test.expect(int(float(42))).toBe(42)
+    })
+
+    test.it("float(int(float)) truncates then promotes", () -> {
+        test.expect(float(int(3.9))).toBeCloseTo(3.0)
+    })
+
+    test.it("int(string(int)) round-trips", () -> {
+        test.expect(int(string(123))).toBe(123)
+    })
+})

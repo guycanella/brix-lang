@@ -1,0 +1,138 @@
+import test
+
+function get_tuple() -> (int, int) {
+    return (1, 2)
+}
+
+test.describe("typeof()", () -> {
+    test.it("typeof int", () -> {
+        var x := 42
+        test.expect(typeof(x)).toBe("int")
+    })
+
+    test.it("typeof float", () -> {
+        var x := 3.14
+        test.expect(typeof(x)).toBe("float")
+    })
+
+    test.it("typeof string", () -> {
+        var x := "hello"
+        test.expect(typeof(x)).toBe("string")
+    })
+
+    test.it("typeof literal", () -> {
+        test.expect(typeof(100)).toBe("int")
+        test.expect(typeof(1.5)).toBe("float")
+    })
+})
+
+test.describe("is_nil()", () -> {
+    test.it("nil is nil", () -> {
+        test.expect(is_nil(nil)).toBeTruthy()
+    })
+
+    test.it("int is not nil", () -> {
+        test.expect(is_nil(42)).toBeFalsy()
+    })
+
+    test.it("0 is not nil", () -> {
+        test.expect(is_nil(0)).toBeFalsy()
+    })
+})
+
+test.describe("is_atom()", () -> {
+    test.it("atom is atom", () -> {
+        test.expect(is_atom(:ok)).toBeTruthy()
+        test.expect(is_atom(:error)).toBeTruthy()
+    })
+
+    test.it("int is not atom", () -> {
+        test.expect(is_atom(42)).toBeFalsy()
+    })
+
+    test.it("string is not atom", () -> {
+        test.expect(is_atom("ok")).toBeFalsy()
+    })
+})
+
+test.describe("is_boolean()", () -> {
+    test.it("0 and 1 are boolean", () -> {
+        test.expect(is_boolean(0)).toBeTruthy()
+        test.expect(is_boolean(1)).toBeTruthy()
+    })
+
+    test.it("values > 1 are not boolean", () -> {
+        test.expect(is_boolean(2)).toBeFalsy()
+        test.expect(is_boolean(42)).toBeFalsy()
+    })
+})
+
+test.describe("is_integer()", () -> {
+    test.it("int is integer", () -> {
+        test.expect(is_integer(42)).toBeTruthy()
+        test.expect(is_integer(0)).toBeTruthy()
+        test.expect(is_integer(-7)).toBeTruthy()
+    })
+
+    test.it("float is not integer", () -> {
+        test.expect(is_integer(3.14)).toBeFalsy()
+    })
+})
+
+test.describe("is_float()", () -> {
+    test.it("float is float", () -> {
+        test.expect(is_float(3.14)).toBeTruthy()
+        test.expect(is_float(0.0)).toBeTruthy()
+    })
+
+    test.it("int is not float", () -> {
+        test.expect(is_float(42)).toBeFalsy()
+    })
+})
+
+test.describe("is_number()", () -> {
+    test.it("int is number", () -> {
+        test.expect(is_number(42)).toBeTruthy()
+    })
+
+    test.it("float is number", () -> {
+        test.expect(is_number(3.14)).toBeTruthy()
+    })
+
+    test.it("string is not number", () -> {
+        test.expect(is_number("42")).toBeFalsy()
+    })
+})
+
+test.describe("is_string()", () -> {
+    test.it("string is string", () -> {
+        test.expect(is_string("hello")).toBeTruthy()
+        test.expect(is_string("")).toBeTruthy()
+    })
+
+    test.it("int is not string", () -> {
+        test.expect(is_string(42)).toBeFalsy()
+    })
+})
+
+test.describe("is_list()", () -> {
+    test.it("IntMatrix is list", () -> {
+        var arr := [1, 2, 3]
+        test.expect(is_list(arr)).toBeTruthy()
+    })
+
+    test.it("Matrix is list", () -> {
+        var m := [1.0, 2.0]
+        test.expect(is_list(m)).toBeTruthy()
+    })
+
+    test.it("int is not list", () -> {
+        test.expect(is_list(42)).toBeFalsy()
+    })
+})
+
+test.describe("is_function()", () -> {
+    test.it("always returns 0 (functions not first-class yet)", () -> {
+        test.expect(is_function(42)).toBeFalsy()
+    })
+})

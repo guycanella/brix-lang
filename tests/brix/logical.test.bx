@@ -1,0 +1,99 @@
+import test
+
+test.describe("Logical AND &&", () -> {
+    test.it("true && true = true", () -> {
+        test.expect(1 && 1).toBeTruthy()
+    })
+
+    test.it("true && false = false", () -> {
+        test.expect(1 && 0).toBeFalsy()
+    })
+
+    test.it("false && true = false", () -> {
+        test.expect(0 && 1).toBeFalsy()
+    })
+
+    test.it("false && false = false", () -> {
+        test.expect(0 && 0).toBeFalsy()
+    })
+})
+
+test.describe("Logical OR ||", () -> {
+    test.it("true || true = true", () -> {
+        test.expect(1 || 1).toBeTruthy()
+    })
+
+    test.it("true || false = true", () -> {
+        test.expect(1 || 0).toBeTruthy()
+    })
+
+    test.it("false || true = true", () -> {
+        test.expect(0 || 1).toBeTruthy()
+    })
+
+    test.it("false || false = false", () -> {
+        test.expect(0 || 0).toBeFalsy()
+    })
+})
+
+test.describe("Comparison operators", () -> {
+    test.it("< less than", () -> {
+        test.expect(3 < 5).toBeTruthy()
+        test.expect(5 < 3).toBeFalsy()
+        test.expect(5 < 5).toBeFalsy()
+    })
+
+    test.it("<= less than or equal", () -> {
+        test.expect(5 <= 5).toBeTruthy()
+        test.expect(4 <= 5).toBeTruthy()
+        test.expect(6 <= 5).toBeFalsy()
+    })
+
+    test.it("> greater than", () -> {
+        test.expect(5 > 3).toBeTruthy()
+        test.expect(3 > 5).toBeFalsy()
+        test.expect(5 > 5).toBeFalsy()
+    })
+
+    test.it(">= greater than or equal", () -> {
+        test.expect(5 >= 5).toBeTruthy()
+        test.expect(6 >= 5).toBeTruthy()
+        test.expect(4 >= 5).toBeFalsy()
+    })
+
+    test.it("== equality", () -> {
+        test.expect(42 == 42).toBeTruthy()
+        test.expect(42 == 43).toBeFalsy()
+    })
+
+    test.it("!= inequality", () -> {
+        test.expect(42 != 43).toBeTruthy()
+        test.expect(42 != 42).toBeFalsy()
+    })
+})
+
+test.describe("Logical combinations", () -> {
+    test.it("range check with &&", () -> {
+        var x := 5
+        test.expect(x > 3 && x < 10).toBeTruthy()
+        test.expect(x > 3 && x < 4).toBeFalsy()
+    })
+
+    test.it("either condition with ||", () -> {
+        var x := 15
+        test.expect(x < 5 || x > 10).toBeTruthy()
+        test.expect(x < 5 || x > 20).toBeFalsy()
+    })
+
+    test.it("combined && and ||", () -> {
+        test.expect(0 && 1 || 1).toBeTruthy()
+        test.expect(1 && 0 || 0).toBeFalsy()
+        test.expect(1 && 1 || 0).toBeTruthy()
+    })
+
+    test.it("negation via == 0", () -> {
+        var flag := 1
+        test.expect(flag == 0).toBeFalsy()
+        test.expect(flag == 1).toBeTruthy()
+    })
+})

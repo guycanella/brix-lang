@@ -1,0 +1,125 @@
+import test
+
+test.describe("Matrix literals and indexing", () -> {
+    test.it("creates Matrix from float literals", () -> {
+        var m := [1.0, 2.0, 3.0]
+        test.expect(m[0]).toBeCloseTo(1.0)
+        test.expect(m[1]).toBeCloseTo(2.0)
+        test.expect(m[2]).toBeCloseTo(3.0)
+    })
+
+    test.it("creates Matrix from mixed literals", () -> {
+        var m := [1, 2.5, 3]
+        test.expect(m[0]).toBeCloseTo(1.0)
+        test.expect(m[1]).toBeCloseTo(2.5)
+    })
+
+    test.it(".cols returns element count for 1D", () -> {
+        var m := [1.0, 2.0, 3.0, 4.0]
+        test.expect(m.cols).toBe(4)
+    })
+})
+
+test.describe("Matrix constructors", () -> {
+    test.it("zeros(n) creates 1D zero matrix", () -> {
+        var m := zeros(3)
+        test.expect(m[0]).toBeCloseTo(0.0)
+        test.expect(m[1]).toBeCloseTo(0.0)
+        test.expect(m[2]).toBeCloseTo(0.0)
+        test.expect(m.cols).toBe(3)
+    })
+
+    test.it("zeros(rows, cols) creates 2D matrix", () -> {
+        var m := zeros(2, 3)
+        test.expect(m.rows).toBe(2)
+        test.expect(m.cols).toBe(3)
+        test.expect(m[0][0]).toBeCloseTo(0.0)
+    })
+
+    test.it("izeros(n) creates 1D int matrix", () -> {
+        var m := izeros(4)
+        test.expect(m[0]).toBe(0)
+        test.expect(m.cols).toBe(4)
+    })
+
+    test.it("izeros(rows, cols) creates 2D int matrix", () -> {
+        var m := izeros(2, 2)
+        test.expect(m.rows).toBe(2)
+        test.expect(m.cols).toBe(2)
+    })
+
+    test.it("eye(n) creates identity matrix", () -> {
+        var m := eye(3)
+        test.expect(m[0][0]).toBeCloseTo(1.0)
+        test.expect(m[1][1]).toBeCloseTo(1.0)
+        test.expect(m[2][2]).toBeCloseTo(1.0)
+        test.expect(m[0][1]).toBeCloseTo(0.0)
+        test.expect(m[1][0]).toBeCloseTo(0.0)
+    })
+})
+
+test.describe("2D matrix indexing", () -> {
+    test.it("set and get 2D elements", () -> {
+        var m := zeros(2, 2)
+        m[0][0] := 1.0
+        m[0][1] := 2.0
+        m[1][0] := 3.0
+        m[1][1] := 4.0
+        test.expect(m[0][0]).toBeCloseTo(1.0)
+        test.expect(m[0][1]).toBeCloseTo(2.0)
+        test.expect(m[1][0]).toBeCloseTo(3.0)
+        test.expect(m[1][1]).toBeCloseTo(4.0)
+    })
+
+    test.it(".rows and .cols fields", () -> {
+        var m := zeros(3, 4)
+        test.expect(m.rows).toBe(3)
+        test.expect(m.cols).toBe(4)
+    })
+})
+
+test.describe("Matrix arithmetic with float scalar", () -> {
+    test.it("add scalar", () -> {
+        var m := [1.0, 2.0, 3.0]
+        var result := m + 10.0
+        test.expect(result[0]).toBeCloseTo(11.0)
+        test.expect(result[1]).toBeCloseTo(12.0)
+        test.expect(result[2]).toBeCloseTo(13.0)
+    })
+
+    test.it("multiply scalar", () -> {
+        var m := [1.0, 2.0, 3.0]
+        var result := m * 2.0
+        test.expect(result[0]).toBeCloseTo(2.0)
+        test.expect(result[1]).toBeCloseTo(4.0)
+        test.expect(result[2]).toBeCloseTo(6.0)
+    })
+
+    test.it("divide scalar", () -> {
+        var m := [4.0, 8.0, 16.0]
+        var result := m / 2.0
+        test.expect(result[0]).toBeCloseTo(2.0)
+        test.expect(result[1]).toBeCloseTo(4.0)
+        test.expect(result[2]).toBeCloseTo(8.0)
+    })
+})
+
+test.describe("Matrix element-wise arithmetic", () -> {
+    test.it("add two matrices", () -> {
+        var a := [1.0, 2.0, 3.0]
+        var b := [4.0, 5.0, 6.0]
+        var result := a + b
+        test.expect(result[0]).toBeCloseTo(5.0)
+        test.expect(result[1]).toBeCloseTo(7.0)
+        test.expect(result[2]).toBeCloseTo(9.0)
+    })
+
+    test.it("multiply element-wise (not matmul)", () -> {
+        var a := [2.0, 3.0, 4.0]
+        var b := [5.0, 6.0, 7.0]
+        var result := a * b
+        test.expect(result[0]).toBeCloseTo(10.0)
+        test.expect(result[1]).toBeCloseTo(18.0)
+        test.expect(result[2]).toBeCloseTo(28.0)
+    })
+})
