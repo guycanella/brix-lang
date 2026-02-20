@@ -1,0 +1,4 @@
+fn apply(f: (int) -> int, x: int) -> int { return f(x) }
+var double := (n: int) -> int { return n * 2 }
+println(apply(double, 5))
+println(apply(double, 10))

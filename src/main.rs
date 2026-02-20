@@ -114,6 +114,7 @@ fn compile_to_exe(file_path: &str, opt_level: u8, verbose: bool) -> String {
 
     if verbose { println!("--- 3. Compiling to Native Object Code (.o) ---"); }
 
+
     let runtime_status = Command::new("cc")
         .arg("-c")
         .arg("runtime.c")

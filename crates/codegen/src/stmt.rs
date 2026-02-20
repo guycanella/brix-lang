@@ -695,8 +695,13 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
                 self.brix_type_to_llvm(&BrixType::Complex)
             }
             BrixType::Tuple(types) => {
-                // Allocate space for tuple struct
-                self.brix_type_to_llvm(&BrixType::Tuple(types.clone()))
+                // Closures are represented as Tuple(Int,Int,Int) but are heap-allocated;
+                // store only the pointer, not the full struct by value.
+                if Compiler::is_closure_type(&BrixType::Tuple(types.clone())) {
+                    self.context.ptr_type(AddressSpace::default()).into()
+                } else {
+                    self.brix_type_to_llvm(&BrixType::Tuple(types.clone()))
+                }
             }
             BrixType::Struct(_) => {
                 // Allocate space for user-defined struct
