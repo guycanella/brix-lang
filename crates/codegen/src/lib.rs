@@ -118,6 +118,16 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     // Note: These are kept in lib.rs because they need access to self.context
     // The BrixType enum itself is defined in types.rs
 
+    /// Returns true when the BrixType is the closure representation (Tuple(Int,Int,Int)).
+    /// Closures are always heap-allocated and must be passed/stored as pointers, not by value.
+    fn is_closure_type(t: &BrixType) -> bool {
+        matches!(t, BrixType::Tuple(types)
+            if types.len() == 3
+                && types[0] == BrixType::Int
+                && types[1] == BrixType::Int
+                && types[2] == BrixType::Int)
+    }
+
     fn string_to_brix_type(&self, type_str: &str) -> BrixType {
         // Step 1: Resolve type aliases
         let resolved_type_str = if let Some(definition) = self.type_aliases.get(type_str) {
@@ -295,7 +305,14 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         // 2. Create LLVM function type
         let param_types: Vec<BasicTypeEnum> = params
             .iter()
-            .map(|(_, t, _)| self.brix_type_to_llvm(&self.string_to_brix_type(t)))
+            .map(|(_, t, _)| {
+                let brix_type = self.string_to_brix_type(t);
+                if Compiler::is_closure_type(&brix_type) {
+                    self.context.ptr_type(AddressSpace::default()).into()
+                } else {
+                    self.brix_type_to_llvm(&brix_type)
+                }
+            })
             .collect();
 
         let fn_type = if ret_types.is_empty() {
@@ -359,7 +376,11 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                     span: None,
                 })?;
             let param_type = self.string_to_brix_type(param_type_str);
-            let llvm_type = self.brix_type_to_llvm(&param_type);
+            let llvm_type = if Compiler::is_closure_type(&param_type) {
+                self.context.ptr_type(AddressSpace::default()).into()
+            } else {
+                self.brix_type_to_llvm(&param_type)
+            };
 
             let alloca = self.create_entry_block_alloca(llvm_type, param_name)?;
             self.builder.build_store(alloca, param_value)
@@ -718,7 +739,12 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         for (_param_name, param_type_str) in &closure.params {
             let brix_type = self.string_to_brix_type(param_type_str);
             param_brix_types.push(brix_type.clone());
-            param_types.push(self.brix_type_to_llvm(&brix_type).into());
+            let llvm_param_type: BasicMetadataTypeEnum = if Compiler::is_closure_type(&brix_type) {
+                self.context.ptr_type(AddressSpace::default()).into()
+            } else {
+                self.brix_type_to_llvm(&brix_type).into()
+            };
+            param_types.push(llvm_param_type);
         }
 
         // Return type
@@ -797,7 +823,11 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             let param_type = &param_brix_types[i];
 
             // Allocate space for parameter and store it
-            let param_llvm_type = self.brix_type_to_llvm(param_type);
+            let param_llvm_type = if Compiler::is_closure_type(param_type) {
+                self.context.ptr_type(AddressSpace::default()).into()
+            } else {
+                self.brix_type_to_llvm(param_type)
+            };
             let param_ptr = self.create_entry_block_alloca(param_llvm_type, param_name)?;
             self.builder.build_store(param_ptr, param_val)
                 .map_err(|_| CodegenError::LLVMError {
@@ -919,12 +949,112 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             self.context.ptr_type(AddressSpace::default()).const_null()
         };
 
-        // 7. Create closure struct { ref_count, fn_ptr, env_ptr } on HEAP
+        // 7a. Generate env_destructor if any captured variable is itself a closure.
+        // The destructor is stored in the closure struct (field 3) and called by
+        // closure_release() in runtime.c before freeing the env, so that captured
+        // closures are properly reference-counted instead of being raw-freed.
+        let destructor_ptr: inkwell::values::PointerValue<'ctx> = {
+            let ptr_type = self.context.ptr_type(AddressSpace::default());
+
+            // Identify which captured vars are closures (by checking outer-scope types).
+            // At this point self.variables holds the restored outer scope (prev_variables).
+            let captured_closure_indices: Vec<usize> = closure.captured_vars
+                .iter()
+                .enumerate()
+                .filter(|(_, var_name)| {
+                    self.variables
+                        .get(var_name.as_str())
+                        .map(|(_, t)| Compiler::is_closure_type(t))
+                        .unwrap_or(false)
+                })
+                .map(|(i, _)| i)
+                .collect();
+
+            if !captured_closure_indices.is_empty() {
+                let destructor_name = format!("{}_env_dtor", closure_name);
+                let destructor_fn_type = self.context.void_type().fn_type(&[ptr_type.into()], false);
+                let destructor_fn = self.module.add_function(&destructor_name, destructor_fn_type, None);
+
+                // Save builder context, switch to destructor function
+                let saved_fn = self.current_function;
+                let saved_bb = self.builder.get_insert_block();
+
+                let dest_entry = self.context.append_basic_block(destructor_fn, "entry");
+                self.builder.position_at_end(dest_entry);
+
+                let env_arg = destructor_fn.get_nth_param(0).unwrap().into_pointer_value();
+                let env_type = env_struct_type.unwrap();
+
+                // Declare closure_release: void closure_release(void*)
+                let release_fn_type = self.context.void_type().fn_type(&[ptr_type.into()], false);
+                let release_fn = self.module.get_function("closure_release").unwrap_or_else(|| {
+                    self.module.add_function("closure_release", release_fn_type, Some(Linkage::External))
+                });
+
+                for field_idx in &captured_closure_indices {
+                    // env[field_idx] = alloca address of captured closure var
+                    let alloca_addr_ptr = self.builder
+                        .build_struct_gep(env_type, env_arg, *field_idx as u32, "cls_alloca_addr")
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_struct_gep".to_string(),
+                            details: "destructor: gep env field".to_string(),
+                            span: Some(expr.span.clone()),
+                        })?;
+                    // Load the alloca address (ptr-to-alloca)
+                    let alloca_addr = self.builder
+                        .build_load(ptr_type, alloca_addr_ptr, "cls_alloca")
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_load".to_string(),
+                            details: "destructor: load alloca addr".to_string(),
+                            span: Some(expr.span.clone()),
+                        })?
+                        .into_pointer_value();
+                    // Load the actual BrixClosure* from the alloca
+                    let closure_actual = self.builder
+                        .build_load(ptr_type, alloca_addr, "cls_actual")
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_load".to_string(),
+                            details: "destructor: load closure ptr".to_string(),
+                            span: Some(expr.span.clone()),
+                        })?
+                        .into_pointer_value();
+                    self.builder
+                        .build_call(release_fn, &[closure_actual.into()], "")
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_call".to_string(),
+                            details: "destructor: closure_release".to_string(),
+                            span: Some(expr.span.clone()),
+                        })?;
+                }
+
+                self.builder.build_return(None)
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_return".to_string(),
+                        details: "destructor: ret void".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+
+                // Restore builder context
+                self.current_function = saved_fn;
+                if let Some(bb) = saved_bb {
+                    self.builder.position_at_end(bb);
+                }
+
+                destructor_fn.as_global_value().as_pointer_value()
+            } else {
+                // No captured closures → null destructor
+                self.context.ptr_type(AddressSpace::default()).const_null()
+            }
+        };
+
+        // 7. Create closure struct { ref_count, fn_ptr, env_ptr, env_destructor } on HEAP
         // ARC: ref_count tracks how many references exist to this closure
+        // env_destructor is a function pointer (or null) that releases captured closures
         let closure_struct_type = self.context.struct_type(&[
-            self.context.i64_type().into(),                         // ref_count
-            self.context.ptr_type(AddressSpace::default()).into(), // fn_ptr
-            self.context.ptr_type(AddressSpace::default()).into(), // env_ptr
+            self.context.i64_type().into(),                         // field 0: ref_count
+            self.context.ptr_type(AddressSpace::default()).into(), // field 1: fn_ptr
+            self.context.ptr_type(AddressSpace::default()).into(), // field 2: env_ptr
+            self.context.ptr_type(AddressSpace::default()).into(), // field 3: env_destructor
         ], false);
 
         // Allocate closure struct on heap (for ARC to work)
@@ -1004,6 +1134,21 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             .map_err(|_| CodegenError::LLVMError {
                 operation: "build_store".to_string(),
                 details: "Failed to store environment pointer".to_string(),
+                span: Some(expr.span.clone()),
+            })?;
+
+        // Store env_destructor (field 3)
+        let destructor_field = self.builder
+            .build_struct_gep(closure_struct_type, closure_ptr, 3, "destructor_field")
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_struct_gep".to_string(),
+                details: "Failed to get env_destructor field".to_string(),
+                span: Some(expr.span.clone()),
+            })?;
+        self.builder.build_store(destructor_field, destructor_ptr)
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_store".to_string(),
+                details: "Failed to store env_destructor".to_string(),
                 span: Some(expr.span.clone()),
             })?;
 
@@ -4184,6 +4329,77 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                             span: Some(expr.span.clone()),
                                         });
                                     }
+                                }
+                            }
+                        } else {
+                            // Receiver is an arbitrary expression (e.g., fn_call().method(),
+                            // chained method calls, struct literals).
+                            let (receiver_val, receiver_type) = self.compile_expr(target)?;
+
+                            if let BrixType::Struct(struct_name) = receiver_type {
+                                let mangled_name = format!("{}_{}", struct_name, field);
+
+                                if let Some(llvm_fn) = self.module.get_function(&mangled_name) {
+                                    // Struct methods receive a pointer to the struct.
+                                    // Allocate a temporary slot and store the value there.
+                                    let struct_llvm_type = self.brix_type_to_llvm(&BrixType::Struct(struct_name.clone()));
+                                    let tmp = self.create_entry_block_alloca(struct_llvm_type, "tmp_receiver")?;
+                                    self.builder.build_store(tmp, receiver_val)
+                                        .map_err(|_| CodegenError::LLVMError {
+                                            operation: "build_store".to_string(),
+                                            details: "Failed to store temp receiver".to_string(),
+                                            span: Some(expr.span.clone()),
+                                        })?;
+
+                                    let mut llvm_args: Vec<BasicMetadataValueEnum> = vec![tmp.into()];
+                                    for arg in args {
+                                        let (v, _) = self.compile_expr(arg)?;
+                                        llvm_args.push(v.into());
+                                    }
+
+                                    let call = self.builder
+                                        .build_call(llvm_fn, &llvm_args, "method_call")
+                                        .map_err(|_| CodegenError::LLVMError {
+                                            operation: "build_call".to_string(),
+                                            details: format!("Failed to call method '{}.{}'", struct_name, field),
+                                            span: Some(expr.span.clone()),
+                                        })?;
+
+                                    if llvm_fn.get_type().get_return_type().is_none() {
+                                        return Ok((
+                                            self.context.i64_type().const_int(0, false).into(),
+                                            BrixType::Void,
+                                        ));
+                                    }
+
+                                    let result = call.try_as_basic_value().left().ok_or_else(|| {
+                                        CodegenError::MissingValue {
+                                            what: "method result".to_string(),
+                                            context: format!("{}.{}", struct_name, field),
+                                            span: Some(expr.span.clone()),
+                                        }
+                                    })?;
+
+                                    // Determine return type: look up from function registry first,
+                                    // then fall back to LLVM value kind heuristic.
+                                    let registered_ret = self.functions
+                                        .get(&mangled_name)
+                                        .and_then(|(_, ret_opt)| ret_opt.as_ref())
+                                        .and_then(|v| v.first())
+                                        .cloned();
+                                    let return_type = registered_ret.unwrap_or_else(|| {
+                                        if result.is_int_value() {
+                                            BrixType::Int
+                                        } else if result.is_float_value() {
+                                            BrixType::Float
+                                        } else if result.is_pointer_value() {
+                                            BrixType::String
+                                        } else {
+                                            BrixType::Struct(struct_name.clone())
+                                        }
+                                    });
+
+                                    return Ok((result, return_type));
                                 }
                             }
                         }

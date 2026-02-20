@@ -27,11 +27,13 @@ void brix_free(void* ptr) {
 }
 
 // Closure structure for ARC:
-// struct { i64 ref_count; void* fn_ptr; void* env_ptr }
+// struct { i64 ref_count; void* fn_ptr; void* env_ptr; void (*env_destructor)(void*) }
+// env_destructor is NULL when no captured closures need releasing.
 typedef struct {
     long ref_count;
     void* fn_ptr;
     void* env_ptr;
+    void (*env_destructor)(void* env_ptr);
 } BrixClosure;
 
 // Increment reference count (called on copy/assignment)
@@ -54,6 +56,10 @@ void closure_release(void* closure_ptr) {
     if (closure->ref_count == 0) {
         // Free environment (if not null)
         if (closure->env_ptr) {
+            // If captured closures live in the env, release them via the destructor
+            if (closure->env_destructor) {
+                closure->env_destructor(closure->env_ptr);
+            }
             brix_free(closure->env_ptr);
         }
         // Note: fn_ptr points to code, not heap data - don't free it

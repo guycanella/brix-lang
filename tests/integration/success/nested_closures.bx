@@ -1,0 +1,6 @@
+var outer := (x: int) -> int {
+    var inner := (y: int) -> int { return y + x }
+    return inner(10)
+}
+println(outer(5))
+println(outer(20))

@@ -253,7 +253,9 @@ fn analyze_expr_closures(expr: &mut Expr, outer_scope: &HashSet<String>) {
     }
 }
 
-/// Analyze a single closure and fill its captured_vars field
+/// Analyze a single closure and fill its captured_vars field.
+/// Also recursively analyzes any inner closures in the body so they see
+/// this closure's parameters as capturable variables.
 fn analyze_closure(closure: &mut Closure, outer_scope: &HashSet<String>) {
     // Build the closure's local scope (parameters ONLY, not outer scope)
     let mut closure_scope = HashSet::new();
@@ -267,15 +269,23 @@ fn analyze_closure(closure: &mut Closure, outer_scope: &HashSet<String>) {
 
     // Captured variables = used variables that are NOT in closure's local scope
     let mut captured = Vec::new();
-    for var in used_vars {
-        if !closure_scope.contains(&var) && outer_scope.contains(&var) {
-            captured.push(var);
+    for var in &used_vars {
+        if !closure_scope.contains(var) && outer_scope.contains(var) {
+            captured.push(var.clone());
         }
     }
 
     // Sort for deterministic output
     captured.sort();
     closure.captured_vars = captured;
+
+    // Recursively analyze any inner closures defined in this closure's body.
+    // The scope visible to inner closures = outer_scope + this closure's parameters.
+    // Without this pass, inner closures would be analyzed against the top-level program
+    // scope and would not see closure parameters as capturable.
+    let mut inner_scope = outer_scope.clone();
+    inner_scope.extend(closure_scope.iter().cloned());
+    analyze_stmt_closures(&mut closure.body, &inner_scope);
 }
 
 /// Collect all identifiers used in a statement
