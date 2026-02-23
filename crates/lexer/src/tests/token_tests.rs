@@ -592,3 +592,47 @@ fn test_keyword_return_vs_identifier_returned() {
     assert_single_token("return", Token::Return);
     assert_single_token("returned", Token::Identifier("returned".to_string()));
 }
+
+// ==================== ASYNC / AWAIT KEYWORD TESTS ====================
+
+#[test]
+fn test_keyword_async() {
+    assert_single_token("async", Token::Async);
+}
+
+#[test]
+fn test_keyword_await() {
+    assert_single_token("await", Token::Await);
+}
+
+#[test]
+fn test_keyword_async_vs_identifier_asynchronous() {
+    assert_single_token("async", Token::Async);
+    assert_single_token("asynchronous", Token::Identifier("asynchronous".to_string()));
+}
+
+#[test]
+fn test_keyword_await_vs_identifier_awaited() {
+    assert_single_token("await", Token::Await);
+    assert_single_token("awaited", Token::Identifier("awaited".to_string()));
+}
+
+#[test]
+fn test_async_fn_token_sequence() {
+    // "async fn" should lex as [Async, Fn]
+    let tokens = tokenize("async fn");
+    assert_eq!(tokens.len(), 2);
+    assert_eq!(tokens[0], Ok(Token::Async));
+    assert_eq!(tokens[1], Ok(Token::Function));
+}
+
+#[test]
+fn test_await_call_token_sequence() {
+    // "await foo()" should lex as [Await, Identifier, LParen, RParen]
+    let tokens = tokenize("await foo()");
+    assert_eq!(tokens.len(), 4);
+    assert_eq!(tokens[0], Ok(Token::Await));
+    assert_eq!(tokens[1], Ok(Token::Identifier("foo".to_string())));
+    assert_eq!(tokens[2], Ok(Token::LParen));
+    assert_eq!(tokens[3], Ok(Token::RParen));
+}
