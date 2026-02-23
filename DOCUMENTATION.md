@@ -1,12 +1,23 @@
 # Brix Language (Design Document v1.0)
 
-> ✅ **Status do Projeto (Fev 2026):** O compilador Brix **v1.5 COMPLETO** - Iterators & Pipeline finalizados! v1.5 implementa **Ranges Unificados** (`..`/`..<`/`step`), **Array Range Literals** (`[1..5]`), **Iteradores** (`map`, `filter`, `reduce`, `any`, `all`, `find`) em `IntMatrix`/`Matrix`, e **Pipeline Operator** (`|>`). 1.108 unit tests + 107 integration tests passando (100%). v1.5 adiciona functional programming sobre a base sólida do v1.4 (Type Aliases, Union, Intersection, Elvis) e v1.3 (Structs, Generics, Closures). **ARC (Automatic Reference Counting)** implementado para todos os heap types.
+> ✅ **Status do Projeto (Fev 2026):** O compilador Brix **v1.5 COMPLETO** — Todas as três features principais entregues: **Iterators & Pipeline**, **Test Library** e **Async/Await**. v1.5 implementa Ranges Unificados (`..`/`..<`/`step`), Iteradores (`map`, `filter`, `reduce`, `any`, `all`, `find`), Pipeline Operator (`|>`), Test Library Jest-style (28 matchers, 21 suites), e Async/Await via state machines LLVM (`async fn`, `await`, `brix_run_to_completion`). **1.133 unit tests + 110 integration tests passando (100%).** Próxima: v1.6 — `break`/`continue`, String Library, Async Closures.
 
 ## Status Atual (Fevereiro 2026)
 
 ### ✅ **Funcionalidades Implementadas (v1.0-v1.5):**
 - Compilação completa `.bx` → binário nativo via LLVM
 - **LLVM Optimizations**: `-O0`, `-O1`, `-O2`, `-O3`, `--release`
+- **v1.5 Async/Await (COMPLETE - Feb 2026):**
+  - **`async fn`**: Compilado para state machine LLVM via `create_{name}(params) -> i8*` + `poll_{name}(i8*) -> {status, value}`
+  - **`await`**: `var x := await f(args)` em sequência linear no body de `async fn`
+  - **`async fn main()`**: Dirigido por `brix_run_to_completion` no runtime C (loop de polling síncrono)
+  - **Stackless coroutines**: State struct mínimo (~40–300 bytes/task), zero overhead em runtime
+  - Limitação: `await` em control flow aninhado e `async { }` blocks → v1.6
+- **v1.5 Test Library (COMPLETE - Feb 2026):**
+  - **Jest-style framework**: `test.describe()`, `test.it()`, `test.expect()`
+  - **28 matchers**: `toBe`, `toEqual`, `toBeCloseTo`, `toBeTruthy`, `toBeFalsy`, `toBeGreaterThan`, `toBeLessThan`, `toContain`, `toHaveLength`, `toBeNil`, e variantes `not.*`
+  - **`cargo run -- test`**: Executa todos os `*.test.bx` e `*.spec.bx`
+  - **21 suites** em `tests/brix/` cobrindo toda a linguagem
 - **v1.5 Iterators & Pipeline (COMPLETE - Feb 2026):**
   - **Array Type Syntax**: `int[]`, `float[]` em anotações de tipo
   - **Unified Ranges**: `0..5` (inclusivo), `0..<5` (exclusivo), `0..10 step 2`, auto-step decrescente
@@ -24,7 +35,7 @@
   - **Structs**: Go-style receivers, default values, generic support
   - **Generics**: Functions, structs, methods com monomorphization
   - **Closures**: Capture by reference, heap allocation, ARC
-- 17 tipos core (Int, Float, String, Matrix, IntMatrix, Complex, ComplexMatrix, Atom, Nil, Error, Struct, Generic, Closure, Union, Intersection, TypeAlias, etc.)
+- 19 tipos core (Int, Float, String, Matrix, IntMatrix, Complex, ComplexMatrix, Atom, Nil, Error, Struct, Generic, Closure, Union, Intersection, TypeAlias, Void, FloatPtr, Tuple)
 - Operadores completos (aritméticos, lógicos, bitwise, power operator `**`, Elvis `?:`)
 - Funções definidas pelo usuário com múltiplos retornos
 - Pattern matching com guards
@@ -133,20 +144,32 @@
 - ✅ Optional → Union refactoring
 - **Total: 1184 tests (292 lexer + 158 parser + 639 codegen + 95 integration) - 100% passing!** 🎉
 
-### ✅ **v1.5 - Iterators & Pipeline (COMPLETE - Feb 2026):**
+### ✅ **v1.5 - Iterators, Pipeline, Test Library & Async/Await (COMPLETE - Feb 2026):**
+- Test Library Jest-style (`describe`, `it`, `expect`, 28 matchers, 21 suites)
 - Unified Ranges (`..` / `..<` / `step`)
 - Array Range Literals (`[1..5]`)
 - Iterators (`map`, `filter`, `reduce`, `any`, `all`, `find`)
 - Pipeline Operator (`|>`)
-- **Total: 1.108 unit + 107 integration = 1.215 tests (100% passing)**
+- Async/Await (state machine LLVM, `async fn`, `await`, `brix_run_to_completion`)
+- **Total: 1.133 unit + 110 integration = 1.243 tests (100% passing)**
 
-### 🔮 **Planejado (v1.6+):**
-- Concurrency (async/await via state machines)
-- String iteration (`for char in "hello"`)
-- 2D Matrix iteration (`.map(fn)` em shape preservada)
+### 🔮 **Planejado (v1.6):**
 - `break` / `continue` em loops
-- String functions: `trim`, `split`, `join`, `starts_with`, `ends_with`, `contains`
+- String Library: `trim`, `ltrim`, `rtrim`, `starts_with`, `ends_with`, `contains`, `substring`, `reverse`, `repeat`, `index_of`
+- String iteration (`for ch in "hello"`)
 - Matrix constructors: `ones()`, `linspace()`, `arange()`, `rand()`
+- 2D Matrix iteration (`.map(fn)` preservando shape)
+- Async Closures (`async () -> { await f() }`) e Async Test Matchers
+- `await` em control flow aninhado (`if`/`while`/`for` dentro de `async fn`)
+- `async { }` blocks
+- Pattern Matching 2.0 (destructuring de structs/tuples, range patterns)
+
+### 🔮 **Planejado (v1.7+):**
+- `split` / `join` (requer `StringMatrix` como novo BrixType)
+- Complex arithmetic operators (`+`, `-`, `*`, `/` em Complex numbers)
+- HashMap / Vector / Stack como tipos built-in
+- Error handling estilo Go (`result, err := f()`)
+- LTO / PGO / SIMD
 
 ---
 
@@ -1300,11 +1323,11 @@ println(power(5.0, 3.0)) // 125.0
 - `destructuring_ignore_test.bx` - Destructuring com `_` ✅
 - `default_values_test.bx` - Default parameters ✅
 
-**Futuro (v1.5+):**
+**Futuro (v1.6+):**
 - [ ] **Error Type:** `function divide(a, b) -> (float, error)` (requer null safety)
 - [ ] **Funções Variádicas:** `function sum(nums: ...int)`
 - [x] **Closures:** `var fn := (x: int) -> int { return x * 2 }` ✅ **COMPLETO (v1.3)**
-- [ ] **First-class functions:** Passar funções como parâmetros (já suportado via closures v1.3)
+- [x] **First-class functions:** Passar funções como parâmetros ✅ **COMPLETO (v1.5 Phase 0a)**
 
 ---
 
@@ -2010,7 +2033,7 @@ println(f"Eigenvectors: {eigenvectors}") // [[a+bim, c+dim], [e+fim, g+him]]
 - [x] Nil/Error handling (Go-style) ✅ **COMPLETO**
 - [x] Closures and lambda functions ✅ **COMPLETO (v1.3)**
 - [x] First-class functions ✅ **COMPLETO (v1.3 - via closures)**
-- [ ] User-defined modules ⏸️ **Adiado para v1.5+**
+- [ ] User-defined modules ⏸️ **Adiado para v1.7+**
 
 **O que foi implementado em v1.0:**
 
@@ -3355,17 +3378,19 @@ As seguintes funções de string estão planejadas mas **ainda não implementada
 
 ---
 
-### 🚀 **v1.6+ - Concorrência e Paralelismo**
+### 🚀 **Concorrência e Paralelismo**
 
-**Status:** Planejado para v1.6+ (dependências atendidas: generics ✅, structs ✅, closures ✅, iterators ✅, pipeline ✅)
+#### Async/Await (High-Performance I/O) ✅ COMPLETO — v1.5
 
-#### Paralelismo de Dados
+**Status:** ✅ Implementado em v1.5 via compile-time state machine transformation. `async fn`, `await`, e `brix_run_to_completion` funcionando. Extensões (await em control flow aninhado, async closures) planejadas para v1.6.
+
+#### Paralelismo de Dados (Planejado v1.7+)
 
 - [ ] **par for:** Distribui iterações entre threads automaticamente
 - [ ] **par map:** Map paralelo sobre arrays
 - [ ] **Threads Nativas:** `spawn { ... }` (estilo Go)
 
-#### Async/Await (High-Performance I/O)
+#### Async/Await — Detalhes de Design
 
 **Decisão de Design (Feb 2026):** Implementação via **compile-time state machine transformation**, seguindo modelo do Rust para atingir performance competitiva (0.2-0.3 MB/task vs 2.66 MB/task do Go).
 
@@ -3465,7 +3490,7 @@ As seguintes funções de string estão planejadas mas **ainda não implementada
 **Dependências:**
 - ✅ Closures (v1.3 COMPLETE) - Para callbacks em async context
 - ✅ Generics (v1.3 COMPLETE) - Para `Future<T>` type
-- ⏸️ Result<T,E> (v1.5+) - Para error handling em async (continua padrão Go por enquanto)
+- ⏸️ Result<T,E> (v1.7+) - Para error handling em async (continua padrão Go por enquanto)
 
 **Referência:**
 - Análise de performance: https://pkolaczk.github.io/memory-consumption-of-async/
@@ -3763,14 +3788,14 @@ math.sum(arr), math.mean(arr), math.median(arr), math.std(arr)
 - **Arquivos de Teste (.bx):** 95+ (core + math + functions + pattern matching + complex + nil/error + atoms + type checking + strings + type system)
 - **Tipos Implementados:** 17 (Int, Float, String, Matrix, IntMatrix, Complex, ComplexMatrix, FloatPtr, Void, Tuple, Nil, Error, Atom, Struct, Generic, Union, Intersection, TypeAlias, Closure)
 - **Built-in Functions:** 60+ (I/O, type system, type checking, conversions, math, stats, linalg, complex, string operations)
-- **Features Implementadas:** ~140+ (v1.4 100% completo ✅)
-- **Features v1.4:** Type Aliases + Union Types + Intersection Types + Elvis Operator + Optional→Union = 5 features
-- **Features Planejadas v1.5+:** ~150+
-- **Versão Atual:** v1.4 ✅ **COMPLETO (18/02/2026)** 🎉
-- **Versão Anterior:** v1.3 ✅ **COMPLETO (13/02/2026)**
+- **Features Implementadas:** ~160+ (v1.5 100% completo ✅)
+- **Features v1.5:** Test Library + Iterators + Pipeline + Ranges + Async/Await = 5 features principais
+- **Features Planejadas v1.6+:** break/continue, String Library, Async Closures, Pattern Matching 2.0
+- **Versão Atual:** v1.5 ✅ **COMPLETO (Fev 2026)** 🎉
+- **Versão Anterior:** v1.4 ✅ **COMPLETO (18/02/2026)**
 - **Progresso MVP:** 100%
-- **Próxima Versão:** v1.5 (async/await, test library, iterators)
-- **Última Atualização:** 18/02/2026
+- **Próxima Versão:** v1.6 (break/continue, String Library, Async Closures, Pattern Matching 2.0)
+- **Última Atualização:** Fev 2026
 
 ---
 
