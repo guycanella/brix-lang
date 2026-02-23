@@ -1,0 +1,18 @@
+// Test: pipeline operator |>
+var nums := [1, 2, 3, 4, 5]
+
+// Simple pipeline: equivalent to nums.map(fn)
+var doubled := nums |> map((x: int) -> int { return x * 2 })
+println(doubled[0])
+println(doubled.cols)
+
+// Pipeline chain: map then filter
+var result := nums
+    |> map((x: int) -> int { return x * 2 })
+    |> filter((x: int) -> bool { return x > 5 })
+println(result.cols)
+println(result[0])
+
+// Pipeline with reduce
+var sum := nums |> map((x: int) -> int { return x * 2 }) |> reduce(0, (acc: int, x: int) -> int { return acc + x })
+println(sum)

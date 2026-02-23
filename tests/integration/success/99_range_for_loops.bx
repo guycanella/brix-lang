@@ -1,0 +1,21 @@
+// Test: Unified range syntax for for loops
+// inclusive: 0..5 prints 0,1,2,3,4,5
+var count := 0
+for i in 0..5 {
+    count += 1
+}
+println(count)
+
+// exclusive: 0..<5 prints 0,1,2,3,4
+var count2 := 0
+for i in 0..<5 {
+    count2 += 1
+}
+println(count2)
+
+// step: 0..10 step 2 → 0,2,4,6,8,10
+var count3 := 0
+for i in 0..10 step 2 {
+    count3 += 1
+}
+println(count3)

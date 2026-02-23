@@ -1,0 +1,19 @@
+// Test: find on IntMatrix — returns int?
+var nums := [1, 2, 3, 4, 5]
+
+// Find first even number
+var found := nums.find((x: int) -> bool { return x % 2 == 0 })
+// found is int? - check if nil
+if found == nil {
+    println(0)
+} else {
+    println(1)
+}
+
+// Find something that doesn't exist
+var not_found := nums.find((x: int) -> bool { return x > 10 })
+if not_found == nil {
+    println(1)
+} else {
+    println(0)
+}

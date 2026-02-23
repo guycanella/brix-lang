@@ -1,0 +1,6 @@
+// Test: Array range literals
+// [1..5] → [1, 2, 3, 4, 5]
+var arr := [1..5]
+println(arr[0])
+println(arr[4])
+println(arr.cols)

@@ -838,6 +838,82 @@ fn test_library_string_matchers() {
 }
 
 // ==========================================
+// RANGE SYNTAX (99-100)
+// ==========================================
+
+#[test]
+fn test_range_for_loops() {
+    assert_success(
+        "tests/integration/success/99_range_for_loops.bx",
+        "6\n5\n6"
+    );
+}
+
+#[test]
+fn test_range_array_literal() {
+    assert_success(
+        "tests/integration/success/100_range_array_literal.bx",
+        "1\n5\n5"
+    );
+}
+
+#[test]
+fn test_iterator_map() {
+    assert_success(
+        "tests/integration/success/101_iterator_map.bx",
+        "2\n10\n5\n1.5\n4.5"
+    );
+}
+
+#[test]
+fn test_iterator_filter() {
+    assert_success(
+        "tests/integration/success/102_iterator_filter.bx",
+        "3\n2\n6\n6"
+    );
+}
+
+#[test]
+fn test_iterator_reduce() {
+    assert_success(
+        "tests/integration/success/103_iterator_reduce.bx",
+        "15\n120\n42"
+    );
+}
+
+#[test]
+fn test_iterator_any_all() {
+    assert_success(
+        "tests/integration/success/104_iterator_any_all.bx",
+        "1\n1\n0\n0"
+    );
+}
+
+#[test]
+fn test_iterator_chaining() {
+    assert_success(
+        "tests/integration/success/105_iterator_chaining.bx",
+        "3\n6\n30"
+    );
+}
+
+#[test]
+fn test_pipeline_operator() {
+    assert_success(
+        "tests/integration/success/106_pipeline_operator.bx",
+        "2\n5\n3\n6\n30"
+    );
+}
+
+#[test]
+fn test_iterator_find() {
+    assert_success(
+        "tests/integration/success/107_iterator_find.bx",
+        "1\n1"
+    );
+}
+
+// ==========================================
 // PARSER ERRORS - Exit Code 2
 // ==========================================
 
