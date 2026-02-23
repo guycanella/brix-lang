@@ -127,6 +127,7 @@ fn test_for_loop_range() {
                 start: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(0)))),
                 end: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(10)))),
                 step: None,
+                inclusive: true,
             }),
             body: Box::new(Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Identifier("i".to_string()))))),
         })],
@@ -145,6 +146,7 @@ fn test_for_loop_with_step() {
                 start: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(0)))),
                 end: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(10)))),
                 step: Some(Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(2))))),
+                inclusive: true,
             }),
             body: Box::new(Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Identifier("i".to_string()))))),
         })],
@@ -932,6 +934,7 @@ fn test_for_with_expression_in_range() {
                     start: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(1)))),
                     end: Box::new(Expr::dummy(ExprKind::Identifier("n".to_string()))),
                     step: Some(Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(1))))),
+                    inclusive: true,
                 }),
                 body: Box::new(Stmt::dummy(StmtKind::Block(vec![]))),
             }),
@@ -1145,6 +1148,172 @@ fn test_constructor_with_variable() {
                 args: vec![Expr::dummy(ExprKind::Identifier("n".to_string()))],
             }))),
         ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+// ==================== UNIFIED RANGE TESTS ====================
+
+#[test]
+fn test_for_loop_inclusive_range() {
+    // for i in 0..5 { }
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::For {
+            var_names: vec!["i".to_string()],
+            iterable: Expr::dummy(ExprKind::Range {
+                start: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(0)))),
+                end: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(5)))),
+                step: None,
+                inclusive: true,
+            }),
+            body: Box::new(Stmt::dummy(StmtKind::Block(vec![]))),
+        })],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_for_loop_exclusive_range() {
+    // for i in 0..<5 { }
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::For {
+            var_names: vec!["i".to_string()],
+            iterable: Expr::dummy(ExprKind::Range {
+                start: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(0)))),
+                end: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(5)))),
+                step: None,
+                inclusive: false,
+            }),
+            body: Box::new(Stmt::dummy(StmtKind::Block(vec![]))),
+        })],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_for_loop_range_with_step() {
+    // for i in 0..10 step 2 { }
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::For {
+            var_names: vec!["i".to_string()],
+            iterable: Expr::dummy(ExprKind::Range {
+                start: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(0)))),
+                end: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(10)))),
+                step: Some(Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(2))))),
+                inclusive: true,
+            }),
+            body: Box::new(Stmt::dummy(StmtKind::Block(vec![]))),
+        })],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_for_loop_descending_range() {
+    // for i in 5..0 { }  (auto-step = -1)
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::For {
+            var_names: vec!["i".to_string()],
+            iterable: Expr::dummy(ExprKind::Range {
+                start: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(5)))),
+                end: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(0)))),
+                step: None,
+                inclusive: true,
+            }),
+            body: Box::new(Stmt::dummy(StmtKind::Block(vec![]))),
+        })],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_array_range_literal_inclusive() {
+    // var arr := [1..5]  → [1, 2, 3, 4, 5]
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::VariableDecl {
+            name: "arr".to_string(),
+            type_hint: None,
+            value: Expr::dummy(ExprKind::Array(vec![
+                Expr::dummy(ExprKind::Range {
+                    start: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(1)))),
+                    end: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(5)))),
+                    step: None,
+                    inclusive: true,
+                }),
+            ])),
+            is_const: false,
+        })],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_array_range_literal_exclusive() {
+    // var arr := [0..<5]  → [0, 1, 2, 3, 4]
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::VariableDecl {
+            name: "arr".to_string(),
+            type_hint: None,
+            value: Expr::dummy(ExprKind::Array(vec![
+                Expr::dummy(ExprKind::Range {
+                    start: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(0)))),
+                    end: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(5)))),
+                    step: None,
+                    inclusive: false,
+                }),
+            ])),
+            is_const: false,
+        })],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_array_range_literal_with_step() {
+    // var arr := [0..10 step 2]  → [0, 2, 4, 6, 8, 10]
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::VariableDecl {
+            name: "arr".to_string(),
+            type_hint: None,
+            value: Expr::dummy(ExprKind::Array(vec![
+                Expr::dummy(ExprKind::Range {
+                    start: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(0)))),
+                    end: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(10)))),
+                    step: Some(Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(2))))),
+                    inclusive: true,
+                }),
+            ])),
+            is_const: false,
+        })],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_array_range_literal_descending() {
+    // var arr := [5..0]  → [5, 4, 3, 2, 1, 0] (auto-step = -1)
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::VariableDecl {
+            name: "arr".to_string(),
+            type_hint: None,
+            value: Expr::dummy(ExprKind::Array(vec![
+                Expr::dummy(ExprKind::Range {
+                    start: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(5)))),
+                    end: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(0)))),
+                    step: None,
+                    inclusive: true,
+                }),
+            ])),
+            is_const: false,
+        })],
     };
     let result = compile_program(program);
     assert!(result.is_ok());

@@ -172,7 +172,7 @@ fn test_while_loop() {
 
 #[test]
 fn test_for_range() {
-    let stmt = parse_stmt("for i in 1:10 { }").unwrap();
+    let stmt = parse_stmt("for i in 1..10 { }").unwrap();
     match &stmt.kind {
         StmtKind::For {
             var_names,
@@ -511,6 +511,46 @@ fn test_method_multiple_returns() {
             assert_eq!(*return_type, Some(vec!["int".to_string(), "int".to_string()]));
         }
         _ => panic!("Expected method def"),
+    }
+}
+
+// ==================== BLOCK TESTS ====================
+
+// ==================== ARRAY TYPE SYNTAX TESTS ====================
+
+#[test]
+fn test_array_type_int_array() {
+    let stmt = parse_stmt("var x: int[] = [1, 2, 3]").unwrap();
+    match &stmt.kind {
+        StmtKind::VariableDecl { name, type_hint, .. } => {
+            assert_eq!(name, "x");
+            assert_eq!(*type_hint, Some("int[]".to_string()));
+        }
+        _ => panic!("Expected var decl"),
+    }
+}
+
+#[test]
+fn test_array_type_float_array() {
+    let stmt = parse_stmt("var x: float[] = [1.0, 2.0]").unwrap();
+    match &stmt.kind {
+        StmtKind::VariableDecl { type_hint, .. } => {
+            assert_eq!(*type_hint, Some("float[]".to_string()));
+        }
+        _ => panic!("Expected var decl"),
+    }
+}
+
+#[test]
+fn test_array_type_fn_param() {
+    // Function with int[] param and float[] return type
+    let stmt = parse_stmt("fn process(nums: int[]) -> float[] { }").unwrap();
+    match &stmt.kind {
+        StmtKind::FunctionDef { params, return_type, .. } => {
+            assert_eq!(params[0].1, "int[]");
+            assert_eq!(*return_type, Some(vec!["float[]".to_string()]));
+        }
+        _ => panic!("Expected function def"),
     }
 }
 
