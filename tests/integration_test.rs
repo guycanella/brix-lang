@@ -914,6 +914,34 @@ fn test_iterator_find() {
 }
 
 // ==========================================
+// ASYNC / AWAIT (v1.5 Phase 2)
+// ==========================================
+
+#[test]
+fn test_async_no_await() {
+    assert_success(
+        "tests/integration/success/80_async_no_await.bx",
+        "42"
+    );
+}
+
+#[test]
+fn test_async_chained_awaits() {
+    assert_success(
+        "tests/integration/success/81_async_chained_awaits.bx",
+        "100"
+    );
+}
+
+#[test]
+fn test_async_with_params() {
+    assert_success(
+        "tests/integration/success/82_async_with_params.bx",
+        "30"
+    );
+}
+
+// ==========================================
 // PARSER ERRORS - Exit Code 2
 // ==========================================
 

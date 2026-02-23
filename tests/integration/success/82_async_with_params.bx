@@ -1,0 +1,14 @@
+// Test: async fn with params that survive into final segment
+// async fn main has no params; but tests that params passed
+// to the awaited fn work correctly.
+// Expected output:
+// 30
+
+async fn multiply(x: int, y: int) -> int {
+    return x * y
+}
+
+async fn main() {
+    var result := await multiply(5, 6)
+    println(result)
+}

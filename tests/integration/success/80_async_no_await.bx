@@ -1,0 +1,13 @@
+// Test: async fn with no awaits (immediate READY)
+// An async fn with no await points resolves synchronously.
+// Expected output:
+// 42
+
+async fn double(x: int) -> int {
+    return x * 2
+}
+
+async fn main() {
+    var result := await double(21)
+    println(result)
+}

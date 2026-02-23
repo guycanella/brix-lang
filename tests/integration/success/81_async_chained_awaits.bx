@@ -1,0 +1,18 @@
+// Test: async fn with two sequential awaits
+// Expected output:
+// 100
+
+async fn double(x: int) -> int {
+    return x * 2
+}
+
+async fn add10(x: int) -> int {
+    return x + 10
+}
+
+async fn main() {
+    var a := await double(20)
+    var b := await add10(a)
+    var c := await double(b)
+    println(c)
+}
