@@ -1,0 +1,11 @@
+// Test: map on IntMatrix and Matrix
+var nums := [1, 2, 3, 4, 5]
+var doubled := nums.map((x: int) -> int { return x * 2 })
+println(doubled[0])
+println(doubled[4])
+println(doubled.cols)
+
+// map to float
+var floats := nums.map((x: int) -> float { return x * 1.5 })
+println(floats[0])
+println(floats[2])

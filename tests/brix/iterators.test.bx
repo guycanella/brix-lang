@@ -1,0 +1,201 @@
+import test
+
+// ==================== MAP TESTS ====================
+
+test.describe("IntMatrix.map", () -> {
+    test.it("doubles each element", () -> {
+        var nums := [1, 2, 3, 4, 5]
+        var doubled := nums.map((x: int) -> int { return x * 2 })
+        test.expect(doubled[0]).toBe(2)
+        test.expect(doubled[1]).toBe(4)
+        test.expect(doubled[4]).toBe(10)
+        test.expect(doubled.cols).toBe(5)
+    })
+
+    test.it("squares each element", () -> {
+        var nums := [1, 2, 3, 4]
+        var squared := nums.map((x: int) -> int { return x * x })
+        test.expect(squared[0]).toBe(1)
+        test.expect(squared[1]).toBe(4)
+        test.expect(squared[2]).toBe(9)
+        test.expect(squared[3]).toBe(16)
+    })
+
+    test.it("preserves length", () -> {
+        var nums := [10, 20, 30, 40, 50]
+        var result := nums.map((x: int) -> int { return x + 1 })
+        test.expect(result.cols).toBe(5)
+    })
+})
+
+// ==================== FILTER TESTS ====================
+
+test.describe("IntMatrix.filter", () -> {
+    test.it("filters even numbers", () -> {
+        var nums := [1, 2, 3, 4, 5, 6]
+        var evens := nums.filter((x: int) -> bool { return x % 2 == 0 })
+        test.expect(evens.cols).toBe(3)
+        test.expect(evens[0]).toBe(2)
+        test.expect(evens[1]).toBe(4)
+        test.expect(evens[2]).toBe(6)
+    })
+
+    test.it("filters numbers greater than threshold", () -> {
+        var nums := [1, 5, 3, 8, 2, 7]
+        var big := nums.filter((x: int) -> bool { return x > 4 })
+        test.expect(big.cols).toBe(3)
+        test.expect(big[0]).toBe(5)
+        test.expect(big[1]).toBe(8)
+        test.expect(big[2]).toBe(7)
+    })
+
+    test.it("returns empty when no match", () -> {
+        var nums := [1, 3, 5]
+        var evens := nums.filter((x: int) -> bool { return x % 2 == 0 })
+        test.expect(evens.cols).toBe(0)
+    })
+
+    test.it("returns all when all match", () -> {
+        var nums := [2, 4, 6]
+        var evens := nums.filter((x: int) -> bool { return x % 2 == 0 })
+        test.expect(evens.cols).toBe(3)
+    })
+})
+
+// ==================== REDUCE TESTS ====================
+
+test.describe("IntMatrix.reduce", () -> {
+    test.it("sums elements", () -> {
+        var nums := [1, 2, 3, 4, 5]
+        var sum := nums.reduce(0, (acc: int, x: int) -> int { return acc + x })
+        test.expect(sum).toBe(15)
+    })
+
+    test.it("computes product", () -> {
+        var nums := [1, 2, 3, 4, 5]
+        var prod := nums.reduce(1, (acc: int, x: int) -> int { return acc * x })
+        test.expect(prod).toBe(120)
+    })
+
+    test.it("works with single element", () -> {
+        var nums := [42]
+        var sum := nums.reduce(0, (acc: int, x: int) -> int { return acc + x })
+        test.expect(sum).toBe(42)
+    })
+
+    test.it("uses non-zero initial value", () -> {
+        var nums := [1, 2, 3]
+        var sum_plus_100 := nums.reduce(100, (acc: int, x: int) -> int { return acc + x })
+        test.expect(sum_plus_100).toBe(106)
+    })
+})
+
+// ==================== ANY / ALL TESTS ====================
+
+test.describe("IntMatrix.any", () -> {
+    test.it("returns true when at least one matches", () -> {
+        var nums := [1, 2, 3, 4, 5]
+        var has_even := nums.any((x: int) -> bool { return x % 2 == 0 })
+        test.expect(has_even).toBeTruthy()
+    })
+
+    test.it("returns false when none match", () -> {
+        var nums := [1, 3, 5, 7]
+        var has_even := nums.any((x: int) -> bool { return x % 2 == 0 })
+        test.expect(has_even).toBeFalsy()
+    })
+
+    test.it("returns true for first element match", () -> {
+        var nums := [2, 3, 5, 7]
+        var has_even := nums.any((x: int) -> bool { return x % 2 == 0 })
+        test.expect(has_even).toBeTruthy()
+    })
+})
+
+test.describe("IntMatrix.all", () -> {
+    test.it("returns true when all match", () -> {
+        var nums := [2, 4, 6, 8]
+        var all_even := nums.all((x: int) -> bool { return x % 2 == 0 })
+        test.expect(all_even).toBeTruthy()
+    })
+
+    test.it("returns false when one doesn't match", () -> {
+        var nums := [2, 4, 5, 8]
+        var all_even := nums.all((x: int) -> bool { return x % 2 == 0 })
+        test.expect(all_even).toBeFalsy()
+    })
+
+    test.it("returns true for all positive", () -> {
+        var nums := [1, 2, 3, 4, 5]
+        var all_pos := nums.all((x: int) -> bool { return x > 0 })
+        test.expect(all_pos).toBeTruthy()
+    })
+})
+
+// ==================== FIND TESTS ====================
+
+test.describe("IntMatrix.find", () -> {
+    test.it("finds the first matching element (not nil)", () -> {
+        var nums := [1, 2, 3, 4, 5]
+        var found := nums.find((x: int) -> bool { return x % 2 == 0 })
+        test.expect(found == nil).toBeFalsy()
+    })
+
+    test.it("returns nil when not found", () -> {
+        var nums := [1, 3, 5, 7]
+        var found := nums.find((x: int) -> bool { return x % 2 == 0 })
+        test.expect(found == nil).toBeTruthy()
+    })
+})
+
+// ==================== CHAINING TESTS ====================
+
+test.describe("Iterator chaining", () -> {
+    test.it("chains map then filter", () -> {
+        var nums := [1, 2, 3, 4, 5]
+        var result := nums.map((x: int) -> int { return x * 2 }).filter((x: int) -> bool { return x > 5 })
+        test.expect(result.cols).toBe(3)
+        test.expect(result[0]).toBe(6)
+    })
+
+    test.it("chains map then reduce", () -> {
+        var nums := [1, 2, 3, 4, 5]
+        var sum := nums.map((x: int) -> int { return x * 2 }).reduce(0, (acc: int, x: int) -> int { return acc + x })
+        test.expect(sum).toBe(30)
+    })
+
+    test.it("chains filter then map", () -> {
+        var nums := [1, 2, 3, 4, 5, 6]
+        var result := nums.filter((x: int) -> bool { return x % 2 == 0 }).map((x: int) -> int { return x * x })
+        test.expect(result.cols).toBe(3)
+        test.expect(result[0]).toBe(4)
+        test.expect(result[1]).toBe(16)
+        test.expect(result[2]).toBe(36)
+    })
+})
+
+// ==================== PIPELINE TESTS ====================
+
+test.describe("Pipeline operator |>", () -> {
+    test.it("desugars to method call", () -> {
+        var nums := [1, 2, 3, 4, 5]
+        var doubled := nums |> map((x: int) -> int { return x * 2 })
+        test.expect(doubled[0]).toBe(2)
+        test.expect(doubled.cols).toBe(5)
+    })
+
+    test.it("chains multiple pipeline operations", () -> {
+        var nums := [1, 2, 3, 4, 5]
+        var result := nums
+            |> map((x: int) -> int { return x * 2 })
+            |> filter((x: int) -> bool { return x > 5 })
+        test.expect(result.cols).toBe(3)
+        test.expect(result[0]).toBe(6)
+    })
+
+    test.it("pipeline with reduce", () -> {
+        var nums := [1, 2, 3, 4, 5]
+        var sum := nums |> reduce(0, (acc: int, x: int) -> int { return acc + x })
+        test.expect(sum).toBe(15)
+    })
+})

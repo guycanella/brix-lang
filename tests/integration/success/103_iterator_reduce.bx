@@ -1,0 +1,12 @@
+// Test: reduce on IntMatrix
+var nums := [1, 2, 3, 4, 5]
+var sum := nums.reduce(0, (acc: int, x: int) -> int { return acc + x })
+println(sum)
+
+var product := nums.reduce(1, (acc: int, x: int) -> int { return acc * x })
+println(product)
+
+// reduce on single element
+var single := [42]
+var r := single.reduce(0, (acc: int, x: int) -> int { return acc + x })
+println(r)

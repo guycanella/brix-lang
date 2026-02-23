@@ -78,9 +78,9 @@ test.describe("while loop", () -> {
 })
 
 test.describe("for loop with range", () -> {
-    test.it("for i in 1:5 runs 5 times (inclusive)", () -> {
+    test.it("for i in 1..5 runs 5 times (inclusive)", () -> {
         var count := 0
-        for i in 1:5 {
+        for i in 1..5 {
             count += 1
         }
         test.expect(count).toBe(5)
@@ -88,15 +88,15 @@ test.describe("for loop with range", () -> {
 
     test.it("accumulates with for loop", () -> {
         var sum := 0
-        for i in 1:4 {
+        for i in 1..4 {
             sum += i
         }
         test.expect(sum).toBe(10)
     })
 
-    test.it("for with step: 0:2:10 hits 0,2,4,6,8,10", () -> {
+    test.it("for with step: 0..10 step 2 hits 0,2,4,6,8,10", () -> {
         var count := 0
-        for i in 0:2:10 {
+        for i in 0..10 step 2 {
             count += 1
         }
         test.expect(count).toBe(6)
@@ -104,11 +104,19 @@ test.describe("for loop with range", () -> {
 
     test.it("sum of odd numbers 1..9 using if inside for", () -> {
         var sum := 0
-        for i in 1:9 {
+        for i in 1..9 {
             if i % 2 != 0 {
                 sum += i
             }
         }
         test.expect(sum).toBe(25)
+    })
+
+    test.it("exclusive range 0..<5 runs 5 times", () -> {
+        var count := 0
+        for i in 0..<5 {
+            count += 1
+        }
+        test.expect(count).toBe(5)
     })
 })
