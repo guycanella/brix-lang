@@ -26,6 +26,35 @@ void brix_free(void* ptr) {
     }
 }
 
+// ==========================================
+// SECTION -1.5: ASYNC/AWAIT SUPPORT (v1.5 Phase 2)
+// ==========================================
+
+// Poll result returned by every async poll function.
+// status: 0 = PENDING (not yet ready), 1 = READY (value available)
+// value:  result as i64 (bit-cast from double for float returns; 0 for void)
+typedef struct {
+    long long status;
+    long long value;
+} BrixPollResult;
+
+// Synchronous executor: drives a future to completion on the current thread.
+// Keeps calling poll_fn(state_ptr) until it returns READY, then returns the result.
+// For Brix v1.5 Phase 2 this is always synchronous (no actual suspension).
+BrixPollResult brix_run_to_completion(void* state_ptr,
+    BrixPollResult (*poll_fn)(void*))
+{
+    BrixPollResult result;
+    do {
+        result = poll_fn(state_ptr);
+    } while (result.status == 0);  // 0 = PENDING
+    return result;
+}
+
+// ==========================================
+// SECTION -1: CLOSURES (v1.3)
+// ==========================================
+
 // Closure structure for ARC:
 // struct { i64 ref_count; void* fn_ptr; void* env_ptr; void (*env_destructor)(void*) }
 // env_destructor is NULL when no captured closures need releasing.
