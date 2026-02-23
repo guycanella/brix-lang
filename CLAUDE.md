@@ -21,10 +21,10 @@ cargo build --release
 
 **Run Rust unit tests:**
 ```bash
-cargo test --all                          # All ~1,108 tests (100% passing)
-cargo test -p lexer                       # Only lexer (298 tests)
-cargo test -p parser                      # Only parser (164 tests)
-cargo test -p codegen                     # Only codegen (646 tests)
+cargo test --all                          # All ~1,133 tests (100% passing)
+cargo test -p lexer                       # Only lexer (304 tests)
+cargo test -p parser                      # Only parser (174 tests)
+cargo test -p codegen                     # Only codegen (655 tests)
 cargo test <pattern>                      # Tests matching pattern
 cargo test -- --nocapture                 # Show println! output
 ```
@@ -167,6 +167,7 @@ Jest-style framework. 28 matchers across 14 categories: `toBe`, `not.toBe`, `toE
 
 - `break` / `continue` not yet in lexer/AST/codegen
 - Nested closures have ARC double-free issue (fixed for one level of nesting in v1.5 Phase 0b)
+- **Async/await (v1.5 Phase 2 complete)**: `async fn` and `await` are fully implemented via LLVM state machines. Each `async fn` compiles to `create_{name}(params) -> i8*` + `poll_{name}(i8*) -> {status, value}`. `async fn main()` is driven by `brix_run_to_completion` in the C runtime. Limitation: only `var x := await f(args)` at the top level of a linear Block body is supported; `await` in nested control flow is not yet supported. `async { }` blocks are not yet supported in codegen.
 - String functions not yet implemented: `trim`, `split`, `join`, `starts_with`, `ends_with`, `contains`, `substring`, `reverse`
 - Matrix constructors not yet implemented: `ones()`, `linspace()`, `arange()`, `rand()`
 - Iterators on `Matrix` (float arrays) — `map`/`filter`/`reduce`/`any`/`all`/`find` work on `IntMatrix`; `Matrix` dispatch exists but float closures require `-> float` return type annotation
