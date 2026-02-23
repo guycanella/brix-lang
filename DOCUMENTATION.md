@@ -1,12 +1,19 @@
 # Brix Language (Design Document v1.0)
 
-> ✅ **Status do Projeto (Fev 2026):** O compilador Brix **v1.4 COMPLETO** - Advanced Type System finalizado! Core funcional com error handling robusto, **Type Aliases**, **Union Types**, **Intersection Types**, e **Elvis Operator** totalmente implementados - 1184/1184 testes passando (100%). v1.4 adiciona sistema de tipos avançado sobre a base sólida do v1.3 (Structs, Generics, Closures). **ARC (Automatic Reference Counting)** implementado para todos os heap types (String, Matrix, IntMatrix, ComplexMatrix, Closures) com retain/release automático.
+> ✅ **Status do Projeto (Fev 2026):** O compilador Brix **v1.5 COMPLETO** - Iterators & Pipeline finalizados! v1.5 implementa **Ranges Unificados** (`..`/`..<`/`step`), **Array Range Literals** (`[1..5]`), **Iteradores** (`map`, `filter`, `reduce`, `any`, `all`, `find`) em `IntMatrix`/`Matrix`, e **Pipeline Operator** (`|>`). 1.108 unit tests + 107 integration tests passando (100%). v1.5 adiciona functional programming sobre a base sólida do v1.4 (Type Aliases, Union, Intersection, Elvis) e v1.3 (Structs, Generics, Closures). **ARC (Automatic Reference Counting)** implementado para todos os heap types.
 
 ## Status Atual (Fevereiro 2026)
 
-### ✅ **Funcionalidades Implementadas (v1.0-v1.4):**
+### ✅ **Funcionalidades Implementadas (v1.0-v1.5):**
 - Compilação completa `.bx` → binário nativo via LLVM
 - **LLVM Optimizations**: `-O0`, `-O1`, `-O2`, `-O3`, `--release`
+- **v1.5 Iterators & Pipeline (COMPLETE - Feb 2026):**
+  - **Array Type Syntax**: `int[]`, `float[]` em anotações de tipo
+  - **Unified Ranges**: `0..5` (inclusivo), `0..<5` (exclusivo), `0..10 step 2`, auto-step decrescente
+  - **Array Range Literals**: `[1..5]` → `IntMatrix`, `[1..<5]` → `IntMatrix`
+  - **Iterators em IntMatrix/Matrix**: `.map(fn)`, `.filter(pred)`, `.reduce(init, fn)`, `.any(pred)`, `.all(pred)`, `.find(pred) -> T?`
+  - **Pipeline Operator**: `arr |> map(fn) |> filter(pred) |> reduce(0, fn)`
+  - **Closures como parâmetros**: Passagem e chamada de closures em funções resolvida (Phase 0a)
 - **v1.4 Advanced Type System (COMPLETE - Feb 2026):**
   - **Type Aliases**: `type MyInt = int`, `type Point2D = Point`
   - **Union Types**: `int | float | string` com tagged unions
@@ -126,11 +133,20 @@
 - ✅ Optional → Union refactoring
 - **Total: 1184 tests (292 lexer + 158 parser + 639 codegen + 95 integration) - 100% passing!** 🎉
 
-### 🔮 **Planejado (v1.5+):**
+### ✅ **v1.5 - Iterators & Pipeline (COMPLETE - Feb 2026):**
+- Unified Ranges (`..` / `..<` / `step`)
+- Array Range Literals (`[1..5]`)
+- Iterators (`map`, `filter`, `reduce`, `any`, `all`, `find`)
+- Pipeline Operator (`|>`)
+- **Total: 1.108 unit + 107 integration = 1.215 tests (100% passing)**
+
+### 🔮 **Planejado (v1.6+):**
 - Concurrency (async/await via state machines)
-- Test Library (Jest-style)
-- Iterators (map, filter, reduce)
-- Pipeline operator (`|>`)
+- String iteration (`for char in "hello"`)
+- 2D Matrix iteration (`.map(fn)` em shape preservada)
+- `break` / `continue` em loops
+- String functions: `trim`, `split`, `join`, `starts_with`, `ends_with`, `contains`
+- Matrix constructors: `ones()`, `linspace()`, `arange()`, `rand()`
 
 ---
 
@@ -539,17 +555,42 @@ println(f"Eigenvectors: {eigenvectors}")  // [[1+0i, 0+0i, 0+0i], ...]
 - Complex numbers só acessíveis via eigvals/eigvecs
 - Planned for v1.1: Full complex number support with operators
 
-### Loops (Híbrido C/Go/Java)
+### Loops (Implementado - v1.5)
 
-```
-// Clássico
-for (var i = 0; i < 10; i++) { ... }
+```brix
+// Iteração sobre range inclusivo (0, 1, 2, 3, 4, 5)
+for i in 0..5 {
+    println(i)
+}
 
-// Iterator (Range based)
-for (num: numbers) { ... }
+// Iteração sobre range exclusivo (0, 1, 2, 3, 4)
+for i in 0..<5 {
+    println(i)
+}
 
-// Go Style (Index + Value)
-for i, val := range numbers { ... }
+// Range com step
+for i in 0..10 step 2 {
+    println(i)   // 0, 2, 4, 6, 8, 10
+}
+
+// Range decrescente (step auto = -1)
+for i in 5..0 {
+    println(i)   // 5, 4, 3, 2, 1, 0
+}
+
+// Iteração sobre array
+for i in 0..<arr.cols {
+    println(arr[i])
+}
+
+// While loop
+while condition {
+    // ...
+}
+
+// Array range literal
+var nums := [1..5]     // IntMatrix: [1, 2, 3, 4, 5]
+var nums2 := [1..<5]   // IntMatrix: [1, 2, 3, 4]
 ```
 
 ## 5. Funções e Tratamento de Erro
@@ -3006,6 +3047,131 @@ var result := x ?: 100
 
 ---
 
+### ✅ **v1.5 - Iterators & Pipeline (Closures, Ranges, map/filter/reduce, |>)** **COMPLETE (Feb 2026)** 🎉
+
+#### **Phase 0 — Prerequisitos (COMPLETE)**
+
+- ✅ **Closures como parâmetros de função** — Symbol table fix: closures agora podem ser passadas e chamadas como argumentos de funções regulares.
+- ✅ **Nested closures ARC double-free** — Corrigido para um nível de nesting.
+- ✅ **Method calls em expressões arbitrárias** — `[1,2,3].map(fn).filter(pred)` funciona via chain postfix.
+
+#### **1. Array Type Syntax (`int[]`, `float[]`)** ✅ **COMPLETE**
+
+Permite usar `int[]` e `float[]` em anotações de tipo para struct fields e parâmetros de função.
+
+```brix
+function process(nums: int[]) -> float[] { ... }
+struct Collection { items: int[], size: int }
+```
+
+**Implementação:**
+- `type_annotation_parser()` em `parser.rs`: consome `[]` opcional após o tipo base
+- `string_to_brix_type()` em `lib.rs`: `"int[]"` → `BrixType::IntMatrix`, `"float[]"` → `BrixType::Matrix`
+
+#### **2. Unified Ranges (`..` / `..<` / `step`)** ✅ **COMPLETE**
+
+Substitui a sintaxe antiga `start:end` por ranges estilo Swift/Kotlin.
+
+```brix
+for i in 0..5 { }           // inclusivo: 0, 1, 2, 3, 4, 5
+for i in 0..<5 { }          // exclusivo: 0, 1, 2, 3, 4
+for i in 0..10 step 2 { }   // com passo: 0, 2, 4, 6, 8, 10
+for i in 10..0 { }          // decrescente: 10, 9, ..., 0 (step auto = -1)
+var nums := [1..5]           // array range literal → IntMatrix [1, 2, 3, 4, 5]
+var nums := [1..<5]          // exclusivo → [1, 2, 3, 4]
+```
+
+**AST:** `ExprKind::Range { start, end, step: Option<Expr>, inclusive: bool }`
+
+**Tokens adicionados** (em `token.rs`, com prioridade de matching via logos):
+- `DotDotLt` (`..<`) — exclusive range, prioridade sobre `DotDot`
+- `DotDot` (`..`) — inclusive range, prioridade sobre `Dot`
+- `PipeGt` (`|>`) — pipeline operator, prioridade sobre `Pipe`
+
+**`step` como soft keyword:** reconhecido via `select! { Token::Identifier(s) if s == "step" => () }` — não reservado.
+
+**Codegen for-loop:**
+- Predicado dinâmico: `inclusive` → `SLE`/`SGE`; exclusivo → `SLT`/`SGT`
+- Auto-step: `select` LLVM instrução escolhe +1 ou -1 baseado em `start > end`
+- `compile_range_to_array()`: gera loop que preenche `IntMatrix` via `intmatrix_new()`
+
+**Testes:** 6 novos tokens (lexer), 6 novos expr tests (parser), 8 novos codegen tests, 2 integration tests (`99_range_for_loops.bx`, `100_range_array_literal.bx`)
+
+#### **3. Core Iterators (`map`, `filter`, `reduce`)** ✅ **COMPLETE**
+
+Métodos funcionais em `IntMatrix` e `Matrix` com closures ou funções nomeadas.
+
+```brix
+var doubled := [1, 2, 3].map((x: int) -> int { return x * 2 })        // [2, 4, 6]
+var evens   := [1, 2, 3, 4].filter((x: int) -> bool { return x % 2 == 0 })  // [2, 4]
+var sum     := [1, 2, 3].reduce(0, (acc: int, x: int) -> int { return acc + x })  // 6
+
+// Chaining
+var result := [1, 2, 3, 4, 5]
+    .map((x: int) -> int { return x * 2 })
+    .filter((x: int) -> bool { return x > 5 })
+    .reduce(0, (acc: int, x: int) -> int { return acc + x })
+```
+
+**Implementação** (`compile_iterator_method()` em `lib.rs`):
+- Dispatch antes do struct method dispatch (guarda `matches!(field, "map" | "filter" | ...)`)
+- `infer_closure_return_type()`: lê `return_type` da closure ou registry de funções
+- `load_closure_fn_env()`: extrai `fn_ptr` e `env_ptr` do closure struct `{ref_count, fn_ptr, env_ptr, destructor}`
+- `map`: aloca resultado com `intmatrix_new(1, len)` ou `matrix_new(1, len)`, loop com `build_indirect_call`
+- `filter`: dois passes — temp array + count; depois copia para resultado de tamanho exato
+- `reduce`: `acc_alloca` + loop com call; retorna escalar
+
+#### **4. Pipeline Operator (`|>`)** ✅ **COMPLETE**
+
+Syntactic sugar: `a |> method(args)` → `a.method(args)` (desugar no parser, zero mudanças no codegen).
+
+```brix
+var result := [1, 2, 3, 4, 5]
+    |> map((x: int) -> int { return x * 2 })
+    |> filter((x: int) -> bool { return x > 5 })
+    |> reduce(0, (acc: int, x: int) -> int { return acc + x })
+```
+
+**Parser** (`parser.rs`): nível de precedência entre `range` e `ternary`, usando `foldl` sobre `repeated()`:
+```rust
+range.then(
+    just(Token::PipeGt)
+        .ignore_then(select! { Token::Identifier(name) => name })
+        .then(args.delimited_by(LParen, RParen))
+        .repeated()
+).foldl(|lhs, (method, args)| {
+    Call { func: FieldAccess { target: lhs, field: method }, args }
+})
+```
+
+#### **5. Additional Iterators (`any`, `all`, `find`)** ✅ **COMPLETE**
+
+```brix
+var has_even := [1, 2, 3].any((x: int) -> bool { return x % 2 == 0 })   // 1 (true)
+var all_pos  := [1, 2, 3].all((x: int) -> bool { return x > 0 })         // 1 (true)
+var found    := [1, 3, 4, 7].find((x: int) -> bool { return x % 2 == 0 }) // int? (não nil)
+```
+
+- `any` / `all`: early return via basic blocks adicionais (`any_found` / `all_false`)
+- `find`: retorna `Union(Int, Nil)` — tagged struct `{ i64 tag, i64 value }` (tag=0=Int, tag=1=Nil)
+
+**Roadmap de Implementação v1.5** ✅ **COMPLETE**
+
+| Fase | Feature | Status |
+|------|---------|--------|
+| 0a | Closures como parâmetros | ✅ |
+| 0b | Nested closures ARC | ✅ |
+| 0c | Method calls em expr arbitrárias | ✅ |
+| 1 | Array Type Syntax (`int[]`) | ✅ |
+| 2 | Ranges Unificados | ✅ |
+| 3 | Core Iterators (map/filter/reduce) | ✅ |
+| 4 | Pipeline Operator (`\|>`) | ✅ |
+| 5 | Additional Iterators (any/all/find) | ✅ |
+
+**Total de testes:** 1.108 unit (298 lexer + 164 parser + 646 codegen) + 107 integration + 21 Brix test suites = **100% passing** 🎉
+
+---
+
 ### 📚 **v1.2 - Standard Library (Stdlib)**
 
 **Estruturas de Dados Nativas:**
@@ -3189,9 +3355,9 @@ As seguintes funções de string estão planejadas mas **ainda não implementada
 
 ---
 
-### 🚀 **v1.5+ - Concorrência e Paralelismo**
+### 🚀 **v1.6+ - Concorrência e Paralelismo**
 
-**Status:** Planejado para v1.5+ (dependências atendidas: generics ✅, structs ✅, closures ✅)
+**Status:** Planejado para v1.6+ (dependências atendidas: generics ✅, structs ✅, closures ✅, iterators ✅, pipeline ✅)
 
 #### Paralelismo de Dados
 
@@ -3384,21 +3550,32 @@ v1.5 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Asyn
 
 Para destacar o Brix no cenário atual, a linguagem adota três pilares de inovação que resolvem dores latentes de Engenharia de Dados e Backend.
 
-### 12.1. Pipeline First (`|>`)
+### 12.1. Pipeline First (`|>`) ✅ **IMPLEMENTADO (v1.5)**
 
 Inspirado em Elixir e F#, mas focado em processamento de dados massivos. O operador pipe transforma código aninhado complexo em um fluxo linear de leitura natural.
 
-- **Conceito:** O resultado da expressão à esquerda é passado como o _primeiro argumento_ da função à direita.
-- **Paralelismo Implícito:** O compilador é capaz de otimizar cadeias de pipes, injetando paralelismo automaticamente em operações como `map` ou `filter` (via `par`).
+- **Conceito:** `a |> method(args)` é syntactic sugar para `a.method(args)` — desugar no parser, zero overhead em runtime.
+- **Implementação atual:** Funciona com todos os métodos de array (`.map()`, `.filter()`, `.reduce()`, etc.) e qualquer method call.
 
-```rust
-// O "Jeito Brix" de processar dados
+```brix
+// Funcionando hoje em Brix:
+var result := [1, 2, 3, 4, 5]
+    |> map((x: int) -> int { return x * 2 })
+    |> filter((x: int) -> bool { return x > 5 })
+    |> reduce(0, (acc: int, x: int) -> int { return acc + x })
+// result = 30
+```
+
+- **Paralelismo Implícito:** Planejado para v1.6+ — injetar paralelismo automaticamente via `par` em cadeias de pipes.
+
+```brix
+// Visão futura (v1.6+):
 "vendas_2024.csv"
-    |> io::read_csv()               // Carrega
-    |> par map(x -> x.total * 1.1)  // Ajusta preços (em todas as threads)
-    |> filter(x -> x.total > 100)   // Filtra relevantes
-    |> json::serialize()            // Transforma
-    |> http::post("api/vendas")     // Envia
+    |> io::read_csv()
+    |> par map((x: Row) -> Row { x.total *= 1.1 })  // paralelo
+    |> filter((x: Row) -> bool { x.total > 100 })
+    |> json::serialize()
+    |> http::post("api/vendas")
 ```
 
 ### 12.2. SQL e JSON como Tipos Nativos (Zero-ORM)
