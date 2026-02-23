@@ -548,7 +548,7 @@ fn test_fstring_with_function_call() {
     // f"Value: {get_value()}"
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "get_value".to_string(),
                 params: vec![],

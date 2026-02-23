@@ -63,7 +63,7 @@ fn test_generic_function_definition() {
     // Test that generic function definition is stored, not compiled
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 name: "identity".to_string(),
                 type_params: vec![TypeParam { name: "T".to_string() }],
                 params: vec![("x".to_string(), "T".to_string(), None)],
@@ -88,7 +88,7 @@ fn test_generic_call_explicit_single_type() {
     // Test: identity<int>(42)
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 name: "identity".to_string(),
                 type_params: vec![TypeParam { name: "T".to_string() }],
                 params: vec![("x".to_string(), "T".to_string(), None)],
@@ -128,7 +128,7 @@ fn test_generic_call_explicit_multiple_types() {
     // Test: swap<int, float>(42, 3.14)
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 name: "swap".to_string(),
                 type_params: vec![
                     TypeParam { name: "T".to_string() },
@@ -167,7 +167,7 @@ fn test_generic_call_inferred_int() {
     // Test: identity(42) - should infer T = int
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 name: "identity".to_string(),
                 type_params: vec![TypeParam { name: "T".to_string() }],
                 params: vec![("x".to_string(), "T".to_string(), None)],
@@ -199,7 +199,7 @@ fn test_generic_call_inferred_float() {
     // Test: identity(3.14) - should infer T = float
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 name: "identity".to_string(),
                 type_params: vec![TypeParam { name: "T".to_string() }],
                 params: vec![("x".to_string(), "T".to_string(), None)],
@@ -231,7 +231,7 @@ fn test_generic_call_inferred_string() {
     // Test: identity("hello") - should infer T = string
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 name: "identity".to_string(),
                 type_params: vec![TypeParam { name: "T".to_string() }],
                 params: vec![("x".to_string(), "T".to_string(), None)],
@@ -263,7 +263,7 @@ fn test_generic_type_promotion() {
     // Test: add(1, 2.5) - should infer T = float with promotion
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 name: "add".to_string(),
                 type_params: vec![TypeParam { name: "T".to_string() }],
                 params: vec![
@@ -312,7 +312,7 @@ fn test_monomorphization_cache() {
     // Test: Multiple calls with same types should reuse specialized function
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 name: "identity".to_string(),
                 type_params: vec![TypeParam { name: "T".to_string() }],
                 params: vec![("x".to_string(), "T".to_string(), None)],
@@ -359,7 +359,7 @@ fn test_multiple_specializations() {
     // Test: Calls with different types should create multiple specializations
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 name: "identity".to_string(),
                 type_params: vec![TypeParam { name: "T".to_string() }],
                 params: vec![("x".to_string(), "T".to_string(), None)],
@@ -407,7 +407,7 @@ fn test_generic_add_operation() {
     // Test: Generic function with arithmetic operation
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 name: "add".to_string(),
                 type_params: vec![TypeParam { name: "T".to_string() }],
                 params: vec![
@@ -460,7 +460,7 @@ fn test_explicit_and_inferred_same_result() {
     // Test: Explicit type args should produce same result as inferred
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 name: "identity".to_string(),
                 type_params: vec![TypeParam { name: "T".to_string() }],
                 params: vec![("x".to_string(), "T".to_string(), None)],
@@ -733,7 +733,7 @@ fn test_generic_struct_with_method() {
                 type_params: vec![parser::ast::TypeParam { name: "T".to_string() }],
                 fields: vec![("value".to_string(), "T".to_string(), None)],
             })),
-            Stmt::dummy(StmtKind::MethodDef(parser::ast::MethodDef {
+            Stmt::dummy(StmtKind::MethodDef(parser::ast::MethodDef { is_async: false,
                 receiver_name: "b".to_string(),
                 receiver_type: "Box".to_string(),
                 method_name: "get".to_string(),
@@ -786,7 +786,7 @@ fn test_generic_method_multiple_types() {
                 type_params: vec![parser::ast::TypeParam { name: "T".to_string() }],
                 fields: vec![("value".to_string(), "T".to_string(), None)],
             })),
-            Stmt::dummy(StmtKind::MethodDef(parser::ast::MethodDef {
+            Stmt::dummy(StmtKind::MethodDef(parser::ast::MethodDef { is_async: false,
                 receiver_name: "b".to_string(),
                 receiver_type: "Box".to_string(),
                 method_name: "get".to_string(),

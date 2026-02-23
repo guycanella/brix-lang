@@ -491,6 +491,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         if self.generic_structs.contains_key(receiver_type) {
             // Store method for later monomorphization
             let method_def = MethodDef {
+                is_async: false,
                 receiver_name: receiver_name.to_string(),
                 receiver_type: receiver_type.to_string(),
                 method_name: method_name.to_string(),
@@ -2559,6 +2560,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
             StmtKind::FunctionDef {
                 name,
+                is_async: _,
                 type_params,
                 params,
                 return_type,
@@ -7298,6 +7300,18 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             } => self.compile_struct_init(struct_name, type_args, fields, expr),
 
             ExprKind::Closure(closure) => self.compile_closure(closure, expr),
+
+            ExprKind::Await { .. } => {
+                Err(CodegenError::General(
+                    "async/await not yet implemented (coming in Brix v1.5 Phase 2)".to_string(),
+                ))
+            }
+
+            ExprKind::AsyncBlock { .. } => {
+                Err(CodegenError::General(
+                    "async blocks not yet implemented (coming in Brix v1.5 Phase 2)".to_string(),
+                ))
+            }
 
             #[allow(unreachable_patterns)]
             _ => {

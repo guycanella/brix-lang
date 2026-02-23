@@ -247,6 +247,14 @@ fn analyze_expr_closures(expr: &mut Expr, outer_scope: &HashSet<String>) {
             }
         }
 
+        ExprKind::Await { expr: inner } => {
+            analyze_expr_closures(inner, outer_scope);
+        }
+
+        ExprKind::AsyncBlock { body } => {
+            analyze_stmt_closures(body, outer_scope);
+        }
+
         ExprKind::Literal(_) | ExprKind::Identifier(_) => {
             // No nested closures here
         }

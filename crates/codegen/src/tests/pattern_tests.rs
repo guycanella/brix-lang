@@ -930,7 +930,7 @@ fn test_match_in_return() {
     //     };
     // }
     let program = Program {
-        statements: vec![Stmt::dummy(StmtKind::FunctionDef {
+        statements: vec![Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
             name: "classify".to_string(),
             params: vec![("x".to_string(), "int".to_string(), None)],
@@ -969,7 +969,7 @@ fn test_match_in_function_argument() {
     // foo(match 5 { 5 -> 10, _ -> 0 })
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "foo".to_string(),
                 params: vec![("x".to_string(), "int".to_string(), None)],
@@ -1045,7 +1045,7 @@ fn test_match_with_function_call_value() {
     // }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "get_num".to_string(),
                 params: vec![],

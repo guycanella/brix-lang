@@ -35,7 +35,7 @@ fn test_default_param_int_literal() {
     // fn greet(times: int = 1) -> int { return times; }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "greet".to_string(),
                 params: vec![(
@@ -64,7 +64,7 @@ fn test_default_param_float_literal() {
     // fn multiply(x: float = 2.5) -> float { return x * 2.0; }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "multiply".to_string(),
                 params: vec![(
@@ -96,7 +96,7 @@ fn test_default_param_string_literal() {
     // fn greet(name: string = "World") -> string { return name; }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "greet".to_string(),
                 params: vec![(
@@ -124,7 +124,7 @@ fn test_default_param_expression() {
     // fn add(a: int, b: int = a + 1) -> int { return a + b; }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "add".to_string(),
                 params: vec![
@@ -163,7 +163,7 @@ fn test_multiple_defaults() {
     // fn func(a: int = 1, b: int = 2, c: int = 3) -> int { return a + b + c; }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "func".to_string(),
                 params: vec![
@@ -212,7 +212,7 @@ fn test_override_default_value() {
     // greet("Alice")
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "greet".to_string(),
                 params: vec![(
@@ -240,7 +240,7 @@ fn test_required_and_default_params() {
     // fn func(required: int, optional: int = 10) -> int { return required + optional; }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "func".to_string(),
                 params: vec![
@@ -277,7 +277,7 @@ fn test_partial_default_override() {
     // func(10, 20) - override first two, use default for c
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "func".to_string(),
                 params: vec![
@@ -328,7 +328,7 @@ fn test_default_param_boolean() {
     // fn check(flag: bool = true) -> int { return flag ? 1 : 0; }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "check".to_string(),
                 params: vec![(
@@ -360,7 +360,7 @@ fn test_default_param_with_float_types() {
     // fn calculate(x: float = 1.5, y: float = 2.5) -> float { return x * y; }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "calculate".to_string(),
                 params: vec![
@@ -401,7 +401,7 @@ fn test_tuple_return_two_ints() {
     // fn get_coords() -> (int, int) { return 10, 20; }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "get_coords".to_string(),
                 params: vec![],
@@ -428,7 +428,7 @@ fn test_tuple_return_int_and_float() {
     // fn get_data() -> (int, float) { return 42, 3.14; }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "get_data".to_string(),
                 params: vec![],
@@ -455,7 +455,7 @@ fn test_tuple_return_three_values() {
     // fn get_rgb() -> (int, int, int) { return 255, 128, 0; }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "get_rgb".to_string(),
                 params: vec![],
@@ -487,7 +487,7 @@ fn test_tuple_return_mixed_types() {
     // fn get_info() -> (int, float, string) { return 42, 3.14, "hello"; }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "get_info".to_string(),
                 params: vec![],
@@ -520,7 +520,7 @@ fn test_tuple_destructuring_simple() {
     // var { a, b } := pair();
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "pair".to_string(),
                 params: vec![],
@@ -549,7 +549,7 @@ fn test_tuple_destructuring_three_values() {
     // var { x, y, z } := triple();
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "triple".to_string(),
                 params: vec![],
@@ -586,7 +586,7 @@ fn test_tuple_destructuring_ignore_value() {
     // var { a, _ } := pair();  // Ignore second value
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "pair".to_string(),
                 params: vec![],
@@ -616,7 +616,7 @@ fn test_tuple_indexing() {
     // var first := result[0];
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "pair".to_string(),
                 params: vec![],
@@ -657,7 +657,7 @@ fn test_tuple_with_computation() {
     // fn compute(x: int) -> (int, int) { return x, x * 2; }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "compute".to_string(),
                 params: vec![("x".to_string(), "int".to_string(), None)],
@@ -688,7 +688,7 @@ fn test_tuple_four_values() {
     // fn get_quad() -> (int, int, int, int) { return 1, 2, 3, 4; }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "get_quad".to_string(),
                 params: vec![],
@@ -726,7 +726,7 @@ fn test_recursive_factorial() {
     // }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "factorial".to_string(),
                 params: vec![("n".to_string(), "int".to_string(), None)],
@@ -777,7 +777,7 @@ fn test_recursive_fibonacci() {
     // }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "fib".to_string(),
                 params: vec![("n".to_string(), "int".to_string(), None)],
@@ -835,7 +835,7 @@ fn test_recursive_power() {
     // }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "power".to_string(),
                 params: vec![
@@ -892,7 +892,7 @@ fn test_recursive_gcd() {
     // }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "gcd".to_string(),
                 params: vec![
@@ -945,7 +945,7 @@ fn test_tail_recursive_factorial() {
     // }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "fact_helper".to_string(),
                 params: vec![
@@ -1006,7 +1006,7 @@ fn test_mutual_recursion_even_odd() {
     // }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "is_even".to_string(),
                 params: vec![("n".to_string(), "int".to_string(), None)],
@@ -1035,7 +1035,7 @@ fn test_mutual_recursion_even_odd() {
                     }),
                 ]))),
             }),
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "is_odd".to_string(),
                 params: vec![("n".to_string(), "int".to_string(), None)],
@@ -1082,7 +1082,7 @@ fn test_recursive_countdown() {
     // }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "countdown".to_string(),
                 params: vec![("n".to_string(), "int".to_string(), None)],
@@ -1129,7 +1129,7 @@ fn test_recursive_sum_range() {
     // }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "sum_range".to_string(),
                 params: vec![
@@ -1185,7 +1185,7 @@ fn test_recursive_min() {
     // }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "min".to_string(),
                 params: vec![
@@ -1224,7 +1224,7 @@ fn test_recursive_nested_calls() {
     // }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "ackermann".to_string(),
                 params: vec![
@@ -1322,7 +1322,7 @@ fn test_local_shadows_global() {
                 value: Expr::dummy(ExprKind::Literal(Literal::Int(10))),
                 is_const: false,
             }),
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "test".to_string(),
                 params: vec![],
@@ -1364,7 +1364,7 @@ fn test_param_shadows_global() {
                 value: Expr::dummy(ExprKind::Literal(Literal::Int(10))),
                 is_const: false,
             }),
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "test".to_string(),
                 params: vec![("x".to_string(), "int".to_string(), None)],
@@ -1398,7 +1398,7 @@ fn test_access_global_from_function() {
                 value: Expr::dummy(ExprKind::Literal(Literal::Int(42))),
                 is_const: false,
             }),
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "get_global".to_string(),
                 params: vec![],
@@ -1426,7 +1426,7 @@ fn test_local_shadows_param() {
     // test(50)  // Should return 100
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "test".to_string(),
                 params: vec![("x".to_string(), "int".to_string(), None)],
@@ -1466,7 +1466,7 @@ fn test_multiple_functions_same_local_name() {
     // func1() + func2()
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "func1".to_string(),
                 params: vec![],
@@ -1483,7 +1483,7 @@ fn test_multiple_functions_same_local_name() {
                     }),
                 ]))),
             }),
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "func2".to_string(),
                 params: vec![],
@@ -1532,7 +1532,7 @@ fn test_shadowing_with_different_types() {
                 value: Expr::dummy(ExprKind::Literal(Literal::Int(10))),
                 is_const: false,
             }),
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "test".to_string(),
                 params: vec![],
@@ -1575,7 +1575,7 @@ fn test_function_modifies_global() {
                 value: Expr::dummy(ExprKind::Literal(Literal::Int(0))),
                 is_const: false,
             }),
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "increment".to_string(),
                 params: vec![],
@@ -1615,7 +1615,7 @@ fn test_nested_scopes_in_blocks() {
     //     return x;
     // }
     let program = Program {
-        statements: vec![Stmt::dummy(StmtKind::FunctionDef {
+        statements: vec![Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
             name: "test".to_string(),
             params: vec![],
@@ -1663,7 +1663,7 @@ fn test_param_access_in_nested_calls() {
     // For now, just test that params are accessible within their function
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "outer".to_string(),
                 params: vec![("x".to_string(), "int".to_string(), None)],
@@ -1693,7 +1693,7 @@ fn test_multiple_params_same_name_different_functions() {
     // Each function has its own 'x' parameter
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "add".to_string(),
                 params: vec![("x".to_string(), "int".to_string(), None)],
@@ -1706,7 +1706,7 @@ fn test_multiple_params_same_name_different_functions() {
                     )],
                 })]))),
             }),
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "mul".to_string(),
                 params: vec![("x".to_string(), "int".to_string(), None)],
@@ -1744,7 +1744,7 @@ fn test_function_no_return_void() {
     // do_nothing()
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "do_nothing".to_string(),
                 params: vec![],
@@ -1769,7 +1769,7 @@ fn test_function_early_return() {
     // }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "early".to_string(),
                 params: vec![("x".to_string(), "int".to_string(), None)],
@@ -1809,7 +1809,7 @@ fn test_function_return_in_if_else() {
     // }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "abs".to_string(),
                 params: vec![("x".to_string(), "int".to_string(), None)],
@@ -1847,7 +1847,7 @@ fn test_function_calling_function() {
     // fn quad(x: int) -> int { return double(double(x)); }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "double".to_string(),
                 params: vec![("x".to_string(), "int".to_string(), None)],
@@ -1860,7 +1860,7 @@ fn test_function_calling_function() {
                     )],
                 })]))),
             }),
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "quad".to_string(),
                 params: vec![("x".to_string(), "int".to_string(), None)],
@@ -1892,7 +1892,7 @@ fn test_nested_function_calls() {
     // add(mul(2, 3), mul(4, 5))
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "add".to_string(),
                 params: vec![
@@ -1908,7 +1908,7 @@ fn test_nested_function_calls() {
                     )],
                 })]))),
             }),
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "mul".to_string(),
                 params: vec![
@@ -1956,7 +1956,7 @@ fn test_function_many_parameters() {
     // }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "sum5".to_string(),
                 params: vec![
@@ -2008,7 +2008,7 @@ fn test_function_no_parameters() {
     // fn get_pi() -> float { return 3.14159; }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "get_pi".to_string(),
                 params: vec![],
@@ -2033,7 +2033,7 @@ fn test_function_returns_function_result() {
     // fn outer() -> int { return inner(); }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "inner".to_string(),
                 params: vec![],
@@ -2042,7 +2042,7 @@ fn test_function_returns_function_result() {
                     values: vec![Expr::dummy(ExprKind::Literal(Literal::Int(42)))],
                 })]))),
             }),
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "outer".to_string(),
                 params: vec![],
@@ -2071,7 +2071,7 @@ fn test_function_with_complex_expression() {
     // }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "complex".to_string(),
                 params: vec![
@@ -2112,7 +2112,7 @@ fn test_function_with_ternary_return() {
     // }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "max".to_string(),
                 params: vec![
