@@ -210,7 +210,7 @@ fn analyze_expr_closures(expr: &mut Expr, outer_scope: &HashSet<String>) {
             }
         }
 
-        ExprKind::Range { start, end, step } => {
+        ExprKind::Range { start, end, step, .. } => {
             analyze_expr_closures(start, outer_scope);
             analyze_expr_closures(end, outer_scope);
             if let Some(s) = step {
@@ -404,7 +404,7 @@ fn collect_used_identifiers_expr(expr: &Expr, used: &mut HashSet<String>) {
             }
         }
 
-        ExprKind::Range { start, end, step } => {
+        ExprKind::Range { start, end, step, .. } => {
             collect_used_identifiers_expr(start, used);
             collect_used_identifiers_expr(end, used);
             if let Some(s) = step {

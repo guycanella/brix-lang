@@ -146,6 +146,7 @@ pub enum ExprKind {
         start: Box<Expr>,
         end: Box<Expr>,
         step: Option<Box<Expr>>,
+        inclusive: bool, // true = .. (SLE), false = ..< (SLT)
     },
 
     ListComprehension {

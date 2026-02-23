@@ -81,11 +81,18 @@ fn type_annotation_parser() -> impl Parser<Token, String, Error = Simple<Token>>
         // Any single type: closure type or base identifier type
         let single_type = fn_type.or(base_type);
 
+        // Array type suffix: int[], float[], etc.
+        let array_type = single_type.clone()
+            .then(just(Token::LBracket).then_ignore(just(Token::RBracket)).or_not())
+            .map(|(t, bracket)| {
+                if bracket.is_some() { format!("{}[]", t) } else { t }
+            });
+
         // Intersection types: Point & Label & Named
-        let intersection = single_type.clone()
+        let intersection = array_type.clone()
             .then(
                 just(Token::Ampersand)
-                    .ignore_then(single_type.clone())
+                    .ignore_then(array_type.clone())
                     .repeated()
             )
             .map(|(first, rest)| {
@@ -1331,39 +1338,63 @@ where
             })
             .boxed();
 
-        // 11. Range (1:10 or 1:2:10)
-        let range_end_parser = elvis.clone();
-        let range_step_parser = elvis.clone();
-
+        // 11. Range (start..end or start..<end), with optional "step N"
+        // "step" is a soft keyword: recognized via Identifier("step")
         let range = elvis
             .clone()
             .then(
-                just(Token::Colon)
-                    .ignore_then(range_end_parser)
-                    .then(just(Token::Colon).ignore_then(range_step_parser).or_not())
+                just(Token::DotDotLt).to(false) // false = exclusive (..<)
+                    .or(just(Token::DotDot).to(true)) // true = inclusive (..)
+                    .then(elvis.clone())
+                    .then(
+                        select! { Token::Identifier(s) if s == "step" => () }
+                            .ignore_then(elvis.clone())
+                            .or_not()
+                    )
                     .or_not(),
             )
-            .map_with_span(|(start, maybe_rest), span| match maybe_rest {
-                None => start, // Is not range
-                Some((second, third_opt)) => match third_opt {
-                    // start:end
-                    None => Expr::new(ExprKind::Range {
-                        start: Box::new(start),
-                        end: Box::new(second),
-                        step: None,
-                    }, span),
-                    // start:step:end
-                    Some(end) => Expr::new(ExprKind::Range {
-                        start: Box::new(start),
-                        end: Box::new(end),
-                        step: Some(Box::new(second)),
-                    }, span),
-                },
+            .map_with_span(|(start, rest), span| match rest {
+                None => start, // Not a range
+                Some(((inclusive, end), step)) => Expr::new(ExprKind::Range {
+                    start: Box::new(start),
+                    end: Box::new(end),
+                    step: step.map(Box::new),
+                    inclusive,
+                }, span),
             });
 
-        // 12. Ternary (condition ? true_expr : false_expr)
-        // Use elvis for branches to support all operators except range
-        let ternary = range
+        // 12. Pipeline operator (|>)
+        // lhs |> method_name(args...) desugars to method_name(lhs, args...)
+        // i.e. Call { func: FieldAccess { target: lhs, field: method }, args }
+        let pipeline = range
+            .clone()
+            .then(
+                just(Token::PipeGt)
+                    .ignore_then(select! { Token::Identifier(name) => name })
+                    .then(
+                        expr.clone()
+                            .separated_by(just(Token::Comma))
+                            .allow_trailing()
+                            .collect::<Vec<_>>()
+                            .delimited_by(just(Token::LParen), just(Token::RParen))
+                    )
+                    .repeated(),
+            )
+            .foldl(|lhs, (method_name, args)| {
+                let span = lhs.span.clone();
+                let field_access = Expr::new(
+                    ExprKind::FieldAccess {
+                        target: Box::new(lhs),
+                        field: method_name,
+                    },
+                    span.clone(),
+                );
+                Expr::new(ExprKind::Call { func: Box::new(field_access), args }, span)
+            });
+
+        // 13. Ternary (condition ? true_expr : false_expr)
+        // Use elvis for branches to support all operators except range/pipeline
+        let ternary = pipeline
             .clone()
             .then(
                 just(Token::Question)

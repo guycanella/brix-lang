@@ -172,6 +172,9 @@ pub enum Token {
     #[token("^")]
     Caret,
 
+    #[token("|>")]
+    PipeGt, // Pipeline operator (|> has priority over |)
+
     #[token("|")]
     Pipe,
 
@@ -204,6 +207,12 @@ pub enum Token {
 
     #[token(":")]
     Colon,
+
+    #[token("..<")]
+    DotDotLt, // Exclusive range (..<  has priority over ..)
+
+    #[token("..")]
+    DotDot, // Inclusive range (.. has priority over .)
 
     #[token(".")]
     Dot,

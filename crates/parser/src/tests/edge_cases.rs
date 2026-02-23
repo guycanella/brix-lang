@@ -263,8 +263,7 @@ fn test_comment_in_expression() {
 
 #[test]
 fn test_range_variables() {
-    // Ranges with variables require space to avoid conflict with atoms
-    let expr = parse_expr("start : end").unwrap();
+    let expr = parse_expr("start..end").unwrap();
     match &expr.kind {
         ExprKind::Range { .. } => {}
         _ => panic!("Expected range"),
@@ -273,7 +272,7 @@ fn test_range_variables() {
 
 #[test]
 fn test_range_expressions() {
-    let expr = parse_expr("(x + 1):(y - 1)").unwrap();
+    let expr = parse_expr("(x + 1)..(y - 1)").unwrap();
     match &expr.kind {
         ExprKind::Range { .. } => {}
         _ => panic!("Expected range"),

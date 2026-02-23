@@ -619,44 +619,85 @@ fn test_field_access_chained() {
 // ==================== RANGE TESTS ====================
 
 #[test]
-fn test_range_simple() {
-    let expr = parse_expr("1:10").unwrap();
+fn test_range_inclusive() {
+    let expr = parse_expr("1..10").unwrap();
     match &expr.kind {
-        ExprKind::Range { start, end, step } => {
+        ExprKind::Range { start, end, step, inclusive } => {
             assert_eq!(start.kind, ExprKind::Literal(Literal::Int(1)));
             assert_eq!(end.kind, ExprKind::Literal(Literal::Int(10)));
             assert!(step.is_none());
+            assert_eq!(*inclusive, true);
         }
-        _ => panic!("Expected range"),
+        _ => panic!("Expected inclusive range"),
+    }
+}
+
+#[test]
+fn test_range_exclusive() {
+    let expr = parse_expr("0..<10").unwrap();
+    match &expr.kind {
+        ExprKind::Range { start, end, step, inclusive } => {
+            assert_eq!(start.kind, ExprKind::Literal(Literal::Int(0)));
+            assert_eq!(end.kind, ExprKind::Literal(Literal::Int(10)));
+            assert!(step.is_none());
+            assert_eq!(*inclusive, false);
+        }
+        _ => panic!("Expected exclusive range"),
     }
 }
 
 #[test]
 fn test_range_with_step() {
-    let expr = parse_expr("0:2:10").unwrap();
+    let expr = parse_expr("0..10 step 2").unwrap();
     match &expr.kind {
-        ExprKind::Range { start, end, step } => {
+        ExprKind::Range { start, end, step, inclusive } => {
             assert_eq!(start.kind, ExprKind::Literal(Literal::Int(0)));
             assert!(step.is_some());
             assert_eq!(end.kind, ExprKind::Literal(Literal::Int(10)));
+            assert_eq!(*inclusive, true);
         }
         _ => panic!("Expected range with step"),
     }
 }
 
 #[test]
-fn test_range_with_variables() {
-    // Ranges with variables require space to avoid conflict with atoms
-    // "start:end" would be tokenized as Identifier("start"), Atom("end")
-    // "start : end" is correctly tokenized as Identifier("start"), Colon, Identifier("end")
-    let expr = parse_expr("start : end").unwrap();
+fn test_range_exclusive_with_step() {
+    let expr = parse_expr("0..<10 step 2").unwrap();
     match &expr.kind {
-        ExprKind::Range { start, end, step } => {
+        ExprKind::Range { start, end, step, inclusive } => {
+            assert_eq!(start.kind, ExprKind::Literal(Literal::Int(0)));
+            assert!(step.is_some());
+            assert_eq!(end.kind, ExprKind::Literal(Literal::Int(10)));
+            assert_eq!(*inclusive, false);
+        }
+        _ => panic!("Expected exclusive range with step"),
+    }
+}
+
+#[test]
+fn test_range_with_variables() {
+    let expr = parse_expr("start..end").unwrap();
+    match &expr.kind {
+        ExprKind::Range { start, end, step, inclusive } => {
             assert_eq!(start.kind, ExprKind::Identifier("start".to_string()));
             assert_eq!(end.kind, ExprKind::Identifier("end".to_string()));
             assert!(step.is_none());
+            assert_eq!(*inclusive, true);
         }
         _ => panic!("Expected range"),
+    }
+}
+
+#[test]
+fn test_range_descending() {
+    let expr = parse_expr("10..0").unwrap();
+    match &expr.kind {
+        ExprKind::Range { start, end, inclusive, .. } => {
+            assert_eq!(start.kind, ExprKind::Literal(Literal::Int(10)));
+            assert_eq!(end.kind, ExprKind::Literal(Literal::Int(0)));
+            assert_eq!(*inclusive, true);
+        }
+        _ => panic!("Expected descending range"),
     }
 }
 

@@ -192,11 +192,63 @@ fn test_dot_without_digits() {
 
 #[test]
 fn test_dot_dot() {
-    // ".." should be Dot + Dot
+    // ".." is now the inclusive range operator DotDot
     let tokens = tokenize("..");
+    assert_eq!(tokens.len(), 1);
+    assert_eq!(tokens[0], Ok(Token::DotDot));
+}
+
+#[test]
+fn test_dot_dot_lt() {
+    // "..<" is the exclusive range operator DotDotLt
+    let tokens = tokenize("..<");
+    assert_eq!(tokens.len(), 1);
+    assert_eq!(tokens[0], Ok(Token::DotDotLt));
+}
+
+#[test]
+fn test_dot_dot_lt_priority_over_dot_dot() {
+    // "..<5" should lex as DotDotLt, Int(5) — not DotDot, Lt, Int(5)
+    let tokens = tokenize("..<5");
     assert_eq!(tokens.len(), 2);
-    assert_eq!(tokens[0], Ok(Token::Dot));
-    assert_eq!(tokens[1], Ok(Token::Dot));
+    assert_eq!(tokens[0], Ok(Token::DotDotLt));
+    assert_eq!(tokens[1], Ok(Token::Int(5)));
+}
+
+#[test]
+fn test_pipe_gt() {
+    // "|>" is the pipeline operator
+    let tokens = tokenize("|>");
+    assert_eq!(tokens.len(), 1);
+    assert_eq!(tokens[0], Ok(Token::PipeGt));
+}
+
+#[test]
+fn test_pipe_gt_priority_over_pipe() {
+    // "|>" should lex as PipeGt, not Pipe + Gt
+    let tokens = tokenize("|>");
+    assert_eq!(tokens.len(), 1);
+    assert_eq!(tokens[0], Ok(Token::PipeGt));
+}
+
+#[test]
+fn test_dot_dot_priority_over_dot() {
+    // "1..5" should lex as Int(1), DotDot, Int(5)
+    let tokens = tokenize("1..5");
+    assert_eq!(tokens.len(), 3);
+    assert_eq!(tokens[0], Ok(Token::Int(1)));
+    assert_eq!(tokens[1], Ok(Token::DotDot));
+    assert_eq!(tokens[2], Ok(Token::Int(5)));
+}
+
+#[test]
+fn test_dot_dot_lt_in_range() {
+    // "0..<10" should lex as Int(0), DotDotLt, Int(10)
+    let tokens = tokenize("0..<10");
+    assert_eq!(tokens.len(), 3);
+    assert_eq!(tokens[0], Ok(Token::Int(0)));
+    assert_eq!(tokens[1], Ok(Token::DotDotLt));
+    assert_eq!(tokens[2], Ok(Token::Int(10)));
 }
 
 #[test]
