@@ -43,6 +43,69 @@ use expr::ExpressionCompiler;
 #[cfg(test)]
 mod tests;
 
+// ==========================================
+// ASYNC/AWAIT SUPPORT TYPES (v1.5 Phase 2)
+// ==========================================
+
+/// A single `var x := await f(args)` point found in an async fn body.
+#[derive(Debug, Clone)]
+struct AwaitPoint {
+    /// Variable name that receives the result (e.g. "result")
+    result_var: String,
+    /// Name of the async function being awaited (e.g. "double")
+    callee_name: String,
+    /// Arguments passed to the awaited call (cloned AST nodes)
+    callee_args: Vec<Expr>,
+}
+
+/// Split an async fn body into await points + the statement segments between them.
+///
+/// Returns `(await_points, segments)` where:
+/// - `segments[0]`    = stmts before the first await
+/// - `await_points[i]` = the i-th `var x := await f(args)` statement
+/// - `segments[i+1]`  = stmts after await_points[i] (until next await or end)
+///
+/// Only recognises `var x := await f(args)` at the top level of a Block body.
+/// Any other use of `await` inside nested expressions is left as-is (and will
+/// produce a codegen error when compile_expr hits it).
+fn extract_await_segments(body: &Stmt) -> (Vec<AwaitPoint>, Vec<Vec<Stmt>>) {
+    use parser::ast::{ExprKind, StmtKind};
+
+    let stmts = match &body.kind {
+        StmtKind::Block(s) => s.as_slice(),
+        _ => {
+            // Single-statement body with no block wrapper
+            return (vec![], vec![vec![body.clone()]]);
+        }
+    };
+
+    let mut await_points: Vec<AwaitPoint> = Vec::new();
+    let mut segments: Vec<Vec<Stmt>> = vec![Vec::new()];
+
+    for stmt in stmts {
+        // Match: var x := await f(args)
+        if let StmtKind::VariableDecl { name, value, .. } = &stmt.kind {
+            if let ExprKind::Await { expr: await_inner } = &value.kind {
+                if let ExprKind::Call { func, args } = &await_inner.kind {
+                    if let ExprKind::Identifier(fn_name) = &func.kind {
+                        await_points.push(AwaitPoint {
+                            result_var: name.clone(),
+                            callee_name: fn_name.clone(),
+                            callee_args: args.clone(),
+                        });
+                        segments.push(Vec::new()); // start next segment
+                        continue;
+                    }
+                }
+            }
+        }
+        // Regular statement: append to current segment
+        segments.last_mut().unwrap().push(stmt.clone());
+    }
+
+    (await_points, segments)
+}
+
 pub struct Compiler<'a, 'ctx> {
     pub context: &'ctx Context,
     pub builder: &'a Builder<'ctx>,
@@ -73,6 +136,10 @@ pub struct Compiler<'a, 'ctx> {
 
     // Imported modules tracking: (module_name, prefix)
     pub imported_modules: Vec<(String, String)>,
+
+    // Async function tracking (v1.5 Phase 2)
+    // Names of async fns that have been compiled; used by await to call create_{name}/poll_{name}
+    pub async_fn_names: HashSet<String>,
 }
 
 impl<'a, 'ctx> Compiler<'a, 'ctx> {
@@ -103,6 +170,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             closure_counter: 0,
             function_scope_vars: Vec::new(),
             imported_modules: Vec::new(),
+            async_fn_names: HashSet::new(),
         }
     }
 
@@ -431,6 +499,571 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         // 11. Position builder back at the end of parent function
         if let Some(block) = _parent_function.get_last_basic_block() {
             self.builder.position_at_end(block);
+        }
+
+        Ok(())
+    }
+
+    // ==========================================
+    // ASYNC FN CODEGEN (v1.5 Phase 2)
+    // ==========================================
+    //
+    // Transforms `async fn name(params) -> T { body }` into three LLVM artefacts:
+    //
+    //   1. create_{name}(params...) -> i8*
+    //      Malloc + populate a state struct; set state = 0; return pointer.
+    //
+    //   2. poll_{name}(i8* state_ptr) -> { i64 status, i64 value }
+    //      State-machine dispatcher.
+    //      - status 0 = PENDING  (awaiting a nested async call)
+    //      - status 1 = READY    (value is the function's return value as i64)
+    //
+    //   3. For `async fn main` only: emit a call to `brix_run_to_completion`
+    //      inside compile_program's main LLVM function so the runtime drives
+    //      the state machine to completion before returning 0.
+    //
+    // State struct layout (indices into the LLVM struct type):
+    //   [0]            state: i64           (current state counter)
+    //   [1 .. K]       param_i              (one slot per parameter)
+    //   [K+1 .. K+N]   result_i             (one slot per await result)
+    //   [K+N+1]        sub_future_ptr: i8*  (only when N > 0)
+    //
+    // Phase 2 restriction: only recognises `var x := await f(args)` at the
+    // top level of a Block body.  Nested control flow spanning an await point
+    // will produce a compile error when the await expr reaches compile_expr.
+    fn compile_async_fn_def(
+        &mut self,
+        name: &str,
+        params: &[(String, String, Option<Expr>)],
+        return_type: &Option<Vec<String>>,
+        body: &Stmt,
+        _parent_function: inkwell::values::FunctionValue<'ctx>,
+    ) -> CodegenResult<()> {
+        use inkwell::module::Linkage;
+        use inkwell::types::{BasicMetadataTypeEnum, BasicTypeEnum};
+        use inkwell::values::BasicMetadataValueEnum;
+
+        let i64_type = self.context.i64_type();
+        let ptr_type = self.context.ptr_type(inkwell::AddressSpace::default());
+
+        // ── 1. Return type ──────────────────────────────────────────────
+        let ret_brix_type: BrixType = match return_type {
+            None => BrixType::Void,
+            Some(ts) if ts.is_empty() => BrixType::Void,
+            Some(ts) => self.string_to_brix_type(&ts[0]),
+        };
+
+        // ── 2. Extract await points and segments ─────────────────────────
+        let (await_points, segments) = extract_await_segments(body);
+        let n_awaits = await_points.len();
+
+        // ── 3. Register as async fn ──────────────────────────────────────
+        self.async_fn_names.insert(name.to_string());
+
+        // ── 4. Build state struct type ───────────────────────────────────
+        // Collect BrixTypes for parameters
+        let param_brix_types: Vec<BrixType> = params.iter()
+            .map(|(_, ts, _)| self.string_to_brix_type(ts))
+            .collect();
+
+        let mut struct_fields: Vec<BasicTypeEnum<'ctx>> = vec![i64_type.into()]; // field 0: state
+        let param_field_start: usize = 1;
+
+        for bt in &param_brix_types {
+            let lt: BasicTypeEnum<'ctx> = if Compiler::is_closure_type(bt) {
+                ptr_type.into()
+            } else {
+                self.brix_type_to_llvm(bt)
+            };
+            struct_fields.push(lt);
+        }
+
+        let result_field_start: usize = param_field_start + params.len();
+
+        // Await result types — the awaited functions must already be registered
+        let await_ret_types: Vec<BrixType> = await_points.iter().map(|ap| {
+            self.functions.get(&ap.callee_name)
+                .and_then(|(_, ret)| ret.as_ref())
+                .and_then(|v| v.first())
+                .cloned()
+                .unwrap_or(BrixType::Int)
+        }).collect();
+
+        for bt in &await_ret_types {
+            struct_fields.push(self.brix_type_to_llvm(bt));
+        }
+
+        let sub_future_field: usize = result_field_start + n_awaits;
+        if n_awaits > 0 {
+            struct_fields.push(ptr_type.into()); // sub_future_ptr
+        }
+
+        let state_struct_type = self.context.struct_type(&struct_fields, false);
+
+        // ── A. Generate create_{name}(params...) -> i8* ──────────────────
+        let create_name_str = format!("create_{}", name);
+        {
+            let create_param_types: Vec<BasicMetadataTypeEnum<'ctx>> = param_brix_types.iter()
+                .map(|bt| -> BasicMetadataTypeEnum<'ctx> {
+                    if Compiler::is_closure_type(bt) { ptr_type.into() }
+                    else { self.brix_type_to_llvm(bt).into() }
+                })
+                .collect();
+            let create_fn_type = ptr_type.fn_type(&create_param_types, false);
+            let create_fn = self.module.add_function(&create_name_str, create_fn_type, None);
+
+            let saved_fn = self.current_function;
+            self.current_function = Some(create_fn);
+            let entry_bb = self.context.append_basic_block(create_fn, "entry");
+            self.builder.position_at_end(entry_bb);
+
+            // malloc(sizeof state_struct)
+            let malloc_fn_type = ptr_type.fn_type(&[i64_type.into()], false);
+            let malloc_fn = self.module.get_function("brix_malloc").unwrap_or_else(|| {
+                self.module.add_function("brix_malloc", malloc_fn_type, Some(Linkage::External))
+            });
+            let struct_size = state_struct_type.size_of().ok_or_else(|| CodegenError::LLVMError {
+                operation: "size_of".to_string(),
+                details: "Failed to get size of async state struct".to_string(),
+                span: None,
+            })?;
+            let malloc_call = self.builder.build_call(malloc_fn, &[struct_size.into()], "sp")
+                .map_err(|_| CodegenError::LLVMError { operation: "build_call".to_string(), details: "malloc state".to_string(), span: None })?;
+            let state_ptr = malloc_call.try_as_basic_value().left()
+                .ok_or_else(|| CodegenError::MissingValue { what: "malloc".to_string(), context: "create_async".to_string(), span: None })?
+                .into_pointer_value();
+
+            // state = 0
+            let f0 = self.builder.build_struct_gep(state_struct_type, state_ptr, 0, "sf0")
+                .map_err(|_| CodegenError::LLVMError { operation: "struct_gep".to_string(), details: "".to_string(), span: None })?;
+            self.builder.build_store(f0, i64_type.const_int(0, false))
+                .map_err(|_| CodegenError::LLVMError { operation: "build_store".to_string(), details: "state=0".to_string(), span: None })?;
+
+            // store params
+            for (i, _) in params.iter().enumerate() {
+                let pv = create_fn.get_nth_param(i as u32).unwrap();
+                let fi = self.builder.build_struct_gep(
+                    state_struct_type, state_ptr, (param_field_start + i) as u32, &format!("pf{}", i),
+                ).map_err(|_| CodegenError::LLVMError { operation: "struct_gep".to_string(), details: format!("pf{}", i), span: None })?;
+                self.builder.build_store(fi, pv)
+                    .map_err(|_| CodegenError::LLVMError { operation: "build_store".to_string(), details: format!("param {}", i), span: None })?;
+            }
+
+            self.builder.build_return(Some(&state_ptr))
+                .map_err(|_| CodegenError::LLVMError { operation: "build_return".to_string(), details: "create_async".to_string(), span: None })?;
+
+            self.current_function = saved_fn;
+            if let Some(prev) = saved_fn {
+                if let Some(bb) = prev.get_last_basic_block() { self.builder.position_at_end(bb); }
+            }
+        }
+
+        // ── B. Generate poll_{name}(i8* sp) -> {i64, i64} ───────────────
+        let poll_name_str = format!("poll_{}", name);
+        let poll_result_type = self.context.struct_type(&[i64_type.into(), i64_type.into()], false);
+        let poll_fn_type = poll_result_type.fn_type(&[ptr_type.into()], false);
+        let poll_fn = self.module.add_function(&poll_name_str, poll_fn_type, None);
+
+        // Register in functions map (for `await name(args)` at call sites)
+        let reg_ret = if ret_brix_type == BrixType::Void { None } else { Some(vec![ret_brix_type.clone()]) };
+        self.functions.insert(name.to_string(), (poll_fn, reg_ret));
+
+        {
+            let saved_fn = self.current_function;
+            let saved_vars = self.variables.clone();
+            let saved_scope = self.function_scope_vars.clone();
+            self.current_function = Some(poll_fn);
+            self.function_scope_vars.clear();
+
+            let entry_bb = self.context.append_basic_block(poll_fn, "entry");
+            self.builder.position_at_end(entry_bb);
+
+            let sp = poll_fn.get_nth_param(0).unwrap().into_pointer_value();
+
+            // Pre-allocate all allocas in the entry block (LLVM requirement)
+            let param_allocas: Vec<inkwell::values::PointerValue<'ctx>> = {
+                let mut v = Vec::new();
+                for (i, (pname, _, _)) in params.iter().enumerate() {
+                    let lt: BasicTypeEnum<'ctx> = if Compiler::is_closure_type(&param_brix_types[i]) {
+                        ptr_type.into()
+                    } else {
+                        self.brix_type_to_llvm(&param_brix_types[i])
+                    };
+                    v.push(self.create_entry_block_alloca(lt, pname)?);
+                }
+                v
+            };
+            let result_allocas: Vec<inkwell::values::PointerValue<'ctx>> = {
+                let mut v = Vec::new();
+                for (i, ap) in await_points.iter().enumerate() {
+                    let lt = self.brix_type_to_llvm(&await_ret_types[i]);
+                    v.push(self.create_entry_block_alloca(lt, &ap.result_var)?);
+                }
+                v
+            };
+            let async_ret_alloca: Option<inkwell::values::PointerValue<'ctx>> =
+                if ret_brix_type != BrixType::Void {
+                    Some(self.create_entry_block_alloca(self.brix_type_to_llvm(&ret_brix_type), "async_ret")?)
+                } else { None };
+
+            // PENDING constant
+            let pending_val = poll_result_type.const_named_struct(&[
+                i64_type.const_int(0, false).into(),
+                i64_type.const_int(0, false).into(),
+            ]);
+
+            // ── Inline helper: load params from struct into allocas ──────
+            // (macro used to avoid borrowing issues with &mut self closures)
+            macro_rules! load_params {
+                () => {
+                    for (i, (pname, _, _)) in params.iter().enumerate() {
+                        let lt: BasicTypeEnum<'ctx> = if Compiler::is_closure_type(&param_brix_types[i]) {
+                            ptr_type.into()
+                        } else {
+                            self.brix_type_to_llvm(&param_brix_types[i])
+                        };
+                        let fi = self.builder.build_struct_gep(
+                            state_struct_type, sp, (param_field_start + i) as u32, &format!("lpf{}", i),
+                        ).map_err(|_| CodegenError::LLVMError { operation: "struct_gep".to_string(), details: format!("lpf{}", i), span: None })?;
+                        let val = self.builder.build_load(lt, fi, pname)
+                            .map_err(|_| CodegenError::LLVMError { operation: "build_load".to_string(), details: pname.clone(), span: None })?;
+                        self.builder.build_store(param_allocas[i], val)
+                            .map_err(|_| CodegenError::LLVMError { operation: "build_store".to_string(), details: pname.clone(), span: None })?;
+                        self.variables.insert(pname.clone(), (param_allocas[i], param_brix_types[i].clone()));
+                    }
+                };
+            }
+
+            // ── Inline helper: build READY { 1, value } and return ───────
+            macro_rules! return_ready {
+                ($val:expr) => {
+                    {
+                        let rs0 = self.builder.build_insert_value(
+                            poll_result_type.get_undef(), i64_type.const_int(1, false), 0, "rs0",
+                        ).map_err(|_| CodegenError::LLVMError { operation: "insert_value".to_string(), details: "".to_string(), span: None })?;
+                        let rs1 = self.builder.build_insert_value(
+                            rs0.into_struct_value(), $val, 1, "rs1",
+                        ).map_err(|_| CodegenError::LLVMError { operation: "insert_value".to_string(), details: "".to_string(), span: None })?;
+                        self.builder.build_return(Some(&rs1))
+                            .map_err(|_| CodegenError::LLVMError { operation: "build_return".to_string(), details: "READY".to_string(), span: None })?;
+                    }
+                };
+            }
+
+            // ── CASE A: No awaits — compile body inline, wrap result ──────
+            if n_awaits == 0 {
+                let ready_bb = self.context.append_basic_block(poll_fn, "ready");
+                load_params!();
+
+                // Compile stmts, intercepting top-level Return
+                let mut reached_return = false;
+                for stmt in &segments[0] {
+                    if let StmtKind::Return { values } = &stmt.kind {
+                        if let Some(ra) = async_ret_alloca {
+                            if let Some(ret_expr) = values.first() {
+                                let (val, _) = self.compile_expr(ret_expr)?;
+                                self.builder.build_store(ra, val)
+                                    .map_err(|_| CodegenError::LLVMError { operation: "build_store".to_string(), details: "ret val".to_string(), span: None })?;
+                            }
+                        }
+                        self.builder.build_unconditional_branch(ready_bb)
+                            .map_err(|_| CodegenError::LLVMError { operation: "branch".to_string(), details: "to ready".to_string(), span: None })?;
+                        reached_return = true;
+                        break;
+                    }
+                    self.compile_stmt(stmt, poll_fn)?;
+                }
+                if !reached_return {
+                    if let Some(bb) = self.builder.get_insert_block() {
+                        if bb.get_terminator().is_none() {
+                            self.builder.build_unconditional_branch(ready_bb)
+                                .map_err(|_| CodegenError::LLVMError { operation: "branch".to_string(), details: "fallthrough ready".to_string(), span: None })?;
+                        }
+                    }
+                }
+
+                // ready_bb: return READY
+                self.builder.position_at_end(ready_bb);
+                let ret_i64 = if let Some(ra) = async_ret_alloca {
+                    let lt = self.brix_type_to_llvm(&ret_brix_type);
+                    self.builder.build_load(lt, ra, "rv")
+                        .map_err(|_| CodegenError::LLVMError { operation: "build_load".to_string(), details: "rv".to_string(), span: None })?
+                        .into_int_value()
+                } else {
+                    i64_type.const_int(0, false)
+                };
+                return_ready!(ret_i64);
+
+            } else {
+                // ── CASE B: N awaits — switch-based state machine ─────────
+
+                // Load state from struct[0]
+                let sf0 = self.builder.build_struct_gep(state_struct_type, sp, 0, "sf0")
+                    .map_err(|_| CodegenError::LLVMError { operation: "struct_gep".to_string(), details: "state".to_string(), span: None })?;
+                let state_val = self.builder.build_load(i64_type, sf0, "state")
+                    .map_err(|_| CodegenError::LLVMError { operation: "build_load".to_string(), details: "state".to_string(), span: None })?
+                    .into_int_value();
+
+                // Create state basic blocks + default
+                let default_bb = self.context.append_basic_block(poll_fn, "sw_default");
+                let state_bbs: Vec<inkwell::basic_block::BasicBlock<'ctx>> = (0..=n_awaits)
+                    .map(|i| self.context.append_basic_block(poll_fn, &format!("state_{}", i)))
+                    .collect();
+
+                let cases: Vec<(inkwell::values::IntValue<'ctx>, inkwell::basic_block::BasicBlock<'ctx>)> =
+                    state_bbs.iter().enumerate()
+                        .map(|(i, bb)| (i64_type.const_int(i as u64, false), *bb))
+                        .collect();
+                self.builder.build_switch(state_val, default_bb, &cases)
+                    .map_err(|_| CodegenError::LLVMError { operation: "build_switch".to_string(), details: "state machine".to_string(), span: None })?;
+
+                // default → PENDING (unreachable in well-formed programs)
+                self.builder.position_at_end(default_bb);
+                self.builder.build_return(Some(&pending_val))
+                    .map_err(|_| CodegenError::LLVMError { operation: "build_return".to_string(), details: "default".to_string(), span: None })?;
+
+                // ── State 0: run segments[0], launch await_points[0] ──────
+                self.builder.position_at_end(state_bbs[0]);
+                load_params!();
+
+                for stmt in &segments[0] {
+                    self.compile_stmt(stmt, poll_fn)?;
+                }
+
+                {
+                    let ap = &await_points[0];
+                    let create_callee = format!("create_{}", ap.callee_name);
+                    let create_fn = self.module.get_function(&create_callee)
+                        .ok_or_else(|| CodegenError::UndefinedSymbol {
+                            name: create_callee.clone(),
+                            context: "async state 0".to_string(),
+                            span: None,
+                        })?;
+
+                    let mut arg_vals: Vec<BasicMetadataValueEnum<'ctx>> = Vec::new();
+                    for arg_expr in &ap.callee_args.clone() {
+                        let (v, _) = self.compile_expr(arg_expr)?;
+                        arg_vals.push(v.into());
+                    }
+                    let cc = self.builder.build_call(create_fn, &arg_vals, "sf0")
+                        .map_err(|_| CodegenError::LLVMError { operation: "build_call".to_string(), details: "create sub_future".to_string(), span: None })?;
+                    let sf_ptr = cc.try_as_basic_value().left()
+                        .ok_or_else(|| CodegenError::MissingValue { what: "create_callee".to_string(), context: "state 0".to_string(), span: None })?
+                        .into_pointer_value();
+
+                    let sf_field = self.builder.build_struct_gep(
+                        state_struct_type, sp, sub_future_field as u32, "sff",
+                    ).map_err(|_| CodegenError::LLVMError { operation: "struct_gep".to_string(), details: "sf_field".to_string(), span: None })?;
+                    self.builder.build_store(sf_field, sf_ptr)
+                        .map_err(|_| CodegenError::LLVMError { operation: "build_store".to_string(), details: "sf".to_string(), span: None })?;
+                }
+
+                // state = 1
+                let sf_state = self.builder.build_struct_gep(state_struct_type, sp, 0, "sfs")
+                    .map_err(|_| CodegenError::LLVMError { operation: "struct_gep".to_string(), details: "state".to_string(), span: None })?;
+                self.builder.build_store(sf_state, i64_type.const_int(1, false))
+                    .map_err(|_| CodegenError::LLVMError { operation: "build_store".to_string(), details: "state=1".to_string(), span: None })?;
+                self.builder.build_return(Some(&pending_val))
+                    .map_err(|_| CodegenError::LLVMError { operation: "build_return".to_string(), details: "PENDING s0".to_string(), span: None })?;
+
+                // ── States 1..=N: poll previous sub_future ────────────────
+                for k in 1..=n_awaits {
+                    self.builder.position_at_end(state_bbs[k]);
+
+                    // Load sub_future ptr from struct
+                    let sff = self.builder.build_struct_gep(
+                        state_struct_type, sp, sub_future_field as u32, "sff",
+                    ).map_err(|_| CodegenError::LLVMError { operation: "struct_gep".to_string(), details: "sff".to_string(), span: None })?;
+                    let sf_ptr = self.builder.build_load(ptr_type, sff, "sf")
+                        .map_err(|_| CodegenError::LLVMError { operation: "build_load".to_string(), details: "sf".to_string(), span: None })?
+                        .into_pointer_value();
+
+                    // Call poll_{callee_{k-1}}(sf_ptr) → {status, value}
+                    let poll_callee_name = format!("poll_{}", await_points[k - 1].callee_name);
+                    let poll_callee_fn = self.module.get_function(&poll_callee_name)
+                        .ok_or_else(|| CodegenError::UndefinedSymbol {
+                            name: poll_callee_name.clone(),
+                            context: format!("await state {}", k),
+                            span: None,
+                        })?;
+                    let pc = self.builder.build_call(poll_callee_fn, &[sf_ptr.into()], "pr")
+                        .map_err(|_| CodegenError::LLVMError { operation: "build_call".to_string(), details: "poll callee".to_string(), span: None })?;
+                    let pr = pc.try_as_basic_value().left()
+                        .ok_or_else(|| CodegenError::MissingValue { what: "poll_callee".to_string(), context: format!("state {}", k), span: None })?
+                        .into_struct_value();
+
+                    // Extract status
+                    let status = self.builder.build_extract_value(pr, 0, "pr_status")
+                        .map_err(|_| CodegenError::LLVMError { operation: "extract_value".to_string(), details: "status".to_string(), span: None })?
+                        .into_int_value();
+
+                    let is_ready = self.builder.build_int_compare(
+                        IntPredicate::EQ, status, i64_type.const_int(1, false), "is_ready",
+                    ).map_err(|_| CodegenError::LLVMError { operation: "int_compare".to_string(), details: "".to_string(), span: None })?;
+
+                    let ready_bb = self.context.append_basic_block(poll_fn, &format!("ready_{}", k));
+                    let pending_bb = self.context.append_basic_block(poll_fn, &format!("pending_{}", k));
+
+                    self.builder.build_conditional_branch(is_ready, ready_bb, pending_bb)
+                        .map_err(|_| CodegenError::LLVMError { operation: "cond_branch".to_string(), details: "".to_string(), span: None })?;
+
+                    // pending_k → return PENDING
+                    self.builder.position_at_end(pending_bb);
+                    self.builder.build_return(Some(&pending_val))
+                        .map_err(|_| CodegenError::LLVMError { operation: "build_return".to_string(), details: "pending".to_string(), span: None })?;
+
+                    // ready_k: store result, load vars, run segments[k]
+                    self.builder.position_at_end(ready_bb);
+
+                    let result_val = self.builder.build_extract_value(pr, 1, "pr_val")
+                        .map_err(|_| CodegenError::LLVMError { operation: "extract_value".to_string(), details: "value".to_string(), span: None })?
+                        .into_int_value();
+
+                    // Persist result in struct[result_field_{k-1}]
+                    let rfield = self.builder.build_struct_gep(
+                        state_struct_type, sp, (result_field_start + k - 1) as u32, &format!("rf{}", k - 1),
+                    ).map_err(|_| CodegenError::LLVMError { operation: "struct_gep".to_string(), details: "rfield".to_string(), span: None })?;
+                    self.builder.build_store(rfield, result_val)
+                        .map_err(|_| CodegenError::LLVMError { operation: "build_store".to_string(), details: "result".to_string(), span: None })?;
+
+                    // Store result in alloca + register variable
+                    self.builder.build_store(result_allocas[k - 1], result_val)
+                        .map_err(|_| CodegenError::LLVMError { operation: "build_store".to_string(), details: "result alloca".to_string(), span: None })?;
+                    self.variables.insert(
+                        await_points[k - 1].result_var.clone(),
+                        (result_allocas[k - 1], await_ret_types[k - 1].clone()),
+                    );
+
+                    // Load params + previous results from struct into allocas/variables
+                    load_params!();
+                    for prev in 0..(k - 1) {
+                        let lt = self.brix_type_to_llvm(&await_ret_types[prev]);
+                        let fi = self.builder.build_struct_gep(
+                            state_struct_type, sp, (result_field_start + prev) as u32, &format!("lprf{}", prev),
+                        ).map_err(|_| CodegenError::LLVMError { operation: "struct_gep".to_string(), details: "prev result".to_string(), span: None })?;
+                        let pv = self.builder.build_load(lt, fi, &await_points[prev].result_var)
+                            .map_err(|_| CodegenError::LLVMError { operation: "build_load".to_string(), details: "prev result".to_string(), span: None })?;
+                        self.builder.build_store(result_allocas[prev], pv)
+                            .map_err(|_| CodegenError::LLVMError { operation: "build_store".to_string(), details: "prev result alloca".to_string(), span: None })?;
+                        self.variables.insert(
+                            await_points[prev].result_var.clone(),
+                            (result_allocas[prev], await_ret_types[prev].clone()),
+                        );
+                    }
+
+                    if k == n_awaits {
+                        // Final segment: intercept Return
+                        let mut seg_returned = false;
+                        for stmt in &segments[k] {
+                            if let StmtKind::Return { values } = &stmt.kind {
+                                if let Some(ra) = async_ret_alloca {
+                                    if let Some(re) = values.first() {
+                                        let (v, _) = self.compile_expr(re)?;
+                                        self.builder.build_store(ra, v)
+                                            .map_err(|_| CodegenError::LLVMError { operation: "build_store".to_string(), details: "final ret".to_string(), span: None })?;
+                                    }
+                                }
+                                seg_returned = true;
+                                break;
+                            }
+                            self.compile_stmt(stmt, poll_fn)?;
+                        }
+
+                        let ret_i64 = if let Some(ra) = async_ret_alloca {
+                            let lt = self.brix_type_to_llvm(&ret_brix_type);
+                            if let Some(bb) = self.builder.get_insert_block() {
+                                if bb.get_terminator().is_none() || seg_returned {
+                                    self.builder.build_load(lt, ra, "rv")
+                                        .map_err(|_| CodegenError::LLVMError { operation: "build_load".to_string(), details: "rv".to_string(), span: None })?
+                                        .into_int_value()
+                                } else {
+                                    i64_type.const_int(0, false)
+                                }
+                            } else {
+                                i64_type.const_int(0, false)
+                            }
+                        } else {
+                            i64_type.const_int(0, false)
+                        };
+
+                        if let Some(bb) = self.builder.get_insert_block() {
+                            if bb.get_terminator().is_none() {
+                                return_ready!(ret_i64);
+                            }
+                        }
+                    } else {
+                        // Intermediate segment: compile, then start next sub_future
+                        for stmt in &segments[k] {
+                            self.compile_stmt(stmt, poll_fn)?;
+                        }
+
+                        let next_ap = &await_points[k];
+                        let create_next = format!("create_{}", next_ap.callee_name);
+                        let create_next_fn = self.module.get_function(&create_next)
+                            .ok_or_else(|| CodegenError::UndefinedSymbol {
+                                name: create_next.clone(),
+                                context: format!("await state {}", k),
+                                span: None,
+                            })?;
+
+                        let args_cloned: Vec<Expr> = next_ap.callee_args.clone();
+                        let mut av: Vec<BasicMetadataValueEnum<'ctx>> = Vec::new();
+                        for ae in &args_cloned {
+                            let (v, _) = self.compile_expr(ae)?;
+                            av.push(v.into());
+                        }
+                        let nc = self.builder.build_call(create_next_fn, &av, "nsf")
+                            .map_err(|_| CodegenError::LLVMError { operation: "build_call".to_string(), details: "create next sf".to_string(), span: None })?;
+                        let nsf_ptr = nc.try_as_basic_value().left()
+                            .ok_or_else(|| CodegenError::MissingValue { what: "create_next".to_string(), context: format!("state {}", k), span: None })?
+                            .into_pointer_value();
+
+                        let sff2 = self.builder.build_struct_gep(
+                            state_struct_type, sp, sub_future_field as u32, "sff2",
+                        ).map_err(|_| CodegenError::LLVMError { operation: "struct_gep".to_string(), details: "sff2".to_string(), span: None })?;
+                        self.builder.build_store(sff2, nsf_ptr)
+                            .map_err(|_| CodegenError::LLVMError { operation: "build_store".to_string(), details: "nsf".to_string(), span: None })?;
+
+                        let sfs2 = self.builder.build_struct_gep(state_struct_type, sp, 0, "sfs2")
+                            .map_err(|_| CodegenError::LLVMError { operation: "struct_gep".to_string(), details: "state".to_string(), span: None })?;
+                        self.builder.build_store(sfs2, i64_type.const_int((k + 1) as u64, false))
+                            .map_err(|_| CodegenError::LLVMError { operation: "build_store".to_string(), details: "state+1".to_string(), span: None })?;
+                        self.builder.build_return(Some(&pending_val))
+                            .map_err(|_| CodegenError::LLVMError { operation: "build_return".to_string(), details: "PENDING inter".to_string(), span: None })?;
+                    }
+                }
+            }
+
+            // Restore state after poll_fn generation
+            self.current_function = saved_fn;
+            self.variables = saved_vars;
+            self.function_scope_vars = saved_scope;
+            if let Some(prev) = saved_fn {
+                if let Some(bb) = prev.get_last_basic_block() { self.builder.position_at_end(bb); }
+            }
+        }
+
+        // ── C. async fn main: emit drive code in compile_program's main ──
+        if name == "main" {
+            let prt_local = self.context.struct_type(&[i64_type.into(), i64_type.into()], false);
+            let run_fn_type = prt_local.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+            let run_fn = self.module.get_function("brix_run_to_completion").unwrap_or_else(|| {
+                self.module.add_function("brix_run_to_completion", run_fn_type, Some(Linkage::External))
+            });
+
+            let create_fn_ref = self.module.get_function(&create_name_str).unwrap();
+            let poll_fn_ref  = self.module.get_function(&poll_name_str).unwrap();
+
+            let cc = self.builder.build_call(create_fn_ref, &[], "main_sp")
+                .map_err(|_| CodegenError::LLVMError { operation: "build_call".to_string(), details: "create_main".to_string(), span: None })?;
+            let main_sp = cc.try_as_basic_value().left()
+                .ok_or_else(|| CodegenError::MissingValue { what: "create_main".to_string(), context: "async main".to_string(), span: None })?
+                .into_pointer_value();
+
+            let poll_ptr = poll_fn_ref.as_global_value().as_pointer_value();
+
+            self.builder.build_call(run_fn, &[main_sp.into(), poll_ptr.into()], "")
+                .map_err(|_| CodegenError::LLVMError { operation: "build_call".to_string(), details: "brix_run_to_completion".to_string(), span: None })?;
         }
 
         Ok(())
@@ -2560,13 +3193,17 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
             StmtKind::FunctionDef {
                 name,
-                is_async: _,
+                is_async,
                 type_params,
                 params,
                 return_type,
                 body,
             } => {
-                self.compile_function_def(name, type_params, params, return_type, body, stmt, function)?;
+                if *is_async {
+                    self.compile_async_fn_def(name, params, return_type, body, function)?;
+                } else {
+                    self.compile_function_def(name, type_params, params, return_type, body, stmt, function)?;
+                }
                 Ok(())
             }
 
@@ -7302,14 +7939,17 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             ExprKind::Closure(closure) => self.compile_closure(closure, expr),
 
             ExprKind::Await { .. } => {
+                // 'await' is only valid inside an 'async fn' body.
+                // When inside async fn, the await points are extracted and compiled by
+                // compile_async_fn_def — they never reach compile_expr at runtime.
                 Err(CodegenError::General(
-                    "async/await not yet implemented (coming in Brix v1.5 Phase 2)".to_string(),
+                    "'await' can only be used directly inside an 'async fn' as 'var x := await f(args)'".to_string(),
                 ))
             }
 
             ExprKind::AsyncBlock { .. } => {
                 Err(CodegenError::General(
-                    "async blocks not yet implemented (coming in Brix v1.5 Phase 2)".to_string(),
+                    "async blocks are not yet supported in codegen (v1.5 Phase 2 limitation)".to_string(),
                 ))
             }
 
