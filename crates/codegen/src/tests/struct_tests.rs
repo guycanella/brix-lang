@@ -235,7 +235,7 @@ fn test_method_definition() {
                     ("y".to_string(), "int".to_string(), None),
                 ],
             })),
-            Stmt::dummy(StmtKind::MethodDef(MethodDef {
+            Stmt::dummy(StmtKind::MethodDef(MethodDef { is_async: false,
                 receiver_name: "p".to_string(),
                 receiver_type: "Point".to_string(),
                 method_name: "get_x".to_string(),
@@ -277,7 +277,7 @@ fn test_method_call() {
                     ("y".to_string(), "int".to_string(), None),
                 ],
             })),
-            Stmt::dummy(StmtKind::MethodDef(MethodDef {
+            Stmt::dummy(StmtKind::MethodDef(MethodDef { is_async: false,
                 receiver_name: "p".to_string(),
                 receiver_type: "Point".to_string(),
                 method_name: "get_x".to_string(),
@@ -334,7 +334,7 @@ fn test_method_with_parameters() {
                     ("y".to_string(), "int".to_string(), None),
                 ],
             })),
-            Stmt::dummy(StmtKind::MethodDef(MethodDef {
+            Stmt::dummy(StmtKind::MethodDef(MethodDef { is_async: false,
                 receiver_name: "p".to_string(),
                 receiver_type: "Point".to_string(),
                 method_name: "add".to_string(),

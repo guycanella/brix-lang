@@ -493,8 +493,9 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
         // then disambiguate by the next token:
         //   - Method: LParen follows (receiver syntax)  -> fn (p: Point) name() { }
         //   - Function: Identifier follows (func name)  -> fn name<T>() { }
-        let fn_or_method = just(Token::Function)
-            .ignore_then(
+        let fn_or_method = just(Token::Async).or_not()
+            .then_ignore(just(Token::Function))
+            .then(
                 // Path 1: Method definition - fn (receiver: Type) method_name(params) -> ret { body }
                 // Starts with LParen (for receiver), so won't conflict with function path
                 select! { Token::Identifier(receiver_name) => receiver_name }
@@ -539,6 +540,7 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
                     .map(|(((((receiver, method_name), _type_params), params), return_type), body)| {
                         let (receiver_name, receiver_type) = receiver;
                         StmtKind::MethodDef(MethodDef {
+                            is_async: false, // placeholder, set by outer map
                             receiver_name,
                             receiver_type,
                             method_name,
@@ -588,6 +590,7 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
                         .map(|((((name, type_params), params), return_type), body)| {
                             StmtKind::FunctionDef {
                                 name,
+                                is_async: false, // placeholder, set by outer map
                                 type_params,
                                 params,
                                 return_type,
@@ -596,7 +599,17 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
                         })
                 )
             )
-            .map_with_span(|kind, span| Stmt::new(kind, span));
+            .map_with_span(|(maybe_async, kind), span| {
+                let is_async = maybe_async.is_some();
+                let kind = match kind {
+                    StmtKind::FunctionDef { name, is_async: _, type_params, params, return_type, body } =>
+                        StmtKind::FunctionDef { name, is_async, type_params, params, return_type, body },
+                    StmtKind::MethodDef(m) =>
+                        StmtKind::MethodDef(MethodDef { is_async, ..m }),
+                    _ => kind,
+                };
+                Stmt::new(kind, span)
+            });
 
         // Return statement
         // Supports: return, return x, return (x), return (x, y, z)
@@ -859,7 +872,7 @@ where
                     .or_not()
                     .map(|opt| opt.flatten()),
             )
-            .then(block)
+            .then(block.clone())
             .map_with_span(|((params, return_type), body), span| {
                 Expr::new(ExprKind::Closure(Closure {
                     params,
@@ -911,10 +924,16 @@ where
                 }
             });
 
+        // Async block: async { ... } creates a Future
+        let async_block = just(Token::Async)
+            .ignore_then(block.clone())
+            .map_with_span(|body, span| Expr::new(ExprKind::AsyncBlock { body: Box::new(body) }, span));
+
         let atom = val
             .or(fstring)
             .or(match_expr)
             .or(list_comp)
+            .or(async_block)  // async { } before closure to avoid conflict
             .or(closure)  // Try closure BEFORE paren_expr
             .or(struct_init)
             .or(array_literal)
@@ -1115,9 +1134,16 @@ where
                 }
             });
 
-        let power = unary
+        // Await expression: await expr → ExprKind::Await
+        // Precedence: above unary, below power (so `await x ** 2` = `(await x) ** 2`)
+        let await_level = just(Token::Await)
+            .ignore_then(unary.clone())
+            .map_with_span(|e, span| Expr::new(ExprKind::Await { expr: Box::new(e) }, span))
+            .or(unary.clone());
+
+        let power = await_level
             .clone()
-            .then(just(Token::Pow).to(BinaryOp::Pow).then(unary).repeated())
+            .then(just(Token::Pow).to(BinaryOp::Pow).then(await_level).repeated())
             .map_with_span(|(first, rest), _span| {
                 // Right-associative: build tree from right to left
                 // 2**3**4 should be 2**(3**4), not (2**3)**4

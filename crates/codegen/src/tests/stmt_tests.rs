@@ -156,7 +156,7 @@ fn test_block_statement() {
 #[test]
 fn test_return_statement() {
     let program = Program {
-        statements: vec![Stmt::dummy(StmtKind::FunctionDef {
+        statements: vec![Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
             name: "test_fn".to_string(),
             params: vec![],
@@ -592,7 +592,7 @@ fn test_nested_blocks() {
 fn test_destructuring_declaration() {
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "get_pair".to_string(),
                 params: vec![],
@@ -622,7 +622,7 @@ fn test_destructuring_declaration() {
 fn test_destructuring_with_ignore() {
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "get_triple".to_string(),
                 params: vec![],
@@ -897,7 +897,7 @@ fn test_assignment_from_function_result() {
     // var x := get_value();
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "get_value".to_string(),
                 params: vec![],

@@ -160,6 +160,14 @@ pub enum ExprKind {
     },
 
     Closure(Closure),
+
+    Await {
+        expr: Box<Expr>,
+    },
+
+    AsyncBlock {
+        body: Box<Stmt>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -186,6 +194,7 @@ pub struct StructDef {
 // Method definition (Go-style receivers)
 #[derive(Debug, Clone, PartialEq)]
 pub struct MethodDef {
+    pub is_async: bool,         // true = async fn
     pub receiver_name: String,  // "p" in fn (p: Point) distance()
     pub receiver_type: String,  // "Point"
     pub method_name: String,    // "distance"
@@ -274,6 +283,7 @@ pub enum StmtKind {
 
     FunctionDef {
         name: String,
+        is_async: bool,                              // true = async fn
         type_params: Vec<TypeParam>,                 // Generic type parameters
         params: Vec<(String, String, Option<Expr>)>, // (param_name, type, default_value)
         return_type: Option<Vec<String>>, // None = void, Some(vec!["int"]) = single, Some(vec!["int", "float"]) = multiple

@@ -194,7 +194,7 @@ fn test_match_literal() {
 #[test]
 fn test_function_definition() {
     let program = Program {
-        statements: vec![Stmt::dummy(StmtKind::FunctionDef {
+        statements: vec![Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
             name: "add".to_string(),
             params: vec![
@@ -220,7 +220,7 @@ fn test_function_definition() {
 fn test_function_call() {
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
+            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
                 name: "test_fn".to_string(),
                 params: vec![],
@@ -245,7 +245,7 @@ fn test_function_call() {
 #[test]
 fn test_return_void() {
     let program = Program {
-        statements: vec![Stmt::dummy(StmtKind::FunctionDef {
+        statements: vec![Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
             name: "void_fn".to_string(),
             params: vec![],
@@ -260,7 +260,7 @@ fn test_return_void() {
 #[test]
 fn test_return_single_value() {
     let program = Program {
-        statements: vec![Stmt::dummy(StmtKind::FunctionDef {
+        statements: vec![Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
             name: "get_int".to_string(),
             params: vec![],
@@ -277,7 +277,7 @@ fn test_return_single_value() {
 #[test]
 fn test_return_multiple_values() {
     let program = Program {
-        statements: vec![Stmt::dummy(StmtKind::FunctionDef {
+        statements: vec![Stmt::dummy(StmtKind::FunctionDef { is_async: false,
                 type_params: vec![],
             name: "get_pair".to_string(),
             params: vec![],
