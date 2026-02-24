@@ -126,7 +126,9 @@ fn analyze_stmt_closures(stmt: &mut Stmt, outer_scope: &HashSet<String>) {
         | StmtKind::Printf { .. }
         | StmtKind::Print { .. }
         | StmtKind::Println { .. }
-        | StmtKind::StructDef(_) => {
+        | StmtKind::StructDef(_)
+        | StmtKind::Break
+        | StmtKind::Continue => {
             // These don't contain closures or affect scope
         }
     }

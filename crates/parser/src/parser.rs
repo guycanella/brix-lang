@@ -630,6 +630,12 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
                 values: values.unwrap_or_default(),
             }, span));
 
+        let break_stmt = just(Token::Break)
+            .map_with_span(|_, span| Stmt::new(StmtKind::Break, span));
+
+        let continue_stmt = just(Token::Continue)
+            .map_with_span(|_, span| Stmt::new(StmtKind::Continue, span));
+
         // Struct definition: struct Box<T> { value: T }
         let struct_def = just(Token::Struct)
             .ignore_then(select! { Token::Identifier(name) => name })
@@ -675,6 +681,8 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
             .or(struct_def)
             .or(fn_or_method)
             .or(return_stmt)
+            .or(break_stmt)
+            .or(continue_stmt)
             .or(block)
             .or(expr_stmt)
             .boxed()

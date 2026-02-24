@@ -1049,3 +1049,47 @@ fn test_runtime_negative_power() {
     let (_, _, exit_code) = run_brix_file("tests/integration/runtime_errors/03_negative_power.bx");
     assert_eq!(exit_code, 0, "Should complete with complex result");
 }
+
+// ==========================================
+// BREAK / CONTINUE (v1.6) - Tests 108-112
+// ==========================================
+
+#[test]
+fn test_break_while() {
+    assert_success(
+        "tests/integration/success/108_break_while.bx",
+        "4\n4"
+    );
+}
+
+#[test]
+fn test_continue_while() {
+    assert_success(
+        "tests/integration/success/109_continue_while.bx",
+        "30"
+    );
+}
+
+#[test]
+fn test_break_for() {
+    assert_success(
+        "tests/integration/success/110_break_for.bx",
+        "4"
+    );
+}
+
+#[test]
+fn test_continue_for() {
+    assert_success(
+        "tests/integration/success/111_continue_for.bx",
+        "27"
+    );
+}
+
+#[test]
+fn test_break_nested_loops() {
+    assert_success(
+        "tests/integration/success/112_break_nested.bx",
+        "3"
+    );
+}

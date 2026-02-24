@@ -405,13 +405,19 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
             })?;
 
         self.builder.position_at_end(body_bb);
+        let old_break_while = self.current_break_block.replace(after_bb);
+        let old_continue_while = self.current_continue_block.replace(header_bb);
         self.compile_stmt(body, function)?;
-        self.builder.build_unconditional_branch(header_bb)
-            .map_err(|_| CodegenError::LLVMError {
-                operation: "build_unconditional_branch".to_string(),
-                details: "Failed to build branch back to while header".to_string(),
-                            span: None,
-            })?;
+        self.current_break_block = old_break_while;
+        self.current_continue_block = old_continue_while;
+        if self.builder.get_insert_block().and_then(|b| b.get_terminator()).is_none() {
+            self.builder.build_unconditional_branch(header_bb)
+                .map_err(|_| CodegenError::LLVMError {
+                    operation: "build_unconditional_branch".to_string(),
+                    details: "Failed to build branch back to while header".to_string(),
+                                span: None,
+                })?;
+        }
 
         self.builder.position_at_end(after_bb);
         Ok(())

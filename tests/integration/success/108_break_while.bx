@@ -1,0 +1,12 @@
+// break in while loop: find first element > 3
+var i := 0
+var found := -1
+while i < 10 {
+    if i > 3 {
+        found := i
+        break
+    }
+    i += 1
+}
+println(found)
+println(i)

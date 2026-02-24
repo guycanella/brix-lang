@@ -1,0 +1,9 @@
+// continue in for: sum all numbers NOT divisible by 3 from 1..9
+var sum := 0
+for i in 1..9 {
+    if i % 3 == 0 {
+        continue
+    }
+    sum += i
+}
+println(sum)
