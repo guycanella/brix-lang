@@ -1525,6 +1525,163 @@ BrixString* brix_replace_all(BrixString* str, BrixString* old, BrixString* new) 
 }
 
 // ==========================================
+// SECTION 2.2: STRING METHODS (v1.6)
+// ==========================================
+
+// trim(str) - Remove leading and trailing whitespace
+BrixString* brix_str_trim(BrixString* str) {
+    if (str == NULL || str->data == NULL || str->len == 0) {
+        return str_new("");
+    }
+    long start = 0;
+    long end = str->len - 1;
+    while (start <= end && isspace((unsigned char)str->data[start])) start++;
+    while (end > start && isspace((unsigned char)str->data[end])) end--;
+    if (start > end) return str_new("");
+    long new_len = end - start + 1;
+    BrixString* result = (BrixString*)malloc(sizeof(BrixString));
+    result->ref_count = 1;
+    result->len = new_len;
+    result->data = (char*)malloc(new_len + 1);
+    strncpy(result->data, str->data + start, new_len);
+    result->data[new_len] = '\0';
+    return result;
+}
+
+// ltrim(str) - Remove leading whitespace
+BrixString* brix_str_ltrim(BrixString* str) {
+    if (str == NULL || str->data == NULL || str->len == 0) {
+        return str_new("");
+    }
+    long start = 0;
+    while (start < str->len && isspace((unsigned char)str->data[start])) start++;
+    long new_len = str->len - start;
+    BrixString* result = (BrixString*)malloc(sizeof(BrixString));
+    result->ref_count = 1;
+    result->len = new_len;
+    result->data = (char*)malloc(new_len + 1);
+    strncpy(result->data, str->data + start, new_len);
+    result->data[new_len] = '\0';
+    return result;
+}
+
+// rtrim(str) - Remove trailing whitespace
+BrixString* brix_str_rtrim(BrixString* str) {
+    if (str == NULL || str->data == NULL || str->len == 0) {
+        return str_new("");
+    }
+    long end = str->len - 1;
+    while (end >= 0 && isspace((unsigned char)str->data[end])) end--;
+    long new_len = end + 1;
+    if (new_len <= 0) return str_new("");
+    BrixString* result = (BrixString*)malloc(sizeof(BrixString));
+    result->ref_count = 1;
+    result->len = new_len;
+    result->data = (char*)malloc(new_len + 1);
+    strncpy(result->data, str->data, new_len);
+    result->data[new_len] = '\0';
+    return result;
+}
+
+// starts_with(str, prefix) - Returns 1 if str starts with prefix, 0 otherwise
+long brix_str_starts_with(BrixString* str, BrixString* prefix) {
+    if (str == NULL || prefix == NULL) return 0;
+    if (prefix->len > str->len) return 0;
+    if (prefix->len == 0) return 1;
+    return strncmp(str->data, prefix->data, prefix->len) == 0 ? 1 : 0;
+}
+
+// ends_with(str, suffix) - Returns 1 if str ends with suffix, 0 otherwise
+long brix_str_ends_with(BrixString* str, BrixString* suffix) {
+    if (str == NULL || suffix == NULL) return 0;
+    if (suffix->len > str->len) return 0;
+    if (suffix->len == 0) return 1;
+    long offset = str->len - suffix->len;
+    return strncmp(str->data + offset, suffix->data, suffix->len) == 0 ? 1 : 0;
+}
+
+// contains(str, sub) - Returns 1 if str contains sub, 0 otherwise
+long brix_str_contains(BrixString* str, BrixString* sub) {
+    if (str == NULL || sub == NULL) return 0;
+    if (sub->len == 0) return 1;
+    return strstr(str->data, sub->data) != NULL ? 1 : 0;
+}
+
+// substring(str, start, end) - Returns substring [start, end) exclusive end
+BrixString* brix_str_substring(BrixString* str, long start, long end_idx) {
+    if (str == NULL || str->data == NULL) return str_new("");
+    long len = str->len;
+    if (start < 0) start = 0;
+    if (end_idx > len) end_idx = len;
+    if (start >= end_idx) return str_new("");
+    long new_len = end_idx - start;
+    BrixString* result = (BrixString*)malloc(sizeof(BrixString));
+    result->ref_count = 1;
+    result->len = new_len;
+    result->data = (char*)malloc(new_len + 1);
+    strncpy(result->data, str->data + start, new_len);
+    result->data[new_len] = '\0';
+    return result;
+}
+
+// reverse(str) - Returns reversed string
+BrixString* brix_str_reverse(BrixString* str) {
+    if (str == NULL || str->data == NULL || str->len == 0) {
+        return str_new("");
+    }
+    BrixString* result = (BrixString*)malloc(sizeof(BrixString));
+    result->ref_count = 1;
+    result->len = str->len;
+    result->data = (char*)malloc(str->len + 1);
+    for (long i = 0; i < str->len; i++) {
+        result->data[i] = str->data[str->len - 1 - i];
+    }
+    result->data[str->len] = '\0';
+    return result;
+}
+
+// repeat(str, n) - Returns str repeated n times
+BrixString* brix_str_repeat(BrixString* str, long n) {
+    if (str == NULL || str->data == NULL || n <= 0 || str->len == 0) {
+        return str_new("");
+    }
+    long new_len = str->len * n;
+    BrixString* result = (BrixString*)malloc(sizeof(BrixString));
+    result->ref_count = 1;
+    result->len = new_len;
+    result->data = (char*)malloc(new_len + 1);
+    for (long i = 0; i < n; i++) {
+        strncpy(result->data + i * str->len, str->data, str->len);
+    }
+    result->data[new_len] = '\0';
+    return result;
+}
+
+// index_of(str, sub) - Returns index of first occurrence, -1 if not found
+long brix_str_index_of(BrixString* str, BrixString* sub) {
+    if (str == NULL || sub == NULL) return -1;
+    if (sub->len == 0) return 0;
+    if (sub->len > str->len) return -1;
+    char* pos = strstr(str->data, sub->data);
+    if (pos == NULL) return -1;
+    return (long)(pos - str->data);
+}
+
+// char_at(str, idx) - Returns single-character string at position idx
+BrixString* brix_str_char_at(BrixString* str, long idx) {
+    if (str == NULL || str->data == NULL || idx < 0 || idx >= str->len) {
+        return str_new("");
+    }
+    BrixString* result = (BrixString*)malloc(sizeof(BrixString));
+    result->ref_count = 1;
+    result->len = 1;
+    result->data = (char*)malloc(2);
+    result->data[0] = str->data[idx];
+    result->data[1] = '\0';
+    return result;
+}
+
+// ==========================================
 // SECTION 3: STATISTICS (v0.7)
 // ==========================================
 

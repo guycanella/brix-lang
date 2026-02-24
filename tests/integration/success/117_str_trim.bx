@@ -1,0 +1,4 @@
+var s := "  hello world  "
+println(s.trim())
+println(s.ltrim())
+println(s.rtrim())

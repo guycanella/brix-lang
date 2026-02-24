@@ -1,0 +1,13 @@
+var str := "hello world"
+var r1 := str.index_of("world")
+if r1 != nil {
+    println("found")
+} else {
+    println("not found")
+}
+var r2 := str.index_of("xyz")
+if r2 != nil {
+    println("found")
+} else {
+    println("not found")
+}

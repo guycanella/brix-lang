@@ -1,0 +1,87 @@
+import test
+
+test.describe("String trim methods", () -> {
+    test.it("trim removes leading and trailing whitespace", () -> {
+        test.expect("  hello  ".trim()).toBe("hello")
+        test.expect("hello  ".trim()).toBe("hello")
+    })
+
+    test.it("ltrim removes only leading whitespace", () -> {
+        test.expect("  hello  ".ltrim()).toBe("hello  ")
+    })
+
+    test.it("rtrim removes only trailing whitespace", () -> {
+        test.expect("  hello  ".rtrim()).toBe("  hello")
+    })
+
+    test.it("trim on string with no whitespace returns same string", () -> {
+        test.expect("hello".trim()).toBe("hello")
+    })
+})
+
+test.describe("String predicate methods", () -> {
+    test.it("starts_with returns 1 when prefix matches", () -> {
+        test.expect("https://example.com".starts_with("https")).toBe(1)
+    })
+
+    test.it("starts_with returns 0 when prefix does not match", () -> {
+        test.expect("https://example.com".starts_with("ftp")).toBe(0)
+    })
+
+    test.it("ends_with returns 1 when suffix matches", () -> {
+        test.expect("report.pdf".ends_with(".pdf")).toBe(1)
+    })
+
+    test.it("ends_with returns 0 when suffix does not match", () -> {
+        test.expect("report.pdf".ends_with(".doc")).toBe(0)
+    })
+
+    test.it("contains returns 1 when substring exists", () -> {
+        test.expect("the quick brown fox".contains("quick")).toBe(1)
+    })
+
+    test.it("contains returns 0 when substring is absent", () -> {
+        test.expect("the quick brown fox".contains("slow")).toBe(0)
+    })
+})
+
+test.describe("String transformation methods", () -> {
+    test.it("substring with exclusive end", () -> {
+        test.expect("hello".substring(1, 4)).toBe("ell")
+        test.expect("hello".substring(0, 5)).toBe("hello")
+        test.expect("abcde".substring(2, 4)).toBe("cd")
+    })
+
+    test.it("reverse returns reversed string", () -> {
+        test.expect("abcde".reverse()).toBe("edcba")
+        test.expect("hello".reverse()).toBe("olleh")
+        test.expect("a".reverse()).toBe("a")
+    })
+
+    test.it("repeat duplicates the string n times", () -> {
+        test.expect("ab".repeat(3)).toBe("ababab")
+        test.expect("x".repeat(1)).toBe("x")
+        test.expect("ha".repeat(2)).toBe("haha")
+    })
+})
+
+test.describe("String index_of method", () -> {
+    test.it("index_of returns nil when not found", () -> {
+        var nf := "hello world".index_of("xyz")
+        test.expect(nf).toBeNil()
+    })
+})
+
+test.describe("String method chaining", () -> {
+    test.it("trim then starts_with", () -> {
+        test.expect("  Hello  ".trim().starts_with("Hello")).toBe(1)
+    })
+
+    test.it("trim then reverse", () -> {
+        test.expect("  abc  ".trim().reverse()).toBe("cba")
+    })
+
+    test.it("reverse then starts_with", () -> {
+        test.expect("olleh".reverse().starts_with("hello")).toBe(1)
+    })
+})
