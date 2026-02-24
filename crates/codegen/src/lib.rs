@@ -140,6 +140,10 @@ pub struct Compiler<'a, 'ctx> {
     // Async function tracking (v1.5 Phase 2)
     // Names of async fns that have been compiled; used by await to call create_{name}/poll_{name}
     pub async_fn_names: HashSet<String>,
+
+    // Loop control flow (v1.6)
+    pub current_break_block: Option<inkwell::basic_block::BasicBlock<'ctx>>,
+    pub current_continue_block: Option<inkwell::basic_block::BasicBlock<'ctx>>,
 }
 
 impl<'a, 'ctx> Compiler<'a, 'ctx> {
@@ -171,6 +175,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             function_scope_vars: Vec::new(),
             imported_modules: Vec::new(),
             async_fn_names: HashSet::new(),
+            current_break_block: None,
+            current_continue_block: None,
         }
     }
 
@@ -2736,8 +2742,14 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
                     // --- BLOCK: BODY ---
                     self.builder.position_at_end(body_bb);
+                    let old_break_for = self.current_break_block.replace(after_bb);
+                    let old_continue_for = self.current_continue_block.replace(inc_bb);
                     self.compile_stmt(body, function)?;
-                    self.builder.build_unconditional_branch(inc_bb).map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string(), span: None })?;
+                    self.current_break_block = old_break_for;
+                    self.current_continue_block = old_continue_for;
+                    if self.builder.get_insert_block().and_then(|b| b.get_terminator()).is_none() {
+                        self.builder.build_unconditional_branch(inc_bb).map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string(), span: None })?;
+                    }
 
                     // --- BLOCK: INC ---
                     self.builder.position_at_end(inc_bb);
@@ -2952,8 +2964,14 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                 }
                             }
 
+                            let old_break_mat = self.current_break_block.replace(after_bb);
+                            let old_continue_mat = self.current_continue_block.replace(inc_bb);
                             self.compile_stmt(body, function)?;
-                            self.builder.build_unconditional_branch(inc_bb).map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string(), span: None })?;
+                            self.current_break_block = old_break_mat;
+                            self.current_continue_block = old_continue_mat;
+                            if self.builder.get_insert_block().and_then(|b| b.get_terminator()).is_none() {
+                                self.builder.build_unconditional_branch(inc_bb).map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string(), span: None })?;
+                            }
 
                             // --- INC ---
                             self.builder.position_at_end(inc_bb);
@@ -3139,8 +3157,14 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                 }
                             }
 
+                            let old_break_imat = self.current_break_block.replace(after_bb);
+                            let old_continue_imat = self.current_continue_block.replace(inc_bb);
                             self.compile_stmt(body, function)?;
-                            self.builder.build_unconditional_branch(inc_bb).map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string(), span: None })?;
+                            self.current_break_block = old_break_imat;
+                            self.current_continue_block = old_continue_imat;
+                            if self.builder.get_insert_block().and_then(|b| b.get_terminator()).is_none() {
+                                self.builder.build_unconditional_branch(inc_bb).map_err(|_| CodegenError::LLVMError { operation: "unwrap".to_string(), details: "Failed in for loop".to_string(), span: None })?;
+                            }
 
                             // --- INC ---
                             self.builder.position_at_end(inc_bb);
@@ -3227,6 +3251,58 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
             StmtKind::Return { values } => {
                 self.compile_return_stmt(values)?;
+                Ok(())
+            }
+
+            StmtKind::Break => {
+                if let Some(break_bb) = self.current_break_block {
+                    self.builder
+                        .build_unconditional_branch(break_bb)
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_unconditional_branch".to_string(),
+                            details: "Failed to build break branch".to_string(),
+                            span: Some(stmt.span.clone()),
+                        })?;
+                    let dead_bb = self.context.append_basic_block(
+                        self.current_function.ok_or_else(|| CodegenError::General(
+                            "break outside of function".to_string(),
+                        ))?,
+                        "break_dead",
+                    );
+                    self.builder.position_at_end(dead_bb);
+                } else {
+                    return Err(CodegenError::InvalidOperation {
+                        operation: "break".to_string(),
+                        reason: "break used outside of a loop".to_string(),
+                        span: Some(stmt.span.clone()),
+                    });
+                }
+                Ok(())
+            }
+
+            StmtKind::Continue => {
+                if let Some(continue_bb) = self.current_continue_block {
+                    self.builder
+                        .build_unconditional_branch(continue_bb)
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_unconditional_branch".to_string(),
+                            details: "Failed to build continue branch".to_string(),
+                            span: Some(stmt.span.clone()),
+                        })?;
+                    let dead_bb = self.context.append_basic_block(
+                        self.current_function.ok_or_else(|| CodegenError::General(
+                            "continue outside of function".to_string(),
+                        ))?,
+                        "continue_dead",
+                    );
+                    self.builder.position_at_end(dead_bb);
+                } else {
+                    return Err(CodegenError::InvalidOperation {
+                        operation: "continue".to_string(),
+                        reason: "continue used outside of a loop".to_string(),
+                        span: Some(stmt.span.clone()),
+                    });
+                }
                 Ok(())
             }
         }

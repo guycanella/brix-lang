@@ -636,3 +636,53 @@ fn test_await_call_token_sequence() {
     assert_eq!(tokens[2], Ok(Token::LParen));
     assert_eq!(tokens[3], Ok(Token::RParen));
 }
+
+// ==================== BREAK / CONTINUE KEYWORD TESTS ====================
+
+#[test]
+fn test_keyword_break() {
+    assert_single_token("break", Token::Break);
+}
+
+#[test]
+fn test_keyword_continue() {
+    assert_single_token("continue", Token::Continue);
+}
+
+#[test]
+fn test_keyword_break_vs_identifier_breakpoint() {
+    assert_single_token("break", Token::Break);
+    assert_single_token("breakpoint", Token::Identifier("breakpoint".to_string()));
+}
+
+#[test]
+fn test_keyword_continue_vs_identifier_continued() {
+    assert_single_token("continue", Token::Continue);
+    assert_single_token("continued", Token::Identifier("continued".to_string()));
+}
+
+#[test]
+fn test_break_in_while_token_sequence() {
+    // "while x { break }" → [While, Identifier, LBrace, Break, RBrace]
+    let tokens = tokenize("while x { break }");
+    assert_eq!(tokens.len(), 5);
+    assert_eq!(tokens[0], Ok(Token::While));
+    assert_eq!(tokens[1], Ok(Token::Identifier("x".to_string())));
+    assert_eq!(tokens[2], Ok(Token::LBrace));
+    assert_eq!(tokens[3], Ok(Token::Break));
+    assert_eq!(tokens[4], Ok(Token::RBrace));
+}
+
+#[test]
+fn test_continue_in_for_token_sequence() {
+    // "for i in arr { continue }" → [For, Identifier, In, Identifier, LBrace, Continue, RBrace]
+    let tokens = tokenize("for i in arr { continue }");
+    assert_eq!(tokens.len(), 7);
+    assert_eq!(tokens[0], Ok(Token::For));
+    assert_eq!(tokens[1], Ok(Token::Identifier("i".to_string())));
+    assert_eq!(tokens[2], Ok(Token::In));
+    assert_eq!(tokens[3], Ok(Token::Identifier("arr".to_string())));
+    assert_eq!(tokens[4], Ok(Token::LBrace));
+    assert_eq!(tokens[5], Ok(Token::Continue));
+    assert_eq!(tokens[6], Ok(Token::RBrace));
+}

@@ -1319,3 +1319,222 @@ fn test_array_range_literal_descending() {
     assert!(result.is_ok());
 }
 
+// ==================== BREAK TESTS ====================
+
+fn make_while_with_break() -> Program {
+    // while 1 { break }
+    Program {
+        statements: vec![
+            Stmt::dummy(StmtKind::FunctionDef {
+                name: "test_fn".to_string(),
+                is_async: false,
+                type_params: vec![],
+                params: vec![],
+                return_type: None,
+                body: Box::new(Stmt::dummy(StmtKind::Block(vec![
+                    Stmt::dummy(StmtKind::While {
+                        condition: Expr::dummy(ExprKind::Literal(Literal::Int(1))),
+                        body: Box::new(Stmt::dummy(StmtKind::Block(vec![
+                            Stmt::dummy(StmtKind::Break),
+                        ]))),
+                    }),
+                    Stmt::dummy(StmtKind::Return { values: vec![] }),
+                ]))),
+            }),
+        ],
+    }
+}
+
+#[test]
+fn test_break_in_while_compiles() {
+    let program = make_while_with_break();
+    let ir = compile_program(program);
+    assert!(ir.is_ok(), "while with break should compile: {:?}", ir.err());
+    let ir = ir.unwrap();
+    assert!(ir.contains("while_after"), "IR should contain while_after block");
+    assert!(ir.contains("break_dead"), "IR should contain break dead block");
+}
+
+#[test]
+fn test_break_emits_unconditional_branch_to_after() {
+    let program = make_while_with_break();
+    let ir = compile_program(program).unwrap();
+    // The IR should have a branch to while_after (not just the condition branch)
+    assert!(ir.contains("while_after"));
+}
+
+#[test]
+fn test_continue_in_while_compiles() {
+    // while 1 { continue }
+    let program = Program {
+        statements: vec![
+            Stmt::dummy(StmtKind::FunctionDef {
+                name: "test_continue".to_string(),
+                is_async: false,
+                type_params: vec![],
+                params: vec![],
+                return_type: None,
+                body: Box::new(Stmt::dummy(StmtKind::Block(vec![
+                    Stmt::dummy(StmtKind::While {
+                        condition: Expr::dummy(ExprKind::Literal(Literal::Int(1))),
+                        body: Box::new(Stmt::dummy(StmtKind::Block(vec![
+                            Stmt::dummy(StmtKind::Continue),
+                        ]))),
+                    }),
+                    Stmt::dummy(StmtKind::Return { values: vec![] }),
+                ]))),
+            }),
+        ],
+    };
+    let ir = compile_program(program);
+    assert!(ir.is_ok(), "while with continue should compile: {:?}", ir.err());
+    let ir = ir.unwrap();
+    assert!(ir.contains("while_header"), "IR should contain while_header");
+    assert!(ir.contains("continue_dead"), "IR should contain continue dead block");
+}
+
+#[test]
+fn test_break_inside_if_in_while_compiles() {
+    // while 1 { if 1 { break } }
+    let program = Program {
+        statements: vec![
+            Stmt::dummy(StmtKind::FunctionDef {
+                name: "test_break_if".to_string(),
+                is_async: false,
+                type_params: vec![],
+                params: vec![],
+                return_type: None,
+                body: Box::new(Stmt::dummy(StmtKind::Block(vec![
+                    Stmt::dummy(StmtKind::While {
+                        condition: Expr::dummy(ExprKind::Literal(Literal::Int(1))),
+                        body: Box::new(Stmt::dummy(StmtKind::Block(vec![
+                            Stmt::dummy(StmtKind::If {
+                                condition: Expr::dummy(ExprKind::Literal(Literal::Int(1))),
+                                then_block: Box::new(Stmt::dummy(StmtKind::Block(vec![
+                                    Stmt::dummy(StmtKind::Break),
+                                ]))),
+                                else_block: None,
+                            }),
+                        ]))),
+                    }),
+                    Stmt::dummy(StmtKind::Return { values: vec![] }),
+                ]))),
+            }),
+        ],
+    };
+    let ir = compile_program(program);
+    assert!(ir.is_ok(), "break inside if inside while should compile: {:?}", ir.err());
+}
+
+#[test]
+fn test_break_in_for_range_compiles() {
+    use parser::ast::BinaryOp;
+    // fn f() { for i in 0..10 { break } }
+    let program = Program {
+        statements: vec![
+            Stmt::dummy(StmtKind::FunctionDef {
+                name: "test_for_break".to_string(),
+                is_async: false,
+                type_params: vec![],
+                params: vec![],
+                return_type: None,
+                body: Box::new(Stmt::dummy(StmtKind::Block(vec![
+                    Stmt::dummy(StmtKind::For {
+                        var_names: vec!["i".to_string()],
+                        iterable: Expr::dummy(ExprKind::Range {
+                            start: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(0)))),
+                            end: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(10)))),
+                            step: None,
+                            inclusive: true,
+                        }),
+                        body: Box::new(Stmt::dummy(StmtKind::Block(vec![
+                            Stmt::dummy(StmtKind::Break),
+                        ]))),
+                    }),
+                    Stmt::dummy(StmtKind::Return { values: vec![] }),
+                ]))),
+            }),
+        ],
+    };
+    let ir = compile_program(program);
+    assert!(ir.is_ok(), "break in for range should compile: {:?}", ir.err());
+    let ir = ir.unwrap();
+    assert!(ir.contains("for_after"), "IR should contain for_after block");
+}
+
+#[test]
+fn test_continue_in_for_range_compiles() {
+    // fn f() { for i in 0..10 { continue } }
+    let program = Program {
+        statements: vec![
+            Stmt::dummy(StmtKind::FunctionDef {
+                name: "test_for_continue".to_string(),
+                is_async: false,
+                type_params: vec![],
+                params: vec![],
+                return_type: None,
+                body: Box::new(Stmt::dummy(StmtKind::Block(vec![
+                    Stmt::dummy(StmtKind::For {
+                        var_names: vec!["i".to_string()],
+                        iterable: Expr::dummy(ExprKind::Range {
+                            start: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(0)))),
+                            end: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(10)))),
+                            step: None,
+                            inclusive: true,
+                        }),
+                        body: Box::new(Stmt::dummy(StmtKind::Block(vec![
+                            Stmt::dummy(StmtKind::Continue),
+                        ]))),
+                    }),
+                    Stmt::dummy(StmtKind::Return { values: vec![] }),
+                ]))),
+            }),
+        ],
+    };
+    let ir = compile_program(program);
+    assert!(ir.is_ok(), "continue in for range should compile: {:?}", ir.err());
+    let ir = ir.unwrap();
+    assert!(ir.contains("for_inc"), "IR should contain for_inc block (continue target)");
+}
+
+#[test]
+fn test_nested_loops_break_innermost() {
+    // fn f() {
+    //   while 1 {
+    //     while 1 {
+    //       break    <- should break inner loop only
+    //     }
+    //   }
+    // }
+    let inner_while = Stmt::dummy(StmtKind::While {
+        condition: Expr::dummy(ExprKind::Literal(Literal::Int(1))),
+        body: Box::new(Stmt::dummy(StmtKind::Block(vec![
+            Stmt::dummy(StmtKind::Break),
+        ]))),
+    });
+    let outer_while = Stmt::dummy(StmtKind::While {
+        condition: Expr::dummy(ExprKind::Literal(Literal::Int(1))),
+        body: Box::new(Stmt::dummy(StmtKind::Block(vec![inner_while]))),
+    });
+    let program = Program {
+        statements: vec![
+            Stmt::dummy(StmtKind::FunctionDef {
+                name: "test_nested".to_string(),
+                is_async: false,
+                type_params: vec![],
+                params: vec![],
+                return_type: None,
+                body: Box::new(Stmt::dummy(StmtKind::Block(vec![
+                    outer_while,
+                    Stmt::dummy(StmtKind::Return { values: vec![] }),
+                ]))),
+            }),
+        ],
+    };
+    let ir = compile_program(program);
+    assert!(ir.is_ok(), "nested loops with break should compile: {:?}", ir.err());
+    let ir = ir.unwrap();
+    // Should have two while_after blocks (one per loop)
+    assert!(ir.contains("while_after"), "IR should have while_after");
+}
+

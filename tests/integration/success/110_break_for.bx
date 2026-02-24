@@ -1,0 +1,9 @@
+// break in for range: stop at first multiple of 4
+var result := -1
+for i in 1..20 {
+    if i % 4 == 0 {
+        result := i
+        break
+    }
+}
+println(result)

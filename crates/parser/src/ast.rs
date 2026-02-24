@@ -298,6 +298,10 @@ pub enum StmtKind {
         values: Vec<Expr>, // Empty for void, 1+ for returns
     },
 
+    Break,
+
+    Continue,
+
     Expr(Expr),
 }
 

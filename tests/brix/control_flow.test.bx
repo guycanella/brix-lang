@@ -120,3 +120,91 @@ test.describe("for loop with range", () -> {
         test.expect(count).toBe(5)
     })
 })
+
+test.describe("break", () -> {
+    test.it("breaks while loop early", () -> {
+        var i := 0
+        while i < 100 {
+            if i == 5 {
+                break
+            }
+            i += 1
+        }
+        test.expect(i).toBe(5)
+    })
+
+    test.it("break finds first match", () -> {
+        var found := -1
+        var i := 0
+        while i < 10 {
+            if i % 3 == 0 and i > 0 {
+                found := i
+                break
+            }
+            i += 1
+        }
+        test.expect(found).toBe(3)
+    })
+
+    test.it("break in for range stops early", () -> {
+        var last := -1
+        for i in 1..10 {
+            if i > 4 {
+                break
+            }
+            last := i
+        }
+        test.expect(last).toBe(4)
+    })
+
+    test.it("break only breaks innermost loop", () -> {
+        var outer_runs := 0
+        var i := 0
+        while i < 3 {
+            var j := 0
+            while j < 10 {
+                break
+            }
+            outer_runs += 1
+            i += 1
+        }
+        test.expect(outer_runs).toBe(3)
+    })
+})
+
+test.describe("continue", () -> {
+    test.it("skips odd numbers in while", () -> {
+        var sum := 0
+        var i := 0
+        while i < 10 {
+            i += 1
+            if i % 2 != 0 {
+                continue
+            }
+            sum += i
+        }
+        test.expect(sum).toBe(30)
+    })
+
+    test.it("continue in for skips multiples of 3", () -> {
+        var sum := 0
+        for i in 1..9 {
+            if i % 3 == 0 {
+                continue
+            }
+            sum += i
+        }
+        test.expect(sum).toBe(27)
+    })
+
+    test.it("continue does not prevent outer loop from running", () -> {
+        var count := 0
+        var i := 0
+        while i < 5 {
+            i += 1
+            continue
+            count += 1
+        }
+        test.expect(count).toBe(0)
+    })
+})

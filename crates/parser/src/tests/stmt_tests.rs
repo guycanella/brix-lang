@@ -577,3 +577,104 @@ fn test_block_multiple_stmts() {
         _ => panic!("Expected block"),
     }
 }
+
+// ==================== BREAK / CONTINUE TESTS ====================
+
+#[test]
+fn test_break_stmt() {
+    let stmt = parse_stmt("break").unwrap();
+    assert!(
+        matches!(stmt.kind, StmtKind::Break),
+        "Expected Break, got {:?}",
+        stmt.kind
+    );
+}
+
+#[test]
+fn test_continue_stmt() {
+    let stmt = parse_stmt("continue").unwrap();
+    assert!(
+        matches!(stmt.kind, StmtKind::Continue),
+        "Expected Continue, got {:?}",
+        stmt.kind
+    );
+}
+
+#[test]
+fn test_break_inside_while_block() {
+    // Parse: while x { break }
+    use crate::ast::ExprKind;
+    let tokens: Vec<lexer::token::Token> = lexer::lex("while x {\nbreak\n}");
+    let program = crate::parser::parser().parse(tokens).unwrap();
+    let while_stmt = &program.statements[0];
+    match &while_stmt.kind {
+        StmtKind::While { body, .. } => {
+            match &body.kind {
+                StmtKind::Block(stmts) => {
+                    assert_eq!(stmts.len(), 1);
+                    assert!(matches!(stmts[0].kind, StmtKind::Break));
+                }
+                _ => panic!("Expected block body"),
+            }
+        }
+        _ => panic!("Expected while stmt"),
+    }
+}
+
+#[test]
+fn test_continue_inside_while_block() {
+    let tokens: Vec<lexer::token::Token> = lexer::lex("while x {\ncontinue\n}");
+    let program = crate::parser::parser().parse(tokens).unwrap();
+    let while_stmt = &program.statements[0];
+    match &while_stmt.kind {
+        StmtKind::While { body, .. } => {
+            match &body.kind {
+                StmtKind::Block(stmts) => {
+                    assert_eq!(stmts.len(), 1);
+                    assert!(matches!(stmts[0].kind, StmtKind::Continue));
+                }
+                _ => panic!("Expected block body"),
+            }
+        }
+        _ => panic!("Expected while stmt"),
+    }
+}
+
+#[test]
+fn test_break_inside_for_block() {
+    let tokens: Vec<lexer::token::Token> = lexer::lex("for i in arr {\nbreak\n}");
+    let program = crate::parser::parser().parse(tokens).unwrap();
+    let for_stmt = &program.statements[0];
+    match &for_stmt.kind {
+        StmtKind::For { body, .. } => {
+            match &body.kind {
+                StmtKind::Block(stmts) => {
+                    assert_eq!(stmts.len(), 1);
+                    assert!(matches!(stmts[0].kind, StmtKind::Break));
+                }
+                _ => panic!("Expected block body"),
+            }
+        }
+        _ => panic!("Expected for stmt"),
+    }
+}
+
+#[test]
+fn test_break_with_if_inside_while() {
+    // while cond { if x { break } }
+    let tokens: Vec<lexer::token::Token> = lexer::lex("while cond {\nif x {\nbreak\n}\n}");
+    let program = crate::parser::parser().parse(tokens).unwrap();
+    assert_eq!(program.statements.len(), 1);
+    match &program.statements[0].kind {
+        StmtKind::While { body, .. } => {
+            match &body.kind {
+                StmtKind::Block(stmts) => {
+                    assert_eq!(stmts.len(), 1);
+                    assert!(matches!(stmts[0].kind, StmtKind::If { .. }));
+                }
+                _ => panic!("Expected block"),
+            }
+        }
+        _ => panic!("Expected while"),
+    }
+}
