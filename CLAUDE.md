@@ -80,7 +80,7 @@ brix/
 │       └── builtins/        # math.rs, stats.rs, linalg.rs, string.rs, io.rs, matrix.rs, test.rs
 ├── tests/
 │   ├── integration/         # End-to-end .bx files (success/, parser_errors/, codegen_errors/, runtime_errors/)
-│   └── brix/                # Language test files (*.test.bx) — 21 files, 345 tests, all passing
+│   └── brix/                # Language test files (*.test.bx) — 22 files, 362 tests, all passing
 └── examples/                # Example .bx programs
 ```
 
@@ -169,10 +169,11 @@ Jest-style framework. 28 matchers across 14 categories: `toBe`, `not.toBe`, `toE
 - `break` / `continue` — **fully implemented (v1.6 Fase 0a)**: `Token::Break`/`Token::Continue`, `StmtKind::Break`/`StmtKind::Continue`, save/restore pattern on `Compiler`.
 - Nested closure ARC — **double-free and use-after-free fixed (v1.6 Fase 0b)**: closure captures now use capture-by-value (retain at capture time, stored directly in env). `env_dtor` uses single dereference.
 - **Async/await (v1.5 Phase 2 complete)**: `async fn` and `await` are fully implemented via LLVM state machines. Each `async fn` compiles to `create_{name}(params) -> i8*` + `poll_{name}(i8*) -> {status, value}`. `async fn main()` is driven by `brix_run_to_completion` in the C runtime. Limitation: only `var x := await f(args)` at the top level of a linear Block body is supported; `await` in nested control flow is not yet supported. `async { }` blocks are not yet supported in codegen.
-- String functions not yet implemented: `trim`, `split`, `join`, `starts_with`, `ends_with`, `contains`, `substring`, `reverse`
+- **String methods (v1.6 Fase 1 complete)**: `trim`, `ltrim`, `rtrim`, `starts_with`, `ends_with`, `contains`, `substring`, `reverse`, `repeat`, `index_of` (returns `int?`), `for ch in str` iteration — all implemented.
+- String functions not yet implemented: `split`, `join` (require `StringMatrix` type — planned for v1.7)
 - Matrix constructors not yet implemented: `ones()`, `linspace()`, `arange()`, `rand()`
 - Iterators on `Matrix` (float arrays) — `map`/`filter`/`reduce`/`any`/`all`/`find` work on `IntMatrix`; `Matrix` dispatch exists but float closures require `-> float` return type annotation
-- String iteration and 2D Matrix iteration (planned for v1.6)
+- 2D Matrix iteration (planned for v1.6)
 
 ## Troubleshooting
 
