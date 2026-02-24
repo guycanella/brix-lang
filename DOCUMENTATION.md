@@ -1,12 +1,18 @@
 # Brix Language (Design Document v1.0)
 
-> ✅ **Status do Projeto (Fev 2026):** O compilador Brix **v1.5 COMPLETO + v1.6 em andamento** — v1.6 Fase 0a (`break`/`continue`) e Fase 0b (ARC double-free em nested closures) concluídas. v1.5 entregou Ranges Unificados, Iteradores, Pipeline Operator, Test Library Jest-style (28 matchers, 21 arquivos / 345 testes) e Async/Await via state machines LLVM. **1.152 unit tests + 119 integration tests passando (100%).** Em progresso: v1.6 — String Library, Matrix Constructors, Async Closures.
+> ✅ **Status do Projeto (Fev 2026):** O compilador Brix **v1.5 COMPLETO + v1.6 em andamento** — v1.6 Fases 0 (break/continue, ARC nested closures) e 1 (String Library completa) concluídas. v1.5 entregou Ranges Unificados, Iteradores, Pipeline Operator, Test Library Jest-style (28 matchers, 22 arquivos / 362 testes) e Async/Await via state machines LLVM. **1.152 unit tests + 126 integration tests passando (100%).** Em progresso: v1.6 — Matrix Constructors, Async Closures.
 
 ## Status Atual (Fevereiro 2026)
 
 ### ✅ **Funcionalidades Implementadas (v1.0-v1.6 parcial):**
 - Compilação completa `.bx` → binário nativo via LLVM
 - **LLVM Optimizations**: `-O0`, `-O1`, `-O2`, `-O3`, `--release`
+- **v1.6 Fase 1 — String Library (COMPLETE - Fev 2026):**
+  - **Métodos de string**: `.trim()`, `.ltrim()`, `.rtrim()`, `.starts_with(s)`, `.ends_with(s)`, `.contains(s)`, `.substring(start, end)` (end exclusivo), `.reverse()`, `.repeat(n)`, `.index_of(sub)` → `int?` (nil se não encontrado)
+  - **Iteração**: `for ch in "hello"` — `ch` é `string` de 1 char, via `brix_str_char_at()`
+  - **Method chaining**: `"  Hello  ".trim().starts_with("Hello")`, `"  abc  ".trim().reverse()`
+  - **`toBeNil` fix**: suporte a struct (Union type) no matcher — extrai tag field 0 e compara com 1
+  - 7 integration tests (117–123) + 17 testes no Test Library (`strings_v16.test.bx`)
 - **v1.6 Fase 0b — ARC Nested Closures (COMPLETE - Fev 2026):**
   - **Bug fixes**: double-free (SIGABRT), use-after-free silencioso, capture-by-reference não-intencional
   - **Semântica**: capture-by-value para closures — `b` captura o valor de `a` no momento da criação; reassignment de `a` não afeta `b`
@@ -27,7 +33,7 @@
   - **Jest-style framework**: `test.describe()`, `test.it()`, `test.expect()`
   - **28 matchers**: `toBe`, `toEqual`, `toBeCloseTo`, `toBeTruthy`, `toBeFalsy`, `toBeGreaterThan`, `toBeLessThan`, `toContain`, `toHaveLength`, `toBeNil`, e variantes `not.*`
   - **`cargo run -- test`**: Executa todos os `*.test.bx` e `*.spec.bx`
-  - **21 arquivos / 345 testes** em `tests/brix/` cobrindo toda a linguagem
+  - **22 arquivos / 362 testes** em `tests/brix/` cobrindo toda a linguagem
 - **v1.5 Iterators & Pipeline (COMPLETE - Feb 2026):**
   - **Array Type Syntax**: `int[]`, `float[]` em anotações de tipo
   - **Unified Ranges**: `0..5` (inclusivo), `0..<5` (exclusivo), `0..10 step 2`, auto-step decrescente
@@ -167,13 +173,14 @@
 ### ✅ **v1.6 (Parcial - Fev 2026):**
 - **Fase 0a**: `break` / `continue` (6+6+8 unit tests, 5 integration tests)
 - **Fase 0b**: ARC nested closures — double-free, use-after-free e capture-by-reference não-intencional corrigidos (4 integration tests, 5 Test Library tests)
-- **Total acumulado: 1.152 unit + 119 integration + 345 Test Library = 1.616 tests (100% passing)**
+- **Fase 1**: String Library completa — 10 métodos de string + iteração `for ch in str` (7 integration tests, 17 Test Library tests)
+- **Total acumulado: 1.152 unit + 126 integration + 362 Test Library = 1.640 tests (100% passing)**
 
 ### 🔮 **Planejado (v1.6 — restante):**
 - ✅ ~~`break` / `continue` em loops~~ — COMPLETO
 - ✅ ~~ARC double-free em nested closures~~ — COMPLETO
-- String Library: `trim`, `ltrim`, `rtrim`, `starts_with`, `ends_with`, `contains`, `substring`, `reverse`, `repeat`, `index_of`
-- String iteration (`for ch in "hello"`)
+- ✅ ~~String Library: `trim`, `ltrim`, `rtrim`, `starts_with`, `ends_with`, `contains`, `substring`, `reverse`, `repeat`, `index_of`~~ — COMPLETO
+- ✅ ~~String iteration (`for ch in "hello"`)~~ — COMPLETO
 - Matrix constructors: `ones()`, `linspace()`, `arange()`, `rand()`
 - 2D Matrix iteration (`.map(fn)` preservando shape)
 - Async Closures (`async () -> { await f() }`) e Async Test Matchers
@@ -2557,7 +2564,8 @@ tests/
 #### Advanced Functions (planejado)
 
 - [ ] **panic():** Error handling alternativo para erros irrecuperáveis
-- [ ] **Advanced string functions:** split(), join(), trim(), etc.
+- [x] **String methods (v1.6 Fase 1):** `trim`, `ltrim`, `rtrim`, `starts_with`, `ends_with`, `contains`, `substring`, `reverse`, `repeat`, `index_of` — ✅ COMPLETO
+- [ ] **Advanced string functions:** `split()`, `join()` (requerem `StringMatrix` — v1.7)
 
 #### User-Defined Modules (planejado)
 
@@ -3443,26 +3451,27 @@ Time:        0.001s
 
 ---
 
-### 🔧 **v1.6 - Extensions (Planejado)**
+### 🔧 **v1.6 - Extensions**
 
-**Status:** Planejado — implementações confirmadas como pendentes (ver BRIX_TESTS.md)
+#### String Extensions ✅ COMPLETO (Fev 2026)
 
-#### String Extensions
+Os seguintes métodos de string foram implementados em v1.6 Fase 1 como **method syntax** (`str.trim()`, não função global):
 
-As seguintes funções de string estão planejadas mas **ainda não implementadas**:
+| Método | Assinatura | Descrição |
+|--------|-----------|-----------|
+| `.trim()` | `string -> string` | Remove espaços do início e fim |
+| `.ltrim()` | `string -> string` | Remove espaços do início |
+| `.rtrim()` | `string -> string` | Remove espaços do fim |
+| `.starts_with(prefix)` | `(string) -> int` | Verifica prefixo (1/0) |
+| `.ends_with(suffix)` | `(string) -> int` | Verifica sufixo (1/0) |
+| `.contains(sub)` | `(string) -> int` | Verifica se substring existe (1/0) |
+| `.substring(start, end)` | `(int, int) -> string` | Extrai substring (end exclusivo) |
+| `.reverse()` | `string -> string` | Inverte a string |
+| `.repeat(n)` | `(int) -> string` | Repete a string n vezes |
+| `.index_of(sub)` | `(string) -> int?` | Índice da primeira ocorrência, `nil` se não encontrar |
+| `for ch in str` | — | Iteração char a char; `ch` é `string` de 1 char |
 
-| Função | Descrição |
-|--------|-----------|
-| `trim(s)` | Remove espaços do início e fim |
-| `trim_start(s)` | Remove espaços do início |
-| `trim_end(s)` | Remove espaços do fim |
-| `split(s, delim)` | Divide string por delimitador (retorno como array?) |
-| `join(arr, sep)` | Une array de strings com separador |
-| `starts_with(s, prefix)` | Verifica prefixo |
-| `ends_with(s, suffix)` | Verifica sufixo |
-| `contains(s, sub)` | Verifica se substring existe |
-| `substring(s, start, len)` | Extrai substring |
-| `reverse(s)` | Inverte a string |
+Pendentes para v1.7 (requerem `StringMatrix`): `split(delim)`, `join(sep)`.
 
 #### Matrix Constructors
 
@@ -3869,7 +3878,8 @@ math.sum(arr), math.mean(arr), math.median(arr), math.std(arr)
 **v1.2 - Documentation & Modules:**
 - Documentation system: `@doc` annotations
 - User-defined modules: `module mymod { ... }`
-- Advanced string functions: split(), join(), trim()
+- ✅ String methods: `trim`, `starts_with`, `contains`, `substring`, `reverse`, etc. — COMPLETO (v1.6)
+- Advanced string functions: `split()`, `join()` (v1.7)
 
 **v1.3 - Type System Expansion:** ✅ **COMPLETE (Feb 2026)**
 - ✅ Closures: `var fn := (x: int) -> int { return x * 2 }` com capture by reference + ARC
@@ -3904,11 +3914,12 @@ math.sum(arr), math.mean(arr), math.median(arr), math.std(arr)
 - **Built-in Functions:** 60+ (I/O, type system, type checking, conversions, math, stats, linalg, complex, string operations)
 - **Features Implementadas:** ~160+ (v1.5 100% completo ✅)
 - **Features v1.5:** Test Library + Iterators + Pipeline + Ranges + Async/Await = 5 features principais
-- **Features Planejadas v1.6+:** break/continue, String Library, Async Closures, Pattern Matching 2.0
+- **Features v1.6 Completas:** break/continue ✅, ARC nested closures ✅, String Library ✅
+- **Features Planejadas v1.6 (restante):** Matrix Constructors, Async Closures, Pattern Matching 2.0
 - **Versão Atual:** v1.5 ✅ **COMPLETO (Fev 2026)** 🎉
 - **Versão Anterior:** v1.4 ✅ **COMPLETO (18/02/2026)**
 - **Progresso MVP:** 100%
-- **Próxima Versão:** v1.6 (break/continue, String Library, Async Closures, Pattern Matching 2.0)
+- **Próxima Versão:** v1.6 em progresso (Matrix Constructors, Async Closures, Pattern Matching 2.0)
 - **Última Atualização:** Fev 2026
 
 ---
