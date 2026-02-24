@@ -1428,6 +1428,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
         // Load captured variables from environment
         if let Some(env_type) = env_struct_type {
+            let ptr_type = self.context.ptr_type(inkwell::AddressSpace::default());
             for (i, var_name) in closure.captured_vars.iter().enumerate() {
                 // Get pointer to field in environment struct
                 let field_ptr = self.builder
@@ -1438,20 +1439,6 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         span: Some(expr.span.clone()),
                     })?;
 
-                // Load the actual variable pointer
-                let var_ptr = self.builder
-                    .build_load(
-                        self.context.ptr_type(AddressSpace::default()),
-                        field_ptr,
-                        var_name
-                    )
-                    .map_err(|_| CodegenError::LLVMError {
-                        operation: "build_load".to_string(),
-                        details: format!("Failed to load captured variable {}", var_name),
-                        span: Some(expr.span.clone()),
-                    })?
-                    .into_pointer_value();
-
                 // Get the type of the captured variable from outer scope
                 let var_type = prev_variables.get(var_name)
                     .map(|(_, t)| t.clone())
@@ -1461,8 +1448,41 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         span: Some(expr.span.clone()),
                     })?;
 
+                let alloca_for_var = if Compiler::is_closure_type(&var_type) {
+                    // env[i] holds the retained BrixClosure* directly (capture-by-value).
+                    // Load it and store into a fresh local alloca so the identifier handler
+                    // can do its standard load(alloca) -> closure_retain() flow.
+                    let closure_val = self.builder
+                        .build_load(ptr_type, field_ptr, &format!("{}_cls", var_name))
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_load".to_string(),
+                            details: format!("Failed to load captured closure {}", var_name),
+                            span: Some(expr.span.clone()),
+                        })?
+                        .into_pointer_value();
+                    let local_alloca = self.create_entry_block_alloca(ptr_type.into(), var_name)?;
+                    self.builder.build_store(local_alloca, closure_val)
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_store".to_string(),
+                            details: format!("Failed to store captured closure into local alloca: {}", var_name),
+                            span: Some(expr.span.clone()),
+                        })?;
+                    local_alloca
+                } else {
+                    // env[i] holds &alloca (capture-by-reference for non-closure vars).
+                    // Load the alloca address and use it directly.
+                    self.builder
+                        .build_load(ptr_type, field_ptr, var_name)
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_load".to_string(),
+                            details: format!("Failed to load captured variable {}", var_name),
+                            span: Some(expr.span.clone()),
+                        })?
+                        .into_pointer_value()
+                };
+
                 // Add to current scope
-                self.variables.insert(var_name.clone(), (var_ptr, var_type));
+                self.variables.insert(var_name.clone(), (alloca_for_var, var_type));
             }
         }
 
@@ -1568,8 +1588,12 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             let env_alloca = env_ptr_raw; // No cast needed - LLVM treats all pointers uniformly
 
             // Store pointers to captured variables
+            // For closure-typed captures: retain the VALUE and store the BrixClosure* directly (capture-by-value).
+            // For other captures: store the alloca address (capture-by-reference).
+            let ptr_type = self.context.ptr_type(inkwell::AddressSpace::default());
             for (i, var_name) in closure.captured_vars.iter().enumerate() {
-                let (var_ptr, _) = self.variables.get(var_name)
+                let (var_ptr, var_captured_type) = self.variables.get(var_name)
+                    .map(|(p, t)| (*p, t.clone()))
                     .ok_or_else(|| CodegenError::UndefinedSymbol {
                         name: var_name.clone(),
                         context: "closure environment".to_string(),
@@ -1584,12 +1608,33 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         span: Some(expr.span.clone()),
                     })?;
 
-                self.builder.build_store(field_ptr, *var_ptr)
-                    .map_err(|_| CodegenError::LLVMError {
-                        operation: "build_store".to_string(),
-                        details: format!("Failed to store pointer for {}", var_name),
-                        span: Some(expr.span.clone()),
-                    })?;
+                if Compiler::is_closure_type(&var_captured_type) {
+                    // Capture-by-value: load the current BrixClosure* from the alloca, retain it,
+                    // and store the retained ptr in env[i].
+                    let closure_val = self.builder
+                        .build_load(ptr_type, var_ptr, &format!("{}_val", var_name))
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_load".to_string(),
+                            details: format!("Failed to load closure value for capture: {}", var_name),
+                            span: Some(expr.span.clone()),
+                        })?
+                        .into_pointer_value();
+                    let retained = self.closure_retain(closure_val)?;
+                    self.builder.build_store(field_ptr, retained)
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_store".to_string(),
+                            details: format!("Failed to store retained closure ptr for {}", var_name),
+                            span: Some(expr.span.clone()),
+                        })?;
+                } else {
+                    // Capture-by-reference: store the alloca address (as before).
+                    self.builder.build_store(field_ptr, var_ptr)
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_store".to_string(),
+                            details: format!("Failed to store pointer for {}", var_name),
+                            span: Some(expr.span.clone()),
+                        })?;
+                }
             }
 
             env_alloca
@@ -1641,26 +1686,17 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 });
 
                 for field_idx in &captured_closure_indices {
-                    // env[field_idx] = alloca address of captured closure var
-                    let alloca_addr_ptr = self.builder
-                        .build_struct_gep(env_type, env_arg, *field_idx as u32, "cls_alloca_addr")
+                    // env[field_idx] now holds the retained BrixClosure* directly (capture-by-value).
+                    // Single load is sufficient — no double dereference.
+                    let field_ptr = self.builder
+                        .build_struct_gep(env_type, env_arg, *field_idx as u32, "cls_field_ptr")
                         .map_err(|_| CodegenError::LLVMError {
                             operation: "build_struct_gep".to_string(),
                             details: "destructor: gep env field".to_string(),
                             span: Some(expr.span.clone()),
                         })?;
-                    // Load the alloca address (ptr-to-alloca)
-                    let alloca_addr = self.builder
-                        .build_load(ptr_type, alloca_addr_ptr, "cls_alloca")
-                        .map_err(|_| CodegenError::LLVMError {
-                            operation: "build_load".to_string(),
-                            details: "destructor: load alloca addr".to_string(),
-                            span: Some(expr.span.clone()),
-                        })?
-                        .into_pointer_value();
-                    // Load the actual BrixClosure* from the alloca
-                    let closure_actual = self.builder
-                        .build_load(ptr_type, alloca_addr, "cls_actual")
+                    let closure_val = self.builder
+                        .build_load(ptr_type, field_ptr, "cls_val")
                         .map_err(|_| CodegenError::LLVMError {
                             operation: "build_load".to_string(),
                             details: "destructor: load closure ptr".to_string(),
@@ -1668,7 +1704,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         })?
                         .into_pointer_value();
                     self.builder
-                        .build_call(release_fn, &[closure_actual.into()], "")
+                        .build_call(release_fn, &[closure_val.into()], "")
                         .map_err(|_| CodegenError::LLVMError {
                             operation: "build_call".to_string(),
                             details: "destructor: closure_release".to_string(),

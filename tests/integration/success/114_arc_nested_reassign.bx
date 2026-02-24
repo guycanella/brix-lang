@@ -1,0 +1,5 @@
+var a := (x: int) -> int { return x + 1 }
+var b := (y: int) -> int { return a(y) }
+b := (y: int) -> int { return y }
+a := (x: int) -> int { return x * 2 }
+println(a(10))

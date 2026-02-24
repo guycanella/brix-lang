@@ -1093,3 +1093,35 @@ fn test_break_nested_loops() {
         "3"
     );
 }
+
+#[test]
+fn test_arc_nested_basic() {
+    assert_success(
+        "tests/integration/success/113_arc_nested_basic.bx",
+        "6\n11"
+    );
+}
+
+#[test]
+fn test_arc_nested_reassign_no_crash() {
+    assert_success(
+        "tests/integration/success/114_arc_nested_reassign.bx",
+        "20"
+    );
+}
+
+#[test]
+fn test_arc_nested_triple_level() {
+    assert_success(
+        "tests/integration/success/115_arc_nested_triple.bx",
+        "6"
+    );
+}
+
+#[test]
+fn test_arc_capture_by_value() {
+    assert_success(
+        "tests/integration/success/116_arc_capture_by_value.bx",
+        "4\n4"
+    );
+}

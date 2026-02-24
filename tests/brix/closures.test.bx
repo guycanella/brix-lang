@@ -115,3 +115,41 @@ test.describe("Zero-parameter closures", () -> {
         test.expect(get_captured_value(99)).toBe(99)
     })
 })
+
+test.describe("Nested closure ARC (capture-by-value)", () -> {
+    var a1 := (x: int) -> int { return x + 1 }
+    var b1 := (y: int) -> int { return a1(y) }
+
+    test.it("b captures a, b(5) returns 6", () -> {
+        test.expect(b1(5)).toBe(6)
+    })
+
+    test.it("b captures a, b(10) returns 11", () -> {
+        test.expect(b1(10)).toBe(11)
+    })
+
+    var a2 := (x: int) -> int { return x + 1 }
+    var b2 := (y: int) -> int { return a2(y) }
+    var c2 := (z: int) -> int { return b2(z) }
+
+    test.it("three-level nesting c(b(a(5))) returns 6", () -> {
+        test.expect(c2(5)).toBe(6)
+    })
+
+    var a3 := (x: int) -> int { return x + 1 }
+    var b3 := (y: int) -> int { return a3(y) }
+    a3 := (x: int) -> int { return x * 10 }
+
+    test.it("capture-by-value: b sees original a after a is reassigned", () -> {
+        test.expect(b3(3)).toBe(4)
+    })
+
+    var a4 := (x: int) -> int { return x + 1 }
+    var b4 := (y: int) -> int { return a4(y) }
+    b4 := (y: int) -> int { return y }
+    a4 := (x: int) -> int { return x * 2 }
+
+    test.it("reassign b then a: a uses new closure, no crash", () -> {
+        test.expect(a4(10)).toBe(20)
+    })
+})
