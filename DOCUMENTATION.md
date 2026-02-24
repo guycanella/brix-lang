@@ -1,12 +1,22 @@
 # Brix Language (Design Document v1.0)
 
-> ✅ **Status do Projeto (Fev 2026):** O compilador Brix **v1.5 COMPLETO** — Todas as três features principais entregues: **Iterators & Pipeline**, **Test Library** e **Async/Await**. v1.5 implementa Ranges Unificados (`..`/`..<`/`step`), Iteradores (`map`, `filter`, `reduce`, `any`, `all`, `find`), Pipeline Operator (`|>`), Test Library Jest-style (28 matchers, 21 suites), e Async/Await via state machines LLVM (`async fn`, `await`, `brix_run_to_completion`). **1.133 unit tests + 110 integration tests passando (100%).** Próxima: v1.6 — `break`/`continue`, String Library, Async Closures.
+> ✅ **Status do Projeto (Fev 2026):** O compilador Brix **v1.5 COMPLETO + v1.6 em andamento** — v1.6 Fase 0a (`break`/`continue`) e Fase 0b (ARC double-free em nested closures) concluídas. v1.5 entregou Ranges Unificados, Iteradores, Pipeline Operator, Test Library Jest-style (28 matchers, 21 arquivos / 345 testes) e Async/Await via state machines LLVM. **1.152 unit tests + 119 integration tests passando (100%).** Em progresso: v1.6 — String Library, Matrix Constructors, Async Closures.
 
 ## Status Atual (Fevereiro 2026)
 
-### ✅ **Funcionalidades Implementadas (v1.0-v1.5):**
+### ✅ **Funcionalidades Implementadas (v1.0-v1.6 parcial):**
 - Compilação completa `.bx` → binário nativo via LLVM
 - **LLVM Optimizations**: `-O0`, `-O1`, `-O2`, `-O3`, `--release`
+- **v1.6 Fase 0b — ARC Nested Closures (COMPLETE - Fev 2026):**
+  - **Bug fixes**: double-free (SIGABRT), use-after-free silencioso, capture-by-reference não-intencional
+  - **Semântica**: capture-by-value para closures — `b` captura o valor de `a` no momento da criação; reassignment de `a` não afeta `b`
+  - **Implementação**: env_build usa `closure_retain(load(alloca))`, corpo da closure cria alloca local para closure capturada, `env_dtor` usa single-dereference
+  - 4 integration tests (113–116) + 5 testes no Test Library
+- **v1.6 Fase 0a — `break` / `continue` (COMPLETE - Fev 2026):**
+  - **`break`**: encerra o loop atual (for/while)
+  - **`continue`**: pula para a próxima iteração
+  - **Implementação**: `Compiler::current_break_block` / `current_continue_block` (`Option<BasicBlock>`); save/restore por loop; dead block após branch incondicional
+  - 6 lexer + 6 parser + 8 codegen unit tests; 5 integration tests (108–112)
 - **v1.5 Async/Await (COMPLETE - Feb 2026):**
   - **`async fn`**: Compilado para state machine LLVM via `create_{name}(params) -> i8*` + `poll_{name}(i8*) -> {status, value}`
   - **`await`**: `var x := await f(args)` em sequência linear no body de `async fn`
@@ -17,7 +27,7 @@
   - **Jest-style framework**: `test.describe()`, `test.it()`, `test.expect()`
   - **28 matchers**: `toBe`, `toEqual`, `toBeCloseTo`, `toBeTruthy`, `toBeFalsy`, `toBeGreaterThan`, `toBeLessThan`, `toContain`, `toHaveLength`, `toBeNil`, e variantes `not.*`
   - **`cargo run -- test`**: Executa todos os `*.test.bx` e `*.spec.bx`
-  - **21 suites** em `tests/brix/` cobrindo toda a linguagem
+  - **21 arquivos / 345 testes** em `tests/brix/` cobrindo toda a linguagem
 - **v1.5 Iterators & Pipeline (COMPLETE - Feb 2026):**
   - **Array Type Syntax**: `int[]`, `float[]` em anotações de tipo
   - **Unified Ranges**: `0..5` (inclusivo), `0..<5` (exclusivo), `0..10 step 2`, auto-step decrescente
@@ -34,7 +44,7 @@
 - **v1.3 Type System (COMPLETE):**
   - **Structs**: Go-style receivers, default values, generic support
   - **Generics**: Functions, structs, methods com monomorphization
-  - **Closures**: Capture by reference, heap allocation, ARC
+  - **Closures**: Capture-by-value para closures / capture-by-reference para primitivos, heap allocation, ARC
 - 19 tipos core (Int, Float, String, Matrix, IntMatrix, Complex, ComplexMatrix, Atom, Nil, Error, Struct, Generic, Closure, Union, Intersection, TypeAlias, Void, FloatPtr, Tuple)
 - Operadores completos (aritméticos, lógicos, bitwise, power operator `**`, Elvis `?:`)
 - Funções definidas pelo usuário com múltiplos retornos
@@ -97,13 +107,14 @@
     - Duck typing (no trait bounds)
     - 21+ generic tests
   - ✅ **Closures (Phase 3):**
-    - Capture by reference (pointers)
+    - Capture by reference para primitivos (pointers); capture-by-value para closures *(fix em v1.6 Fase 0b)*
     - Heap allocation for closures and environments
     - **ARC (Automatic Reference Counting) - FULL IMPLEMENTATION**
     - Automatic retain/release on assignment for ALL heap types
     - Indirect calls via function pointers
     - Closure tests (capture, calls, ARC)
     - **Bug Fix:** Closure analysis now accumulates scope correctly (segfault fix)
+    - **Bug Fix (v1.6):** Double-free e use-after-free em nested closures corrigidos (capture-by-value)
   - ✅ **ARC Implementation (February 2026):**
     - ✅ Implemented for: String, Matrix, IntMatrix, ComplexMatrix, Closures
     - ✅ Runtime functions: `*_retain()`, `*_release()` for each type
@@ -132,7 +143,7 @@
 ### ✅ **v1.3 - Type System Expansion (COMPLETE - Feb 2026):**
 - ✅ **Structs (COMPLETE)** - Go-style receivers, default values, generic support
 - ✅ **Generics (COMPLETE)** - Functions, structs, methods com monomorphization
-- ✅ **Closures (COMPLETE)** - Capture by reference, heap allocation, ARC, bug fix for scope accumulation
+- ✅ **Closures (COMPLETE)** - Capture-by-value para closures / capture-by-reference para primitivos, heap allocation, ARC; bug fix para scope accumulation (v1.3) e double-free em nested closures (v1.6 Fase 0b)
 - ✅ **Stress Tests (COMPLETE)** - Edge cases for all v1.3 features
 - **Total: 1129 tests (1050 unit + 79 integration) - 100% passing!** 🎉
 
@@ -153,8 +164,14 @@
 - Async/Await (state machine LLVM, `async fn`, `await`, `brix_run_to_completion`)
 - **Total: 1.133 unit + 110 integration = 1.243 tests (100% passing)**
 
-### 🔮 **Planejado (v1.6):**
-- `break` / `continue` em loops
+### ✅ **v1.6 (Parcial - Fev 2026):**
+- **Fase 0a**: `break` / `continue` (6+6+8 unit tests, 5 integration tests)
+- **Fase 0b**: ARC nested closures — double-free, use-after-free e capture-by-reference não-intencional corrigidos (4 integration tests, 5 Test Library tests)
+- **Total acumulado: 1.152 unit + 119 integration + 345 Test Library = 1.616 tests (100% passing)**
+
+### 🔮 **Planejado (v1.6 — restante):**
+- ✅ ~~`break` / `continue` em loops~~ — COMPLETO
+- ✅ ~~ARC double-free em nested closures~~ — COMPLETO
 - String Library: `trim`, `ltrim`, `rtrim`, `starts_with`, `ends_with`, `contains`, `substring`, `reverse`, `repeat`, `index_of`
 - String iteration (`for ch in "hello"`)
 - Matrix constructors: `ones()`, `linspace()`, `arange()`, `rand()`
@@ -614,6 +631,39 @@ while condition {
 // Array range literal
 var nums := [1..5]     // IntMatrix: [1, 2, 3, 4, 5]
 var nums2 := [1..<5]   // IntMatrix: [1, 2, 3, 4]
+
+// break: encerra o loop atual
+for i in 0..<10 {
+    if i == 4 {
+        break
+    }
+    println(i)   // 0, 1, 2, 3
+}
+
+// continue: pula para a próxima iteração
+for i in 0..<10 {
+    if i % 2 == 0 {
+        continue
+    }
+    println(i)   // 1, 3, 5, 7, 9
+}
+
+// Em nested loops: break encerra apenas o loop mais interno
+for i in 0..3 {
+    for j in 0..3 {
+        if j == 1 { break }
+        println(j)
+    }
+}
+
+// break e continue funcionam igualmente em while
+var x := 0
+while x < 10 {
+    x := x + 1
+    if x == 5 { continue }
+    if x == 8 { break }
+    println(x)   // 1, 2, 3, 4, 6, 7
+}
 ```
 
 ## 5. Funções e Tratamento de Erro
@@ -862,6 +912,70 @@ typedef struct {
 - `72_arc_matrix_reassignment.bx` - Matrix ARC
 - `73_arc_intmatrix_basic.bx` - IntMatrix ARC
 - `74_arc_mixed_types.bx` - Múltiplos tipos ref-counted
+
+#### 9.1.2. ARC em Nested Closures — Capture-by-value (v1.6 Fase 0b)
+
+**Status:** ✅ **COMPLETO** - Bugs de double-free, use-after-free e semântica de captura corrigidos.
+
+**Bugs corrigidos:**
+
+| Bug | Sintoma | Causa |
+|-----|---------|-------|
+| Double-free | SIGABRT ao reassignar b depois de a | env_dtor liberava o valor ATUAL de alloca_a (que já havia sido liberado) |
+| Use-after-free | Resultado correto por acaso, UB | Closure acessava memória já liberada; malloc não sobrescreveu ainda |
+| Capture-by-reference não-intencional | `b` via de regra chamava o `a` mais recente | env guardava `&alloca_a` — qualquer mudança em `a` era visível em `b` |
+
+**Semântica resultante (capture-by-value para closures):**
+```brix
+var a := (x: int) -> int { return x + 1 }
+var b := (y: int) -> int { return a(y) }  // captura valor de a (x+1)
+a := (x: int) -> int { return x * 10 }   // a é reassigned
+println(b(3))   // → 4 (b ainda chama o a original, x+1)
+```
+
+**Implementação (3 pontos em `crates/codegen/src/lib.rs`):**
+
+1. **Env building** — ao criar o env da closure, para campos de tipo closure:
+   ```rust
+   // Antes: store(&alloca_a, env[i])   ← guarda endereço, sem retain
+   // Depois: retain(load(alloca_a)) → store(retained_ptr, env[i])
+   let closure_val = builder.build_load(ptr_type, var_ptr, ...);
+   let retained = self.closure_retain(closure_val)?;
+   builder.build_store(field_ptr, retained);
+   ```
+
+2. **Corpo da closure** — ao carregar variáveis capturadas do env, para closures:
+   ```rust
+   // Antes: var_ptr = load(env[i])  ← double-deref: env[i] era &alloca
+   // Depois: criar alloca local, store(load(env[i]), local_alloca)
+   let closure_val = builder.build_load(ptr_type, field_ptr, ...);
+   let local_alloca = self.create_entry_block_alloca(ptr_type.into(), var_name)?;
+   builder.build_store(local_alloca, closure_val);
+   // variables[var_name] = (local_alloca, Closure)
+   ```
+
+3. **env_dtor** — ao liberar closures capturadas:
+   ```rust
+   // Antes: load(load(env[i])) → closure_release  ← double-deref, libera valor atual
+   // Depois: load(env[i]) → closure_release        ← single-deref, libera valor capturado
+   let closure_val = builder.build_load(ptr_type, field_ptr, "cls_val");
+   builder.build_call(release_fn, &[closure_val.into()], "");
+   ```
+
+**Testes de validação:**
+
+✅ **Integration Tests (4 testes):**
+- `113_arc_nested_basic.bx` — captura simples, sem reassignment → `6\n11`
+- `114_arc_nested_reassign.bx` — double-free fix: reassign b e a → `20` (sem SIGABRT)
+- `115_arc_nested_triple.bx` — 3 níveis de aninhamento → `6`
+- `116_arc_capture_by_value.bx` — semântica: b vê a original após reassignment → `4\n4`
+
+✅ **Test Library (5 testes em `closures.test.bx`):**
+- `b captures a, b(5) returns 6`
+- `b captures a, b(10) returns 11`
+- `three-level nesting c(b(a(5))) returns 6`
+- `capture-by-value: b sees original a after a is reassigned`
+- `reassign b then a: a uses new closure, no crash`
 
 ✅ **Stress Tests:**
 - 1,000 iterações: ~2s sem crashes

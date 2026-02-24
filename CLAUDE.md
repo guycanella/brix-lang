@@ -21,10 +21,10 @@ cargo build --release
 
 **Run Rust unit tests:**
 ```bash
-cargo test --all                          # All ~1,133 tests (100% passing)
-cargo test -p lexer                       # Only lexer (304 tests)
-cargo test -p parser                      # Only parser (174 tests)
-cargo test -p codegen                     # Only codegen (655 tests)
+cargo test --all                          # All ~1,152 tests (100% passing)
+cargo test -p lexer                       # Only lexer (310 tests)
+cargo test -p parser                      # Only parser (180 tests)
+cargo test -p codegen                     # Only codegen (662 tests)
 cargo test <pattern>                      # Tests matching pattern
 cargo test -- --nocapture                 # Show println! output
 ```
@@ -80,7 +80,7 @@ brix/
 │       └── builtins/        # math.rs, stats.rs, linalg.rs, string.rs, io.rs, matrix.rs, test.rs
 ├── tests/
 │   ├── integration/         # End-to-end .bx files (success/, parser_errors/, codegen_errors/, runtime_errors/)
-│   └── brix/                # Language test files (*.test.bx) — 21 suites, all passing
+│   └── brix/                # Language test files (*.test.bx) — 21 files, 345 tests, all passing
 └── examples/                # Example .bx programs
 ```
 
@@ -111,6 +111,7 @@ Flat `HashMap<String, (PointerValue, BrixType)>` with module prefixes. `import m
 - **ternary / match / logical `&&`/`||`**: PHI nodes in merge block
 - **for loops**: desugared to while loops at parse time
 - **match**: one basic block per arm + PHI in merge block
+- **break/continue**: `Compiler` has `current_break_block` / `current_continue_block` (`Option<BasicBlock>`). Each loop saves the outer blocks, sets its own, restores after body. After emitting the unconditional branch, a dead basic block is appended to keep LLVM IR valid.
 
 ### Type System (current: v1.5)
 
@@ -147,7 +148,7 @@ Key rules:
 - **Monomorphization**: `swap<int>` and `swap<float>` generate separate LLVM functions
 - **Name mangling**: `Box<int>.get()` → `Box_int_get` in LLVM
 - **Methods**: Go-style receivers — `fn (p: Point) distance() -> float { ... }`
-- **Closures**: heap-allocated `{ ref_count, fn_ptr, env_ptr }`, capture by reference, ARC via `closure_retain()`/`closure_release()`
+- **Closures**: heap-allocated `{ ref_count, fn_ptr, env_ptr, env_destructor }`, **capture-by-value for closures** (retain at capture time) / capture-by-reference for primitives, ARC via `closure_retain()`/`closure_release()`. `env_destructor` is generated when any captured var is itself a closure; it does a single `closure_release()` per captured closure field (no double-dereference).
 
 ### Test Library (`import test`)
 
@@ -163,10 +164,10 @@ Jest-style framework. 28 matchers across 14 categories: `toBe`, `not.toBe`, `toE
 
 **New iterator method on IntMatrix/Matrix:** Add match arm in `compile_iterator_method()` in `lib.rs`; add method name to the `matches!(field.as_str(), ...)` dispatch guard (~line 4292).
 
-## Known Limitations (v1.6 planned)
+## Known Limitations (v1.6 in progress)
 
-- `break` / `continue` not yet in lexer/AST/codegen
-- Nested closures have ARC double-free issue (fixed for one level of nesting in v1.5 Phase 0b)
+- `break` / `continue` — **fully implemented (v1.6 Fase 0a)**: `Token::Break`/`Token::Continue`, `StmtKind::Break`/`StmtKind::Continue`, save/restore pattern on `Compiler`.
+- Nested closure ARC — **double-free and use-after-free fixed (v1.6 Fase 0b)**: closure captures now use capture-by-value (retain at capture time, stored directly in env). `env_dtor` uses single dereference.
 - **Async/await (v1.5 Phase 2 complete)**: `async fn` and `await` are fully implemented via LLVM state machines. Each `async fn` compiles to `create_{name}(params) -> i8*` + `poll_{name}(i8*) -> {status, value}`. `async fn main()` is driven by `brix_run_to_completion` in the C runtime. Limitation: only `var x := await f(args)` at the top level of a linear Block body is supported; `await` in nested control flow is not yet supported. `async { }` blocks are not yet supported in codegen.
 - String functions not yet implemented: `trim`, `split`, `join`, `starts_with`, `ends_with`, `contains`, `substring`, `reverse`
 - Matrix constructors not yet implemented: `ones()`, `linspace()`, `arange()`, `rand()`
