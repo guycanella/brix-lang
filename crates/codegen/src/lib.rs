@@ -3228,9 +3228,107 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             }
                             Ok(())
                         }
+                        BrixType::String => {
+                            // String iteration: for ch in "hello" → ch is a 1-char string
+                            if var_names.len() != 1 {
+                                return Err(CodegenError::InvalidOperation {
+                                    operation: "String iteration".to_string(),
+                                    reason: "String iteration supports only single variable".to_string(),
+                                    span: Some(stmt.span.clone()),
+                                });
+                            }
+                            let var_name = &var_names[0];
+                            let string_ptr = iterable_val.into_pointer_value();
+                            let i64_type = self.context.i64_type();
+                            let ptr_type = self.context.ptr_type(AddressSpace::default());
+
+                            // Get string length via brix_length()
+                            let length_fn = self.get_length();
+                            let len_call = self.builder
+                                .build_call(length_fn, &[string_ptr.into()], "str_len")
+                                .map_err(|_| CodegenError::LLVMError { operation: "build_call".to_string(), details: "Failed to get string length for iteration".to_string(), span: None })?;
+                            let str_len = len_call.try_as_basic_value().left()
+                                .ok_or_else(|| CodegenError::MissingValue { what: "string length".to_string(), context: "for-in string".to_string(), span: Some(stmt.span.clone()) })?
+                                .into_int_value();
+
+                            // Get char_at function
+                            let char_at_fn = self.get_str_char_at();
+
+                            // Index alloca
+                            let idx_alloca = self.create_entry_block_alloca(i64_type.into(), "_str_idx")?;
+                            self.builder.build_store(idx_alloca, i64_type.const_int(0, false))
+                                .map_err(|_| CodegenError::LLVMError { operation: "build_store".to_string(), details: "Failed to init string iter idx".to_string(), span: None })?;
+
+                            // Loop variable alloca (type: ptr for BrixString*)
+                            let var_alloca = self.create_entry_block_alloca(ptr_type.into(), var_name)?;
+                            let old_var = self.variables.remove(var_name);
+                            self.variables.insert(var_name.clone(), (var_alloca, BrixType::String));
+
+                            let cond_bb = self.context.append_basic_block(function, "str_cond");
+                            let body_bb = self.context.append_basic_block(function, "str_body");
+                            let inc_bb  = self.context.append_basic_block(function, "str_inc");
+                            let after_bb = self.context.append_basic_block(function, "str_after");
+
+                            self.builder.build_unconditional_branch(cond_bb)
+                                .map_err(|_| CodegenError::LLVMError { operation: "build_unconditional_branch".to_string(), details: "Failed str iter init branch".to_string(), span: None })?;
+
+                            // --- COND ---
+                            self.builder.position_at_end(cond_bb);
+                            let cur_idx = self.builder.build_load(i64_type, idx_alloca, "str_cur_idx")
+                                .map_err(|_| CodegenError::LLVMError { operation: "build_load".to_string(), details: "Failed to load str iter idx".to_string(), span: None })?
+                                .into_int_value();
+                            let loop_cond = self.builder.build_int_compare(IntPredicate::SLT, cur_idx, str_len, "str_cond")
+                                .map_err(|_| CodegenError::LLVMError { operation: "build_int_compare".to_string(), details: "Failed str iter cond".to_string(), span: None })?;
+                            self.builder.build_conditional_branch(loop_cond, body_bb, after_bb)
+                                .map_err(|_| CodegenError::LLVMError { operation: "build_conditional_branch".to_string(), details: "Failed str iter cond branch".to_string(), span: None })?;
+
+                            // --- BODY ---
+                            self.builder.position_at_end(body_bb);
+                            let cur_idx = self.builder.build_load(i64_type, idx_alloca, "str_body_idx")
+                                .map_err(|_| CodegenError::LLVMError { operation: "build_load".to_string(), details: "Failed to load str iter body idx".to_string(), span: None })?
+                                .into_int_value();
+                            let ch_call = self.builder.build_call(char_at_fn, &[string_ptr.into(), cur_idx.into()], "str_ch")
+                                .map_err(|_| CodegenError::LLVMError { operation: "build_call".to_string(), details: "Failed char_at call".to_string(), span: None })?;
+                            let ch_val = ch_call.try_as_basic_value().left()
+                                .ok_or_else(|| CodegenError::MissingValue { what: "char value".to_string(), context: "for-in string".to_string(), span: Some(stmt.span.clone()) })?;
+                            self.builder.build_store(var_alloca, ch_val)
+                                .map_err(|_| CodegenError::LLVMError { operation: "build_store".to_string(), details: "Failed to store char".to_string(), span: None })?;
+
+                            let old_break_str = self.current_break_block.replace(after_bb);
+                            let old_continue_str = self.current_continue_block.replace(inc_bb);
+                            self.compile_stmt(body, function)?;
+                            self.current_break_block = old_break_str;
+                            self.current_continue_block = old_continue_str;
+                            if self.builder.get_insert_block().and_then(|b| b.get_terminator()).is_none() {
+                                self.builder.build_unconditional_branch(inc_bb)
+                                    .map_err(|_| CodegenError::LLVMError { operation: "build_unconditional_branch".to_string(), details: "Failed str iter body branch".to_string(), span: None })?;
+                            }
+
+                            // --- INC ---
+                            self.builder.position_at_end(inc_bb);
+                            let tmp_idx = self.builder.build_load(i64_type, idx_alloca, "str_inc_idx")
+                                .map_err(|_| CodegenError::LLVMError { operation: "build_load".to_string(), details: "Failed str iter inc load".to_string(), span: None })?
+                                .into_int_value();
+                            let next_idx = self.builder.build_int_add(tmp_idx, i64_type.const_int(1, false), "str_next_idx")
+                                .map_err(|_| CodegenError::LLVMError { operation: "build_int_add".to_string(), details: "Failed str iter inc add".to_string(), span: None })?;
+                            self.builder.build_store(idx_alloca, next_idx)
+                                .map_err(|_| CodegenError::LLVMError { operation: "build_store".to_string(), details: "Failed str iter inc store".to_string(), span: None })?;
+                            self.builder.build_unconditional_branch(cond_bb)
+                                .map_err(|_| CodegenError::LLVMError { operation: "build_unconditional_branch".to_string(), details: "Failed str iter inc branch".to_string(), span: None })?;
+
+                            // --- AFTER ---
+                            self.builder.position_at_end(after_bb);
+                            if let Some(old) = old_var {
+                                self.variables.insert(var_name.clone(), old);
+                            } else {
+                                self.variables.remove(var_name);
+                            }
+                            Ok(())
+                        }
+
                         _ => {
                             Err(CodegenError::TypeError {
-                                expected: "Matrix or IntMatrix".to_string(),
+                                expected: "Matrix, IntMatrix, or String".to_string(),
                                 found: format!("{:?}", iterable_type),
                                 context: "For loop iterable".to_string(),
                                                             span: Some(stmt.span.clone()),
@@ -5049,6 +5147,23 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                     )? {
                                         return Ok(result);
                                     }
+                                }
+                            }
+                        }
+
+                        // Check for string method calls: trim, ltrim, rtrim, starts_with, ends_with,
+                        // contains, substring, reverse, repeat, index_of
+                        if matches!(field.as_str(),
+                            "trim" | "ltrim" | "rtrim" |
+                            "starts_with" | "ends_with" | "contains" |
+                            "substring" | "reverse" | "repeat" | "index_of"
+                        ) {
+                            let (receiver_val, receiver_type) = self.compile_expr(target)?;
+                            if receiver_type == BrixType::String {
+                                if let Some(result) = self.compile_string_method(
+                                    receiver_val, field, args, expr
+                                )? {
+                                    return Ok(result);
                                 }
                             }
                         }
@@ -10888,6 +11003,304 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         }
     }
 
+    /// Compile a method call on a String receiver (v1.6 String Library).
+    /// Returns None if the method is not recognized (shouldn't happen if called correctly).
+    fn compile_string_method(
+        &mut self,
+        receiver_val: BasicValueEnum<'ctx>,
+        method: &str,
+        args: &[Expr],
+        call_expr: &Expr,
+    ) -> CodegenResult<Option<(BasicValueEnum<'ctx>, BrixType)>> {
+        let i64_type = self.context.i64_type();
+        let span = &call_expr.span;
+        let str_ptr = receiver_val.into_pointer_value();
+
+        // Helper macro-like closure for building a simple call
+        macro_rules! call_str_fn {
+            ($fn_val:expr, $llvm_args:expr, $label:expr, $ret_type:expr) => {{
+                let call = self.builder
+                    .build_call($fn_val, $llvm_args, $label)
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: format!("Failed to call {}", $label),
+                        span: Some(span.clone()),
+                    })?;
+                let result = call.try_as_basic_value().left().ok_or_else(|| CodegenError::MissingValue {
+                    what: "return value".to_string(),
+                    context: $label.to_string(),
+                    span: Some(span.clone()),
+                })?;
+                Ok(Some((result, $ret_type)))
+            }};
+        }
+
+        match method {
+            "trim" => {
+                if args.len() != 0 {
+                    return Err(CodegenError::InvalidOperation {
+                        operation: "trim()".to_string(),
+                        reason: format!("Expected 0 arguments, got {}", args.len()),
+                        span: Some(span.clone()),
+                    });
+                }
+                let f = self.get_str_trim();
+                call_str_fn!(f, &[str_ptr.into()], "trim", BrixType::String)
+            }
+
+            "ltrim" => {
+                if args.len() != 0 {
+                    return Err(CodegenError::InvalidOperation {
+                        operation: "ltrim()".to_string(),
+                        reason: format!("Expected 0 arguments, got {}", args.len()),
+                        span: Some(span.clone()),
+                    });
+                }
+                let f = self.get_str_ltrim();
+                call_str_fn!(f, &[str_ptr.into()], "ltrim", BrixType::String)
+            }
+
+            "rtrim" => {
+                if args.len() != 0 {
+                    return Err(CodegenError::InvalidOperation {
+                        operation: "rtrim()".to_string(),
+                        reason: format!("Expected 0 arguments, got {}", args.len()),
+                        span: Some(span.clone()),
+                    });
+                }
+                let f = self.get_str_rtrim();
+                call_str_fn!(f, &[str_ptr.into()], "rtrim", BrixType::String)
+            }
+
+            "starts_with" => {
+                if args.len() != 1 {
+                    return Err(CodegenError::InvalidOperation {
+                        operation: "starts_with()".to_string(),
+                        reason: format!("Expected 1 argument, got {}", args.len()),
+                        span: Some(span.clone()),
+                    });
+                }
+                let (arg_val, arg_type) = self.compile_expr(&args[0])?;
+                if arg_type != BrixType::String {
+                    return Err(CodegenError::TypeError {
+                        expected: "String".to_string(),
+                        found: format!("{:?}", arg_type),
+                        context: "starts_with()".to_string(),
+                        span: Some(span.clone()),
+                    });
+                }
+                let f = self.get_str_starts_with();
+                call_str_fn!(f, &[str_ptr.into(), arg_val.into()], "starts_with", BrixType::Int)
+            }
+
+            "ends_with" => {
+                if args.len() != 1 {
+                    return Err(CodegenError::InvalidOperation {
+                        operation: "ends_with()".to_string(),
+                        reason: format!("Expected 1 argument, got {}", args.len()),
+                        span: Some(span.clone()),
+                    });
+                }
+                let (arg_val, arg_type) = self.compile_expr(&args[0])?;
+                if arg_type != BrixType::String {
+                    return Err(CodegenError::TypeError {
+                        expected: "String".to_string(),
+                        found: format!("{:?}", arg_type),
+                        context: "ends_with()".to_string(),
+                        span: Some(span.clone()),
+                    });
+                }
+                let f = self.get_str_ends_with();
+                call_str_fn!(f, &[str_ptr.into(), arg_val.into()], "ends_with", BrixType::Int)
+            }
+
+            "contains" => {
+                if args.len() != 1 {
+                    return Err(CodegenError::InvalidOperation {
+                        operation: "contains()".to_string(),
+                        reason: format!("Expected 1 argument, got {}", args.len()),
+                        span: Some(span.clone()),
+                    });
+                }
+                let (arg_val, arg_type) = self.compile_expr(&args[0])?;
+                if arg_type != BrixType::String {
+                    return Err(CodegenError::TypeError {
+                        expected: "String".to_string(),
+                        found: format!("{:?}", arg_type),
+                        context: "contains()".to_string(),
+                        span: Some(span.clone()),
+                    });
+                }
+                let f = self.get_str_contains();
+                call_str_fn!(f, &[str_ptr.into(), arg_val.into()], "contains", BrixType::Int)
+            }
+
+            "substring" => {
+                if args.len() != 2 {
+                    return Err(CodegenError::InvalidOperation {
+                        operation: "substring()".to_string(),
+                        reason: format!("Expected 2 arguments (start, end), got {}", args.len()),
+                        span: Some(span.clone()),
+                    });
+                }
+                let (start_val, start_type) = self.compile_expr(&args[0])?;
+                let (end_val, end_type) = self.compile_expr(&args[1])?;
+                if start_type != BrixType::Int || end_type != BrixType::Int {
+                    return Err(CodegenError::TypeError {
+                        expected: "Int, Int".to_string(),
+                        found: format!("{:?}, {:?}", start_type, end_type),
+                        context: "substring()".to_string(),
+                        span: Some(span.clone()),
+                    });
+                }
+                let f = self.get_str_substring();
+                let call = self.builder
+                    .build_call(f, &[str_ptr.into(), start_val.into(), end_val.into()], "substring")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: "Failed to call substring()".to_string(),
+                        span: Some(span.clone()),
+                    })?;
+                let result = call.try_as_basic_value().left().ok_or_else(|| CodegenError::MissingValue {
+                    what: "return value".to_string(),
+                    context: "substring()".to_string(),
+                    span: Some(span.clone()),
+                })?;
+                Ok(Some((result, BrixType::String)))
+            }
+
+            "reverse" => {
+                if args.len() != 0 {
+                    return Err(CodegenError::InvalidOperation {
+                        operation: "reverse()".to_string(),
+                        reason: format!("Expected 0 arguments, got {}", args.len()),
+                        span: Some(span.clone()),
+                    });
+                }
+                let f = self.get_str_reverse();
+                call_str_fn!(f, &[str_ptr.into()], "reverse", BrixType::String)
+            }
+
+            "repeat" => {
+                if args.len() != 1 {
+                    return Err(CodegenError::InvalidOperation {
+                        operation: "repeat()".to_string(),
+                        reason: format!("Expected 1 argument (n), got {}", args.len()),
+                        span: Some(span.clone()),
+                    });
+                }
+                let (n_val, n_type) = self.compile_expr(&args[0])?;
+                if n_type != BrixType::Int {
+                    return Err(CodegenError::TypeError {
+                        expected: "Int".to_string(),
+                        found: format!("{:?}", n_type),
+                        context: "repeat()".to_string(),
+                        span: Some(span.clone()),
+                    });
+                }
+                let f = self.get_str_repeat();
+                let call = self.builder
+                    .build_call(f, &[str_ptr.into(), n_val.into()], "repeat")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: "Failed to call repeat()".to_string(),
+                        span: Some(span.clone()),
+                    })?;
+                let result = call.try_as_basic_value().left().ok_or_else(|| CodegenError::MissingValue {
+                    what: "return value".to_string(),
+                    context: "repeat()".to_string(),
+                    span: Some(span.clone()),
+                })?;
+                Ok(Some((result, BrixType::String)))
+            }
+
+            "index_of" => {
+                if args.len() != 1 {
+                    return Err(CodegenError::InvalidOperation {
+                        operation: "index_of()".to_string(),
+                        reason: format!("Expected 1 argument, got {}", args.len()),
+                        span: Some(span.clone()),
+                    });
+                }
+                let (sub_val, sub_type) = self.compile_expr(&args[0])?;
+                if sub_type != BrixType::String {
+                    return Err(CodegenError::TypeError {
+                        expected: "String".to_string(),
+                        found: format!("{:?}", sub_type),
+                        context: "index_of()".to_string(),
+                        span: Some(span.clone()),
+                    });
+                }
+                let f = self.get_str_index_of();
+                let call = self.builder
+                    .build_call(f, &[str_ptr.into(), sub_val.into()], "index_of_raw")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: "Failed to call index_of()".to_string(),
+                        span: Some(span.clone()),
+                    })?;
+                let raw = call.try_as_basic_value().left().ok_or_else(|| CodegenError::MissingValue {
+                    what: "return value".to_string(),
+                    context: "index_of()".to_string(),
+                    span: Some(span.clone()),
+                })?.into_int_value();
+
+                // Return int? = Union(Int, Nil) tagged struct { i64 tag, i64 value }
+                // tag=0 means found (value=index), tag=1 means nil
+                let union_struct_type = self.context.struct_type(&[i64_type.into(), i64_type.into()], false);
+                let result_alloca = self.create_entry_block_alloca(union_struct_type.into(), "index_of_result")?;
+
+                // Nil default (tag=1)
+                let nil_tag = i64_type.const_int(1, false);
+                let nil_struct = {
+                    let mut s = union_struct_type.get_undef();
+                    s = self.builder.build_insert_value(s, nil_tag, 0, "iof_nil_tag")
+                        .map_err(|_| CodegenError::LLVMError { operation: "insert_value".to_string(), details: "index_of nil tag".to_string(), span: None })?
+                        .into_struct_value();
+                    s
+                };
+                self.builder.build_store(result_alloca, nil_struct)
+                    .map_err(|_| CodegenError::LLVMError { operation: "build_store".to_string(), details: "index_of nil store".to_string(), span: None })?;
+
+                // Branch on raw >= 0
+                let parent_fn = self.current_function()?;
+                let found_bb = self.context.append_basic_block(parent_fn, "iof_found");
+                let after_bb = self.context.append_basic_block(parent_fn, "iof_after");
+
+                let neg_one = i64_type.const_int(u64::MAX, true); // -1 as signed
+                let is_found = self.builder.build_int_compare(IntPredicate::SGT, raw, neg_one, "iof_check")
+                    .map_err(|_| CodegenError::LLVMError { operation: "build_int_compare".to_string(), details: "index_of check".to_string(), span: None })?;
+                self.builder.build_conditional_branch(is_found, found_bb, after_bb)
+                    .map_err(|_| CodegenError::LLVMError { operation: "build_conditional_branch".to_string(), details: "index_of branch".to_string(), span: None })?;
+
+                self.builder.position_at_end(found_bb);
+                let found_tag = i64_type.const_int(0, false);
+                let found_struct = {
+                    let mut s = union_struct_type.get_undef();
+                    s = self.builder.build_insert_value(s, found_tag, 0, "iof_tag")
+                        .map_err(|_| CodegenError::LLVMError { operation: "insert_value".to_string(), details: "index_of found tag".to_string(), span: None })?
+                        .into_struct_value();
+                    s = self.builder.build_insert_value(s, raw, 1, "iof_val")
+                        .map_err(|_| CodegenError::LLVMError { operation: "insert_value".to_string(), details: "index_of found val".to_string(), span: None })?
+                        .into_struct_value();
+                    s
+                };
+                self.builder.build_store(result_alloca, found_struct)
+                    .map_err(|_| CodegenError::LLVMError { operation: "build_store".to_string(), details: "index_of found store".to_string(), span: None })?;
+                self.builder.build_unconditional_branch(after_bb)
+                    .map_err(|_| CodegenError::LLVMError { operation: "unconditional_branch".to_string(), details: "index_of found branch".to_string(), span: None })?;
+
+                self.builder.position_at_end(after_bb);
+                let result = self.builder.build_load(union_struct_type, result_alloca, "index_of_val")
+                    .map_err(|_| CodegenError::LLVMError { operation: "build_load".to_string(), details: "index_of load result".to_string(), span: None })?;
+                let ret_type = BrixType::Union(vec![BrixType::Int, BrixType::Nil]);
+                Ok(Some((result, ret_type)))
+            }
+
+            _ => Ok(None),
+        }
+    }
+
     /// Compile a range array literal: [start..end], [start..<end], [start..end step N]
     fn compile_range_to_array(
         &mut self,
@@ -12921,7 +13334,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             // ──────────────────────────────────────────────────────────────
             "toBeNil" => {
                 // For optional/nil: if actual is a pointer, check if null.
-                // For union types: check the tag. For v1.5, use simple null check.
+                // For union types (struct): extract tag field (field 0) and check if == 1 (nil tag).
                 let fn_name = if negated { "test_expect_not_toBeNil" } else { "test_expect_toBeNil" };
                 // Encode nil-ness as i64: 1 = nil, 0 = not nil
                 let is_nil = if actual_val.is_pointer_value() {
@@ -12933,6 +13346,16 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 } else if actual_val.is_int_value() {
                     // For int-based nil (e.g. union tag 0 = value, 1 = nil), use actual directly
                     actual_val
+                } else if actual_val.is_struct_value() {
+                    // For struct-based union types: extract tag (field 0) and check if == 1 (nil tag)
+                    let nil_tag_val = i64_type.const_int(1, false);
+                    let tag = self.builder.build_extract_value(actual_val.into_struct_value(), 0, "union_tag")
+                        .map_err(|_| CodegenError::LLVMError { operation: "build_extract_value".to_string(), details: "Failed to extract union tag for toBeNil".to_string(), span: Some(span.clone()) })?;
+                    let is_nil_cmp = self.builder.build_int_compare(IntPredicate::EQ, tag.into_int_value(), nil_tag_val, "is_nil_cmp")
+                        .map_err(|_| CodegenError::LLVMError { operation: "build_int_compare".to_string(), details: "".to_string(), span: Some(span.clone()) })?;
+                    self.builder.build_int_z_extend(is_nil_cmp, i64_type, "nil_i64")
+                        .map_err(|_| CodegenError::LLVMError { operation: "build_int_z_extend".to_string(), details: "".to_string(), span: Some(span.clone()) })?
+                        .into()
                 } else {
                     i64_type.const_int(0, false).into()
                 };

@@ -1125,3 +1125,61 @@ fn test_arc_capture_by_value() {
         "4\n4"
     );
 }
+
+// ===== String Library (v1.6) =====
+
+#[test]
+fn test_str_trim() {
+    assert_success(
+        "tests/integration/success/117_str_trim.bx",
+        "hello world\nhello world  \n  hello world"
+    );
+}
+
+#[test]
+fn test_str_starts_ends_contains() {
+    assert_success(
+        "tests/integration/success/118_str_starts_ends_contains.bx",
+        "1\n1\n0\n1\n0"
+    );
+}
+
+#[test]
+fn test_str_substring() {
+    assert_success(
+        "tests/integration/success/119_str_substring.bx",
+        "ell\nab\nworld"
+    );
+}
+
+#[test]
+fn test_str_reverse_repeat() {
+    assert_success(
+        "tests/integration/success/120_str_reverse_repeat.bx",
+        "edcba\nababab\nx"
+    );
+}
+
+#[test]
+fn test_str_index_of() {
+    assert_success(
+        "tests/integration/success/121_str_index_of.bx",
+        "found\nnot found"
+    );
+}
+
+#[test]
+fn test_str_iteration() {
+    assert_success(
+        "tests/integration/success/122_str_iteration.bx",
+        "h\ne\nl\nl\no"
+    );
+}
+
+#[test]
+fn test_str_chaining() {
+    assert_success(
+        "tests/integration/success/123_str_chaining.bx",
+        "1\negaugnal xirb"
+    );
+}

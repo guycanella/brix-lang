@@ -1,0 +1,7 @@
+var url := "https://example.com"
+println(url.starts_with("https"))
+println(url.ends_with(".com"))
+println(url.ends_with(".org"))
+var text := "the quick brown fox"
+println(text.contains("quick"))
+println(text.contains("slow"))
