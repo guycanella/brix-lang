@@ -1,6 +1,6 @@
 # Brix Language (Design Document v1.0)
 
-> ✅ **Status do Projeto (Fev 2026):** O compilador Brix **v1.5 COMPLETO + v1.6 em andamento** — v1.6 Fases 0 (break/continue, ARC nested closures) e 1 (String Library completa) concluídas. v1.5 entregou Ranges Unificados, Iteradores, Pipeline Operator, Test Library Jest-style (28 matchers, 22 arquivos / 362 testes) e Async/Await via state machines LLVM. **1.152 unit tests + 126 integration tests passando (100%).** Em progresso: v1.6 — Matrix Constructors, Async Closures.
+> ✅ **Status do Projeto (Fev 2026):** O compilador Brix **v1.5 COMPLETO + v1.6 em andamento** — v1.6 Fases 0 (break/continue, ARC nested closures), 1 (String Library) e 2a (Matrix Constructors: `ones`, `linspace`, `arange`, `rand`, `irand`) concluídas. v1.5 entregou Ranges Unificados, Iteradores, Pipeline Operator, Test Library Jest-style (28 matchers, 22 arquivos / 372 testes) e Async/Await via state machines LLVM. **1.160 unit tests + 132 integration tests + 372 Test Library = 1.664 tests passando (100%).** Em progresso: v1.6 — 2D Matrix iteration, Async Closures.
 
 ## Status Atual (Fevereiro 2026)
 
@@ -174,15 +174,17 @@
 - **Fase 0a**: `break` / `continue` (6+6+8 unit tests, 5 integration tests)
 - **Fase 0b**: ARC nested closures — double-free, use-after-free e capture-by-reference não-intencional corrigidos (4 integration tests, 5 Test Library tests)
 - **Fase 1**: String Library completa — 10 métodos de string + iteração `for ch in str` (7 integration tests, 17 Test Library tests)
-- **Total acumulado: 1.152 unit + 126 integration + 362 Test Library = 1.640 tests (100% passing)**
+- **Fase 2a**: Matrix Constructors — `ones(n/r,c)`, `linspace(start,stop,n)`, `arange(start,stop,step)`, `rand(n/r,c)`, `irand(n,max)` (8 unit tests, 6 integration tests, 10 Test Library tests)
+- **Total acumulado: 1.160 unit + 132 integration + 372 Test Library = 1.664 tests (100% passing)**
 
 ### 🔮 **Planejado (v1.6 — restante):**
 - ✅ ~~`break` / `continue` em loops~~ — COMPLETO
 - ✅ ~~ARC double-free em nested closures~~ — COMPLETO
 - ✅ ~~String Library: `trim`, `ltrim`, `rtrim`, `starts_with`, `ends_with`, `contains`, `substring`, `reverse`, `repeat`, `index_of`~~ — COMPLETO
 - ✅ ~~String iteration (`for ch in "hello"`)~~ — COMPLETO
-- Matrix constructors: `ones()`, `linspace()`, `arange()`, `rand()`
-- 2D Matrix iteration (`.map(fn)` preservando shape)
+- ✅ ~~Matrix constructors: `ones()`, `linspace()`, `arange()`, `rand()`, `irand()`~~ — COMPLETO
+- 2D Matrix iteration (`.map(fn)` preservando shape) — Fase 2b
+- Float closure type inference em iterators — Fase 2c
 - Async Closures (`async () -> { await f() }`) e Async Test Matchers
 - `await` em control flow aninhado (`if`/`while`/`for` dentro de `async fn`)
 - `async { }` blocks
@@ -329,11 +331,22 @@ var m2 := zeros(3, 4)     // Matriz 3x4 de floats
 var i1 := izeros(5)       // Array 1D de 5 ints
 var i2 := izeros(3, 4)    // Matriz 3x4 de ints
 
-// Matriz identidade n×n (Float) - implementado
+// Matriz identidade n×n (Float)
 var id := eye(3)           // Matriz identidade 3×3
-```
 
-**Construtores não implementados ainda (planejados):** `ones()`, `linspace()`, `arange()`, `rand()`
+// Matriz de uns (v1.6 Fase 2a)
+var u1 := ones(5)          // Array 1D de 5 floats = 1.0
+var u2 := ones(2, 3)       // Matriz 2×3 de floats = 1.0
+
+// Sequências (v1.6 Fase 2a)
+var ls := linspace(0.0, 1.0, 5)   // [0.0, 0.25, 0.5, 0.75, 1.0]
+var ar := arange(0.0, 1.0, 0.25)  // [0.0, 0.25, 0.5, 0.75]
+
+// Matrizes aleatórias (v1.6 Fase 2a)
+var r1 := rand(5)          // 5 floats aleatórios em [0.0, 1.0)
+var r2 := rand(2, 3)       // Matriz 2×3 aleatória
+var ir := irand(6, 10)     // IntMatrix 1×6 com ints aleatórios em [0, 10)
+```
 
 ##### c) Inicialização Estática (v0.6 - Implementado)
 
@@ -3475,12 +3488,31 @@ Pendentes para v1.7 (requerem `StringMatrix`): `split(delim)`, `join(sep)`.
 
 #### Matrix Constructors
 
-| Função | Descrição |
-|--------|-----------|
-| `ones(n)` / `ones(r, c)` | Matrix de uns (float) |
-| `linspace(start, stop, n)` | N valores igualmente espaçados |
-| `arange(start, stop, step)` | Array com step (como Python `range` para floats) |
-| `rand(n)` / `rand(r, c)` | Matrix com valores aleatórios [0, 1) |
+Todos implementados em v1.6 Fase 2a:
+
+| Função | Assinatura | Descrição |
+|--------|-----------|-----------|
+| `ones(n)` / `ones(r, c)` | `int -> Matrix` / `(int,int) -> Matrix` | Matrix preenchida com `1.0` |
+| `linspace(start, stop, n)` | `(float, float, int) -> Matrix` | `n` pontos igualmente espaçados de `start` a `stop` (inclusivo) |
+| `arange(start, stop, step)` | `(float, float, float) -> Matrix` | Valores de `start` até `stop` (exclusivo) com `step` |
+| `rand(n)` / `rand(r, c)` | `int -> Matrix` / `(int,int) -> Matrix` | Floats aleatórios em `[0.0, 1.0)` |
+| `irand(n, max)` | `(int, int) -> IntMatrix` | Ints aleatórios em `[0, max)` como `IntMatrix` 1×n |
+
+Exemplos:
+
+```brix
+var a := ones(4)               // [1.0, 1.0, 1.0, 1.0]
+var b := ones(2, 3)            // Matrix 2×3 de 1.0
+var c := linspace(0.0, 1.0, 5) // [0.0, 0.25, 0.5, 0.75, 1.0]
+var d := arange(0.0, 1.0, 0.25)// [0.0, 0.25, 0.5, 0.75]
+var e := rand(5)               // [0.73, 0.12, ...] (aleatório)
+var f := rand(2, 3)            // Matrix 2×3 aleatória
+var g := irand(6, 10)          // [3, 7, 1, 9, 0, 5] (aleatório)
+```
+
+Notas:
+- `linspace` e `arange` aceitam `int` nos args float (coerção automática int→float)
+- `rand`/`irand` são seeded automaticamente via `srand(time(NULL))` na inicialização do programa
 
 #### Control Flow Extensions
 
@@ -3914,12 +3946,12 @@ math.sum(arr), math.mean(arr), math.median(arr), math.std(arr)
 - **Built-in Functions:** 60+ (I/O, type system, type checking, conversions, math, stats, linalg, complex, string operations)
 - **Features Implementadas:** ~160+ (v1.5 100% completo ✅)
 - **Features v1.5:** Test Library + Iterators + Pipeline + Ranges + Async/Await = 5 features principais
-- **Features v1.6 Completas:** break/continue ✅, ARC nested closures ✅, String Library ✅
-- **Features Planejadas v1.6 (restante):** Matrix Constructors, Async Closures, Pattern Matching 2.0
+- **Features v1.6 Completas:** break/continue ✅, ARC nested closures ✅, String Library ✅, Matrix Constructors (`ones`/`linspace`/`arange`/`rand`/`irand`) ✅
+- **Features Planejadas v1.6 (restante):** 2D Matrix iteration (Fase 2b), Float closure inference (Fase 2c), Async Closures, Pattern Matching 2.0
 - **Versão Atual:** v1.5 ✅ **COMPLETO (Fev 2026)** 🎉
 - **Versão Anterior:** v1.4 ✅ **COMPLETO (18/02/2026)**
 - **Progresso MVP:** 100%
-- **Próxima Versão:** v1.6 em progresso (Matrix Constructors, Async Closures, Pattern Matching 2.0)
+- **Próxima Versão:** v1.6 em progresso (2D Matrix iteration, Async Closures, Pattern Matching 2.0)
 - **Última Atualização:** Fev 2026
 
 ---
