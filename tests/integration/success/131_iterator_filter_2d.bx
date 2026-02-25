@@ -1,0 +1,8 @@
+// Test: .filter() on a 2D Matrix flattens to 1D
+var m := ones(2, 3)
+var filtered := m.filter((x: float) -> int { return x > 0.5 })
+
+println(filtered.rows)
+println(filtered.cols)
+println(filtered[0])
+println(filtered[5])

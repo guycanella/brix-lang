@@ -202,3 +202,38 @@ test.describe("irand()", () -> {
         test.expect(m.cols).toBe(6)
     })
 })
+
+// v1.6 Phase 2b: 2D matrix iteration
+test.describe("2D matrix .map()", () -> {
+    test.it("preserves shape (rows and cols)", () -> {
+        var m := zeros(2, 3)
+        var r := m.map((x: float) -> float { return x + 1.0 })
+        test.expect(r.rows).toBe(2)
+        test.expect(r.cols).toBe(3)
+    })
+
+    test.it("applies fn to all elements flat", () -> {
+        var m := zeros(2, 3)
+        var r := m.map((x: float) -> float { return x + 1.0 })
+        test.expect(r[0]).toBeCloseTo(1.0)
+        test.expect(r[5]).toBeCloseTo(1.0)
+    })
+})
+
+test.describe("2D matrix .filter()", () -> {
+    test.it("flattens to 1D and returns matching elements", () -> {
+        var m := ones(2, 3)
+        var r := m.filter((x: float) -> int { return x > 0.5 })
+        test.expect(r.rows).toBe(1)
+        test.expect(r.cols).toBe(6)
+        test.expect(r[0]).toBeCloseTo(1.0)
+    })
+})
+
+test.describe("2D matrix .reduce()", () -> {
+    test.it("accumulates over all elements", () -> {
+        var m := ones(2, 3)
+        var s := m.reduce(0.0, (acc: float, x: float) -> float { return acc + x })
+        test.expect(s).toBeCloseTo(6.0)
+    })
+})

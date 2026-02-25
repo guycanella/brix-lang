@@ -1233,3 +1233,27 @@ fn test_constructors_combined() {
         "3\n3\n3\n1\n0"
     );
 }
+
+#[test]
+fn test_iterator_map_2d() {
+    assert_success(
+        "tests/integration/success/130_iterator_map_2d.bx",
+        "2\n3\n1\n1"
+    );
+}
+
+#[test]
+fn test_iterator_filter_2d() {
+    assert_success(
+        "tests/integration/success/131_iterator_filter_2d.bx",
+        "1\n6\n1\n1"
+    );
+}
+
+#[test]
+fn test_iterator_reduce_2d() {
+    assert_success(
+        "tests/integration/success/132_iterator_reduce_2d.bx",
+        "6"
+    );
+}

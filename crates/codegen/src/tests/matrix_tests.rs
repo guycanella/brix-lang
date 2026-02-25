@@ -2,7 +2,7 @@
 
 use crate::Compiler;
 use inkwell::context::Context;
-use parser::ast::{Expr, Literal, Program, Stmt, ExprKind, StmtKind};
+use parser::ast::{BinaryOp, Closure, Expr, Literal, Program, Stmt, ExprKind, StmtKind};
 
 fn compile_program(program: Program) -> Result<String, String> {
     let result = std::panic::catch_unwind(|| {
@@ -1651,6 +1651,159 @@ fn test_irand() {
                 Expr::dummy(ExprKind::Literal(Literal::Int(100))),
             ],
         })))],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+// =========================================================
+// SECTION: 2D Matrix Iterator Tests (Phase 2b)
+// =========================================================
+
+/// Helper: build closure expr `(x: T) -> R { return body }`
+fn make_unary_closure(param: &str, param_ty: &str, ret_ty: &str, body: Expr) -> Expr {
+    Expr::dummy(ExprKind::Closure(Closure {
+        params: vec![(param.to_string(), param_ty.to_string())],
+        return_type: Some(ret_ty.to_string()),
+        body: Box::new(Stmt::dummy(StmtKind::Return { values: vec![body] })),
+        captured_vars: vec![],
+    }))
+}
+
+/// Helper: build closure expr `(a: T, b: U) -> R { return body }`
+fn make_binary_closure(p0: &str, t0: &str, p1: &str, t1: &str, ret_ty: &str, body: Expr) -> Expr {
+    Expr::dummy(ExprKind::Closure(Closure {
+        params: vec![(p0.to_string(), t0.to_string()), (p1.to_string(), t1.to_string())],
+        return_type: Some(ret_ty.to_string()),
+        body: Box::new(Stmt::dummy(StmtKind::Return { values: vec![body] })),
+        captured_vars: vec![],
+    }))
+}
+
+#[test]
+fn test_map_2d_intmatrix() {
+    // var m := izeros(2, 3)
+    // m.map((x: int) -> int { return x + 1 })
+    let zeros_call = Expr::dummy(ExprKind::Call {
+        func: Box::new(Expr::dummy(ExprKind::Identifier("izeros".to_string()))),
+        args: vec![
+            Expr::dummy(ExprKind::Literal(Literal::Int(2))),
+            Expr::dummy(ExprKind::Literal(Literal::Int(3))),
+        ],
+    });
+    let callback = make_unary_closure(
+        "x", "int", "int",
+        Expr::dummy(ExprKind::Binary {
+            op: BinaryOp::Add,
+            lhs: Box::new(Expr::dummy(ExprKind::Identifier("x".to_string()))),
+            rhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(1)))),
+        }),
+    );
+    let map_call = Expr::dummy(ExprKind::Call {
+        func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+            target: Box::new(zeros_call),
+            field: "map".to_string(),
+        })),
+        args: vec![callback],
+    });
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::Expr(map_call))],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_map_2d_matrix() {
+    // var m := zeros(2, 3)
+    // m.map((x: float) -> float { return x + 1.0 })
+    let zeros_call = Expr::dummy(ExprKind::Call {
+        func: Box::new(Expr::dummy(ExprKind::Identifier("zeros".to_string()))),
+        args: vec![
+            Expr::dummy(ExprKind::Literal(Literal::Int(2))),
+            Expr::dummy(ExprKind::Literal(Literal::Int(3))),
+        ],
+    });
+    let callback = make_unary_closure(
+        "x", "float", "float",
+        Expr::dummy(ExprKind::Binary {
+            op: BinaryOp::Add,
+            lhs: Box::new(Expr::dummy(ExprKind::Identifier("x".to_string()))),
+            rhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Float(1.0)))),
+        }),
+    );
+    let map_call = Expr::dummy(ExprKind::Call {
+        func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+            target: Box::new(zeros_call),
+            field: "map".to_string(),
+        })),
+        args: vec![callback],
+    });
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::Expr(map_call))],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_filter_2d() {
+    // ones(2, 3).filter((x: float) -> int { return 1 })
+    let ones_call = Expr::dummy(ExprKind::Call {
+        func: Box::new(Expr::dummy(ExprKind::Identifier("ones".to_string()))),
+        args: vec![
+            Expr::dummy(ExprKind::Literal(Literal::Int(2))),
+            Expr::dummy(ExprKind::Literal(Literal::Int(3))),
+        ],
+    });
+    let callback = make_unary_closure(
+        "x", "float", "int",
+        Expr::dummy(ExprKind::Literal(Literal::Int(1))),
+    );
+    let filter_call = Expr::dummy(ExprKind::Call {
+        func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+            target: Box::new(ones_call),
+            field: "filter".to_string(),
+        })),
+        args: vec![callback],
+    });
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::Expr(filter_call))],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_reduce_2d() {
+    // ones(2, 3).reduce(0.0, (acc: float, x: float) -> float { return acc + x })
+    let ones_call = Expr::dummy(ExprKind::Call {
+        func: Box::new(Expr::dummy(ExprKind::Identifier("ones".to_string()))),
+        args: vec![
+            Expr::dummy(ExprKind::Literal(Literal::Int(2))),
+            Expr::dummy(ExprKind::Literal(Literal::Int(3))),
+        ],
+    });
+    let callback = make_binary_closure(
+        "acc", "float", "x", "float", "float",
+        Expr::dummy(ExprKind::Binary {
+            op: BinaryOp::Add,
+            lhs: Box::new(Expr::dummy(ExprKind::Identifier("acc".to_string()))),
+            rhs: Box::new(Expr::dummy(ExprKind::Identifier("x".to_string()))),
+        }),
+    );
+    let reduce_call = Expr::dummy(ExprKind::Call {
+        func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+            target: Box::new(ones_call),
+            field: "reduce".to_string(),
+        })),
+        args: vec![
+            Expr::dummy(ExprKind::Literal(Literal::Float(0.0))),
+            callback,
+        ],
+    });
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::Expr(reduce_call))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
