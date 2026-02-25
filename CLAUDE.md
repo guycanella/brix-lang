@@ -21,10 +21,11 @@ cargo build --release
 
 **Run Rust unit tests:**
 ```bash
-cargo test --all                          # All ~1,152 tests (100% passing)
+cargo test --all                          # All ~1,160 tests (100% passing)
 cargo test -p lexer                       # Only lexer (310 tests)
 cargo test -p parser                      # Only parser (180 tests)
-cargo test -p codegen                     # Only codegen (662 tests)
+cargo test -p codegen                     # Only codegen (670 tests)
+cargo test -p codegen arc_tests           # Specific test module in codegen
 cargo test <pattern>                      # Tests matching pattern
 cargo test -- --nocapture                 # Show println! output
 ```
@@ -65,7 +66,7 @@ brix/
 │   ├── lexer/src/token.rs   # Token enum (logos)
 │   ├── parser/src/
 │   │   ├── ast.rs           # Expr { kind: ExprKind, span }, Stmt { kind: StmtKind, span }
-│   │   ├── parser.rs        # chumsky parser (~930 lines)
+│   │   ├── parser.rs        # chumsky parser (~1,450 lines)
 │   │   ├── closure_analysis.rs  # Capture analysis pass (runs after parse)
 │   │   └── error.rs         # Ariadne-based parse error reporting
 │   └── codegen/src/
@@ -80,7 +81,7 @@ brix/
 │       └── builtins/        # math.rs, stats.rs, linalg.rs, string.rs, io.rs, matrix.rs, test.rs
 ├── tests/
 │   ├── integration/         # End-to-end .bx files (success/, parser_errors/, codegen_errors/, runtime_errors/)
-│   └── brix/                # Language test files (*.test.bx) — 22 files, 362 tests, all passing
+│   └── brix/                # Language test files (*.test.bx) — 22 files, 372 tests, all passing
 └── examples/                # Example .bx programs
 ```
 
@@ -160,20 +161,28 @@ Jest-style framework. 28 matchers across 14 categories: `toBe`, `not.toBe`, `toE
 
 **New built-in function:** External declaration in codegen → C implementation in `runtime.c` (auto-recompiled). Register in `builtins/` module.
 
+**New global constructor/function (e.g., `ones`, `linspace`):** Add `if fn_name == "foo"` dispatch block in `lib.rs` (~line 6740, after the `eye` block) → add `compile_foo()` method in `lib.rs` (after `compile_eye`, before `compile_zip`) → add C implementation in `runtime.c`. For functions taking float args that may receive int literals, use `self.coerce_to_f64(val, &brix_type)` helper.
+
 **New type:** Update `BrixType` enum in `types.rs`, `infer_type()`, `cast_value()`, `get_llvm_type()` in `lib.rs`.
 
 **New iterator method on IntMatrix/Matrix:** Add match arm in `compile_iterator_method()` in `lib.rs`; add method name to the `matches!(field.as_str(), ...)` dispatch guard (~line 4292).
 
-## Known Limitations (v1.6 in progress)
+**Soft keywords** (context-sensitive, e.g., `step`): parsed as `Identifier("step")` in the lexer — no new `Token` variant needed. Match via `just(Token::Identifier("step".to_string()))` in `parser.rs`.
 
-- `break` / `continue` — **fully implemented (v1.6 Fase 0a)**: `Token::Break`/`Token::Continue`, `StmtKind::Break`/`StmtKind::Continue`, save/restore pattern on `Compiler`.
-- Nested closure ARC — **double-free and use-after-free fixed (v1.6 Fase 0b)**: closure captures now use capture-by-value (retain at capture time, stored directly in env). `env_dtor` uses single dereference.
-- **Async/await (v1.5 Phase 2 complete)**: `async fn` and `await` are fully implemented via LLVM state machines. Each `async fn` compiles to `create_{name}(params) -> i8*` + `poll_{name}(i8*) -> {status, value}`. `async fn main()` is driven by `brix_run_to_completion` in the C runtime. Limitation: only `var x := await f(args)` at the top level of a linear Block body is supported; `await` in nested control flow is not yet supported. `async { }` blocks are not yet supported in codegen.
-- **String methods (v1.6 Fase 1 complete)**: `trim`, `ltrim`, `rtrim`, `starts_with`, `ends_with`, `contains`, `substring`, `reverse`, `repeat`, `index_of` (returns `int?`), `for ch in str` iteration — all implemented.
-- String functions not yet implemented: `split`, `join` (require `StringMatrix` type — planned for v1.7)
-- Matrix constructors not yet implemented: `ones()`, `linspace()`, `arange()`, `rand()`
-- Iterators on `Matrix` (float arrays) — `map`/`filter`/`reduce`/`any`/`all`/`find` work on `IntMatrix`; `Matrix` dispatch exists but float closures require `-> float` return type annotation
-- 2D Matrix iteration (planned for v1.6)
+## Status & Limitations (v1.6 in progress)
+
+**Completed in v1.6:**
+- `break` / `continue` (Fase 0a): `Token::Break`/`Token::Continue`, `StmtKind::Break`/`StmtKind::Continue`, save/restore pattern on `Compiler`. Note: `break`/`continue` inside closures (e.g., `.map()` callbacks) is not supported.
+- Nested closure ARC (Fase 0b): capture-by-value semantics; `env_dtor` uses single dereference; no double-free.
+- String methods (Fase 1): `trim`, `ltrim`, `rtrim`, `starts_with`, `ends_with`, `contains`, `substring`, `reverse`, `repeat`, `index_of` (returns `int?`), `for ch in str` iteration.
+- Matrix constructors (Fase 2a): `ones(n/r,c)`, `linspace(start,stop,n)`, `arange(start,stop,step)`, `rand(n/r,c)`, `irand(n,max)` — implemented in `runtime.c` + dispatched in `lib.rs` via `compile_ones/linspace/arange/rand/irand`. Helper `coerce_to_f64()` handles int→float coercion for float args. RNG seeded automatically via `__attribute__((constructor))`.
+
+**Current limitations / planned for future phases:**
+- `await` in nested control flow (if/while/for) — v1.6 Phase 3a; `async { }` blocks — Phase 3b; `async () -> { }` closures — Phase 3c.
+- `split`, `join` — require `StringMatrix` type (v1.7).
+- Float iterator closures — `Matrix` dispatch exists but float closures require explicit `-> float` return type annotation (Fase 2c).
+- 2D Matrix iteration — `.map(fn)` currently iterates only `cols`, ignoring `rows` > 1 (Fase 2b).
+- Pattern matching destructuring and range patterns — v1.6 Phase 4.
 
 ## Troubleshooting
 
