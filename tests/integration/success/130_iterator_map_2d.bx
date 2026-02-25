@@ -1,0 +1,8 @@
+// Test: .map() on a 2D Matrix preserves shape
+var m := zeros(2, 3)
+var result := m.map((x: float) -> float { return x + 1.0 })
+
+println(result.rows)
+println(result.cols)
+println(result[0])
+println(result[5])

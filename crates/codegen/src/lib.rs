@@ -10528,7 +10528,22 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         let matrix_llvm_type = if is_int { self.get_intmatrix_type() } else { self.get_matrix_type() };
         let elem_llvm_type: BasicTypeEnum = if is_int { i64_type.into() } else { f64_type.into() };
 
-        // Load len = cols (field 2) from the matrix struct
+        // Load rows (field 1) and cols (field 2) from the matrix struct
+        let rows_ptr = self.builder
+            .build_struct_gep(matrix_llvm_type, matrix_ptr, 1, "iter_rows")
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_struct_gep".to_string(),
+                details: "Failed to get rows field for iterator".to_string(),
+                span: Some(span.clone()),
+            })?;
+        let rows = self.builder
+            .build_load(i64_type, rows_ptr, "iter_rows")
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_load".to_string(),
+                details: "Failed to load rows for iterator".to_string(),
+                span: Some(span.clone()),
+            })?
+            .into_int_value();
         let cols_ptr = self.builder
             .build_struct_gep(matrix_llvm_type, matrix_ptr, 2, "iter_cols")
             .map_err(|_| CodegenError::LLVMError {
@@ -10544,6 +10559,14 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 span: Some(span.clone()),
             })?
             .into_int_value();
+        // total = rows * cols; flat loop bound (for 1D: rows=1, total=cols)
+        let total = self.builder
+            .build_int_mul(rows, len, "iter_total")
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_int_mul".to_string(),
+                details: "Failed to compute total elements for iterator".to_string(),
+                span: Some(span.clone()),
+            })?;
 
         // Load data pointer (field 3)
         let data_ptr_ptr = self.builder
@@ -10599,7 +10622,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let alloc_fn = self.module.get_function(result_alloc_fn_name)
                     .unwrap_or_else(|| self.module.add_function(result_alloc_fn_name, alloc_fn_type, Some(Linkage::External)));
                 let result_ptr = self.builder
-                    .build_call(alloc_fn, &[one.into(), len.into()], "map_result")
+                    .build_call(alloc_fn, &[rows.into(), len.into()], "map_result")
                     .map_err(|_| CodegenError::LLVMError { operation: "build_call".to_string(), details: "Failed to alloc map result".to_string(), span: Some(span.clone()) })?
                     .try_as_basic_value().left()
                     .ok_or_else(|| CodegenError::MissingValue { what: "map result array".to_string(), context: "map".to_string(), span: Some(span.clone()) })?
@@ -10632,7 +10655,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let cur_idx = self.builder.build_load(i64_type, idx_alloca, "map_cur_idx")
                     .map_err(|_| CodegenError::LLVMError { operation: "build_load".to_string(), details: "Failed to load map idx".to_string(), span: None })?
                     .into_int_value();
-                let cond = self.builder.build_int_compare(IntPredicate::SLT, cur_idx, len, "map_loop_cond")
+                let cond = self.builder.build_int_compare(IntPredicate::SLT, cur_idx, total, "map_loop_cond")
                     .map_err(|_| CodegenError::LLVMError { operation: "build_int_compare".to_string(), details: "Failed map cond".to_string(), span: None })?;
                 self.builder.build_conditional_branch(cond, body_bb, after_bb)
                     .map_err(|_| CodegenError::LLVMError { operation: "build_conditional_branch".to_string(), details: "Failed map branch".to_string(), span: None })?;
@@ -10705,7 +10728,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let alloc_fn = self.module.get_function(alloc_fn_name)
                     .unwrap_or_else(|| self.module.add_function(alloc_fn_name, alloc_fn_type, Some(Linkage::External)));
                 let temp_ptr = self.builder
-                    .build_call(alloc_fn, &[one.into(), len.into()], "filter_temp")
+                    .build_call(alloc_fn, &[one.into(), total.into()], "filter_temp")
                     .map_err(|_| CodegenError::LLVMError { operation: "build_call".to_string(), details: "Failed alloc filter temp".to_string(), span: Some(span.clone()) })?
                     .try_as_basic_value().left()
                     .ok_or_else(|| CodegenError::MissingValue { what: "filter temp".to_string(), context: "filter".to_string(), span: Some(span.clone()) })?
@@ -10742,7 +10765,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let cur_idx = self.builder.build_load(i64_type, idx_alloca, "fi_cur_idx")
                     .map_err(|_| CodegenError::LLVMError { operation: "build_load".to_string(), details: "Failed load filter idx".to_string(), span: None })?
                     .into_int_value();
-                let cond_val = self.builder.build_int_compare(IntPredicate::SLT, cur_idx, len, "fi_cond")
+                let cond_val = self.builder.build_int_compare(IntPredicate::SLT, cur_idx, total, "fi_cond")
                     .map_err(|_| CodegenError::LLVMError { operation: "build_int_compare".to_string(), details: "Failed filter cond".to_string(), span: None })?;
                 self.builder.build_conditional_branch(cond_val, body_bb, after_bb)
                     .map_err(|_| CodegenError::LLVMError { operation: "build_conditional_branch".to_string(), details: "Failed filter cond branch".to_string(), span: None })?;
@@ -10923,7 +10946,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let cur_idx = self.builder.build_load(i64_type, idx_alloca, "red_cur_idx")
                     .map_err(|_| CodegenError::LLVMError { operation: "build_load".to_string(), details: "Failed load reduce idx".to_string(), span: None })?
                     .into_int_value();
-                let cond_v = self.builder.build_int_compare(IntPredicate::SLT, cur_idx, len, "red_cond")
+                let cond_v = self.builder.build_int_compare(IntPredicate::SLT, cur_idx, total, "red_cond")
                     .map_err(|_| CodegenError::LLVMError { operation: "build_int_compare".to_string(), details: "Failed reduce cond".to_string(), span: None })?;
                 self.builder.build_conditional_branch(cond_v, body_bb, after_bb)
                     .map_err(|_| CodegenError::LLVMError { operation: "build_conditional_branch".to_string(), details: "Failed reduce cond branch".to_string(), span: None })?;
@@ -11005,7 +11028,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let cur_idx = self.builder.build_load(i64_type, idx_alloca, "any_cur_idx")
                     .map_err(|_| CodegenError::LLVMError { operation: "build_load".to_string(), details: "Failed load any idx".to_string(), span: None })?
                     .into_int_value();
-                let cond_v = self.builder.build_int_compare(IntPredicate::SLT, cur_idx, len, "any_cond")
+                let cond_v = self.builder.build_int_compare(IntPredicate::SLT, cur_idx, total, "any_cond")
                     .map_err(|_| CodegenError::LLVMError { operation: "build_int_compare".to_string(), details: "Failed any cond".to_string(), span: None })?;
                 self.builder.build_conditional_branch(cond_v, body_bb, after_bb)
                     .map_err(|_| CodegenError::LLVMError { operation: "build_conditional_branch".to_string(), details: "Failed any cond branch".to_string(), span: None })?;
@@ -11089,7 +11112,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let cur_idx = self.builder.build_load(i64_type, idx_alloca, "all_cur_idx")
                     .map_err(|_| CodegenError::LLVMError { operation: "build_load".to_string(), details: "Failed load all idx".to_string(), span: None })?
                     .into_int_value();
-                let cond_v = self.builder.build_int_compare(IntPredicate::SLT, cur_idx, len, "all_cond_v")
+                let cond_v = self.builder.build_int_compare(IntPredicate::SLT, cur_idx, total, "all_cond_v")
                     .map_err(|_| CodegenError::LLVMError { operation: "build_int_compare".to_string(), details: "Failed all cond".to_string(), span: None })?;
                 self.builder.build_conditional_branch(cond_v, body_bb, after_bb)
                     .map_err(|_| CodegenError::LLVMError { operation: "build_conditional_branch".to_string(), details: "Failed all cond branch".to_string(), span: None })?;
@@ -11192,7 +11215,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let cur_idx = self.builder.build_load(i64_type, idx_alloca, "find_cur_idx")
                     .map_err(|_| CodegenError::LLVMError { operation: "build_load".to_string(), details: "Failed load find idx".to_string(), span: None })?
                     .into_int_value();
-                let cond_v = self.builder.build_int_compare(IntPredicate::SLT, cur_idx, len, "find_cond_v")
+                let cond_v = self.builder.build_int_compare(IntPredicate::SLT, cur_idx, total, "find_cond_v")
                     .map_err(|_| CodegenError::LLVMError { operation: "build_int_compare".to_string(), details: "Failed find cond".to_string(), span: None })?;
                 self.builder.build_conditional_branch(cond_v, body_bb, after_bb)
                     .map_err(|_| CodegenError::LLVMError { operation: "build_conditional_branch".to_string(), details: "Failed find cond branch".to_string(), span: None })?;

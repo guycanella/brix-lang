@@ -1,0 +1,4 @@
+// Test: .reduce() on a 2D Matrix iterates all elements
+var m := ones(2, 3)
+var sum := m.reduce(0.0, (acc: float, x: float) -> float { return acc + x })
+println(sum)
