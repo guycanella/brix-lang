@@ -1,0 +1,6 @@
+// Phase 2c: map on 1D Matrix without explicit return type annotation
+var m := [1.0, 2.0, 3.0]
+var doubled := m.map((x: float) -> { return x * 2.0 })
+println(doubled.cols)
+println(doubled[0])
+println(doubled[2])

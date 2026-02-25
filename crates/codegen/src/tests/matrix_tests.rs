@@ -1670,6 +1670,16 @@ fn make_unary_closure(param: &str, param_ty: &str, ret_ty: &str, body: Expr) -> 
     }))
 }
 
+/// Helper: build closure expr with NO return type annotation `(p: T) -> { return body }`
+fn make_unary_closure_no_return(param: &str, param_ty: &str, body: Expr) -> Expr {
+    Expr::dummy(ExprKind::Closure(Closure {
+        params: vec![(param.to_string(), param_ty.to_string())],
+        return_type: None,
+        body: Box::new(Stmt::dummy(StmtKind::Return { values: vec![body] })),
+        captured_vars: vec![],
+    }))
+}
+
 /// Helper: build closure expr `(a: T, b: U) -> R { return body }`
 fn make_binary_closure(p0: &str, t0: &str, p1: &str, t1: &str, ret_ty: &str, body: Expr) -> Expr {
     Expr::dummy(ExprKind::Closure(Closure {
@@ -1807,4 +1817,118 @@ fn test_reduce_2d() {
     };
     let result = compile_program(program);
     assert!(result.is_ok());
+}
+
+// ==================== PHASE 2C: CLOSURE RETURN TYPE INFERENCE ====================
+
+#[test]
+fn test_infer_float_from_literal() {
+    // zeros(3).map((x: float) -> { return x * 2.0 })  — no return type annotation
+    let zeros_call = Expr::dummy(ExprKind::Call {
+        func: Box::new(Expr::dummy(ExprKind::Identifier("zeros".to_string()))),
+        args: vec![Expr::dummy(ExprKind::Literal(Literal::Int(3)))],
+    });
+    let callback = make_unary_closure_no_return(
+        "x", "float",
+        Expr::dummy(ExprKind::Binary {
+            op: BinaryOp::Mul,
+            lhs: Box::new(Expr::dummy(ExprKind::Identifier("x".to_string()))),
+            rhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Float(2.0)))),
+        }),
+    );
+    let map_call = Expr::dummy(ExprKind::Call {
+        func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+            target: Box::new(zeros_call),
+            field: "map".to_string(),
+        })),
+        args: vec![callback],
+    });
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::Expr(map_call))],
+    };
+    let ir = compile_program(program).unwrap();
+    assert!(ir.contains("matrix_new"));
+}
+
+#[test]
+fn test_infer_float_from_param() {
+    // zeros(3).map((x: float) -> { return x })  — identity, infers float from param
+    let zeros_call = Expr::dummy(ExprKind::Call {
+        func: Box::new(Expr::dummy(ExprKind::Identifier("zeros".to_string()))),
+        args: vec![Expr::dummy(ExprKind::Literal(Literal::Int(3)))],
+    });
+    let callback = make_unary_closure_no_return(
+        "x", "float",
+        Expr::dummy(ExprKind::Identifier("x".to_string())),
+    );
+    let map_call = Expr::dummy(ExprKind::Call {
+        func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+            target: Box::new(zeros_call),
+            field: "map".to_string(),
+        })),
+        args: vec![callback],
+    });
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::Expr(map_call))],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_infer_int_from_literal() {
+    // izeros(3).map((x: int) -> { return x + 1 })  — no return type annotation
+    let izeros_call = Expr::dummy(ExprKind::Call {
+        func: Box::new(Expr::dummy(ExprKind::Identifier("izeros".to_string()))),
+        args: vec![Expr::dummy(ExprKind::Literal(Literal::Int(3)))],
+    });
+    let callback = make_unary_closure_no_return(
+        "x", "int",
+        Expr::dummy(ExprKind::Binary {
+            op: BinaryOp::Add,
+            lhs: Box::new(Expr::dummy(ExprKind::Identifier("x".to_string()))),
+            rhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(1)))),
+        }),
+    );
+    let map_call = Expr::dummy(ExprKind::Call {
+        func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+            target: Box::new(izeros_call),
+            field: "map".to_string(),
+        })),
+        args: vec![callback],
+    });
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::Expr(map_call))],
+    };
+    let ir = compile_program(program).unwrap();
+    assert!(ir.contains("intmatrix_new"));
+}
+
+#[test]
+fn test_infer_float_binary_mixed() {
+    // zeros(3).map((x: float) -> { return x + 1 })  — float param + int literal promotes to float
+    let zeros_call = Expr::dummy(ExprKind::Call {
+        func: Box::new(Expr::dummy(ExprKind::Identifier("zeros".to_string()))),
+        args: vec![Expr::dummy(ExprKind::Literal(Literal::Int(3)))],
+    });
+    let callback = make_unary_closure_no_return(
+        "x", "float",
+        Expr::dummy(ExprKind::Binary {
+            op: BinaryOp::Add,
+            lhs: Box::new(Expr::dummy(ExprKind::Identifier("x".to_string()))),
+            rhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(1)))),
+        }),
+    );
+    let map_call = Expr::dummy(ExprKind::Call {
+        func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+            target: Box::new(zeros_call),
+            field: "map".to_string(),
+        })),
+        args: vec![callback],
+    });
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::Expr(map_call))],
+    };
+    let ir = compile_program(program).unwrap();
+    assert!(ir.contains("matrix_new"));
 }

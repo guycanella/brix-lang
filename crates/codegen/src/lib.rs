@@ -10437,9 +10437,15 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     /// Infer the return type of a closure or named function used as a callback.
     fn infer_closure_return_type(&self, callback_expr: &Expr) -> BrixType {
         match &callback_expr.kind {
-            ExprKind::Closure(c) => c.return_type.as_deref()
-                .map(|s| self.string_to_brix_type(s))
-                .unwrap_or(BrixType::Int),
+            ExprKind::Closure(c) => {
+                if let Some(ret_type_str) = &c.return_type {
+                    self.string_to_brix_type(ret_type_str)
+                } else if let Some(inferred) = self.infer_return_type_from_body(&c.body, &c.params) {
+                    inferred
+                } else {
+                    BrixType::Int
+                }
+            },
             ExprKind::Identifier(name) => self.functions.get(name)
                 .and_then(|(_, ret)| ret.as_ref())
                 .and_then(|v| v.first())
@@ -10447,6 +10453,110 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 .unwrap_or(BrixType::Int),
             _ => BrixType::Int,
         }
+    }
+
+    /// Infer the BrixType of an expression statically (without running codegen).
+    /// `params` are the closure's own parameters: (name, type_string).
+    fn infer_expr_type_static(&self, expr: &Expr, params: &[(String, String)]) -> Option<BrixType> {
+        match &expr.kind {
+            ExprKind::Literal(lit) => Some(match lit {
+                Literal::Int(_) | Literal::Bool(_) => BrixType::Int,
+                Literal::Float(_)                  => BrixType::Float,
+                Literal::String(_)                 => BrixType::String,
+                Literal::Complex(_, _)             => BrixType::Complex,
+                Literal::Nil                       => BrixType::Nil,
+                Literal::Atom(_)                   => BrixType::Atom,
+            }),
+            ExprKind::Identifier(name) => {
+                // Closure params take priority over outer variables
+                if let Some((_, ty_str)) = params.iter().find(|(n, _)| n == name) {
+                    return Some(self.string_to_brix_type(ty_str));
+                }
+                self.variables.get(name.as_str()).map(|(_, t)| t.clone())
+            },
+            ExprKind::Binary { op, lhs, rhs } => {
+                // Comparison/logical ops always yield Int
+                match op {
+                    BinaryOp::Eq | BinaryOp::NotEq |
+                    BinaryOp::Lt | BinaryOp::Gt   |
+                    BinaryOp::LtEq | BinaryOp::GtEq |
+                    BinaryOp::LogicalAnd | BinaryOp::LogicalOr => return Some(BrixType::Int),
+                    _ => {}
+                }
+                let lt = self.infer_expr_type_static(lhs, params);
+                let rt = self.infer_expr_type_static(rhs, params);
+                match (lt, rt) {
+                    (Some(BrixType::Float), _) | (_, Some(BrixType::Float)) => Some(BrixType::Float),
+                    (Some(BrixType::String), _) | (_, Some(BrixType::String)) => Some(BrixType::String),
+                    (Some(t), _) => Some(t),
+                    (None, Some(t)) => Some(t),
+                    _ => None,
+                }
+            },
+            ExprKind::Unary { expr: inner, .. } => self.infer_expr_type_static(inner, params),
+            ExprKind::Ternary { then_expr, else_expr, .. } => {
+                let t1 = self.infer_expr_type_static(then_expr, params);
+                let t2 = self.infer_expr_type_static(else_expr, params);
+                match (t1, t2) {
+                    (Some(BrixType::Float), _) | (_, Some(BrixType::Float)) => Some(BrixType::Float),
+                    (Some(t), _) => Some(t),
+                    (None, t2) => t2,
+                }
+            },
+            ExprKind::Call { func, .. } => {
+                if let ExprKind::Identifier(name) = &func.kind {
+                    if let Some((_, ret)) = self.functions.get(name.as_str()) {
+                        return ret.as_ref().and_then(|v| v.first()).cloned();
+                    }
+                }
+                None
+            },
+            ExprKind::Array(elems) => {
+                let has_float = elems.iter()
+                    .any(|e| self.infer_expr_type_static(e, params) == Some(BrixType::Float));
+                Some(if has_float { BrixType::Matrix } else { BrixType::IntMatrix })
+            },
+            ExprKind::FString { .. } => Some(BrixType::String),
+            _ => None,
+        }
+    }
+
+    /// Walk a statement collecting the types of all top-level `return` expressions.
+    /// Does NOT recurse into nested closure bodies.
+    fn collect_return_types(&self, stmt: &Stmt, params: &[(String, String)], out: &mut Vec<BrixType>) {
+        match &stmt.kind {
+            StmtKind::Return { values } => {
+                if let Some(expr) = values.first() {
+                    if let Some(t) = self.infer_expr_type_static(expr, params) {
+                        out.push(t);
+                    }
+                }
+            },
+            StmtKind::Block(stmts) => {
+                for s in stmts { self.collect_return_types(s, params, out); }
+            },
+            StmtKind::If { then_block, else_block, .. } => {
+                self.collect_return_types(then_block, params, out);
+                if let Some(eb) = else_block { self.collect_return_types(eb, params, out); }
+            },
+            StmtKind::While { body, .. } => self.collect_return_types(body, params, out),
+            StmtKind::For   { body, .. } => self.collect_return_types(body, params, out),
+            _ => {}
+        }
+    }
+
+    /// Infer the return type of a closure body by analysing its return expressions.
+    /// Returns None when no return statements are found or types cannot be determined.
+    fn infer_return_type_from_body(&self, body: &Stmt, params: &[(String, String)]) -> Option<BrixType> {
+        let mut collected: Vec<BrixType> = Vec::new();
+        self.collect_return_types(body, params, &mut collected);
+        if collected.is_empty() { return None; }
+        // Promotion: Float > Int; String > Int; others: first wins
+        if collected.iter().any(|t| *t == BrixType::Float)     { return Some(BrixType::Float); }
+        if collected.iter().any(|t| *t == BrixType::String)    { return Some(BrixType::String); }
+        if collected.iter().any(|t| *t == BrixType::Matrix)    { return Some(BrixType::Matrix); }
+        if collected.iter().any(|t| *t == BrixType::IntMatrix) { return Some(BrixType::IntMatrix); }
+        collected.into_iter().next()
     }
 
     /// Extract (fn_ptr, env_ptr) from a closure value (pointer or struct).

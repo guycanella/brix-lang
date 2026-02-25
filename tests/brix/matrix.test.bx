@@ -237,3 +237,34 @@ test.describe("2D matrix .reduce()", () -> {
         test.expect(s).toBeCloseTo(6.0)
     })
 })
+
+// v1.6 Phase 2c: closure return type inference
+test.describe("closure return type inference", () -> {
+    test.it("infers float from float literal in return", () -> {
+        var m := [1.0, 2.0, 3.0]
+        var r := m.map((x: float) -> { return x * 2.0 })
+        test.expect(r.cols).toBe(3)
+        test.expect(r[0]).toBeCloseTo(2.0)
+    })
+
+    test.it("infers float from param type in return", () -> {
+        var m := [1.0, 2.0]
+        var r := m.map((x: float) -> { return x })
+        test.expect(r.cols).toBe(2)
+        test.expect(r[0]).toBeCloseTo(1.0)
+    })
+
+    test.it("infers int from int literal in return", () -> {
+        var m := [1, 2, 3]
+        var r := m.map((x: int) -> { return x + 1 })
+        test.expect(r.cols).toBe(3)
+        test.expect(r[0]).toBe(2)
+    })
+
+    test.it("promotes float when mixing param float with int literal", () -> {
+        var m := [1.0, 2.0]
+        var r := m.map((x: float) -> { return x + 1 })
+        test.expect(r.cols).toBe(2)
+        test.expect(r[0]).toBeCloseTo(2.0)
+    })
+})
