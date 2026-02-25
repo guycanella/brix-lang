@@ -1183,3 +1183,53 @@ fn test_str_chaining() {
         "1\negaugnal xirb"
     );
 }
+
+// ===== Matrix/Array Constructors (v1.6 Phase 2a) =====
+
+#[test]
+fn test_ones() {
+    assert_success(
+        "tests/integration/success/124_ones.bx",
+        "5\n1\n1\n2\n3\n1\n1"
+    );
+}
+
+#[test]
+fn test_linspace() {
+    assert_success(
+        "tests/integration/success/125_linspace.bx",
+        "5\n0\n1\n0\n5\n10"
+    );
+}
+
+#[test]
+fn test_arange() {
+    assert_success(
+        "tests/integration/success/126_arange.bx",
+        "4\n0\n0.75\n4\n1\n4"
+    );
+}
+
+#[test]
+fn test_rand_shape() {
+    assert_success(
+        "tests/integration/success/127_rand.bx",
+        "5\n2\n3"
+    );
+}
+
+#[test]
+fn test_irand_shape() {
+    assert_success(
+        "tests/integration/success/128_irand.bx",
+        "6\n4"
+    );
+}
+
+#[test]
+fn test_constructors_combined() {
+    assert_success(
+        "tests/integration/success/129_constructors_combined.bx",
+        "3\n3\n3\n1\n0"
+    );
+}

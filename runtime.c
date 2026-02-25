@@ -1783,6 +1783,75 @@ Matrix *brix_eye(long n) {
   return result;
 }
 
+// ones(rows, cols) — Matrix filled with 1.0
+Matrix *brix_ones(long rows, long cols) {
+  Matrix *m = matrix_new(rows, cols);
+  long size = rows * cols;
+  for (long i = 0; i < size; i++) {
+    m->data[i] = 1.0;
+  }
+  return m;
+}
+
+// linspace(start, stop, n) — n evenly spaced points from start to stop (inclusive)
+Matrix *brix_linspace(double start, double stop, long n) {
+  if (n <= 0) n = 1;
+  Matrix *m = matrix_new(1, n);
+  if (n == 1) {
+    m->data[0] = start;
+    return m;
+  }
+  double step = (stop - start) / (double)(n - 1);
+  for (long i = 0; i < n; i++) {
+    m->data[i] = start + step * (double)i;
+  }
+  return m;
+}
+
+// arange(start, stop, step) — values from start up to (but not including) stop, with given step
+Matrix *brix_arange(double start, double stop, double step) {
+  if (step == 0.0) step = 1.0;
+  long n = 0;
+  if (step > 0.0) {
+    for (double v = start; v < stop; v += step) n++;
+  } else {
+    for (double v = start; v > stop; v += step) n++;
+  }
+  if (n <= 0) n = 1;
+  Matrix *m = matrix_new(1, n);
+  double v = start;
+  for (long i = 0; i < n; i++) {
+    m->data[i] = v;
+    v += step;
+  }
+  return m;
+}
+
+// Seed rand() once at program startup
+__attribute__((constructor)) static void brix_seed_rng(void) {
+  srand((unsigned int)time(NULL));
+}
+
+// rand_matrix(rows, cols) — Matrix with random floats in [0.0, 1.0)
+Matrix *brix_rand_matrix(long rows, long cols) {
+  Matrix *m = matrix_new(rows, cols);
+  long size = rows * cols;
+  for (long i = 0; i < size; i++) {
+    m->data[i] = (double)rand() / ((double)RAND_MAX + 1.0);
+  }
+  return m;
+}
+
+// irand_matrix(n, max_val) — IntMatrix 1×n with random ints in [0, max_val)
+IntMatrix *brix_irand_matrix(long n, long max_val) {
+  if (max_val <= 0) max_val = 1;
+  IntMatrix *m = intmatrix_new(1, n);
+  for (long i = 0; i < n; i++) {
+    m->data[i] = (long)(rand() % (int)max_val);
+  }
+  return m;
+}
+
 // Transpose: swap rows and columns
 Matrix *brix_tr(Matrix *m) {
   Matrix *result = matrix_new(m->cols, m->rows);

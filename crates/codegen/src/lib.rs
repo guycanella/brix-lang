@@ -6740,6 +6740,26 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         let val = self.compile_eye(args)?;
                         return Ok((val, BrixType::Matrix));
                     }
+                    if fn_name == "ones" {
+                        let val = self.compile_ones(args)?;
+                        return Ok((val, BrixType::Matrix));
+                    }
+                    if fn_name == "linspace" {
+                        let val = self.compile_linspace(args)?;
+                        return Ok((val, BrixType::Matrix));
+                    }
+                    if fn_name == "arange" {
+                        let val = self.compile_arange(args)?;
+                        return Ok((val, BrixType::Matrix));
+                    }
+                    if fn_name == "rand" {
+                        let val = self.compile_rand(args)?;
+                        return Ok((val, BrixType::Matrix));
+                    }
+                    if fn_name == "irand" {
+                        let val = self.compile_irand(args)?;
+                        return Ok((val, BrixType::IntMatrix));
+                    }
                     if fn_name == "zip" {
                         let (val, tuple_type) = self.compile_zip(args).ok_or_else(|| {
                             CodegenError::General("zip() call failed".to_string())
@@ -9836,6 +9856,243 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             details: "brix_eye did not return a value".to_string(),
             span: None,
         })
+    }
+
+    pub(crate) fn compile_ones(&mut self, args: &[Expr]) -> CodegenResult<BasicValueEnum<'ctx>> {
+        // ones(n) → 1D Matrix of 1.0s; ones(r, c) → 2D Matrix of 1.0s
+        let i64_type = self.context.i64_type();
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let fn_type = ptr_type.fn_type(&[i64_type.into(), i64_type.into()], false);
+
+        let brix_ones_fn = self.module.get_function("brix_ones").unwrap_or_else(|| {
+            self.module.add_function("brix_ones", fn_type, Some(Linkage::External))
+        });
+
+        let (rows_val, cols_val) = if args.len() == 1 {
+            let (n_val, _) = self.compile_expr(&args[0])?;
+            (i64_type.const_int(1, false), n_val.into_int_value())
+        } else if args.len() == 2 {
+            let (r_val, _) = self.compile_expr(&args[0])?;
+            let (c_val, _) = self.compile_expr(&args[1])?;
+            (r_val.into_int_value(), c_val.into_int_value())
+        } else {
+            return Err(CodegenError::InvalidOperation {
+                operation: "ones()".to_string(),
+                reason: format!("Expected 1 or 2 arguments, got {}", args.len()),
+                span: None,
+            });
+        };
+
+        let call = self.builder
+            .build_call(brix_ones_fn, &[rows_val.into(), cols_val.into()], "ones_matrix")
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_call".to_string(),
+                details: "Failed to call brix_ones".to_string(),
+                span: None,
+            })?;
+
+        call.try_as_basic_value().left().ok_or_else(|| CodegenError::LLVMError {
+            operation: "try_as_basic_value".to_string(),
+            details: "brix_ones did not return a value".to_string(),
+            span: None,
+        })
+    }
+
+    pub(crate) fn compile_linspace(&mut self, args: &[Expr]) -> CodegenResult<BasicValueEnum<'ctx>> {
+        // linspace(start, stop, n) → Matrix of n evenly spaced floats (inclusive)
+        if args.len() != 3 {
+            return Err(CodegenError::InvalidOperation {
+                operation: "linspace()".to_string(),
+                reason: format!("Expected 3 arguments (start, stop, n), got {}", args.len()),
+                span: None,
+            });
+        }
+
+        let i64_type = self.context.i64_type();
+        let f64_type = self.context.f64_type();
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let fn_type = ptr_type.fn_type(&[f64_type.into(), f64_type.into(), i64_type.into()], false);
+
+        let brix_linspace_fn = self.module.get_function("brix_linspace").unwrap_or_else(|| {
+            self.module.add_function("brix_linspace", fn_type, Some(Linkage::External))
+        });
+
+        let (start_raw, start_type) = self.compile_expr(&args[0])?;
+        let (stop_raw, stop_type) = self.compile_expr(&args[1])?;
+        let (n_val, _) = self.compile_expr(&args[2])?;
+
+        let start_val = self.coerce_to_f64(start_raw, &start_type)?;
+        let stop_val = self.coerce_to_f64(stop_raw, &stop_type)?;
+
+        let call = self.builder
+            .build_call(
+                brix_linspace_fn,
+                &[start_val.into(), stop_val.into(), n_val.into_int_value().into()],
+                "linspace_matrix",
+            )
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_call".to_string(),
+                details: "Failed to call brix_linspace".to_string(),
+                span: None,
+            })?;
+
+        call.try_as_basic_value().left().ok_or_else(|| CodegenError::LLVMError {
+            operation: "try_as_basic_value".to_string(),
+            details: "brix_linspace did not return a value".to_string(),
+            span: None,
+        })
+    }
+
+    pub(crate) fn compile_arange(&mut self, args: &[Expr]) -> CodegenResult<BasicValueEnum<'ctx>> {
+        // arange(start, stop, step) → Matrix of floats from start up to (not including) stop
+        if args.len() != 3 {
+            return Err(CodegenError::InvalidOperation {
+                operation: "arange()".to_string(),
+                reason: format!("Expected 3 arguments (start, stop, step), got {}", args.len()),
+                span: None,
+            });
+        }
+
+        let f64_type = self.context.f64_type();
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let fn_type = ptr_type.fn_type(&[f64_type.into(), f64_type.into(), f64_type.into()], false);
+
+        let brix_arange_fn = self.module.get_function("brix_arange").unwrap_or_else(|| {
+            self.module.add_function("brix_arange", fn_type, Some(Linkage::External))
+        });
+
+        let (start_raw, start_type) = self.compile_expr(&args[0])?;
+        let (stop_raw, stop_type) = self.compile_expr(&args[1])?;
+        let (step_raw, step_type) = self.compile_expr(&args[2])?;
+
+        let start_val = self.coerce_to_f64(start_raw, &start_type)?;
+        let stop_val = self.coerce_to_f64(stop_raw, &stop_type)?;
+        let step_val = self.coerce_to_f64(step_raw, &step_type)?;
+
+        let call = self.builder
+            .build_call(
+                brix_arange_fn,
+                &[start_val.into(), stop_val.into(), step_val.into()],
+                "arange_matrix",
+            )
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_call".to_string(),
+                details: "Failed to call brix_arange".to_string(),
+                span: None,
+            })?;
+
+        call.try_as_basic_value().left().ok_or_else(|| CodegenError::LLVMError {
+            operation: "try_as_basic_value".to_string(),
+            details: "brix_arange did not return a value".to_string(),
+            span: None,
+        })
+    }
+
+    pub(crate) fn compile_rand(&mut self, args: &[Expr]) -> CodegenResult<BasicValueEnum<'ctx>> {
+        // rand(n) → 1D Matrix of random floats in [0,1); rand(r, c) → 2D
+        let i64_type = self.context.i64_type();
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let fn_type = ptr_type.fn_type(&[i64_type.into(), i64_type.into()], false);
+
+        let brix_rand_fn = self.module.get_function("brix_rand_matrix").unwrap_or_else(|| {
+            self.module.add_function("brix_rand_matrix", fn_type, Some(Linkage::External))
+        });
+
+        let (rows_val, cols_val) = if args.len() == 1 {
+            let (n_val, _) = self.compile_expr(&args[0])?;
+            (i64_type.const_int(1, false), n_val.into_int_value())
+        } else if args.len() == 2 {
+            let (r_val, _) = self.compile_expr(&args[0])?;
+            let (c_val, _) = self.compile_expr(&args[1])?;
+            (r_val.into_int_value(), c_val.into_int_value())
+        } else {
+            return Err(CodegenError::InvalidOperation {
+                operation: "rand()".to_string(),
+                reason: format!("Expected 1 or 2 arguments, got {}", args.len()),
+                span: None,
+            });
+        };
+
+        let call = self.builder
+            .build_call(brix_rand_fn, &[rows_val.into(), cols_val.into()], "rand_matrix")
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_call".to_string(),
+                details: "Failed to call brix_rand_matrix".to_string(),
+                span: None,
+            })?;
+
+        call.try_as_basic_value().left().ok_or_else(|| CodegenError::LLVMError {
+            operation: "try_as_basic_value".to_string(),
+            details: "brix_rand_matrix did not return a value".to_string(),
+            span: None,
+        })
+    }
+
+    pub(crate) fn compile_irand(&mut self, args: &[Expr]) -> CodegenResult<BasicValueEnum<'ctx>> {
+        // irand(n, max_val) → IntMatrix 1×n with random ints in [0, max_val)
+        if args.len() != 2 {
+            return Err(CodegenError::InvalidOperation {
+                operation: "irand()".to_string(),
+                reason: format!("Expected 2 arguments (n, max_val), got {}", args.len()),
+                span: None,
+            });
+        }
+
+        let i64_type = self.context.i64_type();
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let fn_type = ptr_type.fn_type(&[i64_type.into(), i64_type.into()], false);
+
+        let brix_irand_fn = self.module.get_function("brix_irand_matrix").unwrap_or_else(|| {
+            self.module.add_function("brix_irand_matrix", fn_type, Some(Linkage::External))
+        });
+
+        let (n_val, _) = self.compile_expr(&args[0])?;
+        let (max_val, _) = self.compile_expr(&args[1])?;
+
+        let call = self.builder
+            .build_call(
+                brix_irand_fn,
+                &[n_val.into_int_value().into(), max_val.into_int_value().into()],
+                "irand_matrix",
+            )
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_call".to_string(),
+                details: "Failed to call brix_irand_matrix".to_string(),
+                span: None,
+            })?;
+
+        call.try_as_basic_value().left().ok_or_else(|| CodegenError::LLVMError {
+            operation: "try_as_basic_value".to_string(),
+            details: "brix_irand_matrix did not return a value".to_string(),
+            span: None,
+        })
+    }
+
+    /// Coerces a compiled value to f64, converting Int→Float if needed.
+    fn coerce_to_f64(
+        &mut self,
+        val: BasicValueEnum<'ctx>,
+        brix_type: &BrixType,
+    ) -> CodegenResult<inkwell::values::FloatValue<'ctx>> {
+        let f64_type = self.context.f64_type();
+        match brix_type {
+            BrixType::Float => Ok(val.into_float_value()),
+            BrixType::Int => {
+                self.builder
+                    .build_signed_int_to_float(val.into_int_value(), f64_type, "int_to_f64")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_signed_int_to_float".to_string(),
+                        details: "Failed to cast Int to Float".to_string(),
+                        span: None,
+                    })
+            }
+            other => Err(CodegenError::TypeError {
+                expected: "Int or Float".to_string(),
+                found: format!("{:?}", other),
+                context: "coerce_to_f64".to_string(),
+                span: None,
+            }),
+        }
     }
 
     fn compile_zip(&mut self, args: &[Expr]) -> Option<(BasicValueEnum<'ctx>, BrixType)> {

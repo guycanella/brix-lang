@@ -1,0 +1,10 @@
+var a := ones(5)
+println(a.cols)
+println(a[0])
+println(a[4])
+
+var b := ones(2, 3)
+println(b.rows)
+println(b.cols)
+println(b[0][0])
+println(b[1][2])

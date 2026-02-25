@@ -1535,3 +1535,123 @@ fn test_nested_zeros_calls() {
     let result = compile_program(program);
     assert!(result.is_ok());
 }
+
+// ===== Phase 2a: Matrix/Array Constructors =====
+
+#[test]
+fn test_ones_1d() {
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("ones".to_string()))),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Int(5)))],
+        })))],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_ones_2d() {
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("ones".to_string()))),
+            args: vec![
+                Expr::dummy(ExprKind::Literal(Literal::Int(3))),
+                Expr::dummy(ExprKind::Literal(Literal::Int(4))),
+            ],
+        })))],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_linspace_float_args() {
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("linspace".to_string()))),
+            args: vec![
+                Expr::dummy(ExprKind::Literal(Literal::Float(0.0))),
+                Expr::dummy(ExprKind::Literal(Literal::Float(1.0))),
+                Expr::dummy(ExprKind::Literal(Literal::Int(5))),
+            ],
+        })))],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_linspace_int_args_coercion() {
+    // int args for start/stop should be coerced to float
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("linspace".to_string()))),
+            args: vec![
+                Expr::dummy(ExprKind::Literal(Literal::Int(0))),
+                Expr::dummy(ExprKind::Literal(Literal::Int(10))),
+                Expr::dummy(ExprKind::Literal(Literal::Int(6))),
+            ],
+        })))],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_arange_float_args() {
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("arange".to_string()))),
+            args: vec![
+                Expr::dummy(ExprKind::Literal(Literal::Float(0.0))),
+                Expr::dummy(ExprKind::Literal(Literal::Float(1.0))),
+                Expr::dummy(ExprKind::Literal(Literal::Float(0.25))),
+            ],
+        })))],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_rand_1d() {
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("rand".to_string()))),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Int(5)))],
+        })))],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_rand_2d() {
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("rand".to_string()))),
+            args: vec![
+                Expr::dummy(ExprKind::Literal(Literal::Int(2))),
+                Expr::dummy(ExprKind::Literal(Literal::Int(3))),
+            ],
+        })))],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_irand() {
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("irand".to_string()))),
+            args: vec![
+                Expr::dummy(ExprKind::Literal(Literal::Int(6))),
+                Expr::dummy(ExprKind::Literal(Literal::Int(100))),
+            ],
+        })))],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
