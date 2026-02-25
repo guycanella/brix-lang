@@ -21,10 +21,10 @@ cargo build --release
 
 **Run Rust unit tests:**
 ```bash
-cargo test --all                          # All ~1,160 tests (100% passing)
+cargo test --all                          # All ~1,164 tests (100% passing)
 cargo test -p lexer                       # Only lexer (310 tests)
 cargo test -p parser                      # Only parser (180 tests)
-cargo test -p codegen                     # Only codegen (670 tests)
+cargo test -p codegen                     # Only codegen (674 tests)
 cargo test -p codegen arc_tests           # Specific test module in codegen
 cargo test <pattern>                      # Tests matching pattern
 cargo test -- --nocapture                 # Show println! output
@@ -61,7 +61,7 @@ The driver (`src/main.rs`, ~314 lines) orchestrates all stages: lexing, parsing,
 ```
 brix/
 ├── src/main.rs              # CLI + compilation pipeline driver
-├── runtime.c                # C runtime (~2,508 lines) — must be in project root
+├── runtime.c                # C runtime (~2,769 lines) — must be in project root
 ├── crates/
 │   ├── lexer/src/token.rs   # Token enum (logos)
 │   ├── parser/src/
@@ -70,8 +70,8 @@ brix/
 │   │   ├── closure_analysis.rs  # Capture analysis pass (runs after parse)
 │   │   └── error.rs         # Ariadne-based parse error reporting
 │   └── codegen/src/
-│       ├── lib.rs           # Main compiler (~10,837 lines)
-│       ├── stmt.rs          # Statement compilation (~998 lines)
+│       ├── lib.rs           # Main compiler (~13,656 lines)
+│       ├── stmt.rs          # Statement compilation (~1,009 lines)
 │       ├── expr.rs          # Expression compilation (~369 lines)
 │       ├── helpers.rs       # LLVM helpers
 │       ├── error.rs         # CodegenError enum + CodegenResult<T>
@@ -169,20 +169,21 @@ Jest-style framework. 28 matchers across 14 categories: `toBe`, `not.toBe`, `toE
 
 **Soft keywords** (context-sensitive, e.g., `step`): parsed as `Identifier("step")` in the lexer — no new `Token` variant needed. Match via `just(Token::Identifier("step".to_string()))` in `parser.rs`.
 
-## Status & Limitations (v1.6 in progress)
+## Status & Limitations (v1.6 — Fases 0–2b complete)
 
 **Completed in v1.6:**
 - `break` / `continue` (Fase 0a): `Token::Break`/`Token::Continue`, `StmtKind::Break`/`StmtKind::Continue`, save/restore pattern on `Compiler`. Note: `break`/`continue` inside closures (e.g., `.map()` callbacks) is not supported.
 - Nested closure ARC (Fase 0b): capture-by-value semantics; `env_dtor` uses single dereference; no double-free.
-- String methods (Fase 1): `trim`, `ltrim`, `rtrim`, `starts_with`, `ends_with`, `contains`, `substring`, `reverse`, `repeat`, `index_of` (returns `int?`), `for ch in str` iteration.
-- Matrix constructors (Fase 2a): `ones(n/r,c)`, `linspace(start,stop,n)`, `arange(start,stop,step)`, `rand(n/r,c)`, `irand(n,max)` — implemented in `runtime.c` + dispatched in `lib.rs` via `compile_ones/linspace/arange/rand/irand`. Helper `coerce_to_f64()` handles int→float coercion for float args. RNG seeded automatically via `__attribute__((constructor))`.
+- String methods (Fase 1): `trim`, `ltrim`, `rtrim`, `starts_with`, `ends_with`, `contains`, `substring`, `reverse`, `repeat`, `index_of` (returns `int?`), `for ch in str` iteration. Implemented in `builtins/string.rs` + `runtime.c`.
+- Matrix constructors (Fase 2a): `ones(n/r,c)`, `linspace(start,stop,n)`, `arange(start,stop,step)`, `rand(n/r,c)`, `irand(n,max)` — implemented in `runtime.c` + dispatched in `lib.rs` via `compile_ones/linspace/arange/rand/irand`. Helper `coerce_to_f64()` handles int→float coercion for float args. RNG seeded automatically via `__attribute__((constructor))`. Integration tests 124–129.
+- 2D Matrix iteration (Fase 2b): `.map(fn)` preserves shape (allocates `matrix_new(rows, cols)`); `.filter(pred)` flattens to 1D; `.reduce()`, `.any()`, `.all()`, `.find()` iterate all `rows*cols` elements. Implemented in `compile_iterator_method()` in `lib.rs` — loads `rows` (field 1), computes `total = rows * cols`, uses `total` as flat loop bound. Integration tests 130–132; +4 codegen unit tests; +4 Test Library tests in `matrix.test.bx`.
 
-**Current limitations / planned for future phases:**
-- `await` in nested control flow (if/while/for) — v1.6 Phase 3a; `async { }` blocks — Phase 3b; `async () -> { }` closures — Phase 3c.
+**Planned for future phases:**
+- `await` in nested control flow (if/while/for) — v1.6 Phase 3a; `async { }` blocks — Phase 3b; `async () -> { }` closures — Phase 3c; async test matchers — Phase 3d.
 - `split`, `join` — require `StringMatrix` type (v1.7).
 - Float iterator closures — `Matrix` dispatch exists but float closures require explicit `-> float` return type annotation (Fase 2c).
-- 2D Matrix iteration — `.map(fn)` currently iterates only `cols`, ignoring `rows` > 1 (Fase 2b).
 - Pattern matching destructuring and range patterns — v1.6 Phase 4.
+- See `ROADMAP_V1.6.md` for detailed specs on Phases 3–4.
 
 ## Troubleshooting
 
