@@ -123,3 +123,82 @@ test.describe("Matrix element-wise arithmetic", () -> {
         test.expect(result[2]).toBeCloseTo(28.0)
     })
 })
+
+// v1.6 Phase 2a: new constructors
+test.describe("ones()", () -> {
+    test.it("ones(n) creates 1D matrix filled with 1.0", () -> {
+        var m := ones(4)
+        test.expect(m.cols).toBe(4)
+        test.expect(m[0]).toBeCloseTo(1.0)
+        test.expect(m[3]).toBeCloseTo(1.0)
+    })
+
+    test.it("ones(r, c) creates 2D matrix filled with 1.0", () -> {
+        var m := ones(2, 3)
+        test.expect(m.rows).toBe(2)
+        test.expect(m.cols).toBe(3)
+        test.expect(m[0][0]).toBeCloseTo(1.0)
+        test.expect(m[1][2]).toBeCloseTo(1.0)
+    })
+})
+
+test.describe("linspace()", () -> {
+    test.it("linspace(0, 1, 5) produces 5 evenly spaced points", () -> {
+        var m := linspace(0.0, 1.0, 5)
+        test.expect(m.cols).toBe(5)
+        test.expect(m[0]).toBeCloseTo(0.0)
+        test.expect(m[2]).toBeCloseTo(0.5)
+        test.expect(m[4]).toBeCloseTo(1.0)
+    })
+
+    test.it("linspace includes both endpoints", () -> {
+        var m := linspace(0.0, 10.0, 3)
+        test.expect(m[0]).toBeCloseTo(0.0)
+        test.expect(m[1]).toBeCloseTo(5.0)
+        test.expect(m[2]).toBeCloseTo(10.0)
+    })
+
+    test.it("linspace accepts int args (coercion)", () -> {
+        var m := linspace(0, 4, 5)
+        test.expect(m.cols).toBe(5)
+        test.expect(m[0]).toBeCloseTo(0.0)
+        test.expect(m[4]).toBeCloseTo(4.0)
+    })
+})
+
+test.describe("arange()", () -> {
+    test.it("arange(0, 1, 0.25) produces 4 elements", () -> {
+        var m := arange(0.0, 1.0, 0.25)
+        test.expect(m.cols).toBe(4)
+        test.expect(m[0]).toBeCloseTo(0.0)
+        test.expect(m[1]).toBeCloseTo(0.25)
+        test.expect(m[3]).toBeCloseTo(0.75)
+    })
+
+    test.it("arange(1, 5, 1) produces 4 integer-valued floats", () -> {
+        var m := arange(1.0, 5.0, 1.0)
+        test.expect(m.cols).toBe(4)
+        test.expect(m[0]).toBeCloseTo(1.0)
+        test.expect(m[3]).toBeCloseTo(4.0)
+    })
+})
+
+test.describe("rand()", () -> {
+    test.it("rand(n) produces correct shape", () -> {
+        var m := rand(5)
+        test.expect(m.cols).toBe(5)
+    })
+
+    test.it("rand(r, c) produces correct shape", () -> {
+        var m := rand(2, 4)
+        test.expect(m.rows).toBe(2)
+        test.expect(m.cols).toBe(4)
+    })
+})
+
+test.describe("irand()", () -> {
+    test.it("irand(n, max) produces correct shape", () -> {
+        var m := irand(6, 100)
+        test.expect(m.cols).toBe(6)
+    })
+})

@@ -1,0 +1,6 @@
+var a := rand(5)
+println(a.cols)
+
+var b := rand(2, 3)
+println(b.rows)
+println(b.cols)

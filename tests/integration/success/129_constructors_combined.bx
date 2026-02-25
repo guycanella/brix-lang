@@ -1,0 +1,10 @@
+var o := ones(3)
+var z := zeros(3)
+var i := irand(3, 5)
+
+println(o.cols)
+println(z.cols)
+println(i.cols)
+
+println(o[0])
+println(z[0])

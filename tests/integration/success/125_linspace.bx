@@ -1,0 +1,9 @@
+var a := linspace(0.0, 1.0, 5)
+println(a.cols)
+println(a[0])
+println(a[4])
+
+var b := linspace(0.0, 10.0, 3)
+println(b[0])
+println(b[1])
+println(b[2])
