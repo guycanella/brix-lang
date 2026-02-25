@@ -1257,3 +1257,27 @@ fn test_iterator_reduce_2d() {
         "6"
     );
 }
+
+#[test]
+fn test_float_closure_infer_1d() {
+    assert_success(
+        "tests/integration/success/133_float_closure_infer_1d.bx",
+        "3\n2\n6"
+    );
+}
+
+#[test]
+fn test_float_closure_infer_2d() {
+    assert_success(
+        "tests/integration/success/134_float_closure_infer_2d.bx",
+        "2\n3\n1"
+    );
+}
+
+#[test]
+fn test_int_closure_infer() {
+    assert_success(
+        "tests/integration/success/135_int_closure_infer.bx",
+        "5\n2\n10"
+    );
+}

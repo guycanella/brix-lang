@@ -1,0 +1,6 @@
+// Phase 2c: map on IntMatrix without explicit return type annotation
+var m := [1, 2, 3, 4, 5]
+var doubled := m.map((x: int) -> { return x * 2 })
+println(doubled.cols)
+println(doubled[0])
+println(doubled[4])
