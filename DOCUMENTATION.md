@@ -1,6 +1,6 @@
 # Brix Language (Design Document v1.0)
 
-> ✅ **Status do Projeto (Fev 2026):** O compilador Brix **v1.5 COMPLETO + v1.6 em andamento** — v1.6 Fases 0 (break/continue, ARC nested closures), 1 (String Library), 2a (Matrix Constructors: `ones`, `linspace`, `arange`, `rand`, `irand`) e 2b (2D Matrix Iteration: `.map()` shape-preserving, `.filter()` flatten, `.reduce()`/`.any()`/`.all()`/`.find()` iterando `rows*cols`) concluídas. v1.5 entregou Ranges Unificados, Iteradores, Pipeline Operator, Test Library Jest-style (28 matchers, 22 arquivos / 376 testes) e Async/Await via state machines LLVM. **1.164 unit tests + 135 integration tests + 376 Test Library = 1.675 tests passando (100%).** Em progresso: v1.6 — Fase 2c, Async Closures.
+> ✅ **Status do Projeto (Fev 2026):** O compilador Brix **v1.5 COMPLETO + v1.6 em andamento** — v1.6 Fases 0 (break/continue, ARC nested closures), 1 (String Library), 2a (Matrix Constructors: `ones`, `linspace`, `arange`, `rand`, `irand`), 2b (2D Matrix Iteration: `.map()` shape-preserving, `.filter()` flatten, `.reduce()`/`.any()`/`.all()`/`.find()` iterando `rows*cols`) e 2c (Float Closure Type Inference: inferência estática de tipo de retorno em closures sem anotação `-> float`) concluídas. v1.5 entregou Ranges Unificados, Iteradores, Pipeline Operator, Test Library Jest-style (28 matchers, 22 arquivos / 380 testes) e Async/Await via state machines LLVM. **1.168 unit tests + 138 integration tests + 380 Test Library = 1.686 tests passando (100%).** Em progresso: v1.6 — Fase 3 (Async Closures), Fase 4 (Pattern Matching 2.0).
 
 ## Status Atual (Fevereiro 2026)
 
@@ -176,7 +176,8 @@
 - **Fase 1**: String Library completa — 10 métodos de string + iteração `for ch in str` (7 integration tests, 17 Test Library tests)
 - **Fase 2a**: Matrix Constructors — `ones(n/r,c)`, `linspace(start,stop,n)`, `arange(start,stop,step)`, `rand(n/r,c)`, `irand(n,max)` (8 unit tests, 6 integration tests, 10 Test Library tests)
 - **Fase 2b**: 2D Matrix Iteration — `.map(fn)` preserva shape (`rows×cols`); `.filter(pred)` flatten 1D; `.reduce()`, `.any()`, `.all()`, `.find()` iteram `rows*cols` elementos. Implementado em `compile_iterator_method()` via `total = rows * cols`. (+4 unit, +3 integration 130–132, +4 Test Library em `matrix.test.bx`)
-- **Total acumulado: 1.164 unit + 135 integration + 376 Test Library = 1.675 tests (100% passing)**
+- **Fase 2c**: Float Closure Type Inference — `matrix.map((x: float) -> { return x * 2.0 })` sem anotação `-> float` explícita. Três novos métodos: `infer_expr_type_static()` (percorre AST sem codegen), `collect_return_types()` (coleta tipos de todas as expressões `return`), `infer_return_type_from_body()` (promoção Float > String > Matrix > IntMatrix). (+4 unit, +3 integration 133–135, +4 Test Library em `matrix.test.bx`)
+- **Total acumulado: 1.168 unit + 138 integration + 380 Test Library = 1.686 tests (100% passing)**
 
 ### 🔮 **Planejado (v1.6 — restante):**
 - ✅ ~~`break` / `continue` em loops~~ — COMPLETO
@@ -185,7 +186,7 @@
 - ✅ ~~String iteration (`for ch in "hello"`)~~ — COMPLETO
 - ✅ ~~Matrix constructors: `ones()`, `linspace()`, `arange()`, `rand()`, `irand()`~~ — COMPLETO
 - ✅ ~~2D Matrix iteration (`.map(fn)` shape-preserving, `.filter()` flatten, `.reduce()`/`.any()`/`.all()`/`.find()` em `rows*cols`)~~ — COMPLETO (Fase 2b)
-- Float closure type inference em iterators — Fase 2c
+- ✅ ~~Float closure type inference em iterators~~ — COMPLETO (Fase 2c)
 - Async Closures (`async () -> { await f() }`) e Async Test Matchers
 - `await` em control flow aninhado (`if`/`while`/`for` dentro de `async fn`)
 - `async { }` blocks
@@ -3947,8 +3948,8 @@ math.sum(arr), math.mean(arr), math.median(arr), math.std(arr)
 - **Built-in Functions:** 60+ (I/O, type system, type checking, conversions, math, stats, linalg, complex, string operations)
 - **Features Implementadas:** ~160+ (v1.5 100% completo ✅)
 - **Features v1.5:** Test Library + Iterators + Pipeline + Ranges + Async/Await = 5 features principais
-- **Features v1.6 Completas:** break/continue ✅, ARC nested closures ✅, String Library ✅, Matrix Constructors (`ones`/`linspace`/`arange`/`rand`/`irand`) ✅, 2D Matrix iteration (Fase 2b) ✅
-- **Features Planejadas v1.6 (restante):** Float closure inference (Fase 2c), Async Closures, Pattern Matching 2.0
+- **Features v1.6 Completas:** break/continue ✅, ARC nested closures ✅, String Library ✅, Matrix Constructors (`ones`/`linspace`/`arange`/`rand`/`irand`) ✅, 2D Matrix iteration (Fase 2b) ✅, Float closure type inference (Fase 2c) ✅
+- **Features Planejadas v1.6 (restante):** Async Closures, Pattern Matching 2.0
 - **Versão Atual:** v1.5 ✅ **COMPLETO (Fev 2026)** 🎉
 - **Versão Anterior:** v1.4 ✅ **COMPLETO (18/02/2026)**
 - **Progresso MVP:** 100%
