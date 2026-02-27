@@ -1,0 +1,15 @@
+// Test: async closure inside test.it()
+// Expected output contains: PASS
+
+import test
+
+async fn fetch_value() -> int {
+    return 42
+}
+
+test.describe("Async test.it()", () -> {
+    test.it("resolves with correct value", async () -> {
+        var result := await fetch_value()
+        test.expect(result).toBe(42)
+    })
+})

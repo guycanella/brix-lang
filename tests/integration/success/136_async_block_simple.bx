@@ -1,0 +1,11 @@
+// Test: async { } block with no inner await
+// Expected output:
+// 42
+
+async fn main() {
+    var future := async {
+        return 42
+    }
+    var result := await future
+    println(result)
+}

@@ -1,0 +1,11 @@
+// Test: async closure with no captures, no await
+// Expected output:
+// 42
+
+async fn main() {
+    var f := async () -> {
+        return 42
+    }
+    var result := await f
+    println(result)
+}

@@ -864,6 +864,33 @@ where
                 generators,
             }, span));
 
+        // Async closure: async (x: int) -> int { ... } — same syntax as closure but is_async: true
+        let async_closure = just(Token::Async)
+            .ignore_then(
+                select! { Token::Identifier(param_name) => param_name }
+                    .then_ignore(just(Token::Colon))
+                    .then(type_annotation_parser())
+                    .separated_by(just(Token::Comma))
+                    .allow_trailing()
+                    .delimited_by(just(Token::LParen), just(Token::RParen))
+                    .then(
+                        just(Token::Arrow)
+                            .ignore_then(type_annotation_parser().or_not())
+                            .or_not()
+                            .map(|opt| opt.flatten()),
+                    )
+                    .then(block.clone())
+            )
+            .map_with_span(|((params, return_type), body), span| {
+                Expr::new(ExprKind::Closure(Closure {
+                    params,
+                    return_type,
+                    body: Box::new(body),
+                    captured_vars: vec![],
+                    is_async: true,
+                }), span)
+            });
+
         // Closure: (x: int, y: int) -> int { return x + y } (supports Optional: (x: int?) -> int?)
         // Also supports zero-param closures: () -> { ... } and () -> int { ... }
         // Parens required, types required, return type optional, block body required
@@ -887,6 +914,7 @@ where
                     return_type,
                     body: Box::new(body),
                     captured_vars: vec![],
+                    is_async: false,
                 }), span)
             });
 
@@ -941,6 +969,7 @@ where
             .or(fstring)
             .or(match_expr)
             .or(list_comp)
+            .or(async_closure)  // async closures before async blocks
             .or(async_block)  // async { } before closure to avoid conflict
             .or(closure)  // Try closure BEFORE paren_expr
             .or(struct_init)

@@ -1,0 +1,16 @@
+// Test: async closure that awaits an async fn
+// Expected output:
+// 84
+
+async fn double(x: int) -> int {
+    return x * 2
+}
+
+async fn main() {
+    var f := async () -> {
+        var x := await double(42)
+        return x
+    }
+    var result := await f
+    println(result)
+}

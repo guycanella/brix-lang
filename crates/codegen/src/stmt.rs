@@ -725,6 +725,10 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
                 // Allocate space for Intersection (merged struct)
                 self.brix_type_to_llvm(&val_type)
             }
+            BrixType::AsyncFuture => {
+                // async { } block result is an i8* state_ptr
+                self.context.ptr_type(AddressSpace::default()).into()
+            }
             _ => {
                 return Err(CodegenError::TypeError {
                     expected: "Known type".to_string(),

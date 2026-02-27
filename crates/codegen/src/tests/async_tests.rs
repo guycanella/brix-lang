@@ -363,3 +363,410 @@ fn test_multiple_async_fns_compile() {
     assert!(ir.contains("create_b") && ir.contains("poll_b"));
     assert!(ir.contains("create_c") && ir.contains("poll_c"));
 }
+
+// ==================== ASYNC BLOCK (v1.6 Phase 3b) ====================
+
+#[test]
+fn test_async_block_simple() {
+    // async fn main() {
+    //     var future := async { return 42 }
+    //     var result := await future
+    //     println(result)
+    // }
+    let async_block = Expr::dummy(ExprKind::AsyncBlock {
+        body: Box::new(return_int_body(42)),
+    });
+    let await_future = Expr::dummy(ExprKind::Await {
+        expr: Box::new(Expr::dummy(ExprKind::Identifier("future".to_string()))),
+    });
+    let main_fn = Stmt::dummy(StmtKind::FunctionDef {
+        is_async: true,
+        type_params: vec![],
+        name: "main".to_string(),
+        params: vec![],
+        return_type: None,
+        body: Box::new(Stmt::dummy(StmtKind::Block(vec![
+            Stmt::dummy(StmtKind::VariableDecl {
+                name: "future".to_string(),
+                type_hint: None,
+                value: async_block,
+                is_const: false,
+            }),
+            Stmt::dummy(StmtKind::VariableDecl {
+                name: "result".to_string(),
+                type_hint: None,
+                value: await_future,
+                is_const: false,
+            }),
+        ]))),
+    });
+    let program = Program { statements: vec![main_fn] };
+    let ir = compile_program(program);
+    assert!(ir.is_ok(), "async block simple should compile: {:?}", ir.err());
+    let ir = ir.unwrap();
+    assert!(ir.contains("async_block_"), "IR should contain async_block_ functions");
+}
+
+#[test]
+fn test_async_block_with_inner_await() {
+    // async fn double(x: int) -> int { return x * 2 }
+    // async fn main() {
+    //     var future := async {
+    //         var x := await double(42)
+    //         return x
+    //     }
+    //     var result := await future
+    //     println(result)
+    // }
+    let double_fn = Stmt::dummy(StmtKind::FunctionDef {
+        is_async: true,
+        type_params: vec![],
+        name: "double".to_string(),
+        params: vec![("x".to_string(), "int".to_string(), None)],
+        return_type: Some(vec!["int".to_string()]),
+        body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+            StmtKind::Return {
+                values: vec![Expr::dummy(ExprKind::Binary {
+                    op: parser::ast::BinaryOp::Mul,
+                    lhs: Box::new(Expr::dummy(ExprKind::Identifier("x".to_string()))),
+                    rhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(2)))),
+                })],
+            },
+        )]))),
+    });
+
+    // Build async block body: var x := await double(42) ; return x
+    let await_decl = Stmt::dummy(StmtKind::VariableDecl {
+        name: "x".to_string(),
+        type_hint: None,
+        value: Expr::dummy(ExprKind::Await {
+            expr: Box::new(Expr::dummy(ExprKind::Call {
+                func: Box::new(Expr::dummy(ExprKind::Identifier("double".to_string()))),
+                args: vec![Expr::dummy(ExprKind::Literal(Literal::Int(42)))],
+            })),
+        }),
+        is_const: false,
+    });
+    let ret_x = Stmt::dummy(StmtKind::Return {
+        values: vec![Expr::dummy(ExprKind::Identifier("x".to_string()))],
+    });
+    let block_body = Stmt::dummy(StmtKind::Block(vec![await_decl, ret_x]));
+
+    let async_block = Expr::dummy(ExprKind::AsyncBlock {
+        body: Box::new(block_body),
+    });
+    let await_future = Expr::dummy(ExprKind::Await {
+        expr: Box::new(Expr::dummy(ExprKind::Identifier("future".to_string()))),
+    });
+    let main_fn = Stmt::dummy(StmtKind::FunctionDef {
+        is_async: true,
+        type_params: vec![],
+        name: "main".to_string(),
+        params: vec![],
+        return_type: None,
+        body: Box::new(Stmt::dummy(StmtKind::Block(vec![
+            Stmt::dummy(StmtKind::VariableDecl {
+                name: "future".to_string(),
+                type_hint: None,
+                value: async_block,
+                is_const: false,
+            }),
+            Stmt::dummy(StmtKind::VariableDecl {
+                name: "result".to_string(),
+                type_hint: None,
+                value: await_future,
+                is_const: false,
+            }),
+        ]))),
+    });
+    let program = Program { statements: vec![double_fn, main_fn] };
+    let ir = compile_program(program);
+    assert!(ir.is_ok(), "async block with inner await should compile: {:?}", ir.err());
+    let ir = ir.unwrap();
+    assert!(ir.contains("create_double") && ir.contains("poll_double"));
+    assert!(ir.contains("async_block_"), "IR should contain async_block_ functions");
+}
+
+#[test]
+fn test_async_block_type_is_async_future() {
+    // Test that the async block compiles correctly (AsyncFuture type is stored as ptr)
+    let async_block = Expr::dummy(ExprKind::AsyncBlock {
+        body: Box::new(return_int_body(1)),
+    });
+    let await_future = Expr::dummy(ExprKind::Await {
+        expr: Box::new(Expr::dummy(ExprKind::Identifier("future".to_string()))),
+    });
+    let main_fn = Stmt::dummy(StmtKind::FunctionDef {
+        is_async: true,
+        type_params: vec![],
+        name: "main".to_string(),
+        params: vec![],
+        return_type: None,
+        body: Box::new(Stmt::dummy(StmtKind::Block(vec![
+            Stmt::dummy(StmtKind::VariableDecl {
+                name: "future".to_string(),
+                type_hint: None,
+                value: async_block,
+                is_const: false,
+            }),
+            Stmt::dummy(StmtKind::VariableDecl {
+                name: "result".to_string(),
+                type_hint: None,
+                value: await_future,
+                is_const: false,
+            }),
+        ]))),
+    });
+    let program = Program { statements: vec![main_fn] };
+    let ir = compile_program(program);
+    assert!(ir.is_ok(), "async block type test should compile: {:?}", ir.err());
+}
+
+#[test]
+fn test_extract_await_segments_variable_await() {
+    use crate::extract_await_segments;
+    // Build: `var result := await future`
+    let await_expr = Expr::dummy(ExprKind::Await {
+        expr: Box::new(Expr::dummy(ExprKind::Identifier("future".to_string()))),
+    });
+    let stmt = Stmt::dummy(StmtKind::VariableDecl {
+        name: "result".to_string(),
+        value: await_expr,
+        type_hint: None,
+        is_const: false,
+    });
+    let body = Stmt::dummy(StmtKind::Block(vec![stmt]));
+    let (await_points, segments) = extract_await_segments(&body);
+    assert_eq!(await_points.len(), 1, "Expected 1 await point");
+    assert!(await_points[0].is_variable_await, "Expected is_variable_await=true");
+    assert_eq!(await_points[0].callee_name, "future");
+    assert_eq!(segments.len(), 2, "Expected 2 segments");
+}
+
+// ==================== ASYNC AWAIT IN CONTROL FLOW (v1.6 Phase 3a) ====================
+
+fn make_await_call(var: &str, callee: &str, args: Vec<Expr>) -> Stmt {
+    Stmt::dummy(StmtKind::VariableDecl {
+        name: var.to_string(),
+        type_hint: None,
+        value: Expr::dummy(ExprKind::Await {
+            expr: Box::new(Expr::dummy(ExprKind::Call {
+                func: Box::new(Expr::dummy(ExprKind::Identifier(callee.to_string()))),
+                args,
+            })),
+        }),
+        is_const: false,
+    })
+}
+
+fn make_simple_async_fn(name: &str, ret_val: i64) -> Stmt {
+    Stmt::dummy(StmtKind::FunctionDef {
+        is_async: true,
+        type_params: vec![],
+        name: name.to_string(),
+        params: vec![],
+        return_type: Some(vec!["int".to_string()]),
+        body: Box::new(return_int_body(ret_val)),
+    })
+}
+
+#[test]
+fn test_async_await_in_if_compiles() {
+    // async fn helper() -> int { return 7 }
+    // async fn main() {
+    //     var result := 0
+    //     if 1 == 1 { var x := await helper() }
+    //     println(result)
+    // }
+    let helper = make_simple_async_fn("helper", 7);
+    let main_fn = Stmt::dummy(StmtKind::FunctionDef {
+        is_async: true,
+        type_params: vec![],
+        name: "main".to_string(),
+        params: vec![],
+        return_type: None,
+        body: Box::new(Stmt::dummy(StmtKind::Block(vec![
+            Stmt::dummy(StmtKind::VariableDecl {
+                name: "result".to_string(),
+                type_hint: None,
+                value: Expr::dummy(ExprKind::Literal(Literal::Int(0))),
+                is_const: false,
+            }),
+            Stmt::dummy(StmtKind::If {
+                condition: Expr::dummy(ExprKind::Binary {
+                    op: parser::ast::BinaryOp::Eq,
+                    lhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(1)))),
+                    rhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(1)))),
+                }),
+                then_block: Box::new(Stmt::dummy(StmtKind::Block(vec![
+                    make_await_call("x", "helper", vec![]),
+                ]))),
+                else_block: None,
+            }),
+        ]))),
+    });
+    let program = Program { statements: vec![helper, main_fn] };
+    let ir = compile_program(program);
+    assert!(ir.is_ok(), "async await in if should compile: {:?}", ir.err());
+    let ir = ir.unwrap();
+    assert!(ir.contains("poll_main"), "IR should contain poll_main");
+    assert!(ir.contains("create_main"), "IR should contain create_main");
+}
+
+#[test]
+fn test_async_await_in_while_compiles() {
+    // async fn helper() -> int { return 1 }
+    // async fn main() {
+    //     var i := 0
+    //     while i < 3 { var x := await helper(); i := i + 1 }
+    // }
+    let helper = make_simple_async_fn("helper", 1);
+    let main_fn = Stmt::dummy(StmtKind::FunctionDef {
+        is_async: true,
+        type_params: vec![],
+        name: "main".to_string(),
+        params: vec![],
+        return_type: None,
+        body: Box::new(Stmt::dummy(StmtKind::Block(vec![
+            Stmt::dummy(StmtKind::VariableDecl {
+                name: "i".to_string(),
+                type_hint: None,
+                value: Expr::dummy(ExprKind::Literal(Literal::Int(0))),
+                is_const: false,
+            }),
+            Stmt::dummy(StmtKind::While {
+                condition: Expr::dummy(ExprKind::Binary {
+                    op: parser::ast::BinaryOp::Lt,
+                    lhs: Box::new(Expr::dummy(ExprKind::Identifier("i".to_string()))),
+                    rhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(3)))),
+                }),
+                body: Box::new(Stmt::dummy(StmtKind::Block(vec![
+                    make_await_call("x", "helper", vec![]),
+                    Stmt::dummy(StmtKind::Assignment {
+                        target: Expr::dummy(ExprKind::Identifier("i".to_string())),
+                        value: Expr::dummy(ExprKind::Binary {
+                            op: parser::ast::BinaryOp::Add,
+                            lhs: Box::new(Expr::dummy(ExprKind::Identifier("i".to_string()))),
+                            rhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(1)))),
+                        }),
+                    }),
+                ]))),
+            }),
+        ]))),
+    });
+    let program = Program { statements: vec![helper, main_fn] };
+    let ir = compile_program(program);
+    assert!(ir.is_ok(), "async await in while should compile: {:?}", ir.err());
+    let ir = ir.unwrap();
+    assert!(ir.contains("poll_main"), "IR should contain poll_main");
+}
+
+#[test]
+fn test_extract_async_stmts_if_await() {
+    use crate::extract_async_stmts;
+    use crate::AsyncStmt;
+    let stmts = vec![
+        Stmt::dummy(StmtKind::If {
+            condition: Expr::dummy(ExprKind::Literal(Literal::Int(1))),
+            then_block: Box::new(Stmt::dummy(StmtKind::Block(vec![
+                make_await_call("x", "helper", vec![]),
+            ]))),
+            else_block: None,
+        }),
+    ];
+    let result = extract_async_stmts(&stmts, &[]);
+    assert!(result.iter().any(|s| matches!(s, AsyncStmt::IfAwait { .. })),
+        "Should produce IfAwait");
+}
+
+#[test]
+fn test_extract_async_stmts_while_await() {
+    use crate::extract_async_stmts;
+    use crate::AsyncStmt;
+    let stmts = vec![
+        Stmt::dummy(StmtKind::While {
+            condition: Expr::dummy(ExprKind::Literal(Literal::Int(1))),
+            body: Box::new(Stmt::dummy(StmtKind::Block(vec![
+                make_await_call("x", "helper", vec![]),
+            ]))),
+        }),
+    ];
+    let result = extract_async_stmts(&stmts, &[]);
+    assert!(result.iter().any(|s| matches!(s, AsyncStmt::WhileAwait { .. })),
+        "Should produce WhileAwait");
+}
+
+// --- Phase 3c: Async Closure tests ---
+
+#[test]
+fn test_async_closure_no_captures_compiles() {
+    let main_fn = Stmt::dummy(StmtKind::FunctionDef {
+        is_async: true,
+        type_params: vec![],
+        name: "main".to_string(),
+        params: vec![],
+        return_type: None,
+        body: Box::new(Stmt::dummy(StmtKind::Block(vec![
+            Stmt::dummy(StmtKind::VariableDecl {
+                name: "f".to_string(),
+                type_hint: None,
+                value: Expr::dummy(ExprKind::Closure(parser::ast::Closure {
+                    params: vec![],
+                    return_type: None,
+                    body: Box::new(Stmt::dummy(StmtKind::Block(vec![
+                        Stmt::dummy(StmtKind::Return {
+                            values: vec![Expr::dummy(ExprKind::Literal(Literal::Int(42)))],
+                        }),
+                    ]))),
+                    captured_vars: vec![],
+                    is_async: true,
+                })),
+                is_const: false,
+            }),
+            make_await_call("result", "f", vec![]),
+        ]))),
+    });
+    let program = Program { statements: vec![main_fn] };
+    let ir = compile_program(program);
+    assert!(ir.is_ok(), "async closure should compile: {:?}", ir.err());
+    let ir = ir.unwrap();
+    assert!(ir.contains("poll_async_closure_"), "IR should contain async closure poll function");
+}
+
+#[test]
+fn test_async_closure_with_await_compiles() {
+    let helper = make_simple_async_fn("helper", 99);
+    let main_fn = Stmt::dummy(StmtKind::FunctionDef {
+        is_async: true,
+        type_params: vec![],
+        name: "main".to_string(),
+        params: vec![],
+        return_type: None,
+        body: Box::new(Stmt::dummy(StmtKind::Block(vec![
+            Stmt::dummy(StmtKind::VariableDecl {
+                name: "f".to_string(),
+                type_hint: None,
+                value: Expr::dummy(ExprKind::Closure(parser::ast::Closure {
+                    params: vec![],
+                    return_type: None,
+                    body: Box::new(Stmt::dummy(StmtKind::Block(vec![
+                        make_await_call("x", "helper", vec![]),
+                        Stmt::dummy(StmtKind::Return {
+                            values: vec![Expr::dummy(ExprKind::Identifier("x".to_string()))],
+                        }),
+                    ]))),
+                    captured_vars: vec![],
+                    is_async: true,
+                })),
+                is_const: false,
+            }),
+            make_await_call("result", "f", vec![]),
+        ]))),
+    });
+    let program = Program { statements: vec![helper, main_fn] };
+    let ir = compile_program(program);
+    assert!(ir.is_ok(), "async closure with await should compile: {:?}", ir.err());
+    let ir = ir.unwrap();
+    assert!(ir.contains("poll_async_closure_"), "IR should contain async closure poll function");
+}
+

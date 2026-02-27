@@ -1,0 +1,19 @@
+// Test: await in then-branch, else without await
+// Expected output:
+// 100
+
+async fn double(x: int) -> int {
+    return x * 2
+}
+
+async fn main() {
+    var result := 0
+    var flag := 0
+    if flag == 1 {
+        var x := await double(42)
+        result := x
+    } else {
+        result := 100
+    }
+    println(result)
+}

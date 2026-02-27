@@ -1,0 +1,31 @@
+// Expected output: 15
+
+async fn double(x: int) -> int {
+    return x * 2
+}
+
+async fn triple(x: int) -> int {
+    return x * 3
+}
+
+async fn main() {
+    var sum1 := 0
+    var i := 0
+    while i < 3 {
+        var v := await double(i)
+        sum1 := sum1 + v
+        i := i + 1
+    }
+    // sum1 = 0+2+4 = 6
+
+    var sum2 := 0
+    var j := 0
+    while j < 3 {
+        var v := await triple(j)
+        sum2 := sum2 + v
+        j := j + 1
+    }
+    // sum2 = 0+3+6 = 9
+
+    println(sum1 + sum2)
+}

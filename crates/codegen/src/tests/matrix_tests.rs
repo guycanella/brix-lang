@@ -1667,6 +1667,7 @@ fn make_unary_closure(param: &str, param_ty: &str, ret_ty: &str, body: Expr) -> 
         return_type: Some(ret_ty.to_string()),
         body: Box::new(Stmt::dummy(StmtKind::Return { values: vec![body] })),
         captured_vars: vec![],
+        is_async: false,
     }))
 }
 
@@ -1677,6 +1678,7 @@ fn make_unary_closure_no_return(param: &str, param_ty: &str, body: Expr) -> Expr
         return_type: None,
         body: Box::new(Stmt::dummy(StmtKind::Return { values: vec![body] })),
         captured_vars: vec![],
+        is_async: false,
     }))
 }
 
@@ -1687,6 +1689,7 @@ fn make_binary_closure(p0: &str, t0: &str, p1: &str, t1: &str, ret_ty: &str, bod
         return_type: Some(ret_ty.to_string()),
         body: Box::new(Stmt::dummy(StmtKind::Return { values: vec![body] })),
         captured_vars: vec![],
+        is_async: false,
     }))
 }
 
