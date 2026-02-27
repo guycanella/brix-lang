@@ -2114,6 +2114,9 @@ typedef struct {
     char*  name;
     void*  fn_ptr;
     void*  env_ptr;
+    int    is_async;
+    void*  state_ptr;
+    BrixPollResult (*poll_fn)(void*);
     int    passed;
     double duration_ms;
     char   error_msg[BRIX_ERR_BUF];
@@ -2224,6 +2227,38 @@ void test_it_register(BrixString* title, void* closure_ptr) {
 
     e->fn_ptr       = c->fn_ptr;
     e->env_ptr      = c->env_ptr;
+    e->is_async     = 0;
+    e->state_ptr    = NULL;
+    e->poll_fn      = NULL;
+    e->passed       = 1;
+    e->duration_ms  = 0;
+    e->error_msg[0] = '\0';
+    e->file[0]      = '\0';
+    e->line         = 0;
+}
+
+// ==========================================
+// Async test registration: test.it() with async closure
+// ==========================================
+
+void test_it_async(BrixString* title, void* state_ptr) {
+    if (!g_suite) return;
+    if (g_suite->test_count >= BRIX_MAX_TESTS) {
+        fprintf(stderr, "Error: too many tests (max %d)\n", BRIX_MAX_TESTS);
+        exit(1);
+    }
+    int idx = g_suite->test_count++;
+    BrixTestEntry* e = &g_suite->tests[idx];
+
+    e->name = (char*)malloc(title->len + 1);
+    memcpy(e->name, title->data, title->len);
+    e->name[title->len] = '\0';
+
+    e->fn_ptr       = NULL;
+    e->env_ptr      = NULL;
+    e->is_async     = 1;
+    e->state_ptr    = state_ptr;
+    e->poll_fn      = (BrixPollResult (*)(void*)) ((void**)state_ptr)[0];
     e->passed       = 1;
     e->duration_ms  = 0;
     e->error_msg[0] = '\0';
@@ -2255,7 +2290,11 @@ static void brix_test_run_all(void) {
         g_test_failed = 0;
 
         if (setjmp(g_test_jmp) == 0) {
-            brix_call_void(e->fn_ptr, e->env_ptr);
+            if (e->is_async) {
+                brix_run_to_completion(e->state_ptr, e->poll_fn);
+            } else {
+                brix_call_void(e->fn_ptr, e->env_ptr);
+            }
         }
 
         e->duration_ms = brix_now_ms() - start;

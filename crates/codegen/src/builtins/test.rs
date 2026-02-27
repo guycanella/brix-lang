@@ -64,6 +64,10 @@ impl<'a, 'ctx> TestFunctions<'ctx> for Compiler<'a, 'ctx> {
         self.declare_test_fn_ptr("test_before_each_register");
         self.declare_test_fn_ptr("test_after_each_register");
 
+        // test_it_async(BrixString* title, void* state_ptr) -> void
+        // Used for async closures in test.it() (v1.6 Phase 3d)
+        self.declare_test_fn_ptr_ptr("test_it_async");
+
         // Matcher functions are declared on-demand in compile_test_matcher()
         // because they depend on the actual value type being matched
     }

@@ -1281,3 +1281,90 @@ fn test_int_closure_infer() {
         "5\n2\n10"
     );
 }
+
+#[test]
+fn test_async_block_simple() {
+    assert_success(
+        "tests/integration/success/136_async_block_simple.bx",
+        "42"
+    );
+}
+
+#[test]
+fn test_async_block_with_await() {
+    assert_success(
+        "tests/integration/success/137_async_block_with_await.bx",
+        "84"
+    );
+}
+
+// ==========================================
+// ASYNC AWAIT IN CONTROL FLOW (v1.6 Phase 3a)
+// ==========================================
+
+#[test]
+fn test_async_await_in_if() {
+    assert_success(
+        "tests/integration/success/138_async_await_in_if.bx",
+        "84"
+    );
+}
+
+#[test]
+fn test_async_await_in_if_else() {
+    assert_success(
+        "tests/integration/success/139_async_await_in_if_else.bx",
+        "100"
+    );
+}
+
+#[test]
+fn test_async_await_in_while() {
+    assert_success(
+        "tests/integration/success/140_async_await_in_while.bx",
+        "6"
+    );
+}
+
+#[test]
+fn test_async_chained_await_in_while() {
+    assert_success(
+        "tests/integration/success/141_async_chained_await_in_while.bx",
+        "9"
+    );
+}
+
+// Phase 3c: Async closures
+#[test]
+fn test_142_async_closure_no_captures() {
+    assert_success(
+        "tests/integration/success/142_async_closure_no_captures.bx",
+        "42"
+    );
+}
+
+#[test]
+fn test_143_async_closure_with_await() {
+    assert_success(
+        "tests/integration/success/143_async_closure_with_await.bx",
+        "84"
+    );
+}
+
+#[test]
+fn test_145_async_two_while_loops() {
+    assert_success(
+        "tests/integration/success/145_async_two_while_loops.bx",
+        "15"
+    );
+}
+
+// Phase 3d: Async test matchers
+#[test]
+fn test_144_async_test_it() {
+    assert_output(
+        "tests/integration/success/144_async_test_it.bx",
+        0,
+        Some("1 passed")
+    );
+}

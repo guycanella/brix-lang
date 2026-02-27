@@ -51,6 +51,7 @@ fn test_closure_no_capture() {
             })],
         })),
         captured_vars: vec![],
+        is_async: false,
     };
 
     let stmts = vec![Stmt::dummy(StmtKind::VariableDecl {
@@ -88,6 +89,7 @@ fn test_closure_single_capture() {
                     })],
                 })),
                 captured_vars: vec!["offset".to_string()],
+                is_async: false,
             })),
             is_const: false,
         }),
@@ -111,6 +113,7 @@ fn test_closure_call_no_args() {
                     values: vec![Expr::dummy(ExprKind::Literal(Literal::Int(42)))],
                 })),
                 captured_vars: vec![],
+                is_async: false,
             })),
             is_const: false,
         }),
@@ -143,6 +146,7 @@ fn test_closure_assignment_arc() {
             })],
         })),
         captured_vars: vec![],
+        is_async: false,
     };
 
     let stmts = vec![
@@ -201,6 +205,7 @@ fn test_closure_many_captures() {
                 values: vec![sum_expr],
             })),
             captured_vars,
+            is_async: false,
         })),
         is_const: false,
     }));

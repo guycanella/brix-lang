@@ -169,3 +169,57 @@ fn test_async_block_empty() {
         _ => panic!("Expected AsyncBlock, got {:?}", expr.kind),
     }
 }
+
+// ==================== async CLOSURE TESTS (Phase 3c) ====================
+
+#[test]
+fn test_async_closure_no_params_is_async() {
+    let expr = parse_expr("async () -> { }").unwrap();
+    match &expr.kind {
+        ExprKind::Closure(closure) => {
+            assert_eq!(closure.is_async, true, "async closure should have is_async=true");
+            assert!(closure.params.is_empty());
+            assert!(closure.return_type.is_none());
+        }
+        _ => panic!("Expected Closure, got {:?}", expr.kind),
+    }
+}
+
+#[test]
+fn test_async_closure_with_params_is_async() {
+    let expr = parse_expr("async (x: int, y: int) -> { return x }").unwrap();
+    match &expr.kind {
+        ExprKind::Closure(closure) => {
+            assert_eq!(closure.is_async, true);
+            assert_eq!(closure.params.len(), 2);
+            assert_eq!(closure.params[0], ("x".to_string(), "int".to_string()));
+            assert_eq!(closure.params[1], ("y".to_string(), "int".to_string()));
+        }
+        _ => panic!("Expected Closure, got {:?}", expr.kind),
+    }
+}
+
+#[test]
+fn test_async_closure_with_return_type() {
+    let expr = parse_expr("async (n: int) -> int { return n }").unwrap();
+    match &expr.kind {
+        ExprKind::Closure(closure) => {
+            assert_eq!(closure.is_async, true);
+            assert_eq!(closure.params.len(), 1);
+            assert_eq!(closure.params[0].0, "n");
+            assert_eq!(closure.return_type.as_deref(), Some("int"));
+        }
+        _ => panic!("Expected Closure, got {:?}", expr.kind),
+    }
+}
+
+#[test]
+fn test_sync_closure_is_not_async() {
+    let expr = parse_expr("(x: int) -> int { return x }").unwrap();
+    match &expr.kind {
+        ExprKind::Closure(closure) => {
+            assert_eq!(closure.is_async, false, "Regular closure should have is_async=false");
+        }
+        _ => panic!("Expected Closure, got {:?}", expr.kind),
+    }
+}

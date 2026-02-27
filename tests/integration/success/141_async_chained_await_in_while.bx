@@ -1,0 +1,23 @@
+// Test: while loop with 2 awaits per iteration
+// Expected output:
+// 9
+
+async fn double(x: int) -> int {
+    return x * 2
+}
+
+async fn add1(x: int) -> int {
+    return x + 1
+}
+
+async fn main() {
+    var total := 0
+    var i := 0
+    while i < 3 {
+        var d := await double(i)
+        var v := await add1(d)
+        total := total + v
+        i := i + 1
+    }
+    println(total)
+}

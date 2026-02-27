@@ -205,12 +205,14 @@ pub struct MethodDef {
 
 // Closure (anonymous function with capture)
 // Syntax: (x: int, y: int) -> int { return x + y }
+// Async:  async (x: int) -> int { var y := await f(); return y }
 #[derive(Debug, Clone, PartialEq)]
 pub struct Closure {
     pub params: Vec<(String, String)>,    // Type annotations required: (name, type)
     pub return_type: Option<String>,      // Optional return type
     pub body: Box<Stmt>,                  // Closure body is a block (Statement)
     pub captured_vars: Vec<String>,       // Filled by analysis pass
+    pub is_async: bool,                   // true for async closures (v1.6 Phase 3c)
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -1,0 +1,17 @@
+// Test: await inside if then-branch
+// Expected output:
+// 84
+
+async fn double(x: int) -> int {
+    return x * 2
+}
+
+async fn main() {
+    var result := 0
+    var flag := 1
+    if flag == 1 {
+        var x := await double(42)
+        result := x
+    }
+    println(result)
+}

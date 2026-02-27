@@ -69,6 +69,7 @@ fn test_closure_many_captures_10() {
                 values: vec![return_expr],
             })),
             captured_vars,
+            is_async: false,
         })),
         is_const: false,
     }));
@@ -107,6 +108,7 @@ fn test_nested_closures_3_levels() {
                     values: vec![Expr::dummy(ExprKind::Identifier("x".to_string()))],
                 })),
                 captured_vars: vec!["x".to_string()],
+                is_async: false,
             })),
             is_const: false,
         }),
@@ -140,6 +142,7 @@ fn test_closure_chain_5_calls() {
                     })],
                 })),
                 captured_vars: vec![],
+                is_async: false,
             })),
             is_const: false,
         }));
@@ -248,6 +251,7 @@ fn test_complex_combination() {
                     values: vec![Expr::dummy(ExprKind::Identifier("x".to_string()))],
                 })),
                 captured_vars: vec!["x".to_string()],
+                is_async: false,
             })),
             is_const: false,
         }),
