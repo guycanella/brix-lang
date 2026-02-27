@@ -1,6 +1,6 @@
 # Brix Language (Design Document v1.0)
 
-> ✅ **Status do Projeto (Fev 2026):** O compilador Brix **v1.5 COMPLETO + v1.6 Fases 0–3 COMPLETAS** — v1.6 Fases 0 (break/continue, ARC nested closures), 1 (String Library), 2a (Matrix Constructors), 2b (2D Matrix Iteration), 2c (Float Closure Type Inference), 3a (`await` em control flow aninhado: `if`/`while`), 3b (`async { }` blocks), 3c (Async Closures: `async () -> { await f() }`), 3d (Async Test Matchers: `test.it("name", async () -> { ... })`) concluídas. v1.5 entregou Ranges Unificados, Iteradores, Pipeline Operator, Test Library Jest-style (28 matchers) e Async/Await via state machines LLVM. **1.182 unit tests + 148 integration tests + 383 Test Library = 1.713 tests passando (100%).** Em progresso: v1.6 — Fase 4 (Pattern Matching 2.0).
+> ✅ **Status do Projeto (Fev 2026):** O compilador Brix **v1.5 COMPLETO + v1.6 Fases 0–4 COMPLETAS** — v1.6 Fases 0 (break/continue, ARC nested closures), 1 (String Library), 2a (Matrix Constructors), 2b (2D Matrix Iteration), 2c (Float Closure Type Inference), 3a (`await` em control flow aninhado: `if`/`while`), 3b (`async { }` blocks), 3c (Async Closures: `async () -> { await f() }`), 3d (Async Test Matchers), 4 (Pattern Matching 2.0: destructuring patterns, range patterns, universal destructuring) concluídas. v1.5 entregou Ranges Unificados, Iteradores, Pipeline Operator, Test Library Jest-style (28 matchers) e Async/Await via state machines LLVM. **1.194 unit tests + 152 integration tests + 390 Test Library = 1.736 tests passando (100%).**
 
 ## Status Atual (Fevereiro 2026)
 
@@ -56,7 +56,7 @@
 - 19 tipos core (Int, Float, String, Matrix, IntMatrix, Complex, ComplexMatrix, Atom, Nil, Error, Struct, Generic, Closure, Union, Intersection, TypeAlias, Void, FloatPtr, Tuple)
 - Operadores completos (aritméticos, lógicos, bitwise, power operator `**`, Elvis `?:`)
 - Funções definidas pelo usuário com múltiplos retornos
-- Pattern matching com guards
+- Pattern matching com guards, range patterns e destructuring (v1.6)
 - List comprehensions
 - Import system (zero-overhead)
 - 38 funções matemáticas (math module)
@@ -172,7 +172,7 @@
 - Async/Await (state machine LLVM, `async fn`, `await`, `brix_run_to_completion`)
 - **Total: 1.133 unit + 110 integration = 1.243 tests (100% passing)**
 
-### ✅ **v1.6 (Fases 0–3 COMPLETAS - Fev 2026):**
+### ✅ **v1.6 (Fases 0–4 COMPLETAS - Fev 2026):**
 - **Fase 0a**: `break` / `continue` (6+6+8 unit tests, 5 integration tests)
 - **Fase 0b**: ARC nested closures — double-free, use-after-free e capture-by-reference não-intencional corrigidos (4 integration tests, 5 Test Library tests)
 - **Fase 1**: String Library completa — 10 métodos de string + iteração `for ch in str` (7 integration tests, 17 Test Library tests)
@@ -183,21 +183,24 @@
 - **Fase 3b**: `async { }` blocks — state machines anônimas; `poll_fn_ptr` em field 0; compilados por `compile_async_block()`. (+4 unit, +2 integration 136–137)
 - **Fase 3c**: Async closures — `async (params) -> { await f() }`; `is_async: bool` no AST `Closure`; parser detecta `async` antes de `(params) ->`; `compile_async_closure()`. (+4 parser unit, +4 codegen unit, +2 integration 142–143)
 - **Fase 3d**: Async test matchers — `test.it("name", async () -> { ... })`; codegen detecta `BrixType::AsyncFuture` e chama `test_it_async()` no runtime. (+1 integration 144, `async.test.bx` com 3 testes)
-- **Total acumulado: 1.182 unit + 148 integration + 383 Test Library = 1.713 tests (100% passing)**
+- **Fase 4a**: Destructuring patterns em `match` — `{ x, y }`, `{ x, 0 }`, `{ _, y }`; `Pattern::Destructure(Vec<Pattern>)` no AST; suporta `Tuple`, `Struct`, `IntMatrix`, `Matrix`; helper `apply_sub_pattern()`. (+4 parser unit, +3 codegen unit, +1 integration 149, +4 Test Library em `match.test.bx`)
+- **Fase 4b**: Range patterns em `match` — `18..64` (inclusivo), `0..<10` (exclusivo), `0.0..<0.5` (float); `Pattern::Range { start, end, inclusive }` no AST; codegen usa SLE/SLT (int) e OLE/OLT (float). (+3 codegen unit, +2 integration 150–151, +3 Test Library em `match.test.bx`)
+- **Fase 4c**: Universal destructuring — `var { a, b } := struct_ou_array`; `compile_destructuring_decl_stmt()` estendido de Tuple-only para `Struct` (field index) e `IntMatrix`/`Matrix` (GEP do data pointer). (+2 codegen unit, +1 integration 152)
+- **Total acumulado: 1.194 unit + 152 integration + 390 Test Library = 1.736 tests (100% passing)**
 
-### 🔮 **Planejado (v1.6 — restante):**
-- ✅ ~~`break` / `continue` em loops~~ — COMPLETO
-- ✅ ~~ARC double-free em nested closures~~ — COMPLETO
-- ✅ ~~String Library: `trim`, `ltrim`, `rtrim`, `starts_with`, `ends_with`, `contains`, `substring`, `reverse`, `repeat`, `index_of`~~ — COMPLETO
-- ✅ ~~String iteration (`for ch in "hello"`)~~ — COMPLETO
-- ✅ ~~Matrix constructors: `ones()`, `linspace()`, `arange()`, `rand()`, `irand()`~~ — COMPLETO
+### ✅ **v1.6 COMPLETO — todas as fases concluídas:**
+- ✅ ~~`break` / `continue` em loops~~ — COMPLETO (Fase 0a)
+- ✅ ~~ARC double-free em nested closures~~ — COMPLETO (Fase 0b)
+- ✅ ~~String Library: `trim`, `ltrim`, `rtrim`, `starts_with`, `ends_with`, `contains`, `substring`, `reverse`, `repeat`, `index_of`~~ — COMPLETO (Fase 1)
+- ✅ ~~String iteration (`for ch in "hello"`)~~ — COMPLETO (Fase 1)
+- ✅ ~~Matrix constructors: `ones()`, `linspace()`, `arange()`, `rand()`, `irand()`~~ — COMPLETO (Fase 2a)
 - ✅ ~~2D Matrix iteration (`.map(fn)` shape-preserving, `.filter()` flatten, `.reduce()`/`.any()`/`.all()`/`.find()` em `rows*cols`)~~ — COMPLETO (Fase 2b)
 - ✅ ~~Float closure type inference em iterators~~ — COMPLETO (Fase 2c)
 - ✅ ~~`await` em control flow aninhado (`if`/`while` dentro de `async fn`)~~ — COMPLETO (Fase 3a)
 - ✅ ~~`async { }` blocks~~ — COMPLETO (Fase 3b)
 - ✅ ~~Async Closures (`async () -> { await f() }`)~~ — COMPLETO (Fase 3c)
 - ✅ ~~Async Test Matchers (`test.it("name", async () -> { ... })`)~~ — COMPLETO (Fase 3d)
-- Pattern Matching 2.0 (destructuring de structs/tuples, range patterns) — Fase 4
+- ✅ ~~Pattern Matching 2.0 (destructuring patterns, range patterns, universal destructuring)~~ — COMPLETO (Fase 4)
 
 ### 🔮 **Planejado (v1.7+):**
 - `split` / `join` (requer `StringMatrix` como novo BrixType)
@@ -489,13 +492,15 @@ match value {
 }
 ```
 
-**Patterns Suportados (v1.0):**
+**Patterns Suportados (v1.6):**
 
 - **Literais**: `42`, `3.14`, `"text"`, `true`, `false`
 - **Wildcard**: `_` (matches anything, ignora valor)
 - **Binding**: `x` (captura valor e vincula a variável)
 - **Or-patterns**: `1 | 2 | 3` (match em qualquer um dos valores)
 - **Guards**: `x if x > 10` (condições adicionais)
+- **Range patterns** *(v1.6 Fase 4b)*: `18..64` (inclusivo), `0..<10` (exclusivo), `0.0..<0.5` (float)
+- **Destructuring patterns** *(v1.6 Fase 4a)*: `{ x, y }` (bindings), `{ x, 0 }` (literal constraint), `{ _, y }` (wildcard) — funciona em Struct, Tuple, IntMatrix, Matrix
 
 **Exemplos:**
 
@@ -509,7 +514,7 @@ var result := match x {
 }
 
 // Match com guards (condições)
-var category := match age {
+var category := match score {
     x if x < 18 -> "child"
     x if x < 60 -> "adult"
     _ -> "senior"
@@ -520,6 +525,42 @@ var day_type := match day {
     1 | 2 | 3 | 4 | 5 -> "weekday"
     6 | 7 -> "weekend"
     _ -> "invalid"
+}
+
+// Range patterns — substituem guards repetitivos (v1.6 Fase 4b)
+var category := match age {
+    0..17  -> "minor"
+    18..64 -> "adult"
+    65..99 -> "senior"
+    _ -> "other"
+}
+
+// Range exclusivo e float
+var grade := match score {
+    0.0..<0.5 -> "fail"
+    0.5..1.0  -> "pass"
+    _ -> "invalid"
+}
+
+// Destructuring patterns — Struct (v1.6 Fase 4a)
+struct Point { x: int, y: int }
+var p := Point { x: 3, y: 0 }
+var result := match p {
+    { x, 0 } -> x           // literal constraint no campo y
+    { x, y } -> x + y       // bindings em todos os campos
+}
+
+// Destructuring patterns — Tuple
+var t := (10, 20)
+var sum := match t {
+    { a, b } -> a + b
+}
+
+// Wildcard em destructuring
+var label := match p {
+    { _, 0 } -> "on x-axis"
+    { 0, _ } -> "on y-axis"
+    { x, y } -> "at \(x),\(y)"
 }
 
 // Type coercion automática (int→float)
@@ -545,11 +586,8 @@ match typeof(value) {
 - **Type coercion**: Promoção automática int→float quando necessário
 - **Exhaustiveness warning**: Warning (não bloqueia) quando falta wildcard
 - **Guards**: Binding disponível dentro do guard
-
-**Futuro (v1.1+):**
-- Destructuring patterns: `{ x: x, y: y }`, `(a, b, c)`, `[first, second, ...]`
-- Range patterns: `1..10`
-- Exhaustiveness checking obrigatório
+- **Range patterns**: Checagem de intervalo sem guards verbosos
+- **Destructuring**: Desconstrução posicional de Structs, Tuples, Arrays
 
 ---
 
@@ -751,9 +789,10 @@ println(f"product = {result[2]}")   // 50
 
 #### Destructuring
 
-Desempacotar múltiplos retornos em variáveis separadas:
+Desempacotar múltiplos retornos, structs e arrays em variáveis separadas:
 
 ```brix
+// Tuple / múltiplos retornos de função
 var { sum, diff, product } := calculations(10, 5)
 println(f"sum = {sum}")       // 15
 println(f"diff = {diff}")     // 5
@@ -761,12 +800,25 @@ println(f"product = {product}") // 50
 
 // Ignorar valores com _
 var { quotient, _ } := divmod(17, 5)  // Ignora remainder
+
+// Struct (v1.6 Fase 4c)
+struct Point { x: int, y: int }
+var p := Point { x: 3, y: 4 }
+var { x, y } := p
+println(x + y)  // 7
+
+// Array / IntMatrix (v1.6 Fase 4c)
+var arr := [10, 20, 30]
+var { a, b } := arr
+println(a + b)  // 30
 ```
 
 **Sintaxe:**
-- Destructuring: `var { name1, name2, name3 } := func()`
+- Destructuring: `var { name1, name2, name3 } := expr`
 - Ignorar valores: Use `_` na posição desejada
-- Número de variáveis deve corresponder ao número de retornos (exceto `_`)
+- Funciona com: Tuple, Struct, IntMatrix, Matrix
+- Para Struct: até `N` nomes onde `N ≤ número de campos` (posicional)
+- Para arrays: sem bounds check estático (runtime)
 
 #### Default Parameter Values
 
@@ -2157,13 +2209,15 @@ println(f"Eigenvectors: {eigenvectors}") // [[a+bim, c+dim], [e+fim, g+him]]
 - [x] **Match em typeof():** `match typeof(value) { "int" -> ... }`
 - [x] **Exhaustiveness warning**
 
-#### Pattern Matching Fase 2 (Destructuring) - v1.1+
+#### Pattern Matching Fase 2 (Destructuring) ✅ **COMPLETO (v1.6 Fase 4 - Fev 2026)**
 
-- [ ] **Struct patterns:** `{ status: 200, body: b } -> ...`
-- [ ] **Tuple patterns:** `(a, b, c) -> ...`
-- [ ] **Array patterns:** `[first, second, ...rest] -> ...`
-- [ ] **Range patterns:** `1..10 -> ...`
-- [ ] **Exhaustiveness checking obrigatório**
+- [x] **Destructuring patterns (posicional):** `{ x, y }`, `{ x, 0 }`, `{ _, y }` — Struct, Tuple, IntMatrix, Matrix ✅
+- [x] **Range patterns (int):** `18..64` (inclusivo), `0..<10` (exclusivo) ✅
+- [x] **Range patterns (float):** `0.0..<0.5`, `0.5..1.0` ✅
+- [x] **Universal destructuring de variáveis:** `var { a, b } := struct_ou_array` ✅
+- [ ] **Named field patterns:** `{ x: val_x, y: val_y }` (por nome) — v1.7+
+- [ ] **Array rest patterns:** `[first, second, ...rest]` — v1.7+
+- [ ] **Exhaustiveness checking obrigatório** — v1.7+
 
 ---
 
@@ -3950,17 +4004,15 @@ math.sum(arr), math.mean(arr), math.median(arr), math.std(arr)
 
 - **Linhas de Código (Rust):** ~6000 linhas (compiler core + advanced type system + atoms + type checkers + string functions)
 - **Linhas de Código (C Runtime):** ~1200 linhas (math + matrix + complex + LAPACK + error handling + atoms + string functions)
-- **Arquivos de Teste (.bx):** 95+ (core + math + functions + pattern matching + complex + nil/error + atoms + type checking + strings + type system)
-- **Tipos Implementados:** 17 (Int, Float, String, Matrix, IntMatrix, Complex, ComplexMatrix, FloatPtr, Void, Tuple, Nil, Error, Atom, Struct, Generic, Union, Intersection, TypeAlias, Closure)
+- **Arquivos de Teste (.bx):** 23 Test Library (390 testes) + 152 integration tests + 1.194 unit tests = 1.736 total
+- **Tipos Implementados:** 19 (Int, Float, String, Matrix, IntMatrix, Complex, ComplexMatrix, FloatPtr, Void, Tuple, Nil, Error, Atom, Struct, Generic, Union, Intersection, TypeAlias, Closure)
 - **Built-in Functions:** 60+ (I/O, type system, type checking, conversions, math, stats, linalg, complex, string operations)
-- **Features Implementadas:** ~160+ (v1.5 100% completo ✅)
-- **Features v1.5:** Test Library + Iterators + Pipeline + Ranges + Async/Await = 5 features principais
-- **Features v1.6 Completas:** break/continue ✅, ARC nested closures ✅, String Library ✅, Matrix Constructors (`ones`/`linspace`/`arange`/`rand`/`irand`) ✅, 2D Matrix iteration (Fase 2b) ✅, Float closure type inference (Fase 2c) ✅
-- **Features Planejadas v1.6 (restante):** Async Closures, Pattern Matching 2.0
-- **Versão Atual:** v1.5 ✅ **COMPLETO (Fev 2026)** 🎉
-- **Versão Anterior:** v1.4 ✅ **COMPLETO (18/02/2026)**
+- **Features Implementadas:** ~170+ (v1.6 100% completo ✅)
+- **Features v1.6 Completas:** break/continue ✅, ARC nested closures ✅, String Library ✅, Matrix Constructors ✅, 2D Matrix iteration ✅, Float closure type inference ✅, Async/Await aninhado ✅, async blocks ✅, async closures ✅, async test matchers ✅, Pattern Matching 2.0 (destructuring + range + universal destructuring) ✅
+- **Versão Atual:** v1.6 ✅ **COMPLETO (Fev 2026)** 🎉
+- **Versão Anterior:** v1.5 ✅ **COMPLETO (Fev 2026)**
 - **Progresso MVP:** 100%
-- **Próxima Versão:** v1.6 em progresso (2D Matrix iteration, Async Closures, Pattern Matching 2.0)
+- **Próxima Versão:** v1.7 (split/join com StringMatrix, named field patterns, HashMap built-in)
 - **Última Atualização:** Fev 2026
 
 ---

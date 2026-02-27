@@ -21,10 +21,10 @@ cargo build --release
 
 **Run Rust unit tests:**
 ```bash
-cargo test -p lexer -p parser -p codegen  # All unit tests: 310 + 184 + 688 = 1,182 (all passing)
+cargo test -p lexer -p parser -p codegen  # All unit tests: 310 + 188 + 696 = 1,194 (all passing)
 cargo test -p lexer                       # Only lexer (310 tests)
-cargo test -p parser                      # Only parser (184 tests)
-cargo test -p codegen                     # Only codegen (688 tests)
+cargo test -p parser                      # Only parser (188 tests)
+cargo test -p codegen                     # Only codegen (696 tests)
 cargo test -p codegen arc_tests           # Specific test module in codegen
 cargo test <pattern>                      # Tests matching pattern
 cargo test -- --nocapture                 # Show println! output
@@ -61,17 +61,17 @@ The driver (`src/main.rs`, ~314 lines) orchestrates all stages: lexing, parsing,
 ```
 brix/
 ├── src/main.rs              # CLI + compilation pipeline driver
-├── runtime.c                # C runtime (~2,769 lines) — must be in project root
+├── runtime.c                # C runtime (~2,808 lines) — must be in project root
 ├── crates/
 │   ├── lexer/src/token.rs   # Token enum (logos)
 │   ├── parser/src/
 │   │   ├── ast.rs           # Expr { kind: ExprKind, span }, Stmt { kind: StmtKind, span }
-│   │   ├── parser.rs        # chumsky parser (~1,450 lines)
+│   │   ├── parser.rs        # chumsky parser (~1,479 lines)
 │   │   ├── closure_analysis.rs  # Capture analysis pass (runs after parse)
 │   │   └── error.rs         # Ariadne-based parse error reporting
 │   └── codegen/src/
-│       ├── lib.rs           # Main compiler (~13,656 lines)
-│       ├── stmt.rs          # Statement compilation (~1,009 lines)
+│       ├── lib.rs           # Main compiler (~16,033 lines)
+│       ├── stmt.rs          # Statement compilation (~1,013 lines)
 │       ├── expr.rs          # Expression compilation (~369 lines)
 │       ├── helpers.rs       # LLVM helpers
 │       ├── error.rs         # CodegenError enum + CodegenResult<T>
@@ -81,7 +81,7 @@ brix/
 │       └── builtins/        # math.rs, stats.rs, linalg.rs, string.rs, io.rs, matrix.rs, test.rs
 ├── tests/
 │   ├── integration/         # End-to-end .bx files (success/, parser_errors/, codegen_errors/, runtime_errors/)
-│   └── brix/                # Language test files (*.test.bx) — 22 files, 372 tests, all passing
+│   └── brix/                # Language test files (*.test.bx) — 23 files, 390 tests, all passing
 └── examples/                # Example .bx programs
 ```
 
@@ -114,7 +114,7 @@ Flat `HashMap<String, (PointerValue, BrixType)>` with module prefixes. `import m
 - **match**: one basic block per arm + PHI in merge block
 - **break/continue**: `Compiler` has `current_break_block` / `current_continue_block` (`Option<BasicBlock>`). Each loop saves the outer blocks, sets its own, restores after body. After emitting the unconditional branch, a dead basic block is appended to keep LLVM IR valid.
 
-### Type System (current: v1.5)
+### Type System (current: v1.6)
 
 19 core types: `Int` (i64), `Float` (f64), `String`, `Matrix` (f64, contiguous), `IntMatrix` (i64), `Complex`, `ComplexMatrix`, `Tuple`, `Nil`, `Error`, `Atom` (i64 interned), `Void`, `Struct(String)`, `Generic`, `Closure` (represented as `Tuple(Int,Int,Int)` = ref_count/fn_ptr/env_ptr), `TypeAlias(String)`, `Union(Vec<BrixType>)`, `Intersection(Vec<BrixType>)`, `FloatPtr`.
 
@@ -161,17 +161,19 @@ Jest-style framework. 28 matchers across 14 categories: `toBe`, `not.toBe`, `toE
 
 **New built-in function:** External declaration in codegen → C implementation in `runtime.c` (auto-recompiled). Register in `builtins/` module.
 
-**New global constructor/function (e.g., `ones`, `linspace`):** Add `if fn_name == "foo"` dispatch block in `lib.rs` (~line 6740, after the `eye` block) → add `compile_foo()` method in `lib.rs` (after `compile_eye`, before `compile_zip`) → add C implementation in `runtime.c`. For functions taking float args that may receive int literals, use `self.coerce_to_f64(val, &brix_type)` helper.
+**New global constructor/function (e.g., `ones`, `linspace`):** Add `if fn_name == "foo"` dispatch block in `lib.rs` (~line 8,991, after the `eye` block) → add `compile_foo()` method in `lib.rs` (after `compile_irand`, before `compile_zip`) → add C implementation in `runtime.c`. For functions taking float args that may receive int literals, use `self.coerce_to_f64(val, &brix_type)` helper.
 
 **New type:** Update `BrixType` enum in `types.rs`, `infer_type()`, `cast_value()`, `get_llvm_type()` in `lib.rs`.
 
-**New iterator method on IntMatrix/Matrix:** Add match arm in `compile_iterator_method()` in `lib.rs`; add method name to the `matches!(field.as_str(), ...)` dispatch guard (~line 4292).
+**New iterator method on IntMatrix/Matrix:** Add match arm in `compile_iterator_method()` in `lib.rs` (~line 12,871); add method name to the `matches!(field.as_str(), ...)` dispatch guard (~line 7,392).
 
 **Soft keywords** (context-sensitive, e.g., `step`): parsed as `Identifier("step")` in the lexer — no new `Token` variant needed. Match via `just(Token::Identifier("step".to_string()))` in `parser.rs`.
 
-## Status & Limitations (v1.6 — Fases 0–3 complete)
+**New pattern variant (e.g., for `match`):** Add variant to `Pattern` enum in `parser/src/ast.rs` → parse it in the `pattern` recursive block in `parser.rs` (inside `let pattern = recursive(|_pat| { ... })`) → add match arm to `compile_pattern_match()` in `lib.rs` (~line 15453). For sub-patterns, use `apply_sub_pattern()` helper.
 
-**Completed in v1.6:**
+## Status & Limitations (v1.6 — Fases 0–4 complete)
+
+**Completed in v1.6 (Fases 0–4):**
 - `break` / `continue` (Fase 0a): `Token::Break`/`Token::Continue`, `StmtKind::Break`/`StmtKind::Continue`, save/restore pattern on `Compiler`. Note: `break`/`continue` inside closures (e.g., `.map()` callbacks) is not supported.
 - Nested closure ARC (Fase 0b): capture-by-value semantics; `env_dtor` uses single dereference; no double-free.
 - String methods (Fase 1): `trim`, `ltrim`, `rtrim`, `starts_with`, `ends_with`, `contains`, `substring`, `reverse`, `repeat`, `index_of` (returns `int?`), `for ch in str` iteration. Implemented in `builtins/string.rs` + `runtime.c`.
@@ -182,13 +184,16 @@ Jest-style framework. 28 matchers across 14 categories: `toBe`, `not.toBe`, `toE
 - `async { }` blocks (Fase 3b): Anonymous async state machines. Block struct layout has `poll_fn_ptr` at field 0 (enables indirect call by caller), `state` at field 1. Compiled by `compile_async_block()`. Integration tests 136–137; +4 codegen unit tests.
 - Async closures (Fase 3c): `async (params) -> { await f() }` syntax. `is_async: bool` added to `Closure` AST node; parser detects `async` keyword before `(params) ->`. Compiled by `compile_async_closure()` — struct layout matches async blocks (poll_fn_ptr at field 0). Integration tests 142–143; +4 parser unit tests; +4 codegen unit tests.
 - Async test matchers (Fase 3d): `test.it("name", async () -> { ... })` — codegen detects `BrixType::AsyncFuture` callback and calls `test_it_async(name, state_ptr, poll_fn)` instead of `test_it`. `test_it_async` drives the polling loop in `runtime.c`. Integration test 144; `async.test.bx` suite (3 tests).
+- Pattern matching 2.0 — Phase 4 (Fases 4a/4b/4c): Three sub-features added:
+  - **Destructuring patterns** (`{ x, y }`, `{ x, 0 }`, `{ _, y }`): `Pattern::Destructure(Vec<Pattern>)` in AST; parsed with `{ atomic, ... }` syntax; codegen handles `Tuple`, `Struct`, `IntMatrix`, `Matrix`. Helper `apply_sub_pattern()` dispatches Wildcard/Binding/recursive sub-patterns. Integration test 149; +4 parser unit tests; +3 codegen unit tests; +4 Test Library tests.
+  - **Range patterns** (`18..64`, `0..<10`, `0.0..<0.5`): `Pattern::Range { start, end, inclusive }` in AST; numeric token followed by optional `..`/`..<` suffix; codegen uses LLVM SLE/SLT (int) and OLE/OLT (float). Integration tests 150–151; +3 codegen unit tests; +3 Test Library tests.
+  - **Universal destructuring** (`var { a, b } := struct_or_array`): `compile_destructuring_decl_stmt()` in `stmt.rs` extended from Tuple-only to also handle `BrixType::Struct` (field index extraction) and `BrixType::IntMatrix`/`BrixType::Matrix` (GEP from data pointer, no bounds check). Integration test 152; +2 codegen unit tests.
 
-**Current test baseline (post Fase 3):** 1,182 unit + 148 integration + 383 Test Library (23 `.test.bx` files)
+**Current test baseline (post Phase 4):** 1,194 unit + 152 integration + 390 Test Library (23 `.test.bx` files)
 
 **Planned for future phases:**
 - `split`, `join` — require `StringMatrix` type (v1.7).
-- Pattern matching destructuring and range patterns — v1.6 Phase 4.
-- See `ROADMAP_V1.6.md` for detailed specs on Phase 4.
+- See `ROADMAP_V1.6.md` for detailed specs.
 
 ## Troubleshooting
 
