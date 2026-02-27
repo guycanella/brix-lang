@@ -1,6 +1,6 @@
 # Brix Language (Design Document v1.0)
 
-> ✅ **Status do Projeto (Fev 2026):** O compilador Brix **v1.5 COMPLETO + v1.6 em andamento** — v1.6 Fases 0 (break/continue, ARC nested closures), 1 (String Library), 2a (Matrix Constructors: `ones`, `linspace`, `arange`, `rand`, `irand`), 2b (2D Matrix Iteration: `.map()` shape-preserving, `.filter()` flatten, `.reduce()`/`.any()`/`.all()`/`.find()` iterando `rows*cols`) e 2c (Float Closure Type Inference: inferência estática de tipo de retorno em closures sem anotação `-> float`) concluídas. v1.5 entregou Ranges Unificados, Iteradores, Pipeline Operator, Test Library Jest-style (28 matchers, 22 arquivos / 380 testes) e Async/Await via state machines LLVM. **1.168 unit tests + 138 integration tests + 380 Test Library = 1.686 tests passando (100%).** Em progresso: v1.6 — Fase 3 (Async Closures), Fase 4 (Pattern Matching 2.0).
+> ✅ **Status do Projeto (Fev 2026):** O compilador Brix **v1.5 COMPLETO + v1.6 Fases 0–3 COMPLETAS** — v1.6 Fases 0 (break/continue, ARC nested closures), 1 (String Library), 2a (Matrix Constructors), 2b (2D Matrix Iteration), 2c (Float Closure Type Inference), 3a (`await` em control flow aninhado: `if`/`while`), 3b (`async { }` blocks), 3c (Async Closures: `async () -> { await f() }`), 3d (Async Test Matchers: `test.it("name", async () -> { ... })`) concluídas. v1.5 entregou Ranges Unificados, Iteradores, Pipeline Operator, Test Library Jest-style (28 matchers) e Async/Await via state machines LLVM. **1.182 unit tests + 148 integration tests + 383 Test Library = 1.713 tests passando (100%).** Em progresso: v1.6 — Fase 4 (Pattern Matching 2.0).
 
 ## Status Atual (Fevereiro 2026)
 
@@ -23,12 +23,14 @@
   - **`continue`**: pula para a próxima iteração
   - **Implementação**: `Compiler::current_break_block` / `current_continue_block` (`Option<BasicBlock>`); save/restore por loop; dead block após branch incondicional
   - 6 lexer + 6 parser + 8 codegen unit tests; 5 integration tests (108–112)
-- **v1.5 Async/Await (COMPLETE - Feb 2026):**
+- **v1.5 Async/Await (COMPLETE - Feb 2026) + v1.6 Fase 3 (COMPLETE - Fev 2026):**
   - **`async fn`**: Compilado para state machine LLVM via `create_{name}(params) -> i8*` + `poll_{name}(i8*) -> {status, value}`
-  - **`await`**: `var x := await f(args)` em sequência linear no body de `async fn`
+  - **`await`**: `var x := await f(args)` em sequência linear e dentro de `if`/`else`, `while` (v1.6 Fase 3a)
+  - **`async { }` blocks**: State machines anônimas; `poll_fn_ptr` em field 0 para chamada indireta (v1.6 Fase 3b)
+  - **`async () -> { }` closures**: `is_async: bool` no AST; `compile_async_closure()` gera create/poll anônimos (v1.6 Fase 3c)
   - **`async fn main()`**: Dirigido por `brix_run_to_completion` no runtime C (loop de polling síncrono)
-  - **Stackless coroutines**: State struct mínimo (~40–300 bytes/task), zero overhead em runtime
-  - Limitação: `await` em control flow aninhado e `async { }` blocks → v1.6
+  - **Async test matchers**: `test.it("name", async () -> { ... })` via `test_it_async()` no runtime (v1.6 Fase 3d)
+  - **Stackless coroutines**: State struct com `var_field_map: HashMap<String, (u32, BrixType)>` para preservação de variáveis vivas entre suspension points
 - **v1.5 Test Library (COMPLETE - Feb 2026):**
   - **Jest-style framework**: `test.describe()`, `test.it()`, `test.expect()`
   - **28 matchers**: `toBe`, `toEqual`, `toBeCloseTo`, `toBeTruthy`, `toBeFalsy`, `toBeGreaterThan`, `toBeLessThan`, `toContain`, `toHaveLength`, `toBeNil`, e variantes `not.*`
@@ -170,14 +172,18 @@
 - Async/Await (state machine LLVM, `async fn`, `await`, `brix_run_to_completion`)
 - **Total: 1.133 unit + 110 integration = 1.243 tests (100% passing)**
 
-### ✅ **v1.6 (Parcial - Fev 2026):**
+### ✅ **v1.6 (Fases 0–3 COMPLETAS - Fev 2026):**
 - **Fase 0a**: `break` / `continue` (6+6+8 unit tests, 5 integration tests)
 - **Fase 0b**: ARC nested closures — double-free, use-after-free e capture-by-reference não-intencional corrigidos (4 integration tests, 5 Test Library tests)
 - **Fase 1**: String Library completa — 10 métodos de string + iteração `for ch in str` (7 integration tests, 17 Test Library tests)
 - **Fase 2a**: Matrix Constructors — `ones(n/r,c)`, `linspace(start,stop,n)`, `arange(start,stop,step)`, `rand(n/r,c)`, `irand(n,max)` (8 unit tests, 6 integration tests, 10 Test Library tests)
-- **Fase 2b**: 2D Matrix Iteration — `.map(fn)` preserva shape (`rows×cols`); `.filter(pred)` flatten 1D; `.reduce()`, `.any()`, `.all()`, `.find()` iteram `rows*cols` elementos. Implementado em `compile_iterator_method()` via `total = rows * cols`. (+4 unit, +3 integration 130–132, +4 Test Library em `matrix.test.bx`)
-- **Fase 2c**: Float Closure Type Inference — `matrix.map((x: float) -> { return x * 2.0 })` sem anotação `-> float` explícita. Três novos métodos: `infer_expr_type_static()` (percorre AST sem codegen), `collect_return_types()` (coleta tipos de todas as expressões `return`), `infer_return_type_from_body()` (promoção Float > String > Matrix > IntMatrix). (+4 unit, +3 integration 133–135, +4 Test Library em `matrix.test.bx`)
-- **Total acumulado: 1.168 unit + 138 integration + 380 Test Library = 1.686 tests (100% passing)**
+- **Fase 2b**: 2D Matrix Iteration — `.map(fn)` preserva shape (`rows×cols`); `.filter(pred)` flatten 1D; `.reduce()`, `.any()`, `.all()`, `.find()` iteram `rows*cols` elementos. (+4 unit, +3 integration 130–132, +4 Test Library em `matrix.test.bx`)
+- **Fase 2c**: Float Closure Type Inference — `matrix.map((x: float) -> { return x * 2.0 })` sem anotação `-> float` explícita. Três novos métodos: `infer_expr_type_static()`, `collect_return_types()`, `infer_return_type_from_body()`. (+4 unit, +3 integration 133–135, +4 Test Library em `matrix.test.bx`)
+- **Fase 3a**: `await` em control flow aninhado — `await` dentro de `if`/`else` e `while` em `async fn`. State machine com `var_field_map: HashMap<String, (u32, BrixType)>` para live variable preservation; `after_while_bb` merge block permite múltiplos `while` sequenciais com `await`. (+4 unit, +6 integration 138–141, 145)
+- **Fase 3b**: `async { }` blocks — state machines anônimas; `poll_fn_ptr` em field 0; compilados por `compile_async_block()`. (+4 unit, +2 integration 136–137)
+- **Fase 3c**: Async closures — `async (params) -> { await f() }`; `is_async: bool` no AST `Closure`; parser detecta `async` antes de `(params) ->`; `compile_async_closure()`. (+4 parser unit, +4 codegen unit, +2 integration 142–143)
+- **Fase 3d**: Async test matchers — `test.it("name", async () -> { ... })`; codegen detecta `BrixType::AsyncFuture` e chama `test_it_async()` no runtime. (+1 integration 144, `async.test.bx` com 3 testes)
+- **Total acumulado: 1.182 unit + 148 integration + 383 Test Library = 1.713 tests (100% passing)**
 
 ### 🔮 **Planejado (v1.6 — restante):**
 - ✅ ~~`break` / `continue` em loops~~ — COMPLETO
@@ -187,10 +193,11 @@
 - ✅ ~~Matrix constructors: `ones()`, `linspace()`, `arange()`, `rand()`, `irand()`~~ — COMPLETO
 - ✅ ~~2D Matrix iteration (`.map(fn)` shape-preserving, `.filter()` flatten, `.reduce()`/`.any()`/`.all()`/`.find()` em `rows*cols`)~~ — COMPLETO (Fase 2b)
 - ✅ ~~Float closure type inference em iterators~~ — COMPLETO (Fase 2c)
-- Async Closures (`async () -> { await f() }`) e Async Test Matchers
-- `await` em control flow aninhado (`if`/`while`/`for` dentro de `async fn`)
-- `async { }` blocks
-- Pattern Matching 2.0 (destructuring de structs/tuples, range patterns)
+- ✅ ~~`await` em control flow aninhado (`if`/`while` dentro de `async fn`)~~ — COMPLETO (Fase 3a)
+- ✅ ~~`async { }` blocks~~ — COMPLETO (Fase 3b)
+- ✅ ~~Async Closures (`async () -> { await f() }`)~~ — COMPLETO (Fase 3c)
+- ✅ ~~Async Test Matchers (`test.it("name", async () -> { ... })`)~~ — COMPLETO (Fase 3d)
+- Pattern Matching 2.0 (destructuring de structs/tuples, range patterns) — Fase 4
 
 ### 🔮 **Planejado (v1.7+):**
 - `split` / `join` (requer `StringMatrix` como novo BrixType)

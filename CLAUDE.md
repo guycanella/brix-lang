@@ -21,10 +21,10 @@ cargo build --release
 
 **Run Rust unit tests:**
 ```bash
-cargo test -p lexer -p parser -p codegen  # All unit tests: 310 + 180 + 678 = 1,168 (all passing)
+cargo test -p lexer -p parser -p codegen  # All unit tests: 310 + 184 + 688 = 1,182 (all passing)
 cargo test -p lexer                       # Only lexer (310 tests)
-cargo test -p parser                      # Only parser (180 tests)
-cargo test -p codegen                     # Only codegen (678 tests)
+cargo test -p parser                      # Only parser (184 tests)
+cargo test -p codegen                     # Only codegen (688 tests)
 cargo test -p codegen arc_tests           # Specific test module in codegen
 cargo test <pattern>                      # Tests matching pattern
 cargo test -- --nocapture                 # Show println! output
@@ -169,7 +169,7 @@ Jest-style framework. 28 matchers across 14 categories: `toBe`, `not.toBe`, `toE
 
 **Soft keywords** (context-sensitive, e.g., `step`): parsed as `Identifier("step")` in the lexer — no new `Token` variant needed. Match via `just(Token::Identifier("step".to_string()))` in `parser.rs`.
 
-## Status & Limitations (v1.6 — Fases 0–2c complete)
+## Status & Limitations (v1.6 — Fases 0–3 complete)
 
 **Completed in v1.6:**
 - `break` / `continue` (Fase 0a): `Token::Break`/`Token::Continue`, `StmtKind::Break`/`StmtKind::Continue`, save/restore pattern on `Compiler`. Note: `break`/`continue` inside closures (e.g., `.map()` callbacks) is not supported.
@@ -178,14 +178,17 @@ Jest-style framework. 28 matchers across 14 categories: `toBe`, `not.toBe`, `toE
 - Matrix constructors (Fase 2a): `ones(n/r,c)`, `linspace(start,stop,n)`, `arange(start,stop,step)`, `rand(n/r,c)`, `irand(n,max)` — implemented in `runtime.c` + dispatched in `lib.rs` via `compile_ones/linspace/arange/rand/irand`. Helper `coerce_to_f64()` handles int→float coercion for float args. RNG seeded automatically via `__attribute__((constructor))`. Integration tests 124–129.
 - 2D Matrix iteration (Fase 2b): `.map(fn)` preserves shape (allocates `matrix_new(rows, cols)`); `.filter(pred)` flattens to 1D; `.reduce()`, `.any()`, `.all()`, `.find()` iterate all `rows*cols` elements. Implemented in `compile_iterator_method()` in `lib.rs` — loads `rows` (field 1), computes `total = rows * cols`, uses `total` as flat loop bound. Integration tests 130–132; +4 codegen unit tests; +4 Test Library tests in `matrix.test.bx`.
 - Float closure type inference (Fase 2c): `matrix.map((x: float) -> { return x * 2.0 })` works without explicit `-> float` annotation. Three new methods on `Compiler`: `infer_expr_type_static()` (static AST type walk), `collect_return_types()` (walks stmt tree gathering return expr types), `infer_return_type_from_body()` (drives inference with Float > String > Matrix > IntMatrix promotion). `infer_closure_return_type()` now falls through to body inference when `return_type` is `None`. Integration tests 133–135; +4 codegen unit tests; +4 Test Library tests in `matrix.test.bx`.
+- `await` in nested control flow (Fase 3a): `await` inside `if`/`else` and `while` bodies within `async fn`. State machine extended with `var_field_map: HashMap<String, (u32, BrixType)>` for live variable preservation across suspension points. `WhileAwait` uses an `after_while_bb` merge block enabling multiple sequential `while` loops with `await`. Integration tests 136–141, 145; +4 codegen unit tests.
+- `async { }` blocks (Fase 3b): Anonymous async state machines. Block struct layout has `poll_fn_ptr` at field 0 (enables indirect call by caller), `state` at field 1. Compiled by `compile_async_block()`. Integration tests 136–137; +4 codegen unit tests.
+- Async closures (Fase 3c): `async (params) -> { await f() }` syntax. `is_async: bool` added to `Closure` AST node; parser detects `async` keyword before `(params) ->`. Compiled by `compile_async_closure()` — struct layout matches async blocks (poll_fn_ptr at field 0). Integration tests 142–143; +4 parser unit tests; +4 codegen unit tests.
+- Async test matchers (Fase 3d): `test.it("name", async () -> { ... })` — codegen detects `BrixType::AsyncFuture` callback and calls `test_it_async(name, state_ptr, poll_fn)` instead of `test_it`. `test_it_async` drives the polling loop in `runtime.c`. Integration test 144; `async.test.bx` suite (3 tests).
 
-**Current test baseline (post Fase 2c):** 1,168 unit + 138 integration + 380 Test Library (22 `.test.bx` files)
+**Current test baseline (post Fase 3):** 1,182 unit + 148 integration + 383 Test Library (23 `.test.bx` files)
 
 **Planned for future phases:**
-- `await` in nested control flow (if/while/for) — v1.6 Phase 3a; `async { }` blocks — Phase 3b; `async () -> { }` closures — Phase 3c; async test matchers — Phase 3d.
 - `split`, `join` — require `StringMatrix` type (v1.7).
 - Pattern matching destructuring and range patterns — v1.6 Phase 4.
-- See `ROADMAP_V1.6.md` for detailed specs on Phases 3–4.
+- See `ROADMAP_V1.6.md` for detailed specs on Phase 4.
 
 ## Troubleshooting
 
