@@ -110,3 +110,75 @@ test.describe("Type coercion across arms", () -> {
         test.expect(result).toBe(10)
     })
 })
+
+test.describe("Destructuring patterns", () -> {
+    test.it("binds all fields", () -> {
+        struct Pt { x: int, y: int }
+        var p := Pt { x: 3, y: 4 }
+        var result := match p {
+            { x, y } -> x + y
+        }
+        test.expect(result).toBe(7)
+    })
+
+    test.it("constrains with literal", () -> {
+        struct Pt2 { x: int, y: int }
+        var p := Pt2 { x: 5, y: 0 }
+        var result := match p {
+            { x, 0 } -> x
+            { x, y } -> x + y
+        }
+        test.expect(result).toBe(5)
+    })
+
+    test.it("wildcard ignores field", () -> {
+        struct Pt3 { x: int, y: int }
+        var p := Pt3 { x: 99, y: 7 }
+        var result := match p {
+            { _, y } -> y
+        }
+        test.expect(result).toBe(7)
+    })
+
+    test.it("nested destructure returns correct value", () -> {
+        struct Pt4 { x: int, y: int }
+        var p := Pt4 { x: 10, y: 20 }
+        var result := match p {
+            { x, y } -> x + y
+        }
+        test.expect(result).toBe(30)
+    })
+})
+
+test.describe("Range patterns", () -> {
+    test.it("inclusive int range matches inside", () -> {
+        var age := 30
+        var result := match age {
+            0..17 -> "minor"
+            18..64 -> "adult"
+            65..99 -> "senior"
+            _ -> "other"
+        }
+        test.expect(result).toBe("adult")
+    })
+
+    test.it("exclusive int range excludes boundary", () -> {
+        var x := 10
+        var result := match x {
+            0..<10 -> "below"
+            10..20 -> "in"
+            _ -> "above"
+        }
+        test.expect(result).toBe("in")
+    })
+
+    test.it("float range works", () -> {
+        var score := 0.75
+        var result := match score {
+            0.0..<0.5 -> "fail"
+            0.5..1.0 -> "pass"
+            _ -> "invalid"
+        }
+        test.expect(result).toBe("pass")
+    })
+})

@@ -1,0 +1,7 @@
+var score := 0.75
+var grade := match score {
+    0.0..<0.5 -> "fail"
+    0.5..1.0 -> "pass"
+    _ -> "invalid"
+}
+println(grade)

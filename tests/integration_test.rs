@@ -1368,3 +1368,36 @@ fn test_144_async_test_it() {
         Some("1 passed")
     );
 }
+
+// Phase 4: Pattern Matching 2.0
+#[test]
+fn test_149_match_struct_destructure() {
+    assert_success(
+        "tests/integration/success/149_match_struct_destructure.bx",
+        "3"
+    );
+}
+
+#[test]
+fn test_150_match_range_int() {
+    assert_success(
+        "tests/integration/success/150_match_range_int.bx",
+        "adult"
+    );
+}
+
+#[test]
+fn test_151_match_range_float() {
+    assert_success(
+        "tests/integration/success/151_match_range_float.bx",
+        "pass"
+    );
+}
+
+#[test]
+fn test_152_var_destructure_struct() {
+    assert_success(
+        "tests/integration/success/152_var_destructure_struct.bx",
+        "30"
+    );
+}

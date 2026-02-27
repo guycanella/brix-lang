@@ -767,10 +767,8 @@ where
 
         // Pattern parser
         let pattern = recursive(|_pat| {
-            // Literal patterns: 42, 3.14, "text", true, false
-            let literal_pattern = select! {
-                Token::Int(n) => Pattern::Literal(Literal::Int(n)),
-                Token::Float(s) => Pattern::Literal(Literal::Float(s.parse().unwrap())),
+            // Non-numeric literals (no range ambiguity)
+            let non_numeric_literal = select! {
                 Token::String(s) => {
                     let raw = s.trim_matches('"');
                     let processed = process_escape_sequences(raw);
@@ -780,6 +778,25 @@ where
                 Token::False => Pattern::Literal(Literal::Bool(false)),
                 Token::Atom(name) => Pattern::Literal(Literal::Atom(name)),
             };
+
+            // Numeric pattern with optional range suffix
+            // DotDotLt must be tried before DotDot (longer token first)
+            let numeric_literal = select! {
+                Token::Int(n) => Literal::Int(n),
+                Token::Float(s) => Literal::Float(s.parse().unwrap_or(0.0)),
+            };
+
+            let range_suffix = choice((
+                just(Token::DotDotLt).ignore_then(numeric_literal.clone()).map(|end| (false, end)),
+                just(Token::DotDot).ignore_then(numeric_literal.clone()).map(|end| (true, end)),
+            ));
+
+            let numeric_pattern = numeric_literal.clone()
+                .then(range_suffix.or_not())
+                .map(|(start, range_part)| match range_part {
+                    Some((inclusive, end)) => Pattern::Range { start, end, inclusive },
+                    None => Pattern::Literal(start),
+                });
 
             // Wildcard pattern: _
             let wildcard_pattern = select! {
@@ -791,13 +808,27 @@ where
                 Token::Identifier(s) if s != "_" => Pattern::Binding(s),
             };
 
-            // Base pattern (literal, wildcard, or binding)
-            let base_pattern = literal_pattern.or(wildcard_pattern).or(binding_pattern);
+            // Atomic: numeric (with optional range), non-numeric literals, wildcard, binding
+            let atomic = numeric_pattern
+                .or(non_numeric_literal)
+                .or(wildcard_pattern)
+                .or(binding_pattern);
 
-            // Or pattern: pattern | pattern | pattern
-            base_pattern
-                .clone()
-                .separated_by(just(Token::Pipe))
+            // Destructure pattern: { p1, p2, ... }
+            let destructure = just(Token::LBrace)
+                .ignore_then(
+                    atomic.clone()
+                        .separated_by(just(Token::Comma))
+                        .allow_trailing()
+                )
+                .then_ignore(just(Token::RBrace))
+                .map(Pattern::Destructure);
+
+            // Base: destructure takes priority (starts with LBrace), then atomic
+            let base = destructure.or(atomic);
+
+            // Or pattern: pattern | pattern | ...
+            base.separated_by(just(Token::Pipe))
                 .at_least(1)
                 .map(|patterns| {
                     if patterns.len() == 1 {

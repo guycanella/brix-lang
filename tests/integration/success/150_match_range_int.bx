@@ -1,0 +1,8 @@
+var age := 25
+var category := match age {
+    0..17 -> "minor"
+    18..64 -> "adult"
+    65..99 -> "senior"
+    _ -> "other"
+}
+println(category)
