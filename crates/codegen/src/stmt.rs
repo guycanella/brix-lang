@@ -21,6 +21,7 @@
 use crate::{Compiler, CodegenError, CodegenResult};
 use crate::helpers::HelperFunctions;
 use inkwell::AddressSpace;
+use inkwell::types::BasicType;
 use parser::ast::Expr;
 
 /// Trait for statement compilation helper methods
@@ -799,78 +800,165 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
 
     fn compile_destructuring_decl_stmt(&mut self, names: &[String], value: &Expr) -> CodegenResult<()> {
         use crate::BrixType;
+        use inkwell::AddressSpace;
 
-        // Compile the expression that returns a tuple
-        let (tuple_val, tuple_type) = self.compile_expr(value)?;
+        // Compile the expression to destructure
+        let (val, val_type) = self.compile_expr(value)?;
 
-        // Ensure it's a tuple type
-        let field_types = match tuple_type {
-            BrixType::Tuple(field_types) => field_types,
-            _ => {
-                return Err(CodegenError::TypeError {
-                    expected: "Tuple".to_string(),
-                    found: format!("{:?}", tuple_type),
-                    context: "Destructuring declaration".to_string(),
-                                    span: None,
-                });
-            }
-        };
-
-        // Check that the number of names matches the tuple size
-        if names.len() != field_types.len() {
-            return Err(CodegenError::InvalidOperation {
-                operation: "Destructuring".to_string(),
-                reason: format!(
-                    "Mismatch in number of values - expected {} values, got {}",
-                    names.len(),
-                    field_types.len()
-                ),
+        match val_type.clone() {
+            BrixType::Tuple(field_types) => {
+                // Check count match
+                if names.len() != field_types.len() {
+                    return Err(CodegenError::InvalidOperation {
+                        operation: "Destructuring".to_string(),
+                        reason: format!(
+                            "Mismatch in number of values - expected {} values, got {}",
+                            names.len(),
+                            field_types.len()
+                        ),
+                        span: None,
+                    });
+                }
+                let sv = val.into_struct_value();
+                for (i, (name, field_type)) in names.iter().zip(field_types.iter()).enumerate() {
+                    if name == "_" { continue; }
+                    let extracted = self.builder.build_extract_value(sv, i as u32, &format!("extract_{}", name))
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_extract_value".to_string(),
+                            details: format!("Failed to extract field {} from tuple", i),
                             span: None,
-            });
-        }
-
-        // Extract each field and assign to a variable
-        for (i, (name, field_type)) in names.iter().zip(field_types.iter()).enumerate() {
-            // Skip if name is "_" (ignore value)
-            if name == "_" {
-                continue;
+                        })?;
+                    let llvm_type = self.brix_type_to_llvm(field_type);
+                    let alloca = self.builder.build_alloca(llvm_type, name)
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_alloca".to_string(),
+                            details: format!("Failed to allocate variable '{}'", name),
+                            span: None,
+                        })?;
+                    self.builder.build_store(alloca, extracted)
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_store".to_string(),
+                            details: format!("Failed to store value in variable '{}'", name),
+                            span: None,
+                        })?;
+                    self.variables.insert(name.clone(), (alloca, field_type.clone()));
+                }
+                Ok(())
             }
 
-            // Extract the field from the struct
-            let extracted = self
-                .builder
-                .build_extract_value(
-                    tuple_val.into_struct_value(),
-                    i as u32,
-                    &format!("extract_{}", name),
-                )
-                .map_err(|_| CodegenError::LLVMError {
-                    operation: "build_extract_value".to_string(),
-                    details: format!("Failed to extract field {} from tuple", i),
-                                    span: None,
-                })?;
+            BrixType::Struct(ref struct_name) => {
+                let struct_def = self.struct_defs.get(struct_name).cloned()
+                    .ok_or_else(|| CodegenError::UndefinedSymbol {
+                        name: struct_name.clone(),
+                        context: "Destructuring declaration".to_string(),
+                        span: None,
+                    })?;
+                if names.len() > struct_def.len() {
+                    return Err(CodegenError::InvalidOperation {
+                        operation: "Destructuring".to_string(),
+                        reason: format!(
+                            "Cannot destructure {} names from struct '{}' with {} fields",
+                            names.len(), struct_name, struct_def.len()
+                        ),
+                        span: None,
+                    });
+                }
+                let sv = val.into_struct_value();
+                for (i, (name, (_, ft, _))) in names.iter().zip(struct_def.iter()).enumerate() {
+                    if name == "_" { continue; }
+                    let extracted = self.builder.build_extract_value(sv, i as u32, &format!("sd_{}", name))
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_extract_value".to_string(),
+                            details: format!("Failed to extract struct field {}", i),
+                            span: None,
+                        })?;
+                    let llvm_type = self.brix_type_to_llvm(ft);
+                    let alloca = self.builder.build_alloca(llvm_type, name)
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_alloca".to_string(),
+                            details: format!("Failed to allocate variable '{}'", name),
+                            span: None,
+                        })?;
+                    self.builder.build_store(alloca, extracted)
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_store".to_string(),
+                            details: format!("Failed to store variable '{}'", name),
+                            span: None,
+                        })?;
+                    self.variables.insert(name.clone(), (alloca, ft.clone()));
+                }
+                Ok(())
+            }
 
-            // Allocate and store the variable
-            let llvm_type = self.brix_type_to_llvm(field_type);
-            let alloca = self.builder.build_alloca(llvm_type, name)
-                .map_err(|_| CodegenError::LLVMError {
-                    operation: "build_alloca".to_string(),
-                    details: format!("Failed to allocate variable '{}'", name),
-                                    span: None,
-                })?;
-            self.builder.build_store(alloca, extracted)
-                .map_err(|_| CodegenError::LLVMError {
-                    operation: "build_store".to_string(),
-                    details: format!("Failed to store value in variable '{}'", name),
-                                    span: None,
-                })?;
+            BrixType::IntMatrix | BrixType::Matrix => {
+                let is_int = matches!(val_type, BrixType::IntMatrix);
+                let elem_brix = if is_int { BrixType::Int } else { BrixType::Float };
+                let elem_llvm = if is_int {
+                    self.context.i64_type().as_basic_type_enum()
+                } else {
+                    self.context.f64_type().as_basic_type_enum()
+                };
+                let matrix_struct_type = if is_int {
+                    self.get_intmatrix_type()
+                } else {
+                    self.get_matrix_type()
+                };
+                let ptr_type = self.context.ptr_type(AddressSpace::default());
+                let matrix_ptr = val.into_pointer_value();
+                let data_ptr_ptr = self.builder.build_struct_gep(matrix_struct_type, matrix_ptr, 3, "data_pp")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_struct_gep".to_string(),
+                        details: "Failed to get matrix data pointer".to_string(),
+                        span: None,
+                    })?;
+                let data_ptr = self.builder.build_load(ptr_type, data_ptr_ptr, "data_p")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_load".to_string(),
+                        details: "Failed to load matrix data pointer".to_string(),
+                        span: None,
+                    })?
+                    .into_pointer_value();
+                for (i, name) in names.iter().enumerate() {
+                    if name == "_" { continue; }
+                    let idx = self.context.i64_type().const_int(i as u64, false);
+                    let ep = unsafe {
+                        self.builder.build_gep(elem_llvm, data_ptr, &[idx], &format!("ep_{}", i))
+                            .map_err(|_| CodegenError::LLVMError {
+                                operation: "build_gep".to_string(),
+                                details: format!("Failed to GEP matrix element {}", i),
+                                span: None,
+                            })?
+                    };
+                    let extracted = self.builder.build_load(elem_llvm, ep, &format!("ev_{}", i))
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_load".to_string(),
+                            details: format!("Failed to load matrix element {}", i),
+                            span: None,
+                        })?;
+                    let alloca = self.builder.build_alloca(elem_llvm, name)
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_alloca".to_string(),
+                            details: format!("Failed to allocate variable '{}'", name),
+                            span: None,
+                        })?;
+                    self.builder.build_store(alloca, extracted)
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_store".to_string(),
+                            details: format!("Failed to store variable '{}'", name),
+                            span: None,
+                        })?;
+                    self.variables.insert(name.clone(), (alloca, elem_brix.clone()));
+                }
+                Ok(())
+            }
 
-            // Register in symbol table
-            self.variables
-                .insert(name.clone(), (alloca, field_type.clone()));
+            _ => Err(CodegenError::TypeError {
+                expected: "Tuple, Struct, or Matrix".to_string(),
+                found: format!("{:?}", val_type),
+                context: "Destructuring declaration".to_string(),
+                span: None,
+            }),
         }
-
-        Ok(())
     }
 
     fn compile_assignment_stmt(&mut self, target: &Expr, value: &Expr) -> CodegenResult<()> {

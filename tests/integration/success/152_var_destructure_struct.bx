@@ -1,0 +1,8 @@
+struct Pair {
+    a: int,
+    b: int
+}
+
+var p := Pair { a: 10, b: 20 }
+var { a, b } := p
+println(a + b)

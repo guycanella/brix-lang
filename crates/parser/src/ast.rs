@@ -56,6 +56,8 @@ pub enum Pattern {
     Binding(String),  // x (captures value and binds to variable)
     Wildcard,         // _ (matches anything, doesn't bind)
     Or(Vec<Pattern>), // 1 | 2 | 3 (matches any of the patterns)
+    Destructure(Vec<Pattern>),   // { p1, p2, ... } — positional
+    Range { start: Literal, end: Literal, inclusive: bool },  // 1..5 or 1..<5
 }
 
 #[derive(Debug, Clone, PartialEq)]

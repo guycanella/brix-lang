@@ -1234,3 +1234,316 @@ fn test_match_with_ternary_in_arm() {
     assert!(result.is_ok());
 }
 
+
+// ==================== PHASE 4: DESTRUCTURING PATTERNS ====================
+
+#[test]
+fn test_match_struct_destructure_all_bindings() {
+    use parser::ast::StructDef;
+    let program = Program {
+        statements: vec![
+            Stmt::dummy(StmtKind::StructDef(StructDef {
+                name: "Point".to_string(),
+                type_params: vec![],
+                fields: vec![
+                    ("x".to_string(), "int".to_string(), None),
+                    ("y".to_string(), "int".to_string(), None),
+                ],
+            })),
+            Stmt::dummy(StmtKind::VariableDecl {
+                name: "p".to_string(),
+                type_hint: None,
+                value: Expr::dummy(ExprKind::StructInit {
+                    struct_name: "Point".to_string(),
+                    type_args: vec![],
+                    fields: vec![
+                        ("x".to_string(), Expr::dummy(ExprKind::Literal(Literal::Int(3)))),
+                        ("y".to_string(), Expr::dummy(ExprKind::Literal(Literal::Int(4)))),
+                    ],
+                }),
+                is_const: false,
+            }),
+            Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Match {
+                value: Box::new(Expr::dummy(ExprKind::Identifier("p".to_string()))),
+                arms: vec![
+                    MatchArm {
+                        pattern: Pattern::Destructure(vec![
+                            Pattern::Binding("x".to_string()),
+                            Pattern::Binding("y".to_string()),
+                        ]),
+                        guard: None,
+                        body: Box::new(binary(
+                            BinaryOp::Add,
+                            Expr::dummy(ExprKind::Identifier("x".to_string())),
+                            Expr::dummy(ExprKind::Identifier("y".to_string())),
+                        )),
+                    },
+                ],
+            }))),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok(), "Failed: {:?}", result);
+}
+
+#[test]
+fn test_match_struct_destructure_literal_constraint() {
+    use parser::ast::StructDef;
+    let program = Program {
+        statements: vec![
+            Stmt::dummy(StmtKind::StructDef(StructDef {
+                name: "Point2".to_string(),
+                type_params: vec![],
+                fields: vec![
+                    ("x".to_string(), "int".to_string(), None),
+                    ("y".to_string(), "int".to_string(), None),
+                ],
+            })),
+            Stmt::dummy(StmtKind::VariableDecl {
+                name: "p".to_string(),
+                type_hint: None,
+                value: Expr::dummy(ExprKind::StructInit {
+                    struct_name: "Point2".to_string(),
+                    type_args: vec![],
+                    fields: vec![
+                        ("x".to_string(), Expr::dummy(ExprKind::Literal(Literal::Int(3)))),
+                        ("y".to_string(), Expr::dummy(ExprKind::Literal(Literal::Int(0)))),
+                    ],
+                }),
+                is_const: false,
+            }),
+            Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Match {
+                value: Box::new(Expr::dummy(ExprKind::Identifier("p".to_string()))),
+                arms: vec![
+                    MatchArm {
+                        pattern: Pattern::Destructure(vec![
+                            Pattern::Binding("x".to_string()),
+                            Pattern::Literal(Literal::Int(0)),
+                        ]),
+                        guard: None,
+                        body: Box::new(Expr::dummy(ExprKind::Identifier("x".to_string()))),
+                    },
+                    MatchArm {
+                        pattern: Pattern::Wildcard,
+                        guard: None,
+                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(0)))),
+                    },
+                ],
+            }))),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok(), "Failed: {:?}", result);
+}
+
+#[test]
+fn test_match_struct_wildcard() {
+    use parser::ast::StructDef;
+    let program = Program {
+        statements: vec![
+            Stmt::dummy(StmtKind::StructDef(StructDef {
+                name: "Point3".to_string(),
+                type_params: vec![],
+                fields: vec![
+                    ("x".to_string(), "int".to_string(), None),
+                    ("y".to_string(), "int".to_string(), None),
+                ],
+            })),
+            Stmt::dummy(StmtKind::VariableDecl {
+                name: "p".to_string(),
+                type_hint: None,
+                value: Expr::dummy(ExprKind::StructInit {
+                    struct_name: "Point3".to_string(),
+                    type_args: vec![],
+                    fields: vec![
+                        ("x".to_string(), Expr::dummy(ExprKind::Literal(Literal::Int(5)))),
+                        ("y".to_string(), Expr::dummy(ExprKind::Literal(Literal::Int(9)))),
+                    ],
+                }),
+                is_const: false,
+            }),
+            Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Match {
+                value: Box::new(Expr::dummy(ExprKind::Identifier("p".to_string()))),
+                arms: vec![
+                    MatchArm {
+                        pattern: Pattern::Destructure(vec![
+                            Pattern::Wildcard,
+                            Pattern::Binding("y".to_string()),
+                        ]),
+                        guard: None,
+                        body: Box::new(Expr::dummy(ExprKind::Identifier("y".to_string()))),
+                    },
+                ],
+            }))),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok(), "Failed: {:?}", result);
+}
+
+#[test]
+fn test_match_range_int_inclusive() {
+    let program = Program {
+        statements: vec![
+            Stmt::dummy(StmtKind::VariableDecl {
+                name: "age".to_string(),
+                type_hint: None,
+                value: Expr::dummy(ExprKind::Literal(Literal::Int(42))),
+                is_const: false,
+            }),
+            Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Match {
+                value: Box::new(Expr::dummy(ExprKind::Identifier("age".to_string()))),
+                arms: vec![
+                    MatchArm {
+                        pattern: Pattern::Range {
+                            start: Literal::Int(18),
+                            end: Literal::Int(64),
+                            inclusive: true,
+                        },
+                        guard: None,
+                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(1)))),
+                    },
+                    MatchArm {
+                        pattern: Pattern::Wildcard,
+                        guard: None,
+                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(0)))),
+                    },
+                ],
+            }))),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok(), "Failed: {:?}", result);
+}
+
+#[test]
+fn test_match_range_int_exclusive() {
+    let program = Program {
+        statements: vec![
+            Stmt::dummy(StmtKind::VariableDecl {
+                name: "x".to_string(),
+                type_hint: None,
+                value: Expr::dummy(ExprKind::Literal(Literal::Int(10))),
+                is_const: false,
+            }),
+            Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Match {
+                value: Box::new(Expr::dummy(ExprKind::Identifier("x".to_string()))),
+                arms: vec![
+                    MatchArm {
+                        pattern: Pattern::Range {
+                            start: Literal::Int(0),
+                            end: Literal::Int(10),
+                            inclusive: false,
+                        },
+                        guard: None,
+                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(1)))),
+                    },
+                    MatchArm {
+                        pattern: Pattern::Wildcard,
+                        guard: None,
+                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(0)))),
+                    },
+                ],
+            }))),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok(), "Failed: {:?}", result);
+}
+
+#[test]
+fn test_match_range_float() {
+    let program = Program {
+        statements: vec![
+            Stmt::dummy(StmtKind::VariableDecl {
+                name: "score".to_string(),
+                type_hint: None,
+                value: Expr::dummy(ExprKind::Literal(Literal::Float(0.5))),
+                is_const: false,
+            }),
+            Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Match {
+                value: Box::new(Expr::dummy(ExprKind::Identifier("score".to_string()))),
+                arms: vec![
+                    MatchArm {
+                        pattern: Pattern::Range {
+                            start: Literal::Float(0.0),
+                            end: Literal::Float(1.0),
+                            inclusive: true,
+                        },
+                        guard: None,
+                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(1)))),
+                    },
+                    MatchArm {
+                        pattern: Pattern::Wildcard,
+                        guard: None,
+                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(0)))),
+                    },
+                ],
+            }))),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok(), "Failed: {:?}", result);
+}
+
+#[test]
+fn test_var_destructure_struct() {
+    use parser::ast::StructDef;
+    let program = Program {
+        statements: vec![
+            Stmt::dummy(StmtKind::StructDef(StructDef {
+                name: "Point4".to_string(),
+                type_params: vec![],
+                fields: vec![
+                    ("x".to_string(), "int".to_string(), None),
+                    ("y".to_string(), "int".to_string(), None),
+                ],
+            })),
+            Stmt::dummy(StmtKind::VariableDecl {
+                name: "p".to_string(),
+                type_hint: None,
+                value: Expr::dummy(ExprKind::StructInit {
+                    struct_name: "Point4".to_string(),
+                    type_args: vec![],
+                    fields: vec![
+                        ("x".to_string(), Expr::dummy(ExprKind::Literal(Literal::Int(3)))),
+                        ("y".to_string(), Expr::dummy(ExprKind::Literal(Literal::Int(4)))),
+                    ],
+                }),
+                is_const: false,
+            }),
+            Stmt::dummy(StmtKind::DestructuringDecl {
+                names: vec!["x".to_string(), "y".to_string()],
+                value: Expr::dummy(ExprKind::Identifier("p".to_string())),
+                is_const: false,
+            }),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok(), "Failed: {:?}", result);
+}
+
+#[test]
+fn test_var_destructure_array() {
+    let program = Program {
+        statements: vec![
+            Stmt::dummy(StmtKind::VariableDecl {
+                name: "arr".to_string(),
+                type_hint: None,
+                value: Expr::dummy(ExprKind::Array(vec![
+                    Expr::dummy(ExprKind::Literal(Literal::Int(10))),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(20))),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(30))),
+                ])),
+                is_const: false,
+            }),
+            Stmt::dummy(StmtKind::DestructuringDecl {
+                names: vec!["a".to_string(), "b".to_string()],
+                value: Expr::dummy(ExprKind::Identifier("arr".to_string())),
+                is_const: false,
+            }),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok(), "Failed: {:?}", result);
+}

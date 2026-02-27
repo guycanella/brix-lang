@@ -103,3 +103,79 @@ fn test_match_atom() {
         _ => panic!("Expected match"),
     }
 }
+
+// ==================== PHASE 4: PATTERN MATCHING 2.0 ====================
+
+#[test]
+fn test_destructure_pattern_bindings() {
+    // { x, y } -> Destructure([Binding("x"), Binding("y")])
+    let expr = parse_expr("match p { { x, y } -> 1 _ -> 0 }").unwrap();
+    match &expr.kind {
+        ExprKind::Match { arms, .. } => {
+            assert_eq!(
+                arms[0].pattern,
+                Pattern::Destructure(vec![
+                    Pattern::Binding("x".to_string()),
+                    Pattern::Binding("y".to_string()),
+                ])
+            );
+        }
+        _ => panic!("Expected match"),
+    }
+}
+
+#[test]
+fn test_destructure_pattern_literal_constraint() {
+    // { 0, x } -> Destructure([Literal(Int(0)), Binding("x")])
+    let expr = parse_expr("match p { { 0, x } -> 1 _ -> 0 }").unwrap();
+    match &expr.kind {
+        ExprKind::Match { arms, .. } => {
+            assert_eq!(
+                arms[0].pattern,
+                Pattern::Destructure(vec![
+                    Pattern::Literal(Literal::Int(0)),
+                    Pattern::Binding("x".to_string()),
+                ])
+            );
+        }
+        _ => panic!("Expected match"),
+    }
+}
+
+#[test]
+fn test_range_pattern_inclusive() {
+    // 18..64 -> Range { start: Int(18), end: Int(64), inclusive: true }
+    let expr = parse_expr("match age { 18..64 -> 1 _ -> 0 }").unwrap();
+    match &expr.kind {
+        ExprKind::Match { arms, .. } => {
+            assert_eq!(
+                arms[0].pattern,
+                Pattern::Range {
+                    start: Literal::Int(18),
+                    end: Literal::Int(64),
+                    inclusive: true,
+                }
+            );
+        }
+        _ => panic!("Expected match"),
+    }
+}
+
+#[test]
+fn test_range_pattern_exclusive() {
+    // 0..<10 -> Range { start: Int(0), end: Int(10), inclusive: false }
+    let expr = parse_expr("match x { 0..<10 -> 1 _ -> 0 }").unwrap();
+    match &expr.kind {
+        ExprKind::Match { arms, .. } => {
+            assert_eq!(
+                arms[0].pattern,
+                Pattern::Range {
+                    start: Literal::Int(0),
+                    end: Literal::Int(10),
+                    inclusive: false,
+                }
+            );
+        }
+        _ => panic!("Expected match"),
+    }
+}

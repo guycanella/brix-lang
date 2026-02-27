@@ -15466,6 +15466,207 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
                 Ok(result)
             }
+
+            Pattern::Destructure(sub_patterns) => {
+                let combined_init = self.context.bool_type().const_int(1, false);
+                match value_type {
+                    BrixType::Tuple(field_types) => {
+                        let sv = value.into_struct_value();
+                        let mut combined = combined_init;
+                        for (i, (sub_pat, ft)) in sub_patterns.iter().zip(field_types.iter()).enumerate() {
+                            let extracted = self.builder.build_extract_value(sv, i as u32, &format!("dt_{}", i))
+                                .map_err(|_| CodegenError::LLVMError {
+                                    operation: "build_extract_value".to_string(),
+                                    details: format!("Failed to extract tuple field {}", i),
+                                    span: None,
+                                })?;
+                            combined = self.apply_sub_pattern(sub_pat, extracted, ft, combined, i)?;
+                        }
+                        Ok(combined)
+                    }
+                    BrixType::Struct(struct_name) => {
+                        let struct_def = self.struct_defs.get(struct_name).cloned()
+                            .ok_or_else(|| CodegenError::UndefinedSymbol {
+                                name: struct_name.clone(),
+                                context: "Destructuring pattern".to_string(),
+                                span: None,
+                            })?;
+                        let sv = value.into_struct_value();
+                        let mut combined = combined_init;
+                        for (i, (sub_pat, (_, ft, _))) in sub_patterns.iter().zip(struct_def.iter()).enumerate() {
+                            let extracted = self.builder.build_extract_value(sv, i as u32, &format!("ds_{}", i))
+                                .map_err(|_| CodegenError::LLVMError {
+                                    operation: "build_extract_value".to_string(),
+                                    details: format!("Failed to extract struct field {}", i),
+                                    span: None,
+                                })?;
+                            combined = self.apply_sub_pattern(sub_pat, extracted, ft, combined, i)?;
+                        }
+                        Ok(combined)
+                    }
+                    BrixType::IntMatrix | BrixType::Matrix => {
+                        let is_int = matches!(value_type, BrixType::IntMatrix);
+                        let elem_brix = if is_int { BrixType::Int } else { BrixType::Float };
+                        let elem_llvm = if is_int {
+                            self.context.i64_type().as_basic_type_enum()
+                        } else {
+                            self.context.f64_type().as_basic_type_enum()
+                        };
+                        let matrix_struct_type = if is_int {
+                            self.get_intmatrix_type()
+                        } else {
+                            self.get_matrix_type()
+                        };
+                        let ptr_type = self.context.ptr_type(AddressSpace::default());
+                        let matrix_ptr = value.into_pointer_value();
+                        let data_ptr_ptr = self.builder.build_struct_gep(matrix_struct_type, matrix_ptr, 3, "data_pp")
+                            .map_err(|_| CodegenError::LLVMError {
+                                operation: "build_struct_gep".to_string(),
+                                details: "Failed to get matrix data pointer".to_string(),
+                                span: None,
+                            })?;
+                        let data_ptr = self.builder.build_load(ptr_type, data_ptr_ptr, "data_p")
+                            .map_err(|_| CodegenError::LLVMError {
+                                operation: "build_load".to_string(),
+                                details: "Failed to load matrix data pointer".to_string(),
+                                span: None,
+                            })?
+                            .into_pointer_value();
+                        let mut combined = combined_init;
+                        for (i, sub_pat) in sub_patterns.iter().enumerate() {
+                            let idx_val = self.context.i64_type().const_int(i as u64, false);
+                            let elem_ptr = unsafe {
+                                self.builder.build_gep(elem_llvm, data_ptr, &[idx_val], &format!("ep_{}", i))
+                                    .map_err(|_| CodegenError::LLVMError {
+                                        operation: "build_gep".to_string(),
+                                        details: format!("Failed to GEP matrix element {}", i),
+                                        span: None,
+                                    })?
+                            };
+                            let extracted = self.builder.build_load(elem_llvm, elem_ptr, &format!("ev_{}", i))
+                                .map_err(|_| CodegenError::LLVMError {
+                                    operation: "build_load".to_string(),
+                                    details: format!("Failed to load matrix element {}", i),
+                                    span: None,
+                                })?;
+                            combined = self.apply_sub_pattern(sub_pat, extracted, &elem_brix, combined, i)?;
+                        }
+                        Ok(combined)
+                    }
+                    _ => Err(CodegenError::TypeError {
+                        expected: "Tuple, Struct, or Matrix".to_string(),
+                        found: format!("{:?}", value_type),
+                        context: "Destructuring pattern".to_string(),
+                        span: None,
+                    })
+                }
+            }
+
+            Pattern::Range { start, end, inclusive } => {
+                use parser::ast::Literal as Lit;
+                use inkwell::IntPredicate::{SLE, SLT};
+                use inkwell::FloatPredicate::{OLE, OLT};
+                match (start, end, value_type) {
+                    (Lit::Int(s), Lit::Int(e), BrixType::Int) => {
+                        let val = value.into_int_value();
+                        let sv = self.context.i64_type().const_int(*s as u64, true);
+                        let ev = self.context.i64_type().const_int(*e as u64, true);
+                        let lo = self.builder.build_int_compare(SLE, sv, val, "rng_lo")
+                            .map_err(|_| CodegenError::LLVMError {
+                                operation: "build_int_compare".to_string(),
+                                details: "Failed to build range lower bound".to_string(),
+                                span: None,
+                            })?;
+                        let hi = self.builder.build_int_compare(
+                            if *inclusive { SLE } else { SLT }, val, ev, "rng_hi"
+                        ).map_err(|_| CodegenError::LLVMError {
+                            operation: "build_int_compare".to_string(),
+                            details: "Failed to build range upper bound".to_string(),
+                            span: None,
+                        })?;
+                        Ok(self.builder.build_and(lo, hi, "rng_and")
+                            .map_err(|_| CodegenError::LLVMError {
+                                operation: "build_and".to_string(),
+                                details: "Failed to AND range bounds".to_string(),
+                                span: None,
+                            })?)
+                    }
+                    (Lit::Float(s), Lit::Float(e), BrixType::Float) => {
+                        let val = value.into_float_value();
+                        let sv = self.context.f64_type().const_float(*s);
+                        let ev = self.context.f64_type().const_float(*e);
+                        let lo = self.builder.build_float_compare(OLE, sv, val, "rng_lo")
+                            .map_err(|_| CodegenError::LLVMError {
+                                operation: "build_float_compare".to_string(),
+                                details: "Failed to build float range lower bound".to_string(),
+                                span: None,
+                            })?;
+                        let hi = self.builder.build_float_compare(
+                            if *inclusive { OLE } else { OLT }, val, ev, "rng_hi"
+                        ).map_err(|_| CodegenError::LLVMError {
+                            operation: "build_float_compare".to_string(),
+                            details: "Failed to build float range upper bound".to_string(),
+                            span: None,
+                        })?;
+                        Ok(self.builder.build_and(lo, hi, "rng_and")
+                            .map_err(|_| CodegenError::LLVMError {
+                                operation: "build_and".to_string(),
+                                details: "Failed to AND float range bounds".to_string(),
+                                span: None,
+                            })?)
+                    }
+                    _ => Err(CodegenError::TypeError {
+                        expected: "Int range with Int value, or Float range with Float value".to_string(),
+                        found: format!("{:?} range with {:?} value", start, value_type),
+                        context: "Range pattern".to_string(),
+                        span: None,
+                    })
+                }
+            }
+        }
+    }
+
+    /// Helper: Apply a single sub-pattern in a destructure context.
+    /// - Wildcard: always matches, no binding
+    /// - Binding: allocate variable, store value, return combined unchanged
+    /// - Anything else: compile recursively and AND with combined
+    fn apply_sub_pattern(
+        &mut self,
+        sub_pat: &parser::ast::Pattern,
+        extracted: inkwell::values::BasicValueEnum<'ctx>,
+        ft: &BrixType,
+        combined: inkwell::values::IntValue<'ctx>,
+        i: usize,
+    ) -> CodegenResult<inkwell::values::IntValue<'ctx>> {
+        use parser::ast::Pattern;
+        match sub_pat {
+            Pattern::Wildcard => Ok(combined),
+            Pattern::Binding(name) => {
+                let llvm_type = self.brix_type_to_llvm(ft);
+                let alloca = self.builder.build_alloca(llvm_type, name)
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_alloca".to_string(),
+                        details: format!("Failed to allocate binding '{}'", name),
+                        span: None,
+                    })?;
+                self.builder.build_store(alloca, extracted)
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_store".to_string(),
+                        details: format!("Failed to store binding '{}'", name),
+                        span: None,
+                    })?;
+                self.variables.insert(name.clone(), (alloca, ft.clone()));
+                Ok(combined)
+            }
+            _ => {
+                let field_match = self.compile_pattern_match(sub_pat, extracted, ft)?;
+                Ok(self.builder.build_and(combined, field_match, &format!("da_{}", i))
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_and".to_string(),
+                        details: format!("Failed to AND sub-pattern at index {}", i),
+                        span: None,
+                    })?)
+            }
         }
     }
 
