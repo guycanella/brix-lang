@@ -70,8 +70,8 @@ brix/
 │   │   ├── closure_analysis.rs  # Capture analysis pass (runs after parse)
 │   │   └── error.rs         # Ariadne-based parse error reporting
 │   └── codegen/src/
-│       ├── lib.rs           # Main compiler (~16,033 lines)
-│       ├── stmt.rs          # Statement compilation (~1,013 lines)
+│       ├── lib.rs           # Main compiler (~16,234 lines)
+│       ├── stmt.rs          # Statement compilation (~1,101 lines)
 │       ├── expr.rs          # Expression compilation (~369 lines)
 │       ├── helpers.rs       # LLVM helpers
 │       ├── error.rs         # CodegenError enum + CodegenResult<T>
@@ -191,9 +191,20 @@ Jest-style framework. 28 matchers across 14 categories: `toBe`, `not.toBe`, `toE
 
 **Current test baseline (post Phase 4):** 1,194 unit + 152 integration + 390 Test Library (23 `.test.bx` files)
 
-**Planned for future phases:**
-- `split`, `join` — require `StringMatrix` type (v1.7).
-- See `ROADMAP_V1.6.md` for detailed specs.
+**Planned for v1.7 (next):** See `ROADMAP_V1.7.md` for full specs and implementation order. Nine feature groups:
+- **A** `BrixType::StringMatrix` + `.split()` / `join()` — new type: `{ ref_count, len, BrixString** data }` in `runtime.c`; adds `string_matrix_new/get/set/retain/release`; enables `for part in string_matrix` iteration
+- **B** New array methods: `.sort()`, `.sort_desc()`, `.min()`, `.max()`, `.flatten()`, `.unique()`, `.reverse()`, `.append()`, `.prepend()`, `.count()` — all added to `compile_iterator_method()` dispatch
+- **C** Array slicing: `arr[1..<4]`, `arr[-1]`, `arr[..<3]`, `arr[2..]` — `ExprKind::Index` with `ExprKind::Range` index routes to `compile_array_slice()`; negative indices add `len + idx`
+- **D** Named field patterns in `match`: `{ x: px, y: 0 }` — `Pattern::NamedField(Vec<(String, Pattern)>)` in AST; resolves field index from `struct_defs` at compile time
+- **E** Array rest patterns: `[first, ...rest]` — `Pattern::ArrayRest { head, rest }` in AST; tail captured via `matrix_slice`
+- **F** Exhaustiveness checking as compile error (E102) — wildcard required for non-union types; all union variants must be covered; `check_exhaustiveness()` called before compiling arms
+- **G** Test matchers: `toStartWith`, `toEndWith`, `toMatch` (glob), `toHaveProperty` (compile-time struct field check)
+- **H** `toThrow` matcher — uses `fork()` + `waitpid()` in `runtime.c`; also adds `panic(msg)` built-in
+- **I** List comprehension type fix — replace hardcoded `Matrix` with `infer_expr_type_static()` so `[x * 2 for x in [1,2,3]]` returns `IntMatrix`
+
+**Planned refactor (between v1.7 and v1.8):** See `REFACTOR_LIB.md`. Goal: split `lib.rs` (~16,234 lines) into dedicated modules — `builtins/iterator.rs`, `builtins/match_compiler.rs`, `builtins/async_compiler.rs`, `builtins/closure_compiler.rs` — reducing `lib.rs` to under 9,000 lines.
+
+**Planned for v1.8+:** `Vector<T>` (dynamic arrays with `realloc`), `Stack`, `Queue`, `MinHeap`/`MaxHeap`, `HashMap<K,V>`, LAPACK decompositions (LU, QR, SVD, Cholesky). See `ROADMAP_V1.8.md`.
 
 ## Troubleshooting
 
