@@ -1211,6 +1211,233 @@ ComplexMatrix *brix_eigvecs(Matrix *A) {
 }
 
 // ==========================================
+// SECTION 1.8: ARRAY METHODS (v1.7 Grupo B)
+// ==========================================
+
+// Forward declaration: compare_doubles is defined later, in SECTION 1
+// (ERROR HANDLING / stats), reused here for ascending sort.
+static int compare_doubles(const void *a, const void *b);
+
+// Comparison function for qsort (long/i64)
+static int compare_longs(const void *a, const void *b) {
+  long la = *(const long *)a;
+  long lb = *(const long *)b;
+  return (la > lb) - (la < lb);
+}
+
+// Comparison function for qsort (descending doubles)
+static int compare_doubles_desc(const void *a, const void *b) {
+  double da = *(const double *)a;
+  double db = *(const double *)b;
+  return (db > da) - (db < da);
+}
+
+// Comparison function for qsort (descending longs)
+static int compare_longs_desc(const void *a, const void *b) {
+  long la = *(const long *)a;
+  long lb = *(const long *)b;
+  return (lb > la) - (lb < la);
+}
+
+// --- Sort ---
+
+Matrix* matrix_sort_asc(Matrix* m) {
+  long total = m->rows * m->cols;
+  Matrix *result = matrix_new(m->rows, m->cols);
+  if (total == 0) return result;
+  memcpy(result->data, m->data, total * sizeof(double));
+  qsort(result->data, total, sizeof(double), compare_doubles);
+  return result;
+}
+
+Matrix* matrix_sort_desc(Matrix* m) {
+  long total = m->rows * m->cols;
+  Matrix *result = matrix_new(m->rows, m->cols);
+  if (total == 0) return result;
+  memcpy(result->data, m->data, total * sizeof(double));
+  qsort(result->data, total, sizeof(double), compare_doubles_desc);
+  return result;
+}
+
+IntMatrix* intmatrix_sort_asc(IntMatrix* m) {
+  long total = m->rows * m->cols;
+  IntMatrix *result = intmatrix_new(m->rows, m->cols);
+  if (total == 0) return result;
+  memcpy(result->data, m->data, total * sizeof(long));
+  qsort(result->data, total, sizeof(long), compare_longs);
+  return result;
+}
+
+IntMatrix* intmatrix_sort_desc(IntMatrix* m) {
+  long total = m->rows * m->cols;
+  IntMatrix *result = intmatrix_new(m->rows, m->cols);
+  if (total == 0) return result;
+  memcpy(result->data, m->data, total * sizeof(long));
+  qsort(result->data, total, sizeof(long), compare_longs_desc);
+  return result;
+}
+
+// --- Min/Max ---
+
+double brix_matrix_min(Matrix* m) {
+  long total = m->rows * m->cols;
+  if (total == 0) return 0.0;
+  double min_val = m->data[0];
+  for (long i = 1; i < total; i++) {
+    if (m->data[i] < min_val) min_val = m->data[i];
+  }
+  return min_val;
+}
+
+double brix_matrix_max(Matrix* m) {
+  long total = m->rows * m->cols;
+  if (total == 0) return 0.0;
+  double max_val = m->data[0];
+  for (long i = 1; i < total; i++) {
+    if (m->data[i] > max_val) max_val = m->data[i];
+  }
+  return max_val;
+}
+
+long brix_intmatrix_min(IntMatrix* m) {
+  long total = m->rows * m->cols;
+  if (total == 0) return 0;
+  long min_val = m->data[0];
+  for (long i = 1; i < total; i++) {
+    if (m->data[i] < min_val) min_val = m->data[i];
+  }
+  return min_val;
+}
+
+long brix_intmatrix_max(IntMatrix* m) {
+  long total = m->rows * m->cols;
+  if (total == 0) return 0;
+  long max_val = m->data[0];
+  for (long i = 1; i < total; i++) {
+    if (m->data[i] > max_val) max_val = m->data[i];
+  }
+  return max_val;
+}
+
+// --- Flatten ---
+
+Matrix* matrix_flatten(Matrix* m) {
+  long total = m->rows * m->cols;
+  Matrix *result = matrix_new(1, total);
+  if (total > 0) memcpy(result->data, m->data, total * sizeof(double));
+  return result;
+}
+
+IntMatrix* intmatrix_flatten(IntMatrix* m) {
+  long total = m->rows * m->cols;
+  IntMatrix *result = intmatrix_new(1, total);
+  if (total > 0) memcpy(result->data, m->data, total * sizeof(long));
+  return result;
+}
+
+// --- Unique (preserves order of first appearance, O(n^2)) ---
+
+Matrix* matrix_unique(Matrix* m) {
+  long total = m->rows * m->cols;
+  double *temp = (double *)brix_malloc(total > 0 ? total * sizeof(double) : sizeof(double));
+  long count = 0;
+
+  for (long i = 0; i < total; i++) {
+    double val = m->data[i];
+    int found = 0;
+    for (long j = 0; j < count; j++) {
+      if (temp[j] == val) { found = 1; break; }
+    }
+    if (!found) {
+      temp[count] = val;
+      count++;
+    }
+  }
+
+  Matrix *result = matrix_new(1, count);
+  if (count > 0) memcpy(result->data, temp, count * sizeof(double));
+  brix_free(temp);
+  return result;
+}
+
+IntMatrix* intmatrix_unique(IntMatrix* m) {
+  long total = m->rows * m->cols;
+  long *temp = (long *)brix_malloc(total > 0 ? total * sizeof(long) : sizeof(long));
+  long count = 0;
+
+  for (long i = 0; i < total; i++) {
+    long val = m->data[i];
+    int found = 0;
+    for (long j = 0; j < count; j++) {
+      if (temp[j] == val) { found = 1; break; }
+    }
+    if (!found) {
+      temp[count] = val;
+      count++;
+    }
+  }
+
+  IntMatrix *result = intmatrix_new(1, count);
+  if (count > 0) memcpy(result->data, temp, count * sizeof(long));
+  brix_free(temp);
+  return result;
+}
+
+// --- Reverse ---
+
+Matrix* matrix_reverse(Matrix* m) {
+  long total = m->rows * m->cols;
+  Matrix *result = matrix_new(m->rows, m->cols);
+  for (long i = 0; i < total; i++) {
+    result->data[i] = m->data[total - 1 - i];
+  }
+  return result;
+}
+
+IntMatrix* intmatrix_reverse(IntMatrix* m) {
+  long total = m->rows * m->cols;
+  IntMatrix *result = intmatrix_new(m->rows, m->cols);
+  for (long i = 0; i < total; i++) {
+    result->data[i] = m->data[total - 1 - i];
+  }
+  return result;
+}
+
+// --- Append/Prepend (returns a new 1x(total+1) array) ---
+
+Matrix* matrix_append(Matrix* m, double val) {
+  long total = m->rows * m->cols;
+  Matrix *result = matrix_new(1, total + 1);
+  if (total > 0) memcpy(result->data, m->data, total * sizeof(double));
+  result->data[total] = val;
+  return result;
+}
+
+IntMatrix* intmatrix_append(IntMatrix* m, long val) {
+  long total = m->rows * m->cols;
+  IntMatrix *result = intmatrix_new(1, total + 1);
+  if (total > 0) memcpy(result->data, m->data, total * sizeof(long));
+  result->data[total] = val;
+  return result;
+}
+
+Matrix* matrix_prepend(Matrix* m, double val) {
+  long total = m->rows * m->cols;
+  Matrix *result = matrix_new(1, total + 1);
+  result->data[0] = val;
+  if (total > 0) memcpy(result->data + 1, m->data, total * sizeof(double));
+  return result;
+}
+
+IntMatrix* intmatrix_prepend(IntMatrix* m, long val) {
+  long total = m->rows * m->cols;
+  IntMatrix *result = intmatrix_new(1, total + 1);
+  result->data[0] = val;
+  if (total > 0) memcpy(result->data + 1, m->data, total * sizeof(long));
+  return result;
+}
+
+// ==========================================
 // SECTION 1: ERROR HANDLING (v1.1)
 // ==========================================
 

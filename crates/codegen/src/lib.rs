@@ -33,6 +33,7 @@ use helpers::HelperFunctions;
 // Note: These traits are imported in respective modules (stmt.rs, expr.rs)
 // and made available on Compiler via trait implementations
 use builtins::string::StringFunctions;
+use builtins::matrix::MatrixFunctions;
 
 // Import statement compiler trait
 use stmt::StatementCompiler;
@@ -7500,29 +7501,28 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
                     // Check if this is a method call (e.g., obj.method(args))
                     if let ExprKind::FieldAccess { target, field } = &func.kind {
-                        // Check for iterator methods on IntMatrix/Matrix: map, filter, reduce, any, all, find
-                        if matches!(field.as_str(), "map" | "filter" | "reduce" | "any" | "all" | "find") {
-                            let receiver_result = self.compile_expr(target);
-                            if let Ok((receiver_val, receiver_type)) = receiver_result {
-                                if matches!(receiver_type, BrixType::IntMatrix | BrixType::Matrix) {
-                                    if let Some(result) = self.compile_iterator_method(
-                                        receiver_val, &receiver_type, field, args, expr
-                                    )? {
-                                        return Ok(result);
-                                    }
-                                }
-                            }
-                        }
-
-                        // Check for string method calls: trim, ltrim, rtrim, starts_with, ends_with,
-                        // contains, substring, reverse, repeat, index_of
-                        if matches!(field.as_str(),
+                        // Check for iterator/array methods on IntMatrix/Matrix and string
+                        // methods. `reverse` overlaps both sets, so the target is compiled
+                        // once here and dispatched by its actual type to avoid double-eval.
+                        let is_iter_method = matches!(field.as_str(),
+                            "map" | "filter" | "reduce" | "any" | "all" | "find"
+                            | "sort" | "sort_desc" | "min" | "max" | "flatten" | "unique"
+                            | "reverse" | "append" | "prepend" | "count");
+                        let is_str_method = matches!(field.as_str(),
                             "trim" | "ltrim" | "rtrim" |
                             "starts_with" | "ends_with" | "contains" |
-                            "substring" | "reverse" | "repeat" | "index_of" | "split"
-                        ) {
+                            "substring" | "reverse" | "repeat" | "index_of" | "split");
+                        if is_iter_method || is_str_method {
                             let (receiver_val, receiver_type) = self.compile_expr(target)?;
-                            if receiver_type == BrixType::String {
+                            if is_iter_method
+                                && matches!(receiver_type, BrixType::IntMatrix | BrixType::Matrix)
+                            {
+                                if let Some(result) = self.compile_iterator_method(
+                                    receiver_val, &receiver_type, field, args, expr
+                                )? {
+                                    return Ok(result);
+                                }
+                            } else if is_str_method && receiver_type == BrixType::String {
                                 if let Some(result) = self.compile_string_method(
                                     receiver_val, field, args, expr
                                 )? {
@@ -12690,6 +12690,25 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         }
     }
 
+    /// Require an already-Int value; rejects Float and any other type with a CodegenError
+    /// instead of panicking (IntMatrix has no int<-float promotion, unlike Matrix).
+    fn coerce_to_i64(
+        &mut self,
+        val: BasicValueEnum<'ctx>,
+        brix_type: &BrixType,
+        context: &str,
+    ) -> CodegenResult<inkwell::values::IntValue<'ctx>> {
+        match brix_type {
+            BrixType::Int => Ok(val.into_int_value()),
+            other => Err(CodegenError::TypeError {
+                expected: "Int".to_string(),
+                found: format!("{:?}", other),
+                context: context.to_string(),
+                span: None,
+            }),
+        }
+    }
+
     fn compile_zip(&mut self, args: &[Expr]) -> Option<(BasicValueEnum<'ctx>, BrixType)> {
         // SIMPLIFIED VERSION: zip() for exactly 2 arrays
         // zip([1,2,3], [4,5,6]) → Matrix 3x2 where each row is a pair
@@ -13104,11 +13123,35 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         return ret.as_ref().and_then(|v| v.first()).cloned();
                     }
                 }
-                // Method calls: .split() on a String returns StringMatrix
+                // Method calls: .split() on a String returns StringMatrix;
+                // v1.7 Group B array methods return based on the receiver's element type.
                 if let ExprKind::FieldAccess { target, field } = &func.kind {
                     if field == "split" {
                         if let Some(BrixType::String) = self.infer_expr_type_static(target, params) {
                             return Some(BrixType::StringMatrix);
+                        }
+                    }
+                    if matches!(field.as_str(),
+                        "sort" | "sort_desc" | "flatten" | "unique" | "reverse" | "append" | "prepend"
+                    ) {
+                        if let Some(t @ (BrixType::IntMatrix | BrixType::Matrix)) =
+                            self.infer_expr_type_static(target, params)
+                        {
+                            return Some(t);
+                        }
+                    }
+                    if matches!(field.as_str(), "min" | "max") {
+                        return match self.infer_expr_type_static(target, params) {
+                            Some(BrixType::Matrix) => Some(BrixType::Float),
+                            Some(BrixType::IntMatrix) => Some(BrixType::Int),
+                            _ => None,
+                        };
+                    }
+                    if field == "count" {
+                        if let Some(BrixType::IntMatrix | BrixType::Matrix) =
+                            self.infer_expr_type_static(target, params)
+                        {
+                            return Some(BrixType::Int);
                         }
                     }
                 }
@@ -13992,8 +14035,316 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 Ok(Some((result, ret_union_type)))
             }
 
+            // ===== v1.7 Group B: array methods =====
+            "sort" => self.compile_array_sort(receiver_val, receiver_type, args, false, span),
+            "sort_desc" => self.compile_array_sort(receiver_val, receiver_type, args, true, span),
+            "min" => self.compile_array_min(receiver_val, receiver_type, args, span),
+            "max" => self.compile_array_max(receiver_val, receiver_type, args, span),
+            "flatten" => self.compile_array_flatten(receiver_val, receiver_type, args, span),
+            "unique" => self.compile_array_unique(receiver_val, receiver_type, args, span),
+            "reverse" => self.compile_array_reverse(receiver_val, receiver_type, args, span),
+            "append" => self.compile_array_append(receiver_val, receiver_type, args, span),
+            "prepend" => self.compile_array_prepend(receiver_val, receiver_type, args, span),
+            "count" => self.compile_array_count(receiver_val, receiver_type, args, span),
+
             _ => Ok(None), // Not a recognized iterator method
         }
+    }
+
+    /// Compile `.sort()` / `.sort_desc()` on IntMatrix/Matrix (v1.7 Group B).
+    /// Returns a new array of the same type.
+    fn compile_array_sort(
+        &mut self,
+        receiver_val: BasicValueEnum<'ctx>,
+        receiver_type: &BrixType,
+        args: &[Expr],
+        descending: bool,
+        span: &std::ops::Range<usize>,
+    ) -> CodegenResult<Option<(BasicValueEnum<'ctx>, BrixType)>> {
+        let method = if descending { "sort_desc" } else { "sort" };
+        if !args.is_empty() {
+            return Err(CodegenError::InvalidOperation {
+                operation: method.to_string(),
+                reason: "expects no arguments".to_string(),
+                span: Some(span.clone()),
+            });
+        }
+        let is_int = *receiver_type == BrixType::IntMatrix;
+        let func = match (is_int, descending) {
+            (true, false) => self.get_intmatrix_sort_asc(),
+            (true, true) => self.get_intmatrix_sort_desc(),
+            (false, false) => self.get_matrix_sort_asc(),
+            (false, true) => self.get_matrix_sort_desc(),
+        };
+        let result = self.call_array_unary(func, receiver_val, method, span)?;
+        Ok(Some((result, receiver_type.clone())))
+    }
+
+    /// Compile `.min()` on IntMatrix/Matrix (v1.7 Group B). Returns scalar.
+    fn compile_array_min(
+        &mut self,
+        receiver_val: BasicValueEnum<'ctx>,
+        receiver_type: &BrixType,
+        args: &[Expr],
+        span: &std::ops::Range<usize>,
+    ) -> CodegenResult<Option<(BasicValueEnum<'ctx>, BrixType)>> {
+        if !args.is_empty() {
+            return Err(CodegenError::InvalidOperation {
+                operation: "min".to_string(),
+                reason: "expects no arguments".to_string(),
+                span: Some(span.clone()),
+            });
+        }
+        let is_int = *receiver_type == BrixType::IntMatrix;
+        let func = if is_int { self.get_brix_intmatrix_min() } else { self.get_brix_matrix_min() };
+        let result = self.call_array_unary(func, receiver_val, "min", span)?;
+        let ret_type = if is_int { BrixType::Int } else { BrixType::Float };
+        Ok(Some((result, ret_type)))
+    }
+
+    /// Compile `.max()` on IntMatrix/Matrix (v1.7 Group B). Returns scalar.
+    fn compile_array_max(
+        &mut self,
+        receiver_val: BasicValueEnum<'ctx>,
+        receiver_type: &BrixType,
+        args: &[Expr],
+        span: &std::ops::Range<usize>,
+    ) -> CodegenResult<Option<(BasicValueEnum<'ctx>, BrixType)>> {
+        if !args.is_empty() {
+            return Err(CodegenError::InvalidOperation {
+                operation: "max".to_string(),
+                reason: "expects no arguments".to_string(),
+                span: Some(span.clone()),
+            });
+        }
+        let is_int = *receiver_type == BrixType::IntMatrix;
+        let func = if is_int { self.get_brix_intmatrix_max() } else { self.get_brix_matrix_max() };
+        let result = self.call_array_unary(func, receiver_val, "max", span)?;
+        let ret_type = if is_int { BrixType::Int } else { BrixType::Float };
+        Ok(Some((result, ret_type)))
+    }
+
+    /// Compile `.flatten()` on IntMatrix/Matrix (v1.7 Group B). Returns same type, 1D.
+    fn compile_array_flatten(
+        &mut self,
+        receiver_val: BasicValueEnum<'ctx>,
+        receiver_type: &BrixType,
+        args: &[Expr],
+        span: &std::ops::Range<usize>,
+    ) -> CodegenResult<Option<(BasicValueEnum<'ctx>, BrixType)>> {
+        if !args.is_empty() {
+            return Err(CodegenError::InvalidOperation {
+                operation: "flatten".to_string(),
+                reason: "expects no arguments".to_string(),
+                span: Some(span.clone()),
+            });
+        }
+        let is_int = *receiver_type == BrixType::IntMatrix;
+        let func = if is_int { self.get_intmatrix_flatten() } else { self.get_matrix_flatten() };
+        let result = self.call_array_unary(func, receiver_val, "flatten", span)?;
+        Ok(Some((result, receiver_type.clone())))
+    }
+
+    /// Compile `.unique()` on IntMatrix/Matrix (v1.7 Group B). Returns same type.
+    fn compile_array_unique(
+        &mut self,
+        receiver_val: BasicValueEnum<'ctx>,
+        receiver_type: &BrixType,
+        args: &[Expr],
+        span: &std::ops::Range<usize>,
+    ) -> CodegenResult<Option<(BasicValueEnum<'ctx>, BrixType)>> {
+        if !args.is_empty() {
+            return Err(CodegenError::InvalidOperation {
+                operation: "unique".to_string(),
+                reason: "expects no arguments".to_string(),
+                span: Some(span.clone()),
+            });
+        }
+        let is_int = *receiver_type == BrixType::IntMatrix;
+        let func = if is_int { self.get_intmatrix_unique() } else { self.get_matrix_unique() };
+        let result = self.call_array_unary(func, receiver_val, "unique", span)?;
+        Ok(Some((result, receiver_type.clone())))
+    }
+
+    /// Compile `.reverse()` on IntMatrix/Matrix (v1.7 Group B). Returns same type.
+    fn compile_array_reverse(
+        &mut self,
+        receiver_val: BasicValueEnum<'ctx>,
+        receiver_type: &BrixType,
+        args: &[Expr],
+        span: &std::ops::Range<usize>,
+    ) -> CodegenResult<Option<(BasicValueEnum<'ctx>, BrixType)>> {
+        if !args.is_empty() {
+            return Err(CodegenError::InvalidOperation {
+                operation: "reverse".to_string(),
+                reason: "expects no arguments".to_string(),
+                span: Some(span.clone()),
+            });
+        }
+        let is_int = *receiver_type == BrixType::IntMatrix;
+        let func = if is_int { self.get_intmatrix_reverse() } else { self.get_matrix_reverse() };
+        let result = self.call_array_unary(func, receiver_val, "reverse", span)?;
+        Ok(Some((result, receiver_type.clone())))
+    }
+
+    /// Compile `.append(val)` on IntMatrix/Matrix (v1.7 Group B). Returns new array.
+    fn compile_array_append(
+        &mut self,
+        receiver_val: BasicValueEnum<'ctx>,
+        receiver_type: &BrixType,
+        args: &[Expr],
+        span: &std::ops::Range<usize>,
+    ) -> CodegenResult<Option<(BasicValueEnum<'ctx>, BrixType)>> {
+        if args.len() != 1 {
+            return Err(CodegenError::InvalidOperation {
+                operation: "append".to_string(),
+                reason: "expects exactly 1 argument (value to append)".to_string(),
+                span: Some(span.clone()),
+            });
+        }
+        let is_int = *receiver_type == BrixType::IntMatrix;
+        let (arg_val, arg_type) = self.compile_expr(&args[0])?;
+        let scalar: inkwell::values::BasicMetadataValueEnum<'ctx> = if is_int {
+            self.coerce_to_i64(arg_val, &arg_type, "append")?.into()
+        } else {
+            self.coerce_to_f64(arg_val, &arg_type)?.into()
+        };
+        let func = if is_int { self.get_intmatrix_append() } else { self.get_matrix_append() };
+        let result = self.call_array_scalar(func, receiver_val, scalar, "append", span)?;
+        Ok(Some((result, receiver_type.clone())))
+    }
+
+    /// Compile `.prepend(val)` on IntMatrix/Matrix (v1.7 Group B). Returns new array.
+    fn compile_array_prepend(
+        &mut self,
+        receiver_val: BasicValueEnum<'ctx>,
+        receiver_type: &BrixType,
+        args: &[Expr],
+        span: &std::ops::Range<usize>,
+    ) -> CodegenResult<Option<(BasicValueEnum<'ctx>, BrixType)>> {
+        if args.len() != 1 {
+            return Err(CodegenError::InvalidOperation {
+                operation: "prepend".to_string(),
+                reason: "expects exactly 1 argument (value to prepend)".to_string(),
+                span: Some(span.clone()),
+            });
+        }
+        let is_int = *receiver_type == BrixType::IntMatrix;
+        let (arg_val, arg_type) = self.compile_expr(&args[0])?;
+        let scalar: inkwell::values::BasicMetadataValueEnum<'ctx> = if is_int {
+            self.coerce_to_i64(arg_val, &arg_type, "prepend")?.into()
+        } else {
+            self.coerce_to_f64(arg_val, &arg_type)?.into()
+        };
+        let func = if is_int { self.get_intmatrix_prepend() } else { self.get_matrix_prepend() };
+        let result = self.call_array_scalar(func, receiver_val, scalar, "prepend", span)?;
+        Ok(Some((result, receiver_type.clone())))
+    }
+
+    /// Compile `.count()` on IntMatrix/Matrix (v1.7 Group B). Returns rows*cols as Int.
+    fn compile_array_count(
+        &mut self,
+        receiver_val: BasicValueEnum<'ctx>,
+        receiver_type: &BrixType,
+        args: &[Expr],
+        span: &std::ops::Range<usize>,
+    ) -> CodegenResult<Option<(BasicValueEnum<'ctx>, BrixType)>> {
+        if !args.is_empty() {
+            return Err(CodegenError::InvalidOperation {
+                operation: "count".to_string(),
+                reason: "expects no arguments".to_string(),
+                span: Some(span.clone()),
+            });
+        }
+        let i64_type = self.context.i64_type();
+        let is_int = *receiver_type == BrixType::IntMatrix;
+        let matrix_llvm_type = if is_int { self.get_intmatrix_type() } else { self.get_matrix_type() };
+        let matrix_ptr = receiver_val.into_pointer_value();
+
+        // Load rows (field 1) and cols (field 2)
+        let rows_ptr = self.builder
+            .build_struct_gep(matrix_llvm_type, matrix_ptr, 1, "count_rows_ptr")
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_struct_gep".to_string(),
+                details: "Failed to get rows field for count".to_string(),
+                span: Some(span.clone()),
+            })?;
+        let rows = self.builder
+            .build_load(i64_type, rows_ptr, "count_rows")
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_load".to_string(),
+                details: "Failed to load rows for count".to_string(),
+                span: Some(span.clone()),
+            })?
+            .into_int_value();
+        let cols_ptr = self.builder
+            .build_struct_gep(matrix_llvm_type, matrix_ptr, 2, "count_cols_ptr")
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_struct_gep".to_string(),
+                details: "Failed to get cols field for count".to_string(),
+                span: Some(span.clone()),
+            })?;
+        let cols = self.builder
+            .build_load(i64_type, cols_ptr, "count_cols")
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_load".to_string(),
+                details: "Failed to load cols for count".to_string(),
+                span: Some(span.clone()),
+            })?
+            .into_int_value();
+        let total = self.builder
+            .build_int_mul(rows, cols, "count_total")
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_int_mul".to_string(),
+                details: "Failed to compute total elements for count".to_string(),
+                span: Some(span.clone()),
+            })?;
+        Ok(Some((total.into(), BrixType::Int)))
+    }
+
+    /// Helper: call a runtime function taking a single array pointer argument.
+    fn call_array_unary(
+        &mut self,
+        func: inkwell::values::FunctionValue<'ctx>,
+        receiver_val: BasicValueEnum<'ctx>,
+        op: &str,
+        span: &std::ops::Range<usize>,
+    ) -> CodegenResult<BasicValueEnum<'ctx>> {
+        let call = self.builder
+            .build_call(func, &[receiver_val.into()], &format!("{}_result", op))
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_call".to_string(),
+                details: format!("Failed to call array method '{}'", op),
+                span: Some(span.clone()),
+            })?;
+        call.try_as_basic_value().left().ok_or_else(|| CodegenError::MissingValue {
+            what: format!("{} result", op),
+            context: op.to_string(),
+            span: Some(span.clone()),
+        })
+    }
+
+    /// Helper: call a runtime function taking an array pointer plus a scalar argument.
+    fn call_array_scalar(
+        &mut self,
+        func: inkwell::values::FunctionValue<'ctx>,
+        receiver_val: BasicValueEnum<'ctx>,
+        scalar: inkwell::values::BasicMetadataValueEnum<'ctx>,
+        op: &str,
+        span: &std::ops::Range<usize>,
+    ) -> CodegenResult<BasicValueEnum<'ctx>> {
+        let call = self.builder
+            .build_call(func, &[receiver_val.into(), scalar], &format!("{}_result", op))
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_call".to_string(),
+                details: format!("Failed to call array method '{}'", op),
+                span: Some(span.clone()),
+            })?;
+        call.try_as_basic_value().left().ok_or_else(|| CodegenError::MissingValue {
+            what: format!("{} result", op),
+            context: op.to_string(),
+            span: Some(span.clone()),
+        })
     }
 
     /// Compile a method call on a String receiver (v1.6 String Library).

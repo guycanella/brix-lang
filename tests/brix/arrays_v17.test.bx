@@ -1,0 +1,77 @@
+import test
+
+test.describe("Array methods (v1.7 Group B)", () -> {
+    test.it("sort() returns elements in ascending order", () -> {
+        var nums := [3, 1, 4, 1, 5, 9, 2, 6]
+        var sorted := nums.sort()
+        test.expect(sorted).toEqual([1, 1, 2, 3, 4, 5, 6, 9])
+
+        var fnums := [3.5, 1.2, 9.9]
+        var fsorted := fnums.sort()
+        test.expect(fsorted[0]).toBeCloseTo(1.2)
+        test.expect(fsorted[2]).toBeCloseTo(9.9)
+    })
+
+    test.it("sort_desc() returns elements in descending order", () -> {
+        var nums := [3, 1, 4, 1, 5, 9, 2, 6]
+        var desc := nums.sort_desc()
+        test.expect(desc).toEqual([9, 6, 5, 4, 3, 2, 1, 1])
+    })
+
+    test.it("min() returns the smallest element", () -> {
+        var nums := [3, 1, 4, 1, 5, 9, 2, 6]
+        test.expect(nums.min()).toBe(1)
+
+        var fnums := [3.5, 1.2, 9.9]
+        test.expect(fnums.min()).toBeCloseTo(1.2)
+    })
+
+    test.it("max() returns the largest element", () -> {
+        var nums := [3, 1, 4, 1, 5, 9, 2, 6]
+        test.expect(nums.max()).toBe(9)
+
+        var fnums := [3.5, 1.2, 9.9]
+        test.expect(fnums.max()).toBeCloseTo(9.9)
+    })
+
+    test.it("flatten() collapses a 2D matrix into a 1D row", () -> {
+        var m := ones(2, 3)
+        var flat := m.flatten()
+        test.expect(flat.rows).toBe(1)
+        test.expect(flat.cols).toBe(6)
+    })
+
+    test.it("unique() preserves order of first appearance", () -> {
+        var nums := [3, 1, 4, 1, 5, 9, 2, 6, 3, 5]
+        var uniq := nums.unique()
+        test.expect(uniq).toEqual([3, 1, 4, 5, 9, 2, 6])
+    })
+
+    test.it("reverse() reverses element order", () -> {
+        var nums := [1, 2, 3, 4, 5]
+        var rev := nums.reverse()
+        test.expect(rev).toEqual([5, 4, 3, 2, 1])
+    })
+
+    test.it("append() adds a new element at the end without mutating the original", () -> {
+        var nums := [1, 2, 3]
+        var extended := nums.append(99)
+        test.expect(extended).toEqual([1, 2, 3, 99])
+        test.expect(nums).toEqual([1, 2, 3])
+    })
+
+    test.it("prepend() adds a new element at the start without mutating the original", () -> {
+        var nums := [1, 2, 3]
+        var prepended := nums.prepend(0)
+        test.expect(prepended).toEqual([0, 1, 2, 3])
+        test.expect(nums).toEqual([1, 2, 3])
+    })
+
+    test.it("count() returns the total number of elements", () -> {
+        var nums := [1, 2, 3, 4]
+        test.expect(nums.count()).toBe(4)
+
+        var m := ones(2, 3)
+        test.expect(m.count()).toBe(6)
+    })
+})

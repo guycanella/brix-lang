@@ -1,0 +1,13 @@
+// Test: .flatten() on 2D Matrix and 1D IntMatrix (v1.7 Group B)
+var m := ones(2, 3)
+var flat := m.flatten()
+println(flat.rows)
+println(flat.cols)
+println(flat[0])
+println(flat[5])
+
+var nums := [1, 2, 3, 4]
+var flatnums := nums.flatten()
+println(flatnums[0])
+println(flatnums[3])
+println(flatnums.cols)

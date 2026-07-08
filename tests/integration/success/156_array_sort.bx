@@ -1,0 +1,17 @@
+// Test: .sort() and .sort_desc() on IntMatrix and Matrix (v1.7 Group B)
+var nums := [3, 1, 4, 1, 5, 9, 2, 6]
+var sorted := nums.sort()
+println(sorted[0])
+println(sorted[7])
+
+var desc := nums.sort_desc()
+println(desc[0])
+println(desc[7])
+
+var fnums := [3.5, 1.2, 9.9]
+var fsorted := fnums.sort()
+println(fsorted[0])
+println(fsorted[2])
+
+var fdesc := fnums.sort_desc()
+println(fdesc[0])

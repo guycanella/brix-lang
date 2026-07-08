@@ -1,0 +1,11 @@
+// Test: .unique() preserves order of first appearance (v1.7 Group B)
+var nums := [3, 1, 4, 1, 5, 9, 2, 6, 3, 5]
+var uniq := nums.unique()
+println(uniq.cols)
+println(uniq[0])
+println(uniq[1])
+println(uniq[2])
+println(uniq[3])
+println(uniq[4])
+println(uniq[5])
+println(uniq[6])

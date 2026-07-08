@@ -1,0 +1,14 @@
+// Test: .append() and .prepend() on IntMatrix and Matrix (v1.7 Group B)
+var nums := [1, 2, 3]
+var extended := nums.append(99)
+println(extended.cols)
+println(extended[3])
+
+var prepended := nums.prepend(0)
+println(prepended.cols)
+println(prepended[0])
+println(prepended[1])
+
+var fnums := [1.5, 2.5]
+var fext := fnums.append(3.5)
+println(fext[2])
