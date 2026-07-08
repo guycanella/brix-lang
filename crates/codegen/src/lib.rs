@@ -530,6 +530,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             BrixType::String
             | BrixType::Matrix
             | BrixType::IntMatrix
+            | BrixType::StringMatrix
             | BrixType::FloatPtr
             | BrixType::Nil
             | BrixType::Error => self.context.ptr_type(AddressSpace::default()).into(),
@@ -4166,7 +4167,11 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     fn is_ref_counted(brix_type: &BrixType) -> bool {
         matches!(
             brix_type,
-            BrixType::String | BrixType::Matrix | BrixType::IntMatrix | BrixType::ComplexMatrix
+            BrixType::String
+                | BrixType::Matrix
+                | BrixType::IntMatrix
+                | BrixType::StringMatrix
+                | BrixType::ComplexMatrix
         )
     }
 
@@ -4184,8 +4189,12 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         match brix_type {
             // Non-String types: value_to_string always allocates a new BrixString
             BrixType::String => {
-                // For String type, only Identifier and FieldAccess are "borrowed"
-                !matches!(expr_kind, ExprKind::Identifier(_) | ExprKind::FieldAccess { .. })
+                // For String type, Identifier, FieldAccess, and Index are "borrowed"
+                // (Index into a StringMatrix returns a borrowed BrixString* owned by the matrix)
+                !matches!(
+                    expr_kind,
+                    ExprKind::Identifier(_) | ExprKind::FieldAccess { .. } | ExprKind::Index { .. }
+                )
             }
             // Non-string types: value_to_string creates a temp BrixString
             _ => true,
@@ -4211,6 +4220,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             BrixType::String => "string_retain",
             BrixType::Matrix => "matrix_retain",
             BrixType::IntMatrix => "intmatrix_retain",
+            BrixType::StringMatrix => "string_matrix_retain",
             BrixType::ComplexMatrix => "complexmatrix_retain",
             _ => unreachable!("is_ref_counted should have filtered this"),
         };
@@ -4257,6 +4267,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             BrixType::String => "string_release",
             BrixType::Matrix => "matrix_release",
             BrixType::IntMatrix => "intmatrix_release",
+            BrixType::StringMatrix => "string_matrix_release",
             BrixType::ComplexMatrix => "complexmatrix_release",
             _ => unreachable!("is_ref_counted should have filtered this"),
         };
@@ -5479,6 +5490,107 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             }
                             Ok(())
                         }
+                        BrixType::StringMatrix => {
+                            // StringMatrix iteration: for part in parts → part is a BrixString*
+                            if var_names.len() != 1 {
+                                return Err(CodegenError::InvalidOperation {
+                                    operation: "StringMatrix iteration".to_string(),
+                                    reason: "StringMatrix iteration supports only single variable".to_string(),
+                                    span: Some(stmt.span.clone()),
+                                });
+                            }
+                            let var_name = &var_names[0];
+                            let sm_ptr = iterable_val.into_pointer_value();
+                            let sm_type = self.get_string_matrix_type();
+                            let i64_type = self.context.i64_type();
+                            let ptr_type = self.context.ptr_type(AddressSpace::default());
+
+                            // Load len (field 1)
+                            let len_ptr = self.builder
+                                .build_struct_gep(sm_type, sm_ptr, 1, "sm_len_ptr")
+                                .map_err(|_| CodegenError::LLVMError { operation: "build_struct_gep".to_string(), details: "Failed to get StringMatrix len".to_string(), span: None })?;
+                            let sm_len = self.builder
+                                .build_load(i64_type, len_ptr, "sm_len")
+                                .map_err(|_| CodegenError::LLVMError { operation: "build_load".to_string(), details: "Failed to load StringMatrix len".to_string(), span: None })?
+                                .into_int_value();
+
+                            // string_matrix_get function
+                            let get_fn = self.module.get_function("string_matrix_get").unwrap_or_else(|| {
+                                let fn_type = ptr_type.fn_type(&[ptr_type.into(), i64_type.into()], false);
+                                self.module.add_function("string_matrix_get", fn_type, Some(Linkage::External))
+                            });
+
+                            // Index alloca
+                            let idx_alloca = self.create_entry_block_alloca(i64_type.into(), "_sm_idx")?;
+                            self.builder.build_store(idx_alloca, i64_type.const_int(0, false))
+                                .map_err(|_| CodegenError::LLVMError { operation: "build_store".to_string(), details: "Failed to init StringMatrix iter idx".to_string(), span: None })?;
+
+                            // Loop variable alloca (ptr for BrixString*)
+                            let var_alloca = self.create_entry_block_alloca(ptr_type.into(), var_name)?;
+                            let old_var = self.variables.remove(var_name);
+                            self.variables.insert(var_name.clone(), (var_alloca, BrixType::String));
+
+                            let cond_bb = self.context.append_basic_block(function, "sm_cond");
+                            let body_bb = self.context.append_basic_block(function, "sm_body");
+                            let inc_bb  = self.context.append_basic_block(function, "sm_inc");
+                            let after_bb = self.context.append_basic_block(function, "sm_after");
+
+                            self.builder.build_unconditional_branch(cond_bb)
+                                .map_err(|_| CodegenError::LLVMError { operation: "build_unconditional_branch".to_string(), details: "Failed StringMatrix iter init branch".to_string(), span: None })?;
+
+                            // --- COND ---
+                            self.builder.position_at_end(cond_bb);
+                            let cur_idx = self.builder.build_load(i64_type, idx_alloca, "sm_cur_idx")
+                                .map_err(|_| CodegenError::LLVMError { operation: "build_load".to_string(), details: "Failed to load StringMatrix iter idx".to_string(), span: None })?
+                                .into_int_value();
+                            let loop_cond = self.builder.build_int_compare(IntPredicate::SLT, cur_idx, sm_len, "sm_check")
+                                .map_err(|_| CodegenError::LLVMError { operation: "build_int_compare".to_string(), details: "Failed StringMatrix iter cond".to_string(), span: None })?;
+                            self.builder.build_conditional_branch(loop_cond, body_bb, after_bb)
+                                .map_err(|_| CodegenError::LLVMError { operation: "build_conditional_branch".to_string(), details: "Failed StringMatrix iter cond branch".to_string(), span: None })?;
+
+                            // --- BODY ---
+                            self.builder.position_at_end(body_bb);
+                            let cur_idx = self.builder.build_load(i64_type, idx_alloca, "sm_body_idx")
+                                .map_err(|_| CodegenError::LLVMError { operation: "build_load".to_string(), details: "Failed to load StringMatrix iter body idx".to_string(), span: None })?
+                                .into_int_value();
+                            let elem_call = self.builder.build_call(get_fn, &[sm_ptr.into(), cur_idx.into()], "sm_elem")
+                                .map_err(|_| CodegenError::LLVMError { operation: "build_call".to_string(), details: "Failed string_matrix_get call".to_string(), span: None })?;
+                            let elem_val = elem_call.try_as_basic_value().left()
+                                .ok_or_else(|| CodegenError::MissingValue { what: "string element".to_string(), context: "for-in StringMatrix".to_string(), span: Some(stmt.span.clone()) })?;
+                            self.builder.build_store(var_alloca, elem_val)
+                                .map_err(|_| CodegenError::LLVMError { operation: "build_store".to_string(), details: "Failed to store StringMatrix element".to_string(), span: None })?;
+
+                            let old_break_sm = self.current_break_block.replace(after_bb);
+                            let old_continue_sm = self.current_continue_block.replace(inc_bb);
+                            self.compile_stmt(body, function)?;
+                            self.current_break_block = old_break_sm;
+                            self.current_continue_block = old_continue_sm;
+                            if self.builder.get_insert_block().and_then(|b| b.get_terminator()).is_none() {
+                                self.builder.build_unconditional_branch(inc_bb)
+                                    .map_err(|_| CodegenError::LLVMError { operation: "build_unconditional_branch".to_string(), details: "Failed StringMatrix iter body branch".to_string(), span: None })?;
+                            }
+
+                            // --- INC ---
+                            self.builder.position_at_end(inc_bb);
+                            let tmp_idx = self.builder.build_load(i64_type, idx_alloca, "sm_inc_idx")
+                                .map_err(|_| CodegenError::LLVMError { operation: "build_load".to_string(), details: "Failed StringMatrix iter inc load".to_string(), span: None })?
+                                .into_int_value();
+                            let next_idx = self.builder.build_int_add(tmp_idx, i64_type.const_int(1, false), "sm_next_idx")
+                                .map_err(|_| CodegenError::LLVMError { operation: "build_int_add".to_string(), details: "Failed StringMatrix iter inc add".to_string(), span: None })?;
+                            self.builder.build_store(idx_alloca, next_idx)
+                                .map_err(|_| CodegenError::LLVMError { operation: "build_store".to_string(), details: "Failed StringMatrix iter inc store".to_string(), span: None })?;
+                            self.builder.build_unconditional_branch(cond_bb)
+                                .map_err(|_| CodegenError::LLVMError { operation: "build_unconditional_branch".to_string(), details: "Failed StringMatrix iter inc branch".to_string(), span: None })?;
+
+                            // --- AFTER ---
+                            self.builder.position_at_end(after_bb);
+                            if let Some(old) = old_var {
+                                self.variables.insert(var_name.clone(), old);
+                            } else {
+                                self.variables.remove(var_name);
+                            }
+                            Ok(())
+                        }
                         BrixType::String => {
                             // String iteration: for ch in "hello" → ch is a 1-char string
                             if var_names.len() != 1 {
@@ -5701,7 +5813,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 // First check if it's a user-defined variable
                 match self.variables.get(name) {
                     Some((ptr, brix_type)) => match brix_type {
-                        BrixType::String | BrixType::FloatPtr => {
+                        BrixType::String | BrixType::FloatPtr | BrixType::StringMatrix => {
                             let val = self
                                 .builder
                                 .build_load(
@@ -7407,7 +7519,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         if matches!(field.as_str(),
                             "trim" | "ltrim" | "rtrim" |
                             "starts_with" | "ends_with" | "contains" |
-                            "substring" | "reverse" | "repeat" | "index_of"
+                            "substring" | "reverse" | "repeat" | "index_of" | "split"
                         ) {
                             let (receiver_val, receiver_type) = self.compile_expr(target)?;
                             if receiver_type == BrixType::String {
@@ -7589,6 +7701,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             BrixType::String => "string".to_string(),
                             BrixType::Matrix => "matrix".to_string(),
                             BrixType::IntMatrix => "intmatrix".to_string(),
+                            BrixType::StringMatrix => "stringmatrix".to_string(),
                             BrixType::Complex => "complex".to_string(),
                             BrixType::ComplexArray => "complexarray".to_string(),
                             BrixType::ComplexMatrix => "complexmatrix".to_string(),
@@ -9018,6 +9131,47 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         })?;
                         return Ok((val, tuple_type));
                     }
+                    if fn_name == "join" {
+                        if args.len() != 2 {
+                            return Err(CodegenError::InvalidOperation {
+                                operation: "join()".to_string(),
+                                reason: format!("Expected 2 arguments, got {}", args.len()),
+                                span: Some(expr.span.clone()),
+                            });
+                        }
+                        let (sm_val, sm_type) = self.compile_expr(&args[0])?;
+                        if sm_type != BrixType::StringMatrix {
+                            return Err(CodegenError::TypeError {
+                                expected: "StringMatrix".to_string(),
+                                found: format!("{:?}", sm_type),
+                                context: "join() first argument".to_string(),
+                                span: Some(expr.span.clone()),
+                            });
+                        }
+                        let (sep_val, sep_type) = self.compile_expr(&args[1])?;
+                        if sep_type != BrixType::String {
+                            return Err(CodegenError::TypeError {
+                                expected: "String".to_string(),
+                                found: format!("{:?}", sep_type),
+                                context: "join() second argument".to_string(),
+                                span: Some(expr.span.clone()),
+                            });
+                        }
+                        let f = self.get_str_join();
+                        let call = self.builder
+                            .build_call(f, &[sm_val.into(), sep_val.into()], "join_result")
+                            .map_err(|_| CodegenError::LLVMError {
+                                operation: "build_call".to_string(),
+                                details: "Failed to call brix_str_join".to_string(),
+                                span: Some(expr.span.clone()),
+                            })?;
+                        let result = call.try_as_basic_value().left().ok_or_else(|| CodegenError::MissingValue {
+                            what: "join return value".to_string(),
+                            context: "join()".to_string(),
+                            span: Some(expr.span.clone()),
+                        })?;
+                        return Ok((result, BrixType::String));
+                    }
                 }
 
                 // Check if it's a generic function call (with type inference)
@@ -9540,6 +9694,34 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     }
                 }
 
+                if target_type == BrixType::StringMatrix {
+                    if field == "len" {
+                        let ptr = target_val.into_pointer_value();
+                        let sm_type = self.get_string_matrix_type();
+                        let len_ptr = self
+                            .builder
+                            .build_struct_gep(sm_type, ptr, 1, "sm_len_ptr")
+                            .map_err(|_| CodegenError::LLVMError {
+                                operation: "build_struct_gep".to_string(),
+                                details: "Failed to get string_matrix len pointer".to_string(),
+                                span: Some(expr.span.clone()),
+                            })?;
+                        let len_val = self
+                            .builder
+                            .build_load(self.context.i64_type(), len_ptr, "sm_len_val")
+                            .map_err(|_| CodegenError::LLVMError {
+                                operation: "build_load".to_string(),
+                                details: "Failed to load string_matrix length".to_string(),
+                                span: Some(expr.span.clone()),
+                            })?;
+                        return Ok((len_val, BrixType::Int));
+                    }
+                    return Err(CodegenError::General(format!(
+                        "unknown field '{}' on StringMatrix",
+                        field
+                    )));
+                }
+
                 if target_type == BrixType::Matrix || target_type == BrixType::IntMatrix {
                     let target_ptr = target_val.into_pointer_value();
                     let matrix_type = if target_type == BrixType::Matrix {
@@ -9636,6 +9818,40 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         eprintln!("Error: Tuple index must be a constant integer");
                         return Err(CodegenError::General("compilation error".to_string()));
                     }
+                }
+
+                // StringMatrix indexing: sm[i] -> BrixString* via string_matrix_get
+                if target_type == BrixType::StringMatrix {
+                    if indices.len() != 1 {
+                        return Err(CodegenError::General(
+                            "StringMatrix indexing requires exactly one index".to_string(),
+                        ));
+                    }
+                    let sm_ptr = target_val.into_pointer_value();
+                    let (idx_val, _) = self.compile_expr(&indices[0])?;
+                    let ptr_type = self.context.ptr_type(AddressSpace::default());
+                    let i64_type = self.context.i64_type();
+                    let get_fn = self.module.get_function("string_matrix_get").unwrap_or_else(|| {
+                        let fn_type = ptr_type.fn_type(&[ptr_type.into(), i64_type.into()], false);
+                        self.module.add_function("string_matrix_get", fn_type, Some(Linkage::External))
+                    });
+                    let call = self
+                        .builder
+                        .build_call(get_fn, &[sm_ptr.into(), idx_val.into()], "sm_get")
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_call".to_string(),
+                            details: "Failed to call string_matrix_get".to_string(),
+                            span: Some(expr.span.clone()),
+                        })?;
+                    let val = call
+                        .try_as_basic_value()
+                        .left()
+                        .ok_or_else(|| CodegenError::MissingValue {
+                            what: "string_matrix_get return value".to_string(),
+                            context: "StringMatrix indexing".to_string(),
+                            span: Some(expr.span.clone()),
+                        })?;
+                    return Ok((val, BrixType::String));
                 }
 
                 // Support both Matrix (f64*) and IntMatrix (i64*)
@@ -10929,6 +11145,127 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 Ok(final_str)
             }
 
+            BrixType::StringMatrix => {
+                // Convert StringMatrix to string format: ["a", "b", "c"]
+                let sm_ptr = val.into_pointer_value();
+                let sm_type = self.get_string_matrix_type();
+                let i64_type = self.context.i64_type();
+                let ptr_type = self.context.ptr_type(AddressSpace::default());
+
+                // Load len (field 1)
+                let len_ptr = self
+                    .builder
+                    .build_struct_gep(sm_type, sm_ptr, 1, "sm_len_ptr")
+                    .map_err(|_| CodegenError::LLVMError { operation: "build_struct_gep".to_string(), details: "Failed to get StringMatrix len in value_to_string".to_string(), span: None })?;
+                let sm_len = self
+                    .builder
+                    .build_load(i64_type, len_ptr, "sm_len")
+                    .map_err(|_| CodegenError::LLVMError { operation: "build_load".to_string(), details: "Failed to load StringMatrix len in value_to_string".to_string(), span: None })?
+                    .into_int_value();
+
+                // Helper functions
+                let str_new_fn_type = ptr_type.fn_type(&[ptr_type.into()], false);
+                let str_new_fn = self.module.get_function("str_new").unwrap_or_else(|| {
+                    self.module.add_function("str_new", str_new_fn_type, Some(Linkage::External))
+                });
+                let str_concat_fn = self.module.get_function("str_concat").unwrap_or_else(|| {
+                    let fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+                    self.module.add_function("str_concat", fn_type, Some(Linkage::External))
+                });
+                let get_fn = self.module.get_function("string_matrix_get").unwrap_or_else(|| {
+                    let fn_type = ptr_type.fn_type(&[ptr_type.into(), i64_type.into()], false);
+                    self.module.add_function("string_matrix_get", fn_type, Some(Linkage::External))
+                });
+
+                // result = str_new("[")
+                let open_bracket = self
+                    .builder
+                    .build_global_string_ptr("[", "sm_open_bracket")
+                    .map_err(|_| CodegenError::LLVMError { operation: "build_global_string_ptr".to_string(), details: "Failed in value_to_string".to_string(), span: None })?;
+                let result_alloca = self.create_entry_block_alloca(ptr_type.into(), "sm_str")?;
+                let initial_str = self
+                    .builder
+                    .build_call(str_new_fn, &[open_bracket.as_pointer_value().into()], "sm_init_str")
+                    .map_err(|_| CodegenError::LLVMError { operation: "build_call".to_string(), details: "Failed in value_to_string".to_string(), span: None })?
+                    .try_as_basic_value()
+                    .left()
+                    .ok_or_else(|| CodegenError::LLVMError { operation: "try_as_basic_value".to_string(), details: "str_new did not return a value".to_string(), span: None })?;
+                self.builder
+                    .build_store(result_alloca, initial_str)
+                    .map_err(|_| CodegenError::LLVMError { operation: "build_store".to_string(), details: "Failed in value_to_string".to_string(), span: None })?;
+
+                // Loop setup
+                let block = self.builder.get_insert_block().ok_or_else(|| CodegenError::LLVMError { operation: "get_insert_block".to_string(), details: "No current basic block".to_string(), span: None })?;
+                let parent_fn = block.get_parent().ok_or_else(|| CodegenError::LLVMError { operation: "get_parent".to_string(), details: "Block has no parent function".to_string(), span: None })?;
+                let loop_cond = self.context.append_basic_block(parent_fn, "sm_str_cond");
+                let loop_body = self.context.append_basic_block(parent_fn, "sm_str_body");
+                let loop_after = self.context.append_basic_block(parent_fn, "sm_str_after");
+
+                let idx_alloca = self.create_entry_block_alloca(i64_type.into(), "sm_str_idx")?;
+                self.builder
+                    .build_store(idx_alloca, i64_type.const_int(0, false))
+                    .map_err(|_| CodegenError::LLVMError { operation: "build_store".to_string(), details: "Failed in value_to_string".to_string(), span: None })?;
+                self.builder.build_unconditional_branch(loop_cond).map_err(|_| CodegenError::LLVMError { operation: "build_unconditional_branch".to_string(), details: "Failed in value_to_string".to_string(), span: None })?;
+
+                // Condition
+                self.builder.position_at_end(loop_cond);
+                let idx = self.builder.build_load(i64_type, idx_alloca, "sm_idx").map_err(|_| CodegenError::LLVMError { operation: "build_load".to_string(), details: "Failed in value_to_string".to_string(), span: None })?.into_int_value();
+                let cond = self.builder.build_int_compare(IntPredicate::SLT, idx, sm_len, "sm_cond").map_err(|_| CodegenError::LLVMError { operation: "build_int_compare".to_string(), details: "Failed in value_to_string".to_string(), span: None })?;
+                self.builder.build_conditional_branch(cond, loop_body, loop_after).map_err(|_| CodegenError::LLVMError { operation: "build_conditional_branch".to_string(), details: "Failed in value_to_string".to_string(), span: None })?;
+
+                // Body: append "elem" (with surrounding quotes)
+                self.builder.position_at_end(loop_body);
+                let quote = self.builder.build_global_string_ptr("\"", "sm_quote").map_err(|_| CodegenError::LLVMError { operation: "build_global_string_ptr".to_string(), details: "Failed in value_to_string".to_string(), span: None })?;
+
+                // elem = string_matrix_get(sm, idx)
+                let elem_val = self
+                    .builder
+                    .build_call(get_fn, &[sm_ptr.into(), idx.into()], "sm_elem")
+                    .map_err(|_| CodegenError::LLVMError { operation: "build_call".to_string(), details: "Failed in value_to_string".to_string(), span: None })?
+                    .try_as_basic_value()
+                    .left()
+                    .ok_or_else(|| CodegenError::LLVMError { operation: "try_as_basic_value".to_string(), details: "string_matrix_get did not return a value".to_string(), span: None })?;
+
+                // Concatenate: current + quote + elem + quote
+                let current_str = self.builder.build_load(ptr_type, result_alloca, "sm_current").map_err(|_| CodegenError::LLVMError { operation: "build_load".to_string(), details: "Failed in value_to_string".to_string(), span: None })?;
+                let quote_brix_open = self.builder.build_call(str_new_fn, &[quote.as_pointer_value().into()], "sm_q_open").map_err(|_| CodegenError::LLVMError { operation: "build_call".to_string(), details: "Failed in value_to_string".to_string(), span: None })?.try_as_basic_value().left().ok_or_else(|| CodegenError::LLVMError { operation: "try_as_basic_value".to_string(), details: "str_new did not return a value".to_string(), span: None })?;
+                let step1 = self.builder.build_call(str_concat_fn, &[current_str.into(), quote_brix_open.into()], "sm_c1").map_err(|_| CodegenError::LLVMError { operation: "build_call".to_string(), details: "Failed in value_to_string".to_string(), span: None })?.try_as_basic_value().left().ok_or_else(|| CodegenError::LLVMError { operation: "try_as_basic_value".to_string(), details: "str_concat did not return a value".to_string(), span: None })?;
+                let step2 = self.builder.build_call(str_concat_fn, &[step1.into(), elem_val.into()], "sm_c2").map_err(|_| CodegenError::LLVMError { operation: "build_call".to_string(), details: "Failed in value_to_string".to_string(), span: None })?.try_as_basic_value().left().ok_or_else(|| CodegenError::LLVMError { operation: "try_as_basic_value".to_string(), details: "str_concat did not return a value".to_string(), span: None })?;
+                let quote_brix_close = self.builder.build_call(str_new_fn, &[quote.as_pointer_value().into()], "sm_q_close").map_err(|_| CodegenError::LLVMError { operation: "build_call".to_string(), details: "Failed in value_to_string".to_string(), span: None })?.try_as_basic_value().left().ok_or_else(|| CodegenError::LLVMError { operation: "try_as_basic_value".to_string(), details: "str_new did not return a value".to_string(), span: None })?;
+                let step3 = self.builder.build_call(str_concat_fn, &[step2.into(), quote_brix_close.into()], "sm_c3").map_err(|_| CodegenError::LLVMError { operation: "build_call".to_string(), details: "Failed in value_to_string".to_string(), span: None })?.try_as_basic_value().left().ok_or_else(|| CodegenError::LLVMError { operation: "try_as_basic_value".to_string(), details: "str_concat did not return a value".to_string(), span: None })?;
+                self.builder.build_store(result_alloca, step3).map_err(|_| CodegenError::LLVMError { operation: "build_store".to_string(), details: "Failed in value_to_string".to_string(), span: None })?;
+
+                // Add ", " if not last
+                let next_idx = self.builder.build_int_add(idx, i64_type.const_int(1, false), "sm_next_idx").map_err(|_| CodegenError::LLVMError { operation: "build_int_add".to_string(), details: "Failed in value_to_string".to_string(), span: None })?;
+                let is_not_last = self.builder.build_int_compare(IntPredicate::SLT, next_idx, sm_len, "sm_is_not_last").map_err(|_| CodegenError::LLVMError { operation: "build_int_compare".to_string(), details: "Failed in value_to_string".to_string(), span: None })?;
+                let add_comma_bb = self.context.append_basic_block(parent_fn, "sm_add_comma");
+                let continue_bb = self.context.append_basic_block(parent_fn, "sm_continue");
+                self.builder.build_conditional_branch(is_not_last, add_comma_bb, continue_bb).map_err(|_| CodegenError::LLVMError { operation: "build_conditional_branch".to_string(), details: "Failed in value_to_string".to_string(), span: None })?;
+
+                // Add comma
+                self.builder.position_at_end(add_comma_bb);
+                let current_with_elem = self.builder.build_load(ptr_type, result_alloca, "sm_cur_elem").map_err(|_| CodegenError::LLVMError { operation: "build_load".to_string(), details: "Failed in value_to_string".to_string(), span: None })?;
+                let comma_str = self.builder.build_global_string_ptr(", ", "sm_comma").map_err(|_| CodegenError::LLVMError { operation: "build_global_string_ptr".to_string(), details: "Failed in value_to_string".to_string(), span: None })?;
+                let comma_brix = self.builder.build_call(str_new_fn, &[comma_str.as_pointer_value().into()], "sm_comma_brix").map_err(|_| CodegenError::LLVMError { operation: "build_call".to_string(), details: "Failed in value_to_string".to_string(), span: None })?.try_as_basic_value().left().ok_or_else(|| CodegenError::LLVMError { operation: "try_as_basic_value".to_string(), details: "str_new did not return a value".to_string(), span: None })?;
+                let with_comma = self.builder.build_call(str_concat_fn, &[current_with_elem.into(), comma_brix.into()], "sm_with_comma").map_err(|_| CodegenError::LLVMError { operation: "build_call".to_string(), details: "Failed in value_to_string".to_string(), span: None })?.try_as_basic_value().left().ok_or_else(|| CodegenError::LLVMError { operation: "try_as_basic_value".to_string(), details: "str_concat did not return a value".to_string(), span: None })?;
+                self.builder.build_store(result_alloca, with_comma).map_err(|_| CodegenError::LLVMError { operation: "build_store".to_string(), details: "Failed in value_to_string".to_string(), span: None })?;
+                self.builder.build_unconditional_branch(continue_bb).map_err(|_| CodegenError::LLVMError { operation: "build_unconditional_branch".to_string(), details: "Failed in value_to_string".to_string(), span: None })?;
+
+                // Continue
+                self.builder.position_at_end(continue_bb);
+                self.builder.build_store(idx_alloca, next_idx).map_err(|_| CodegenError::LLVMError { operation: "build_store".to_string(), details: "Failed in value_to_string".to_string(), span: None })?;
+                self.builder.build_unconditional_branch(loop_cond).map_err(|_| CodegenError::LLVMError { operation: "build_unconditional_branch".to_string(), details: "Failed in value_to_string".to_string(), span: None })?;
+
+                // After: append "]"
+                self.builder.position_at_end(loop_after);
+                let final_result = self.builder.build_load(ptr_type, result_alloca, "sm_final").map_err(|_| CodegenError::LLVMError { operation: "build_load".to_string(), details: "Failed in value_to_string".to_string(), span: None })?;
+                let close_bracket = self.builder.build_global_string_ptr("]", "sm_close_bracket").map_err(|_| CodegenError::LLVMError { operation: "build_global_string_ptr".to_string(), details: "Failed in value_to_string".to_string(), span: None })?;
+                let close_brix = self.builder.build_call(str_new_fn, &[close_bracket.as_pointer_value().into()], "sm_close_brix").map_err(|_| CodegenError::LLVMError { operation: "build_call".to_string(), details: "Failed in value_to_string".to_string(), span: None })?.try_as_basic_value().left().ok_or_else(|| CodegenError::LLVMError { operation: "try_as_basic_value".to_string(), details: "str_new did not return a value".to_string(), span: None })?;
+                let final_str = self.builder.build_call(str_concat_fn, &[final_result.into(), close_brix.into()], "sm_final_str").map_err(|_| CodegenError::LLVMError { operation: "build_call".to_string(), details: "Failed in value_to_string".to_string(), span: None })?.try_as_basic_value().left().ok_or_else(|| CodegenError::LLVMError { operation: "try_as_basic_value".to_string(), details: "str_concat did not return a value".to_string(), span: None })?;
+
+                Ok(final_str)
+            }
+
             BrixType::Complex => {
                 // Call runtime complex_to_string function
                 let ptr_type = self.context.ptr_type(AddressSpace::default());
@@ -11941,6 +12278,14 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             .struct_type(&[i64_type.into(), i64_type.into(), ptr_type.into()], false)
     }
 
+    fn get_string_matrix_type(&self) -> inkwell::types::StructType<'ctx> {
+        let i64_type = self.context.i64_type();
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        // Struct { ref_count: i64, len: i64, data: BrixString** }
+        self.context
+            .struct_type(&[i64_type.into(), i64_type.into(), ptr_type.into()], false)
+    }
+
     fn compile_matrix_constructor(&mut self, args: &[Expr]) -> Option<BasicValueEnum<'ctx>> {
         if args.len() != 2 {
             return None;
@@ -12757,6 +13102,14 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 if let ExprKind::Identifier(name) = &func.kind {
                     if let Some((_, ret)) = self.functions.get(name.as_str()) {
                         return ret.as_ref().and_then(|v| v.first()).cloned();
+                    }
+                }
+                // Method calls: .split() on a String returns StringMatrix
+                if let ExprKind::FieldAccess { target, field } = &func.kind {
+                    if field == "split" {
+                        if let Some(BrixType::String) = self.infer_expr_type_static(target, params) {
+                            return Some(BrixType::StringMatrix);
+                        }
                     }
                 }
                 None
@@ -13935,6 +14288,27 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     .map_err(|_| CodegenError::LLVMError { operation: "build_load".to_string(), details: "index_of load result".to_string(), span: None })?;
                 let ret_type = BrixType::Union(vec![BrixType::Int, BrixType::Nil]);
                 Ok(Some((result, ret_type)))
+            }
+
+            "split" => {
+                if args.len() != 1 {
+                    return Err(CodegenError::InvalidOperation {
+                        operation: "split()".to_string(),
+                        reason: format!("Expected 1 argument, got {}", args.len()),
+                        span: Some(span.clone()),
+                    });
+                }
+                let (delim_val, delim_type) = self.compile_expr(&args[0])?;
+                if delim_type != BrixType::String {
+                    return Err(CodegenError::TypeError {
+                        expected: "String".to_string(),
+                        found: format!("{:?}", delim_type),
+                        context: "split()".to_string(),
+                        span: Some(span.clone()),
+                    });
+                }
+                let f = self.get_str_split();
+                call_str_fn!(f, &[str_ptr.into(), delim_val.into()], "split", BrixType::StringMatrix)
             }
 
             _ => Ok(None),

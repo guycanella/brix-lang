@@ -1,0 +1,4 @@
+var parts := "a b c".split(" ")
+for part in parts {
+    println(part)
+}

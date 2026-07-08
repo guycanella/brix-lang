@@ -676,3 +676,95 @@ fn test_string_concatenation_in_variable() {
     assert!(result.is_ok());
 }
 
+// ==================== StringMatrix (v1.7 Fase A) ====================
+
+#[test]
+fn test_string_matrix_type() {
+    // var parts := "a,b".split(",")
+    // var joined := join(parts, ",")
+    //
+    // join() requires its first argument to be BrixType::StringMatrix (it is a
+    // TypeError otherwise), so a successful compile proves that `.split()`
+    // infers the receiver's declared type as StringMatrix end-to-end.
+    let program = Program {
+        statements: vec![
+            Stmt::dummy(StmtKind::VariableDecl {
+                name: "parts".to_string(),
+                type_hint: None,
+                value: Expr::dummy(ExprKind::Call {
+                    func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                        target: Box::new(Expr::dummy(ExprKind::Literal(Literal::String(
+                            "a,b".to_string(),
+                        )))),
+                        field: "split".to_string(),
+                    })),
+                    args: vec![Expr::dummy(ExprKind::Literal(Literal::String(
+                        ",".to_string(),
+                    )))],
+                }),
+                is_const: false,
+            }),
+            Stmt::dummy(StmtKind::VariableDecl {
+                name: "joined".to_string(),
+                type_hint: None,
+                value: Expr::dummy(ExprKind::Call {
+                    func: Box::new(Expr::dummy(ExprKind::Identifier("join".to_string()))),
+                    args: vec![
+                        Expr::dummy(ExprKind::Identifier("parts".to_string())),
+                        Expr::dummy(ExprKind::Literal(Literal::String(",".to_string()))),
+                    ],
+                }),
+                is_const: false,
+            }),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(
+        result.is_ok(),
+        "expected .split() result to be usable as StringMatrix in join(): {:?}",
+        result
+    );
+}
+
+#[test]
+fn test_split_returns_string_matrix() {
+    // "hello world".split(" ") should compile cleanly and emit a call to the
+    // brix_str_split runtime function, whose return value (StringMatrix) is
+    // then indexed and its `.len` field is read — both of which only exist
+    // on BrixType::StringMatrix.
+    let program = Program {
+        statements: vec![
+            Stmt::dummy(StmtKind::VariableDecl {
+                name: "parts".to_string(),
+                type_hint: None,
+                value: Expr::dummy(ExprKind::Call {
+                    func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                        target: Box::new(Expr::dummy(ExprKind::Literal(Literal::String(
+                            "hello world".to_string(),
+                        )))),
+                        field: "split".to_string(),
+                    })),
+                    args: vec![Expr::dummy(ExprKind::Literal(Literal::String(
+                        " ".to_string(),
+                    )))],
+                }),
+                is_const: false,
+            }),
+            Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::FieldAccess {
+                target: Box::new(Expr::dummy(ExprKind::Identifier("parts".to_string()))),
+                field: "len".to_string(),
+            }))),
+            Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Index {
+                array: Box::new(Expr::dummy(ExprKind::Identifier("parts".to_string()))),
+                indices: vec![Expr::dummy(ExprKind::Literal(Literal::Int(0)))],
+            }))),
+        ],
+    };
+    let ir = compile_program(program).unwrap();
+    assert!(
+        ir.contains("brix_str_split"),
+        "expected IR to contain a call to brix_str_split, got:\n{}",
+        ir
+    );
+}
+

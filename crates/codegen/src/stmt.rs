@@ -261,10 +261,22 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
         // it would leak. Release it unless it's a variable reference (which is owned
         // by the variable and will be released at scope exit).
         if Compiler::is_ref_counted(&brix_type) {
-            let is_borrowed = matches!(
-                &expr.kind,
-                parser::ast::ExprKind::Identifier(_) | parser::ast::ExprKind::FieldAccess { .. }
-            );
+            use crate::BrixType;
+            use parser::ast::ExprKind;
+            let is_borrowed = match &brix_type {
+                // Index into a StringMatrix returns a borrowed BrixString* still
+                // owned by the matrix, so it must not be released here.
+                BrixType::String => matches!(
+                    &expr.kind,
+                    ExprKind::Identifier(_)
+                        | ExprKind::FieldAccess { .. }
+                        | ExprKind::Index { .. }
+                ),
+                _ => matches!(
+                    &expr.kind,
+                    ExprKind::Identifier(_) | ExprKind::FieldAccess { .. }
+                ),
+            };
             if !is_borrowed {
                 self.insert_release(val.into_pointer_value(), &brix_type)?;
             }
@@ -693,6 +705,7 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
             BrixType::String
             | BrixType::Matrix
             | BrixType::IntMatrix
+            | BrixType::StringMatrix
             | BrixType::ComplexMatrix
             | BrixType::FloatPtr
             | BrixType::Nil

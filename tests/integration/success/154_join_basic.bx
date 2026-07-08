@@ -1,0 +1,5 @@
+var parts := "hello,world,foo".split(",")
+var joined := join(parts, ",")
+println(joined)
+var joined2 := join(parts, ", ")
+println(joined2)
