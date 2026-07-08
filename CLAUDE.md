@@ -61,17 +61,17 @@ The driver (`src/main.rs`, ~314 lines) orchestrates all stages: lexing, parsing,
 ```
 brix/
 ├── src/main.rs              # CLI + compilation pipeline driver
-├── runtime.c                # C runtime (~2,808 lines) — must be in project root
+├── runtime.c                # C runtime (~2,984 lines) — must be in project root
 ├── crates/
 │   ├── lexer/src/token.rs   # Token enum (logos)
 │   ├── parser/src/
 │   │   ├── ast.rs           # Expr { kind: ExprKind, span }, Stmt { kind: StmtKind, span }
-│   │   ├── parser.rs        # chumsky parser (~1,479 lines)
+│   │   ├── parser.rs        # chumsky parser (~1,510 lines)
 │   │   ├── closure_analysis.rs  # Capture analysis pass (runs after parse)
 │   │   └── error.rs         # Ariadne-based parse error reporting
 │   └── codegen/src/
-│       ├── lib.rs           # Main compiler (~16,234 lines)
-│       ├── stmt.rs          # Statement compilation (~1,101 lines)
+│       ├── lib.rs           # Main compiler (~16,600 lines)
+│       ├── stmt.rs          # Statement compilation (~1,114 lines)
 │       ├── expr.rs          # Expression compilation (~369 lines)
 │       ├── helpers.rs       # LLVM helpers
 │       ├── error.rs         # CodegenError enum + CodegenResult<T>
@@ -81,7 +81,7 @@ brix/
 │       └── builtins/        # math.rs, stats.rs, linalg.rs, string.rs, io.rs, matrix.rs, test.rs
 ├── tests/
 │   ├── integration/         # End-to-end .bx files (success/, parser_errors/, codegen_errors/, runtime_errors/)
-│   └── brix/                # Language test files (*.test.bx) — 23 files, 390 tests, all passing
+│   └── brix/                # Language test files (*.test.bx) — 24 files, 398 tests, all passing
 └── examples/                # Example .bx programs
 ```
 
@@ -114,9 +114,9 @@ Flat `HashMap<String, (PointerValue, BrixType)>` with module prefixes. `import m
 - **match**: one basic block per arm + PHI in merge block
 - **break/continue**: `Compiler` has `current_break_block` / `current_continue_block` (`Option<BasicBlock>`). Each loop saves the outer blocks, sets its own, restores after body. After emitting the unconditional branch, a dead basic block is appended to keep LLVM IR valid.
 
-### Type System (current: v1.6)
+### Type System (current: v1.7 in progress)
 
-19 core types: `Int` (i64), `Float` (f64), `String`, `Matrix` (f64, contiguous), `IntMatrix` (i64), `Complex`, `ComplexMatrix`, `Tuple`, `Nil`, `Error`, `Atom` (i64 interned), `Void`, `Struct(String)`, `Generic`, `Closure` (represented as `Tuple(Int,Int,Int)` = ref_count/fn_ptr/env_ptr), `TypeAlias(String)`, `Union(Vec<BrixType>)`, `Intersection(Vec<BrixType>)`, `FloatPtr`.
+20 core types: `Int` (i64), `Float` (f64), `String`, `Matrix` (f64, contiguous), `IntMatrix` (i64), `StringMatrix` (array of `BrixString*`, v1.7), `Complex`, `ComplexMatrix`, `Tuple`, `Nil`, `Error`, `Atom` (i64 interned), `Void`, `Struct(String)`, `Generic`, `Closure` (represented as `Tuple(Int,Int,Int)` = ref_count/fn_ptr/env_ptr), `TypeAlias(String)`, `Union(Vec<BrixType>)`, `Intersection(Vec<BrixType>)`, `FloatPtr`.
 
 Key rules:
 - `[1,2,3]` → `IntMatrix`; `[1, 2.5]` → `Matrix` (int→float promotion)
@@ -124,6 +124,7 @@ Key rules:
 - `T?` desugars to `Union(T, nil)`
 - Matrix `*` is element-wise (NOT matrix multiply); use `matmul()` for that
 - `int[]` / `float[]` in type annotations map to `IntMatrix` / `Matrix`
+- `StringMatrix` has no type-annotation syntax yet (`string[]` still maps to `IntMatrix`) — only reachable via inference (`var parts := "a,b".split(",")`); see Status & Limitations
 
 ### Ranges and Iterators (v1.5)
 
@@ -189,10 +190,16 @@ Jest-style framework. 28 matchers across 14 categories: `toBe`, `not.toBe`, `toE
   - **Range patterns** (`18..64`, `0..<10`, `0.0..<0.5`): `Pattern::Range { start, end, inclusive }` in AST; numeric token followed by optional `..`/`..<` suffix; codegen uses LLVM SLE/SLT (int) and OLE/OLT (float). Integration tests 150–151; +3 codegen unit tests; +3 Test Library tests.
   - **Universal destructuring** (`var { a, b } := struct_or_array`): `compile_destructuring_decl_stmt()` in `stmt.rs` extended from Tuple-only to also handle `BrixType::Struct` (field index extraction) and `BrixType::IntMatrix`/`BrixType::Matrix` (GEP from data pointer, no bounds check). Integration test 152; +2 codegen unit tests.
 
-**Current test baseline (post Phase 4):** 1,194 unit + 152 integration + 390 Test Library (23 `.test.bx` files)
+**Test baseline (post Phase 4, pre-v1.7):** 1,194 unit + 152 integration + 390 Test Library (23 `.test.bx` files)
 
-**Planned for v1.7 (next):** See `ROADMAP_V1.7.md` for full specs and implementation order. Nine feature groups:
-- **A** `BrixType::StringMatrix` + `.split()` / `join()` — new type: `{ ref_count, len, BrixString** data }` in `runtime.c`; adds `string_matrix_new/get/set/retain/release`; enables `for part in string_matrix` iteration
+**Current test baseline (post v1.7 Grupo A):** 1,196 unit (310 lexer + 188 parser + 698 codegen) + 155 integration + 398 Test Library (24 `.test.bx` files)
+
+**Completed in v1.7 (in progress):**
+- **Grupo A** `BrixType::StringMatrix` + `.split()` / `join()`: new type `{ ref_count, len, BrixString** data }` in `runtime.c` (`SECTION 2.3`), with `string_matrix_new/get/set/retain/release`, `brix_str_split`, `brix_str_join`. `split()` creates each `BrixString*` with `ref_count=1` and inserts it directly into `data[i]` (not via `string_matrix_set`, which retains — that helper exists for future use but is currently dead code in codegen). Wired into `lib.rs`: `brix_type_to_llvm`, `is_ref_counted`, `insert_retain`/`insert_release`, new `get_string_matrix_type()` helper, `.len` field access, indexing (`sm[i]` → `string_matrix_get`, borrowed pointer), `for part in string_matrix` iteration, `value_to_string` (formats as `["a", "b", "c"]`), `.split()` dispatch in `compile_string_method`, global `join(arr, sep)` dispatch. **ARC note:** indexing a `StringMatrix` returns a borrowed `BrixString*` still owned by the matrix — both `is_print_temp()` (lib.rs) and the bare-expression-statement release check (`compile_expr_stmt` in `stmt.rs`) special-case `ExprKind::Index` for `BrixType::String` to avoid releasing it. **Known limitations:** no type-annotation syntax for `StringMatrix` yet (`string[]` still maps to `IntMatrix` — only reachable via inference); `var x := "...".split(...)` leaks the matrix and its constituent strings, same pre-existing pattern as `var x := ones(...)` (see `should_retain` in `stmt.rs`, which excludes `Call` results from retain-adjustment) — not a regression, not yet fixed; no bounds checking on `sm[i]` (returns `NULL` silently out of range), consistent with `Matrix`/`IntMatrix` indexing (which also has zero bounds checking) — not a Grupo A regression. Integration tests 153–155; +2 codegen unit tests; +8 Test Library tests in `strings_v17.test.bx`.
+
+**Post-implementation review fixes (Grupo A):** a `reviewer` pass caught a CRITICAL use-after-free (`ExprKind::Index` missing from the "borrowed" check in `compile_expr_stmt`, `stmt.rs` — a bare `parts[i]` statement released a string still owned by the matrix) and two Medium findings, all fixed: (1) `infer_expr_type_static()` didn't recognize `.split()` method calls, so closures without an explicit return-type annotation that return a split result were silently inferred as `BrixType::Int` — fixed by special-casing `FieldAccess { field: "split", .. }` on a `String` receiver; (2) `string_matrix_set()` in `runtime.c` had a self-assignment use-after-free (`release` on the old value before `retain` on the new one, when both are the same pointer) — fixed with an early self-assignment check. Both are currently reachable only through code paths not yet exercised by codegen (`string_matrix_set` is unused; closures assigned to variables and called indirectly don't yet route through body-based return-type inference), so no new tests were required, but the fixes close real hazards for future use.
+
+**Planned for v1.7 (next):** See `ROADMAP_V1.7.md` for full specs and implementation order. Remaining eight feature groups:
 - **B** New array methods: `.sort()`, `.sort_desc()`, `.min()`, `.max()`, `.flatten()`, `.unique()`, `.reverse()`, `.append()`, `.prepend()`, `.count()` — all added to `compile_iterator_method()` dispatch
 - **C** Array slicing: `arr[1..<4]`, `arr[-1]`, `arr[..<3]`, `arr[2..]` — `ExprKind::Index` with `ExprKind::Range` index routes to `compile_array_slice()`; negative indices add `len + idx`
 - **D** Named field patterns in `match`: `{ x: px, y: 0 }` — `Pattern::NamedField(Vec<(String, Pattern)>)` in AST; resolves field index from `struct_defs` at compile time
