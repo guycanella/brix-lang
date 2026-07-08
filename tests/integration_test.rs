@@ -1429,3 +1429,47 @@ fn test_155_split_for_iteration() {
         "a\nb\nc"
     );
 }
+
+// ==========================================
+// v1.7 Grupo B: New array methods
+// ==========================================
+
+#[test]
+fn test_156_array_sort() {
+    assert_success(
+        "tests/integration/success/156_array_sort.bx",
+        "1\n9\n9\n1\n1.2\n9.9\n9.9"
+    );
+}
+
+#[test]
+fn test_157_array_min_max() {
+    assert_success(
+        "tests/integration/success/157_array_min_max.bx",
+        "1\n9\n1.2\n9.9"
+    );
+}
+
+#[test]
+fn test_158_array_flatten() {
+    assert_success(
+        "tests/integration/success/158_array_flatten.bx",
+        "1\n6\n1\n1\n1\n4\n4"
+    );
+}
+
+#[test]
+fn test_159_array_unique() {
+    assert_success(
+        "tests/integration/success/159_array_unique.bx",
+        "7\n3\n1\n4\n5\n9\n2\n6"
+    );
+}
+
+#[test]
+fn test_160_array_append() {
+    assert_success(
+        "tests/integration/success/160_array_append.bx",
+        "4\n99\n4\n0\n1\n3.5"
+    );
+}

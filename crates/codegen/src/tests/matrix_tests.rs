@@ -1935,3 +1935,274 @@ fn test_infer_float_binary_mixed() {
     let ir = compile_program(program).unwrap();
     assert!(ir.contains("matrix_new"));
 }
+
+// =========================================================
+// SECTION: v1.7 Group B — New array methods
+// (.sort, .sort_desc, .min, .max, .flatten, .unique, .reverse,
+//  .append, .prepend, .count)
+// =========================================================
+
+/// Helper: build an IntMatrix literal `[a, b, c, ...]`
+fn int_array_literal(values: &[i64]) -> Expr {
+    Expr::dummy(ExprKind::Array(
+        values
+            .iter()
+            .map(|v| Expr::dummy(ExprKind::Literal(Literal::Int(*v))))
+            .collect(),
+    ))
+}
+
+/// Helper: build a Matrix (float) literal `[a.0, b.0, ...]`
+fn float_array_literal(values: &[f64]) -> Expr {
+    Expr::dummy(ExprKind::Array(
+        values
+            .iter()
+            .map(|v| Expr::dummy(ExprKind::Literal(Literal::Float(*v))))
+            .collect(),
+    ))
+}
+
+/// Helper: build a no-arg method call `target.method()`
+fn method_call(target: Expr, method: &str) -> Expr {
+    Expr::dummy(ExprKind::Call {
+        func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+            target: Box::new(target),
+            field: method.to_string(),
+        })),
+        args: vec![],
+    })
+}
+
+#[test]
+fn test_array_sort_intmatrix() {
+    // [3, 1, 4, 1, 5].sort()
+    let arr = int_array_literal(&[3, 1, 4, 1, 5]);
+    let call = method_call(arr, "sort");
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::Expr(call))],
+    };
+    let ir = compile_program(program).unwrap();
+    assert!(ir.contains("intmatrix_sort_asc"));
+}
+
+#[test]
+fn test_array_sort_desc_matrix() {
+    // [3.0, 1.0, 4.0].sort_desc()
+    let arr = float_array_literal(&[3.0, 1.0, 4.0]);
+    let call = method_call(arr, "sort_desc");
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::Expr(call))],
+    };
+    let ir = compile_program(program).unwrap();
+    assert!(ir.contains("matrix_sort_desc"));
+}
+
+#[test]
+fn test_array_min_intmatrix() {
+    // [3, 1, 4, 1, 5].min()
+    let arr = int_array_literal(&[3, 1, 4, 1, 5]);
+    let call = method_call(arr, "min");
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::Expr(call))],
+    };
+    let ir = compile_program(program).unwrap();
+    assert!(ir.contains("brix_intmatrix_min"));
+}
+
+#[test]
+fn test_array_max_matrix() {
+    // [3.0, 1.0, 4.0].max()
+    let arr = float_array_literal(&[3.0, 1.0, 4.0]);
+    let call = method_call(arr, "max");
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::Expr(call))],
+    };
+    let ir = compile_program(program).unwrap();
+    assert!(ir.contains("brix_matrix_max"));
+}
+
+#[test]
+fn test_array_flatten_intmatrix() {
+    // [1, 2, 3, 4].flatten()
+    let arr = int_array_literal(&[1, 2, 3, 4]);
+    let call = method_call(arr, "flatten");
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::Expr(call))],
+    };
+    let ir = compile_program(program).unwrap();
+    assert!(ir.contains("intmatrix_flatten"));
+}
+
+#[test]
+fn test_array_unique_matrix() {
+    // [1.0, 1.0, 2.0, 3.0].unique()
+    let arr = float_array_literal(&[1.0, 1.0, 2.0, 3.0]);
+    let call = method_call(arr, "unique");
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::Expr(call))],
+    };
+    let ir = compile_program(program).unwrap();
+    assert!(ir.contains("matrix_unique"));
+}
+
+#[test]
+fn test_array_reverse_intmatrix() {
+    // [1, 2, 3].reverse()
+    let arr = int_array_literal(&[1, 2, 3]);
+    let call = method_call(arr, "reverse");
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::Expr(call))],
+    };
+    let ir = compile_program(program).unwrap();
+    assert!(ir.contains("intmatrix_reverse"));
+}
+
+#[test]
+fn test_array_append_matrix() {
+    // [1.0, 2.0].append(3.0)
+    let arr = float_array_literal(&[1.0, 2.0]);
+    let call = Expr::dummy(ExprKind::Call {
+        func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+            target: Box::new(arr),
+            field: "append".to_string(),
+        })),
+        args: vec![Expr::dummy(ExprKind::Literal(Literal::Float(3.0)))],
+    });
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::Expr(call))],
+    };
+    let ir = compile_program(program).unwrap();
+    assert!(ir.contains("matrix_append"));
+}
+
+#[test]
+fn test_array_prepend_intmatrix() {
+    // [1, 2, 3].prepend(0)
+    let arr = int_array_literal(&[1, 2, 3]);
+    let call = Expr::dummy(ExprKind::Call {
+        func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+            target: Box::new(arr),
+            field: "prepend".to_string(),
+        })),
+        args: vec![Expr::dummy(ExprKind::Literal(Literal::Int(0)))],
+    });
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::Expr(call))],
+    };
+    let ir = compile_program(program).unwrap();
+    assert!(ir.contains("intmatrix_prepend"));
+}
+
+#[test]
+fn test_array_count() {
+    // [1, 2, 3, 4].count()
+    let arr = int_array_literal(&[1, 2, 3, 4]);
+    let call = method_call(arr, "count");
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::Expr(call))],
+    };
+    let ir = compile_program(program).unwrap();
+    assert!(ir.contains("count_total"));
+}
+
+// =========================================================
+// SECTION: v1.7 Group B — infer_expr_type_static() regression coverage
+//
+// Post-implementation review found that infer_expr_type_static() only
+// special-cased .split() and fell through to None for the new Group B
+// methods, silently misinferring closure/async return types (e.g. a
+// callback returning [1.0, 2.0].max() with no explicit annotation was
+// defaulting to Int instead of Float). These tests pin the fix.
+// =========================================================
+
+#[test]
+fn test_infer_expr_type_static_max_on_matrix_is_float() {
+    let context = Context::create();
+    let module = context.create_module("test");
+    let builder = context.create_builder();
+    let compiler = Compiler::new(&context, &builder, &module, "test.bx".to_string(), "".to_string());
+    let expr = method_call(float_array_literal(&[1.0, 2.0]), "max");
+    assert_eq!(compiler.infer_expr_type_static(&expr, &[]), Some(crate::BrixType::Float));
+}
+
+#[test]
+fn test_infer_expr_type_static_min_on_intmatrix_is_int() {
+    let context = Context::create();
+    let module = context.create_module("test");
+    let builder = context.create_builder();
+    let compiler = Compiler::new(&context, &builder, &module, "test.bx".to_string(), "".to_string());
+    let expr = method_call(int_array_literal(&[3, 1, 4]), "min");
+    assert_eq!(compiler.infer_expr_type_static(&expr, &[]), Some(crate::BrixType::Int));
+}
+
+#[test]
+fn test_infer_expr_type_static_sort_preserves_matrix() {
+    let context = Context::create();
+    let module = context.create_module("test");
+    let builder = context.create_builder();
+    let compiler = Compiler::new(&context, &builder, &module, "test.bx".to_string(), "".to_string());
+    let expr = method_call(float_array_literal(&[3.0, 1.0]), "sort");
+    assert_eq!(compiler.infer_expr_type_static(&expr, &[]), Some(crate::BrixType::Matrix));
+}
+
+#[test]
+fn test_infer_expr_type_static_append_preserves_intmatrix() {
+    let context = Context::create();
+    let module = context.create_module("test");
+    let builder = context.create_builder();
+    let compiler = Compiler::new(&context, &builder, &module, "test.bx".to_string(), "".to_string());
+    let expr = Expr::dummy(ExprKind::Call {
+        func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+            target: Box::new(int_array_literal(&[1, 2])),
+            field: "append".to_string(),
+        })),
+        args: vec![Expr::dummy(ExprKind::Literal(Literal::Int(3)))],
+    });
+    assert_eq!(compiler.infer_expr_type_static(&expr, &[]), Some(crate::BrixType::IntMatrix));
+}
+
+#[test]
+fn test_infer_expr_type_static_count_is_int() {
+    let context = Context::create();
+    let module = context.create_module("test");
+    let builder = context.create_builder();
+    let compiler = Compiler::new(&context, &builder, &module, "test.bx".to_string(), "".to_string());
+    let expr = method_call(int_array_literal(&[1, 2, 3]), "count");
+    assert_eq!(compiler.infer_expr_type_static(&expr, &[]), Some(crate::BrixType::Int));
+}
+
+#[test]
+fn test_map_callback_infers_matrix_via_max() {
+    // izeros(3).map((x: int) -> { return [1.0, 2.0].max() })
+    // No explicit closure return type — must infer Float (via .max() on a
+    // Matrix) and therefore allocate the *map result* as a Matrix, not
+    // IntMatrix. Note the callback body's own [1.0, 2.0] literal also
+    // allocates a Matrix, so we must pin the `%map_result = ...` call site
+    // specifically rather than just check for "matrix_new" anywhere in the
+    // IR (that substring is present regardless of the inferred type).
+    let zeros_call = Expr::dummy(ExprKind::Call {
+        func: Box::new(Expr::dummy(ExprKind::Identifier("izeros".to_string()))),
+        args: vec![Expr::dummy(ExprKind::Literal(Literal::Int(3)))],
+    });
+    let callback = make_unary_closure_no_return(
+        "x", "int",
+        method_call(float_array_literal(&[1.0, 2.0]), "max"),
+    );
+    let map_call = Expr::dummy(ExprKind::Call {
+        func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+            target: Box::new(zeros_call),
+            field: "map".to_string(),
+        })),
+        args: vec![callback],
+    });
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::Expr(map_call))],
+    };
+    let ir = compile_program(program).unwrap();
+    assert!(
+        ir.contains("%map_result = call ptr @matrix_new"),
+        "expected map result to be allocated via matrix_new (Float inferred from .max()), got IR:\n{}",
+        ir
+    );
+}
+
