@@ -1401,3 +1401,31 @@ fn test_152_var_destructure_struct() {
         "30"
     );
 }
+
+// ==========================================
+// v1.7 Grupo A: StringMatrix (split/join)
+// ==========================================
+
+#[test]
+fn test_153_split_basic() {
+    assert_success(
+        "tests/integration/success/153_split_basic.bx",
+        "3\nhello\nfoo"
+    );
+}
+
+#[test]
+fn test_154_join_basic() {
+    assert_success(
+        "tests/integration/success/154_join_basic.bx",
+        "hello,world,foo\nhello, world, foo"
+    );
+}
+
+#[test]
+fn test_155_split_for_iteration() {
+    assert_success(
+        "tests/integration/success/155_split_for_iteration.bx",
+        "a\nb\nc"
+    );
+}

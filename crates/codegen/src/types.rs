@@ -17,6 +17,7 @@ pub enum BrixType {
     String,
     Matrix,        // Matrix of f64 (double*)
     IntMatrix,     // Matrix of i64 (long*)
+    StringMatrix,  // Array of BrixString* ({ ref_count, len, BrixString** data }) (v1.7)
     Complex,       // Complex number (struct { f64 real, f64 imag })
     ComplexArray,  // Array of Complex (1D)
     ComplexMatrix, // Matrix of Complex (2D)

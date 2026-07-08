@@ -1682,6 +1682,183 @@ BrixString* brix_str_char_at(BrixString* str, long idx) {
 }
 
 // ==========================================
+// SECTION 2.3: STRING MATRIX (v1.7)
+// ==========================================
+
+typedef struct {
+  long ref_count;  // ARC reference counting
+  long len;
+  BrixString** data;  // array of pointers to BrixString
+} BrixStringMatrix;
+
+// Create a new StringMatrix with `len` slots, all initialized to NULL
+BrixStringMatrix* string_matrix_new(long len) {
+    BrixStringMatrix* m = (BrixStringMatrix*)malloc(sizeof(BrixStringMatrix));
+    m->ref_count = 1;  // Initialize ARC
+    m->len = len;
+    m->data = (BrixString**)calloc(len, sizeof(BrixString*));  // calloc zeros pointers (NULL)
+    return m;
+}
+
+// Get element at index i. Returns NULL if out of bounds or slot is empty.
+BrixString* string_matrix_get(BrixStringMatrix* m, long i) {
+    if (m == NULL || m->data == NULL) return NULL;
+    if (i < 0 || i >= m->len) return NULL;  // out of bounds: return NULL (caller/runtime checks index validity)
+    return m->data[i];
+}
+
+// Set element at index i, taking co-ownership of `s` via retain.
+// Releases any previous non-NULL value at that slot.
+void string_matrix_set(BrixStringMatrix* m, long i, BrixString* s) {
+    if (m == NULL || m->data == NULL) return;
+    if (i < 0 || i >= m->len) return;  // out of bounds: no-op
+    if (m->data[i] == s) return;  // self-assignment: no-op, avoids release-then-retain on freed memory
+    if (m->data[i] != NULL) {
+        string_release(m->data[i]);
+    }
+    if (s != NULL) {
+        string_retain(s);
+    }
+    m->data[i] = s;
+}
+
+// ARC: Increment reference count
+void* string_matrix_retain(BrixStringMatrix* m) {
+    if (!m) return NULL;
+    m->ref_count++;
+    return m;
+}
+
+// ARC: Decrement reference count and free if zero
+void string_matrix_release(BrixStringMatrix* m) {
+    if (!m) return;
+    m->ref_count--;
+
+    if (m->ref_count == 0) {
+        if (m->data) {
+            for (long i = 0; i < m->len; i++) {
+                if (m->data[i] != NULL) {
+                    string_release(m->data[i]);
+                }
+            }
+            free(m->data);
+        }
+        free(m);
+    }
+}
+
+// split(str, delim) - Splits str by delim, returning a BrixStringMatrix.
+// - If delim->len == 0, each character of str becomes its own element.
+// - Consecutive delimiters produce empty strings between them (no collapsing).
+// - Empty str with non-empty delim -> StringMatrix of 1 element: [""]
+BrixStringMatrix* brix_str_split(BrixString* s, BrixString* delim) {
+    if (s == NULL || s->data == NULL) {
+        return string_matrix_new(0);
+    }
+
+    // Case: split into individual characters
+    if (delim == NULL || delim->len == 0) {
+        long count = s->len;
+        BrixStringMatrix* result = string_matrix_new(count);
+        for (long i = 0; i < count; i++) {
+            BrixString* ch = (BrixString*)malloc(sizeof(BrixString));
+            ch->ref_count = 1;
+            ch->len = 1;
+            ch->data = (char*)malloc(2);
+            ch->data[0] = s->data[i];
+            ch->data[1] = '\0';
+            result->data[i] = ch;  // already ref_count 1, no need to retain again
+        }
+        return result;
+    }
+
+    // First pass: count how many segments we'll produce
+    long count = 1;
+    const char* cursor = s->data;
+    const char* found;
+    while ((found = strstr(cursor, delim->data)) != NULL) {
+        count++;
+        cursor = found + delim->len;
+    }
+
+    BrixStringMatrix* result = string_matrix_new(count);
+
+    // Second pass: fill segments
+    cursor = s->data;
+    long idx = 0;
+    while ((found = strstr(cursor, delim->data)) != NULL) {
+        long seg_len = (long)(found - cursor);
+        BrixString* seg = (BrixString*)malloc(sizeof(BrixString));
+        seg->ref_count = 1;
+        seg->len = seg_len;
+        seg->data = (char*)malloc(seg_len + 1);
+        if (seg_len > 0) {
+            memcpy(seg->data, cursor, seg_len);
+        }
+        seg->data[seg_len] = '\0';
+        result->data[idx] = seg;
+        idx++;
+        cursor = found + delim->len;
+    }
+
+    // Final trailing segment (after the last delimiter, or the whole string if none found)
+    long seg_len = (long)strlen(cursor);
+    BrixString* seg = (BrixString*)malloc(sizeof(BrixString));
+    seg->ref_count = 1;
+    seg->len = seg_len;
+    seg->data = (char*)malloc(seg_len + 1);
+    if (seg_len > 0) {
+        memcpy(seg->data, cursor, seg_len);
+    }
+    seg->data[seg_len] = '\0';
+    result->data[idx] = seg;
+
+    return result;
+}
+
+// join(m, sep) - Concatenates all elements of m with sep between them.
+// Returns empty string if m is empty (len == 0).
+BrixString* brix_str_join(BrixStringMatrix* m, BrixString* sep) {
+    if (m == NULL || m->len == 0) {
+        return str_new("");
+    }
+
+    long sep_len = (sep != NULL) ? sep->len : 0;
+    const char* sep_data = (sep != NULL && sep->data != NULL) ? sep->data : "";
+
+    // Compute total length: sum of element lengths + sep_len * (n - 1)
+    long total_len = 0;
+    for (long i = 0; i < m->len; i++) {
+        BrixString* elem = m->data[i];
+        if (elem != NULL && elem->data != NULL) {
+            total_len += elem->len;
+        }
+    }
+    total_len += sep_len * (m->len - 1);
+
+    BrixString* result = (BrixString*)malloc(sizeof(BrixString));
+    result->ref_count = 1;
+    result->len = total_len;
+    result->data = (char*)malloc(total_len + 1);
+
+    char* dest = result->data;
+    for (long i = 0; i < m->len; i++) {
+        BrixString* elem = m->data[i];
+        if (elem != NULL && elem->data != NULL && elem->len > 0) {
+            memcpy(dest, elem->data, elem->len);
+            dest += elem->len;
+        }
+        if (i < m->len - 1 && sep_len > 0) {
+            memcpy(dest, sep_data, sep_len);
+            dest += sep_len;
+        }
+    }
+    *dest = '\0';
+
+    return result;
+}
+
+// ==========================================
 // SECTION 3: STATISTICS (v0.7)
 // ==========================================
 

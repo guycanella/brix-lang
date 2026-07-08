@@ -1,0 +1,4 @@
+var parts := "hello world foo".split(" ")
+println(parts.len)
+println(parts[0])
+println(parts[2])

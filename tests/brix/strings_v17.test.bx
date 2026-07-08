@@ -1,0 +1,57 @@
+import test
+
+test.describe("StringMatrix", () -> {
+    test.it("split by delimiter returns array with correct length", () -> {
+        var parts := "hello world foo".split(" ")
+        test.expect(parts).toHaveLength(3)
+    })
+
+    test.it("split element at specific index is correct", () -> {
+        var parts := "hello world foo".split(" ")
+        test.expect(parts[0]).toBe("hello")
+        test.expect(parts[1]).toBe("world")
+        test.expect(parts[2]).toBe("foo")
+    })
+
+    test.it("join reconstructs the original string", () -> {
+        var parts := "a,b,c".split(",")
+        var joined := join(parts, ",")
+        test.expect(joined).toBe("a,b,c")
+    })
+
+    test.it("split with empty delimiter splits into individual characters", () -> {
+        var chars := "abc".split("")
+        test.expect(chars).toHaveLength(3)
+        test.expect(chars[0]).toBe("a")
+        test.expect(chars[1]).toBe("b")
+        test.expect(chars[2]).toBe("c")
+    })
+
+    test.it("split of empty string with non-empty delimiter returns one empty element", () -> {
+        var parts := "".split(",")
+        test.expect(parts).toHaveLength(1)
+        test.expect(parts[0]).toBe("")
+    })
+
+    test.it("len field and indexing work together on split result", () -> {
+        var parts := "one-two-three".split("-")
+        test.expect(parts.len).toBe(3)
+        test.expect(parts[0]).toBe("one")
+        test.expect(parts[parts.len - 1]).toBe("three")
+    })
+
+    test.it("consecutive delimiters produce empty strings between them", () -> {
+        var parts := "a,,b".split(",")
+        test.expect(parts).toHaveLength(3)
+        test.expect(parts[0]).toBe("a")
+        test.expect(parts[1]).toBe("")
+        test.expect(parts[2]).toBe("b")
+    })
+
+    test.it("join of empty StringMatrix returns empty string", () -> {
+        var parts := "".split("")
+        test.expect(parts).toHaveLength(0)
+        var joined := join(parts, ",")
+        test.expect(joined).toBe("")
+    })
+})

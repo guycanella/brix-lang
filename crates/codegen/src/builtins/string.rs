@@ -63,6 +63,14 @@ pub trait StringFunctions<'ctx> {
 
     /// Get or declare char_at function: BrixString* brix_str_char_at(BrixString*, long)
     fn get_str_char_at(&self) -> inkwell::values::FunctionValue<'ctx>;
+
+    // ===== v1.7 StringMatrix (Group A) =====
+
+    /// Get or declare split function: BrixStringMatrix* brix_str_split(BrixString*, BrixString*)
+    fn get_str_split(&self) -> inkwell::values::FunctionValue<'ctx>;
+
+    /// Get or declare join function: BrixString* brix_str_join(BrixStringMatrix*, BrixString*)
+    fn get_str_join(&self) -> inkwell::values::FunctionValue<'ctx>;
 }
 
 impl<'a, 'ctx> StringFunctions<'ctx> for Compiler<'a, 'ctx> {
@@ -253,5 +261,23 @@ impl<'a, 'ctx> StringFunctions<'ctx> for Compiler<'a, 'ctx> {
         // BrixString* brix_str_char_at(BrixString* str, long idx)
         let fn_type = ptr_type.fn_type(&[ptr_type.into(), i64_type.into()], false);
         self.module.add_function("brix_str_char_at", fn_type, Some(Linkage::External))
+    }
+
+    // ===== v1.7 StringMatrix (Group A) =====
+
+    fn get_str_split(&self) -> inkwell::values::FunctionValue<'ctx> {
+        if let Some(func) = self.module.get_function("brix_str_split") { return func; }
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        // BrixStringMatrix* brix_str_split(BrixString* str, BrixString* delim)
+        let fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+        self.module.add_function("brix_str_split", fn_type, Some(Linkage::External))
+    }
+
+    fn get_str_join(&self) -> inkwell::values::FunctionValue<'ctx> {
+        if let Some(func) = self.module.get_function("brix_str_join") { return func; }
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        // BrixString* brix_str_join(BrixStringMatrix* m, BrixString* sep)
+        let fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+        self.module.add_function("brix_str_join", fn_type, Some(Linkage::External))
     }
 }
