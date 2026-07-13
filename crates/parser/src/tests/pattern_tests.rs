@@ -179,3 +179,150 @@ fn test_range_pattern_exclusive() {
         _ => panic!("Expected match"),
     }
 }
+
+// ==================== v1.7 GRUPO D: NAMED FIELD PATTERNS ====================
+
+#[test]
+fn test_named_field_pattern_bindings() {
+    // { x: px, y: py } -> NamedField([("x", Binding("px")), ("y", Binding("py"))])
+    let expr = parse_expr("match p { { x: px, y: py } -> 1 _ -> 0 }").unwrap();
+    match &expr.kind {
+        ExprKind::Match { arms, .. } => {
+            assert_eq!(
+                arms[0].pattern,
+                Pattern::NamedField(vec![
+                    ("x".to_string(), Pattern::Binding("px".to_string())),
+                    ("y".to_string(), Pattern::Binding("py".to_string())),
+                ])
+            );
+        }
+        _ => panic!("Expected match"),
+    }
+}
+
+#[test]
+fn test_named_field_pattern_with_literal_constraint() {
+    // { x: px, y: 0 } -> NamedField([("x", Binding("px")), ("y", Literal(Int(0)))])
+    let expr = parse_expr("match p { { x: px, y: 0 } -> 1 _ -> 0 }").unwrap();
+    match &expr.kind {
+        ExprKind::Match { arms, .. } => {
+            assert_eq!(
+                arms[0].pattern,
+                Pattern::NamedField(vec![
+                    ("x".to_string(), Pattern::Binding("px".to_string())),
+                    ("y".to_string(), Pattern::Literal(Literal::Int(0))),
+                ])
+            );
+        }
+        _ => panic!("Expected match"),
+    }
+}
+
+#[test]
+fn test_named_field_pattern_with_wildcard() {
+    // { x: _, y: py } -> NamedField([("x", Wildcard), ("y", Binding("py"))])
+    let expr = parse_expr("match p { { x: _, y: py } -> 1 _ -> 0 }").unwrap();
+    match &expr.kind {
+        ExprKind::Match { arms, .. } => {
+            assert_eq!(
+                arms[0].pattern,
+                Pattern::NamedField(vec![
+                    ("x".to_string(), Pattern::Wildcard),
+                    ("y".to_string(), Pattern::Binding("py".to_string())),
+                ])
+            );
+        }
+        _ => panic!("Expected match"),
+    }
+}
+
+#[test]
+fn test_positional_destructure_still_works() {
+    // Non-regression: { p1, p2 } (no colons) must still parse as Pattern::Destructure
+    let expr = parse_expr("match p { { p1, p2 } -> 1 _ -> 0 }").unwrap();
+    match &expr.kind {
+        ExprKind::Match { arms, .. } => {
+            assert_eq!(
+                arms[0].pattern,
+                Pattern::Destructure(vec![
+                    Pattern::Binding("p1".to_string()),
+                    Pattern::Binding("p2".to_string()),
+                ])
+            );
+        }
+        _ => panic!("Expected match"),
+    }
+}
+
+#[test]
+fn test_named_field_pattern_multiple_arms_on_separate_lines() {
+    // Regression test: named-field patterns across multiple match arms, each on its own
+    // line, with a bare-identifier body (e.g. `-> px`). This used to fail because the
+    // "Non-generic struct init" postfix rule greedily consumed the NEXT arm's leading
+    // `{ ... }` as a struct-init continuation of the previous arm's bare-identifier body
+    // (`px { x: 0, y: py }`), swallowing the second arm's pattern whole. The `{` must now
+    // only be treated as a struct-init continuation when it's on the same line as the
+    // preceding identifier — here it's on the next line, so it correctly starts a new
+    // pattern instead.
+    let input = "match p {\n    { x: px, y: 0 } -> px\n    { x: 0, y: py } -> py\n    { x: px, y: py } -> 999\n}";
+    let expr = parse_expr(input).unwrap();
+    match &expr.kind {
+        ExprKind::Match { arms, .. } => {
+            assert_eq!(arms.len(), 3, "expected 3 arms, got {}", arms.len());
+
+            assert_eq!(
+                arms[0].pattern,
+                Pattern::NamedField(vec![
+                    ("x".to_string(), Pattern::Binding("px".to_string())),
+                    ("y".to_string(), Pattern::Literal(Literal::Int(0))),
+                ])
+            );
+            assert_eq!(arms[0].body.kind, ExprKind::Identifier("px".to_string()));
+
+            assert_eq!(
+                arms[1].pattern,
+                Pattern::NamedField(vec![
+                    ("x".to_string(), Pattern::Literal(Literal::Int(0))),
+                    ("y".to_string(), Pattern::Binding("py".to_string())),
+                ])
+            );
+            assert_eq!(arms[1].body.kind, ExprKind::Identifier("py".to_string()));
+
+            assert_eq!(
+                arms[2].pattern,
+                Pattern::NamedField(vec![
+                    ("x".to_string(), Pattern::Binding("px".to_string())),
+                    ("y".to_string(), Pattern::Binding("py".to_string())),
+                ])
+            );
+            assert_eq!(arms[2].body.kind, ExprKind::Literal(Literal::Int(999)));
+        }
+        _ => panic!("Expected match, got {:?}", expr.kind),
+    }
+}
+
+#[test]
+fn test_struct_init_same_line_still_works() {
+    // Non-regression: `Point { x: 3, y: 0 }` on a single line (the legitimate struct-init
+    // continuation) must still parse as ExprKind::StructInit, not be affected by the
+    // "same line" restriction added to disambiguate it from named-field match patterns.
+    use crate::ast::StmtKind;
+    let input = "var p := Point { x: 3, y: 0 }";
+    let tokens: Vec<Token> = lexer::lex(input);
+    let program = parser().parse(tokens).map_err(|e| format!("{:?}", e)).unwrap();
+    match &program.statements[0].kind {
+        StmtKind::VariableDecl { value, .. } => match &value.kind {
+            ExprKind::StructInit { struct_name, fields, type_args } => {
+                assert_eq!(struct_name, "Point");
+                assert!(type_args.is_empty());
+                assert_eq!(fields.len(), 2);
+                assert_eq!(fields[0].0, "x");
+                assert_eq!(fields[0].1.kind, ExprKind::Literal(Literal::Int(3)));
+                assert_eq!(fields[1].0, "y");
+                assert_eq!(fields[1].1.kind, ExprKind::Literal(Literal::Int(0)));
+            }
+            other => panic!("Expected StructInit, got {:?}", other),
+        },
+        other => panic!("Expected VariableDecl, got {:?}", other),
+    }
+}

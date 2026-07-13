@@ -236,8 +236,29 @@ pub enum Token {
     #[token(")")]
     RParen,
 
-    #[token("{")]
-    LBrace,
+    // `{` carries a bool flag: true when this brace is preceded (possibly through
+    // whitespace/comments) by a newline since the previous non-trivia token, false
+    // when it appears on the same line as whatever precedes it.
+    //
+    // This lets the parser distinguish `Point { x: 1 }` (struct-init continuation,
+    // same line) from a `{` that starts a brand-new construct on its own line (e.g.
+    // the next `match` arm's pattern), without needing to thread raw source text
+    // through the parser. See the "Non-generic struct init" postfix rule in
+    // parser.rs, which is the only place that cares about this distinction.
+    #[token("{", |lex| {
+        let start = lex.span().start;
+        let before = &lex.source()[..start];
+        let mut preceded_by_newline = false;
+        for ch in before.chars().rev() {
+            match ch {
+                '\n' => { preceded_by_newline = true; break; }
+                ' ' | '\t' | '\r' | '\x0c' => continue,
+                _ => break,
+            }
+        }
+        preceded_by_newline
+    })]
+    LBrace(bool),
 
     #[token("}")]
     RBrace,
