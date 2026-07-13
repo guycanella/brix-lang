@@ -69,7 +69,7 @@ fn format_expected(token: &Option<Token>) -> String {
         Some(Token::RParen) => "')'".to_string(),
         Some(Token::LBracket) => "'['".to_string(),
         Some(Token::RBracket) => "']'".to_string(),
-        Some(Token::LBrace) => "'{'".to_string(),
+        Some(Token::LBrace(_)) => "'{'".to_string(),
         Some(Token::RBrace) => "'}'".to_string(),
         Some(Token::Comma) => "','".to_string(),
         Some(Token::Dot) => "'.'".to_string(),

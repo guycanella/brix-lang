@@ -1547,3 +1547,274 @@ fn test_var_destructure_array() {
     let result = compile_program(program);
     assert!(result.is_ok(), "Failed: {:?}", result);
 }
+
+// ==================== v1.7 Grupo D — NAMED FIELD PATTERNS ====================
+
+#[test]
+fn test_match_named_field_pattern_two_bindings() {
+    // struct Point5 { x: int, y: int }
+    // var p := Point5 { x: 3, y: 4 }
+    // match p { { x: px, y: py } -> px + py }
+    use parser::ast::StructDef;
+    let program = Program {
+        statements: vec![
+            Stmt::dummy(StmtKind::StructDef(StructDef {
+                name: "Point5".to_string(),
+                type_params: vec![],
+                fields: vec![
+                    ("x".to_string(), "int".to_string(), None),
+                    ("y".to_string(), "int".to_string(), None),
+                ],
+            })),
+            Stmt::dummy(StmtKind::VariableDecl {
+                name: "p".to_string(),
+                type_hint: None,
+                value: Expr::dummy(ExprKind::StructInit {
+                    struct_name: "Point5".to_string(),
+                    type_args: vec![],
+                    fields: vec![
+                        ("x".to_string(), Expr::dummy(ExprKind::Literal(Literal::Int(3)))),
+                        ("y".to_string(), Expr::dummy(ExprKind::Literal(Literal::Int(4)))),
+                    ],
+                }),
+                is_const: false,
+            }),
+            Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Match {
+                value: Box::new(Expr::dummy(ExprKind::Identifier("p".to_string()))),
+                arms: vec![
+                    MatchArm {
+                        pattern: Pattern::NamedField(vec![
+                            ("x".to_string(), Pattern::Binding("px".to_string())),
+                            ("y".to_string(), Pattern::Binding("py".to_string())),
+                        ]),
+                        guard: None,
+                        body: Box::new(binary(
+                            BinaryOp::Add,
+                            Expr::dummy(ExprKind::Identifier("px".to_string())),
+                            Expr::dummy(ExprKind::Identifier("py".to_string())),
+                        )),
+                    },
+                ],
+            }))),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok(), "Failed: {:?}", result);
+}
+
+#[test]
+fn test_match_named_field_pattern_literal_constraint() {
+    // struct Point6 { x: int, y: int }
+    // var on_axis := Point6 { x: 3, y: 0 }
+    // var off_axis := Point6 { x: 3, y: 4 }
+    // Confirms the literal sub-pattern only matches when y == 0: the IR must
+    // contain a comparison against 0 gating the first arm (not an unconditional match).
+    use parser::ast::StructDef;
+    let program = Program {
+        statements: vec![
+            Stmt::dummy(StmtKind::StructDef(StructDef {
+                name: "Point6".to_string(),
+                type_params: vec![],
+                fields: vec![
+                    ("x".to_string(), "int".to_string(), None),
+                    ("y".to_string(), "int".to_string(), None),
+                ],
+            })),
+            Stmt::dummy(StmtKind::VariableDecl {
+                name: "p".to_string(),
+                type_hint: None,
+                value: Expr::dummy(ExprKind::StructInit {
+                    struct_name: "Point6".to_string(),
+                    type_args: vec![],
+                    fields: vec![
+                        ("x".to_string(), Expr::dummy(ExprKind::Literal(Literal::Int(3)))),
+                        ("y".to_string(), Expr::dummy(ExprKind::Literal(Literal::Int(0)))),
+                    ],
+                }),
+                is_const: false,
+            }),
+            Stmt::dummy(StmtKind::VariableDecl {
+                name: "result".to_string(),
+                type_hint: None,
+                value: Expr::dummy(ExprKind::Match {
+                    value: Box::new(Expr::dummy(ExprKind::Identifier("p".to_string()))),
+                    arms: vec![
+                        MatchArm {
+                            pattern: Pattern::NamedField(vec![
+                                ("x".to_string(), Pattern::Binding("px".to_string())),
+                                ("y".to_string(), Pattern::Literal(Literal::Int(0))),
+                            ]),
+                            guard: None,
+                            body: Box::new(Expr::dummy(ExprKind::Identifier("px".to_string()))),
+                        },
+                        MatchArm {
+                            pattern: Pattern::Wildcard,
+                            guard: None,
+                            body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(-1)))),
+                        },
+                    ],
+                }),
+                is_const: false,
+            }),
+        ],
+    };
+    let ir = compile_program(program).unwrap();
+    // The literal sub-pattern must be compiled as a runtime comparison
+    // (icmp) rather than always matching, otherwise the wildcard arm
+    // (and the y-field literal check itself) would be dead code.
+    assert!(ir.contains("icmp"), "expected the literal sub-pattern to compile to a runtime comparison, got IR:\n{}", ir);
+}
+
+#[test]
+fn test_match_named_field_pattern_unknown_struct_and_field_error() {
+    // Named field pattern against a non-Struct value must produce a clean
+    // CodegenError::TypeError, not a panic.
+    let program_wrong_type = Program {
+        statements: vec![
+            Stmt::dummy(StmtKind::VariableDecl {
+                name: "n".to_string(),
+                type_hint: None,
+                value: Expr::dummy(ExprKind::Literal(Literal::Int(5))),
+                is_const: false,
+            }),
+            Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Match {
+                value: Box::new(Expr::dummy(ExprKind::Identifier("n".to_string()))),
+                arms: vec![
+                    MatchArm {
+                        pattern: Pattern::NamedField(vec![
+                            ("x".to_string(), Pattern::Binding("px".to_string())),
+                        ]),
+                        guard: None,
+                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(0)))),
+                    },
+                ],
+            }))),
+        ],
+    };
+    let context = Context::create();
+    let module = context.create_module("test");
+    let builder = context.create_builder();
+    let mut compiler = Compiler::new(&context, &builder, &module, "test.bx".to_string(), "".to_string());
+    let result = compiler.compile_program(&program_wrong_type);
+    assert!(result.is_err(), "expected named field pattern on a non-Struct value to be rejected");
+
+    // Named field pattern referencing a field that does not exist on the
+    // struct must also produce a clean CodegenError, not a panic.
+    use parser::ast::StructDef;
+    let program_unknown_field = Program {
+        statements: vec![
+            Stmt::dummy(StmtKind::StructDef(StructDef {
+                name: "Point7".to_string(),
+                type_params: vec![],
+                fields: vec![
+                    ("x".to_string(), "int".to_string(), None),
+                    ("y".to_string(), "int".to_string(), None),
+                ],
+            })),
+            Stmt::dummy(StmtKind::VariableDecl {
+                name: "p".to_string(),
+                type_hint: None,
+                value: Expr::dummy(ExprKind::StructInit {
+                    struct_name: "Point7".to_string(),
+                    type_args: vec![],
+                    fields: vec![
+                        ("x".to_string(), Expr::dummy(ExprKind::Literal(Literal::Int(3)))),
+                        ("y".to_string(), Expr::dummy(ExprKind::Literal(Literal::Int(4)))),
+                    ],
+                }),
+                is_const: false,
+            }),
+            Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Match {
+                value: Box::new(Expr::dummy(ExprKind::Identifier("p".to_string()))),
+                arms: vec![
+                    MatchArm {
+                        pattern: Pattern::NamedField(vec![
+                            ("z".to_string(), Pattern::Binding("pz".to_string())),
+                        ]),
+                        guard: None,
+                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(0)))),
+                    },
+                ],
+            }))),
+        ],
+    };
+    let context2 = Context::create();
+    let module2 = context2.create_module("test2");
+    let builder2 = context2.create_builder();
+    let mut compiler2 = Compiler::new(&context2, &builder2, &module2, "test2.bx".to_string(), "".to_string());
+    let result2 = compiler2.compile_program(&program_unknown_field);
+    assert!(result2.is_err(), "expected named field pattern referencing an unknown struct field to be rejected");
+}
+
+#[test]
+fn test_match_arm_binding_does_not_leak_to_next_arm() {
+    // struct Point { x: int, y: int }
+    // var p := Point { x: 42, y: 1 }
+    // var result := match p {
+    //     { x: px, y: 0 } -> px
+    //     _ -> px           // <- px must NOT be visible here
+    // }
+    //
+    // Regression test: match arm bindings (top-level, or nested inside
+    // Destructure/NamedField) used to leak into self.variables for every
+    // subsequent arm's compilation, since nothing restored the symbol table
+    // between arms. `_ -> px` must fail with UndefinedSymbol, not silently
+    // resolve to the previous (non-matching) arm's leftover binding.
+    let program = Program {
+        statements: vec![
+            Stmt::dummy(StmtKind::StructDef(parser::ast::StructDef {
+                name: "PointLeak".to_string(),
+                type_params: vec![],
+                fields: vec![
+                    ("x".to_string(), "int".to_string(), None),
+                    ("y".to_string(), "int".to_string(), None),
+                ],
+            })),
+            Stmt::dummy(StmtKind::VariableDecl {
+                name: "p".to_string(),
+                type_hint: None,
+                value: Expr::dummy(ExprKind::StructInit {
+                    struct_name: "PointLeak".to_string(),
+                    type_args: vec![],
+                    fields: vec![
+                        ("x".to_string(), Expr::dummy(ExprKind::Literal(Literal::Int(42)))),
+                        ("y".to_string(), Expr::dummy(ExprKind::Literal(Literal::Int(1)))),
+                    ],
+                }),
+                is_const: false,
+            }),
+            Stmt::dummy(StmtKind::VariableDecl {
+                name: "result".to_string(),
+                type_hint: None,
+                value: Expr::dummy(ExprKind::Match {
+                    value: Box::new(Expr::dummy(ExprKind::Identifier("p".to_string()))),
+                    arms: vec![
+                        MatchArm {
+                            pattern: Pattern::NamedField(vec![
+                                ("x".to_string(), Pattern::Binding("px".to_string())),
+                                ("y".to_string(), Pattern::Literal(Literal::Int(0))),
+                            ]),
+                            guard: None,
+                            body: Box::new(Expr::dummy(ExprKind::Identifier("px".to_string()))),
+                        },
+                        MatchArm {
+                            pattern: Pattern::Wildcard,
+                            guard: None,
+                            body: Box::new(Expr::dummy(ExprKind::Identifier("px".to_string()))),
+                        },
+                    ],
+                }),
+                is_const: false,
+            }),
+        ],
+    };
+    let context = Context::create();
+    let module = context.create_module("test_leak");
+    let builder = context.create_builder();
+    let mut compiler = Compiler::new(&context, &builder, &module, "test_leak.bx".to_string(), "".to_string());
+    let result = compiler.compile_program(&program);
+    assert!(
+        result.is_err(),
+        "expected 'px' in the wildcard arm to be undefined (leaked from the previous arm's binding otherwise)"
+    );
+}

@@ -1,0 +1,28 @@
+struct Point {
+    x: int,
+    y: int
+}
+
+var p1 := Point { x: 3, y: 0 }
+var result1 := match p1 {
+    { x: px, y: 0 } -> px
+    { x: 0, y: py } -> py
+    { x: px, y: py } -> px + py
+}
+println(result1)
+
+var p2 := Point { x: 0, y: 5 }
+var result2 := match p2 {
+    { x: px, y: 0 } -> px
+    { x: 0, y: py } -> py
+    { x: px, y: py } -> px + py
+}
+println(result2)
+
+var p3 := Point { x: 3, y: 4 }
+var result3 := match p3 {
+    { x: px, y: 0 } -> px
+    { x: 0, y: py } -> py
+    { x: px, y: py } -> px + py
+}
+println(result3)

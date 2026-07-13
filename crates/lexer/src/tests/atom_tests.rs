@@ -202,7 +202,7 @@ fn test_atom_in_match_pattern() {
     let mut lexer = Token::lexer("match x { :ok -> 1 }");
     assert_eq!(lexer.next(), Some(Ok(Token::Match)));
     assert_eq!(lexer.next(), Some(Ok(Token::Identifier("x".to_string()))));
-    assert_eq!(lexer.next(), Some(Ok(Token::LBrace)));
+    assert_eq!(lexer.next(), Some(Ok(Token::LBrace(false))));
     assert_eq!(lexer.next(), Some(Ok(Token::Atom("ok".to_string()))));
     assert_eq!(lexer.next(), Some(Ok(Token::Arrow)));
     assert_eq!(lexer.next(), Some(Ok(Token::Int(1))));
@@ -311,7 +311,7 @@ fn test_complex_http_status_pattern() {
         lexer.next(),
         Some(Ok(Token::Identifier("status".to_string())))
     );
-    assert_eq!(lexer.next(), Some(Ok(Token::LBrace)));
+    assert_eq!(lexer.next(), Some(Ok(Token::LBrace(false))));
     assert_eq!(lexer.next(), Some(Ok(Token::Atom("http_200".to_string()))));
     assert_eq!(lexer.next(), Some(Ok(Token::Arrow)));
     assert_eq!(lexer.next(), Some(Ok(Token::Atom("ok".to_string()))));

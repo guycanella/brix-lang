@@ -150,6 +150,45 @@ test.describe("Destructuring patterns", () -> {
     })
 })
 
+test.describe("Named field patterns", () -> {
+    test.it("binds two named fields", () -> {
+        struct NfPt1 { x: int, y: int }
+        var p := NfPt1 { x: 3, y: 4 }
+        var result := match p {
+            { x: px, y: py } -> px + py
+        }
+        test.expect(result).toBe(7)
+    })
+
+    test.it("literal constrains a named field", () -> {
+        struct NfPt2 { x: int, y: int }
+        var p := NfPt2 { x: 5, y: 0 }
+        var result := match p {
+            { x: px, y: 0 } -> px
+            { x: px, y: py } -> px + py
+        }
+        test.expect(result).toBe(5)
+    })
+
+    test.it("wildcard ignores a named field", () -> {
+        struct NfPt3 { x: int, y: int }
+        var p := NfPt3 { x: 99, y: 7 }
+        var result := match p {
+            { x: _, y: py } -> py
+        }
+        test.expect(result).toBe(7)
+    })
+
+    test.it("field order in the pattern does not matter", () -> {
+        struct NfPt4 { x: int, y: int }
+        var p := NfPt4 { x: 2, y: 9 }
+        var result := match p {
+            { y: py, x: px } -> px - py
+        }
+        test.expect(result).toBe(-7)
+    })
+})
+
 test.describe("Range patterns", () -> {
     test.it("inclusive int range matches inside", () -> {
         var age := 30

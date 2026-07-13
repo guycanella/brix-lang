@@ -2427,3 +2427,40 @@ fn test_negative_index_on_2d_matrix_uses_total_elements() {
         ir
     );
 }
+
+// =========================================================
+// SECTION: Union max_type sizing bugfix (discovered during v1.7
+// Grupo D scoping, unrelated to Grupo D itself — pre-existing since
+// Union types were introduced). `size_of()` on an LLVM aggregate type
+// isn't always constant-foldable; the old code silently treated any
+// non-foldable size as 8 bytes, undersizing the union's storage field
+// for any variant wider than 8 bytes (e.g. Complex's `{ f64, f64 }`,
+// 16 bytes) and overflowing it on write. Fixed by computing size
+// structurally (`llvm_type_byte_size`) instead of via `size_of()`.
+// =========================================================
+
+#[test]
+fn test_union_with_complex_variant_sizes_correctly() {
+    // var c: int | complex = complex(1.0, 2.0)
+    // The union's LLVM type must size its value field to fit the
+    // *largest* variant (Complex, 16 bytes), not silently default to 8.
+    let decl = Stmt::dummy(StmtKind::VariableDecl {
+        name: "c".to_string(),
+        type_hint: Some("int | complex".to_string()),
+        value: Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("complex".to_string()))),
+            args: vec![
+                Expr::dummy(ExprKind::Literal(Literal::Float(1.0))),
+                Expr::dummy(ExprKind::Literal(Literal::Float(2.0))),
+            ],
+        }),
+        is_const: false,
+    });
+    let program = Program { statements: vec![decl] };
+    let ir = compile_program(program).unwrap();
+    assert!(
+        ir.contains("alloca { i64, { double, double } }"),
+        "expected the union's value field to be sized for Complex (16 bytes), not truncated to i64, got IR:\n{}",
+        ir
+    );
+}

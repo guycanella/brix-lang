@@ -1493,3 +1493,19 @@ fn test_162_negative_index() {
         "50\n40\n50\n99\n99\n3.5\n9.9"
     );
 }
+
+#[test]
+fn test_164_named_field_pattern() {
+    assert_success(
+        "tests/integration/success/164_named_field_pattern.bx",
+        "3\n5\n7"
+    );
+}
+
+#[test]
+fn test_165_named_field_pattern_wildcard() {
+    assert_success(
+        "tests/integration/success/165_named_field_pattern_wildcard.bx",
+        "7\n100\n-1"
+    );
+}

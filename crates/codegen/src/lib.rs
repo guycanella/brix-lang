@@ -524,6 +524,28 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         }
     }
 
+    /// Compute an LLVM type's byte size structurally, without relying on
+    /// `LLVMType::size_of()` (whose constant expression isn't always
+    /// foldable — see the caller in `brix_type_to_llvm`'s `Union` arm).
+    /// Brix only ever emits `f64` floats (never `f32`), so `FloatType` is
+    /// hard-coded to 8 bytes rather than inspected further.
+    fn llvm_type_byte_size(&self, t: BasicTypeEnum<'ctx>) -> u64 {
+        match t {
+            BasicTypeEnum::IntType(it) => ((it.get_bit_width() as u64) + 7) / 8,
+            BasicTypeEnum::FloatType(_) => 8,
+            BasicTypeEnum::PointerType(_) => 8,
+            BasicTypeEnum::StructType(st) => st
+                .get_field_types()
+                .iter()
+                .map(|f| self.llvm_type_byte_size(*f))
+                .sum(),
+            BasicTypeEnum::ArrayType(at) => {
+                at.len() as u64 * self.llvm_type_byte_size(at.get_element_type())
+            }
+            BasicTypeEnum::VectorType(_) => 8,
+        }
+    }
+
     fn brix_type_to_llvm(&self, brix_type: &BrixType) -> BasicTypeEnum<'ctx> {
         match brix_type {
             BrixType::Int | BrixType::Atom => self.context.i64_type().into(), // Atom = i64 (atom ID)
@@ -564,13 +586,21 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 // Tag indicates which variant is active (0, 1, 2, ...)
                 // Value holds the largest type to accommodate all variants
 
-                // Find largest type for union value field
+                // Find largest type for union value field.
+                // NOTE: `LLVMType::size_of()` returns a constant *expression* that is
+                // not always foldable to a concrete integer for aggregate types (e.g.
+                // Complex's `{ f64, f64 }`) - `get_zero_extended_constant()` then
+                // returns None, and unwrap_or(8) silently under-reports the size,
+                // making `max_type` too small and truncating any wider variant on
+                // write (a stack buffer overflow). `llvm_type_byte_size()` computes
+                // the size structurally instead, so it never depends on constant
+                // folding succeeding.
                 let mut max_size = 0;
                 let mut max_type = self.context.i64_type().as_basic_type_enum();
 
                 for t in types {
                     let llvm_type = self.brix_type_to_llvm(t);
-                    let size = llvm_type.size_of().unwrap().get_zero_extended_constant().unwrap_or(8);
+                    let size = self.llvm_type_byte_size(llvm_type);
                     if size > max_size {
                         max_size = size;
                         max_type = llvm_type;
@@ -10468,6 +10498,23 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     // Position at test block
                     self.builder.position_at_end(arm_test_bbs[i]);
 
+                    // Snapshot any outer binding this arm's pattern will shadow, so it
+                    // can be restored once this arm is done (see restore below). Without
+                    // this, a binding introduced by this arm's pattern (top-level Binding,
+                    // or nested inside Destructure/NamedField/Or) stays in self.variables
+                    // for every subsequent arm's compilation, even though it's out of
+                    // scope there (and, since the test block's alloca+store always runs
+                    // regardless of whether this arm's pattern actually matched, a later
+                    // arm referencing that name would silently read this arm's leftover
+                    // value instead of getting an UndefinedSymbol error).
+                    let mut arm_binding_names = Vec::new();
+                    self.collect_pattern_binding_names(&arm.pattern, &mut arm_binding_names);
+                    let saved_bindings: Vec<(String, Option<(PointerValue<'ctx>, BrixType)>)> =
+                        arm_binding_names
+                            .iter()
+                            .map(|name| (name.clone(), self.variables.get(name).cloned()))
+                            .collect();
+
                     // If pattern is binding, create the variable BEFORE evaluating guard
                     let _binding_name = if let Pattern::Binding(name) = &arm.pattern {
                         let llvm_type = self.brix_type_to_llvm(&match_type);
@@ -10602,6 +10649,16 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         details: "Failed to branch to merge block from match arm".to_string(),
                                             span: Some(expr.span.clone()),
                     })?;
+
+                    // Restore whatever this arm's pattern shadowed, so the next arm
+                    // doesn't see this arm's bindings.
+                    for (name, old_var_opt) in saved_bindings {
+                        if let Some(old_var) = old_var_opt {
+                            self.variables.insert(name, old_var);
+                        } else {
+                            self.variables.remove(&name);
+                        }
+                    }
                 }
 
                 // Position at merge block and create PHI node
@@ -16157,6 +16214,28 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         }
     }
 
+    /// Walk a pattern collecting every variable name it would bind (top-level
+    /// `Binding`, and nested inside `Or`/`Destructure`/`NamedField`). Used by
+    /// the `match` arm loop to scope bindings to their own arm — see the
+    /// save/restore around `self.variables` in `ExprKind::Match`.
+    fn collect_pattern_binding_names(&self, pattern: &parser::ast::Pattern, out: &mut Vec<String>) {
+        use parser::ast::Pattern;
+        match pattern {
+            Pattern::Binding(name) => out.push(name.clone()),
+            Pattern::Or(patterns) | Pattern::Destructure(patterns) => {
+                for p in patterns {
+                    self.collect_pattern_binding_names(p, out);
+                }
+            }
+            Pattern::NamedField(fields) => {
+                for (_, p) in fields {
+                    self.collect_pattern_binding_names(p, out);
+                }
+            }
+            Pattern::Literal(_) | Pattern::Wildcard | Pattern::Range { .. } => {}
+        }
+    }
+
     /// Compile pattern matching: returns i1 (bool) indicating if pattern matches
     fn compile_pattern_match(
         &mut self,
@@ -16484,6 +16563,44 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         expected: "Tuple, Struct, or Matrix".to_string(),
                         found: format!("{:?}", value_type),
                         context: "Destructuring pattern".to_string(),
+                        span: None,
+                    })
+                }
+            }
+
+            Pattern::NamedField(fields) => {
+                match value_type {
+                    BrixType::Struct(struct_name) => {
+                        let struct_def = self.struct_defs.get(struct_name).cloned()
+                            .ok_or_else(|| CodegenError::UndefinedSymbol {
+                                name: struct_name.clone(),
+                                context: "Named field pattern".to_string(),
+                                span: None,
+                            })?;
+                        let sv = value.into_struct_value();
+                        let mut combined = self.context.bool_type().const_int(1, false);
+                        for (field_name, sub_pat) in fields {
+                            let idx = struct_def.iter().position(|(n, _, _)| n == field_name)
+                                .ok_or_else(|| CodegenError::UndefinedSymbol {
+                                    name: field_name.clone(),
+                                    context: format!("Field not found in struct '{}'", struct_name),
+                                    span: None,
+                                })?;
+                            let ft = struct_def[idx].1.clone();
+                            let extracted = self.builder.build_extract_value(sv, idx as u32, &format!("nf_{}", field_name))
+                                .map_err(|_| CodegenError::LLVMError {
+                                    operation: "build_extract_value".to_string(),
+                                    details: format!("Failed to extract field '{}'", field_name),
+                                    span: None,
+                                })?;
+                            combined = self.apply_sub_pattern(sub_pat, extracted, &ft, combined, idx)?;
+                        }
+                        Ok(combined)
+                    }
+                    _ => Err(CodegenError::TypeError {
+                        expected: "Struct".to_string(),
+                        found: format!("{:?}", value_type),
+                        context: "Named field pattern".to_string(),
                         span: None,
                     })
                 }

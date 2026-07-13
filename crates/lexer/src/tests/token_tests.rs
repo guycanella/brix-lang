@@ -359,7 +359,7 @@ fn test_delimiter_rparen() {
 
 #[test]
 fn test_delimiter_lbrace() {
-    assert_single_token("{", Token::LBrace);
+    assert_single_token("{", Token::LBrace(false));
 }
 
 #[test]
@@ -434,7 +434,7 @@ fn test_multiple_tokens_if_statement() {
     assert_eq!(tokens[1], Ok(Token::Identifier("x".to_string())));
     assert_eq!(tokens[2], Ok(Token::Gt));
     assert_eq!(tokens[3], Ok(Token::Int(0)));
-    assert_eq!(tokens[4], Ok(Token::LBrace));
+    assert_eq!(tokens[4], Ok(Token::LBrace(false)));
     assert_eq!(tokens[5], Ok(Token::Return));
     assert_eq!(tokens[6], Ok(Token::True));
     assert_eq!(tokens[7], Ok(Token::RBrace));
@@ -668,7 +668,7 @@ fn test_break_in_while_token_sequence() {
     assert_eq!(tokens.len(), 5);
     assert_eq!(tokens[0], Ok(Token::While));
     assert_eq!(tokens[1], Ok(Token::Identifier("x".to_string())));
-    assert_eq!(tokens[2], Ok(Token::LBrace));
+    assert_eq!(tokens[2], Ok(Token::LBrace(false)));
     assert_eq!(tokens[3], Ok(Token::Break));
     assert_eq!(tokens[4], Ok(Token::RBrace));
 }
@@ -682,7 +682,7 @@ fn test_continue_in_for_token_sequence() {
     assert_eq!(tokens[1], Ok(Token::Identifier("i".to_string())));
     assert_eq!(tokens[2], Ok(Token::In));
     assert_eq!(tokens[3], Ok(Token::Identifier("arr".to_string())));
-    assert_eq!(tokens[4], Ok(Token::LBrace));
+    assert_eq!(tokens[4], Ok(Token::LBrace(false)));
     assert_eq!(tokens[5], Ok(Token::Continue));
     assert_eq!(tokens[6], Ok(Token::RBrace));
 }

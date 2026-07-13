@@ -124,6 +124,23 @@ fn type_annotation_parser() -> impl Parser<Token, String, Error = Simple<Token>>
     })
 }
 
+/// Matches a `{` regardless of whether it is preceded by a newline. Use this for every
+/// delimiter position where the newline distinction doesn't matter (blocks, struct defs,
+/// patterns, match bodies, etc.) — i.e. everywhere except the "same line" struct-init
+/// postfix check below.
+fn lbrace() -> impl Parser<Token, (), Error = Simple<Token>> + Clone {
+    select! { Token::LBrace(_) => () }
+}
+
+/// Matches a `{` only when it appears on the same line as whatever precedes it (not
+/// preceded by a newline). This disambiguates `identifier { field: value }` (struct-init
+/// continuation) from a `{` that starts an unrelated construct on the next line — e.g. the
+/// next `match` arm's named-field pattern `{ x: 0, y: py }` — which would otherwise be
+/// greedily swallowed as a continuation of the previous arm's bare-identifier body.
+fn lbrace_same_line() -> impl Parser<Token, (), Error = Simple<Token>> + Clone {
+    select! { Token::LBrace(false) => () }
+}
+
 pub fn parser() -> impl Parser<Token, Program, Error = Simple<Token>> {
     let stmt = stmt_parser();
 
@@ -264,7 +281,7 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
                 select! { Token::Identifier(name) => name }
                     .separated_by(just(Token::Comma))
                     .allow_trailing()
-                    .delimited_by(just(Token::LBrace), just(Token::RBrace)),
+                    .delimited_by(lbrace(), just(Token::RBrace)),
             )
             .then_ignore(just(Token::ColonEq))
             .then(expr_p.clone())
@@ -338,7 +355,7 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
         let block = stmt
             .clone()
             .repeated()
-            .delimited_by(just(Token::LBrace), just(Token::RBrace))
+            .delimited_by(lbrace(), just(Token::RBrace))
             .map_with_span(|stmts, span| Stmt::new(StmtKind::Block(stmts), span));
         let if_stmt = recursive(|if_stmt| {
             just(Token::If)
@@ -657,7 +674,7 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
                     .map(|((name, ty), default)| (name, ty, default))
                     .separated_by(just(Token::Comma))
                     .allow_trailing()
-                    .delimited_by(just(Token::LBrace), just(Token::RBrace)),
+                    .delimited_by(lbrace(), just(Token::RBrace)),
             )
             .map_with_span(|((name, type_params), fields), span| Stmt::new(StmtKind::StructDef(StructDef {
                 name,
@@ -701,7 +718,7 @@ where
         // Build block from the stmt parser — this is what closures will use
         let block = stmt.clone()
             .repeated()
-            .delimited_by(just(Token::LBrace), just(Token::RBrace))
+            .delimited_by(lbrace(), just(Token::RBrace))
             .map_with_span(|stmts, span| Stmt::new(StmtKind::Block(stmts), span));
 
         let val = select! {
@@ -815,7 +832,7 @@ where
                 .or(binding_pattern);
 
             // Destructure pattern: { p1, p2, ... }
-            let destructure = just(Token::LBrace)
+            let destructure = lbrace()
                 .ignore_then(
                     atomic.clone()
                         .separated_by(just(Token::Comma))
@@ -824,8 +841,23 @@ where
                 .then_ignore(just(Token::RBrace))
                 .map(Pattern::Destructure);
 
-            // Base: destructure takes priority (starts with LBrace), then atomic
-            let base = destructure.or(atomic);
+            // Named field destructure pattern: { field_name: sub_pattern, ... }
+            let named_destructure = lbrace()
+                .ignore_then(
+                    select! { Token::Identifier(s) => s }
+                        .then_ignore(just(Token::Colon))
+                        .then(atomic.clone())
+                        .separated_by(just(Token::Comma))
+                        .allow_trailing()
+                        .at_least(1)
+                )
+                .then_ignore(just(Token::RBrace))
+                .map(Pattern::NamedField);
+
+            // Base: named destructure takes priority (backtracks to destructure
+            // if no `ident:` is found after '{'), then positional destructure,
+            // then atomic
+            let base = named_destructure.or(destructure).or(atomic);
 
             // Or pattern: pattern | pattern | ...
             base.separated_by(just(Token::Pipe))
@@ -857,7 +889,7 @@ where
                 match_arm
                     .repeated()
                     .at_least(1)
-                    .delimited_by(just(Token::LBrace), just(Token::RBrace)),
+                    .delimited_by(lbrace(), just(Token::RBrace)),
             )
             .map_with_span(|(value, arms), span| Expr::new(ExprKind::Match {
                 value: Box::new(value),
@@ -958,6 +990,13 @@ where
 
         // Struct initialization (non-generic): Point { x: 10, y: 20 }
         // Generic struct init (Box<int>{ value: 42 }) is handled as postfix operation
+        // NOTE: dead code today — `val`'s bare-identifier branch (see `let val = ...`
+        // above) always matches an Identifier first inside `atom`, so this rule never
+        // actually fires. Kept for documentation, but if `atom` is ever reordered to
+        // try this before `val`, use `lbrace_same_line()` here (not `lbrace()`) — the
+        // postfix struct-init rule below is newline-restricted to avoid swallowing the
+        // next match arm's named-field pattern (see `lbrace_same_line` doc comment);
+        // this primary rule would need the same restriction to stay consistent.
         let struct_init = select! { Token::Identifier(name) => name }
             .then(
                 select! { Token::Identifier(field_name) => field_name }
@@ -965,7 +1004,7 @@ where
                     .then(expr.clone())
                     .separated_by(just(Token::Comma))
                     .allow_trailing()
-                    .delimited_by(just(Token::LBrace), just(Token::RBrace)),
+                    .delimited_by(lbrace(), just(Token::RBrace)),
             )
             .map_with_span(|(struct_name, fields), span| Expr::new(ExprKind::StructInit {
                 struct_name,
@@ -1056,13 +1095,17 @@ where
                                     .then(expr.clone())
                                     .separated_by(just(Token::Comma))
                                     .allow_trailing()
-                                    .delimited_by(just(Token::LBrace), just(Token::RBrace))
+                                    .delimited_by(lbrace(), just(Token::RBrace))
                             )
                             .map(|(type_args, fields)| PostfixOp::StructInit(type_args, fields))
                     )
                     // Non-generic struct init: { field: value, ... }
                     // Handles Point { x: 3.0, y: 4.0 } when Point is already parsed as identifier
                     // Requires at least one field to avoid consuming empty blocks { }
+                    // The `{` must be on the SAME LINE as whatever precedes it (lbrace_same_line):
+                    // otherwise `px\n{ x: 0, y: py }` (the next match arm's named-field pattern,
+                    // on its own line) would be greedily swallowed as a struct-init continuation
+                    // of the previous arm's bare-identifier body `px`.
                     .or(
                         select! { Token::Identifier(field_name) => field_name }
                             .then_ignore(just(Token::Colon))
@@ -1070,7 +1113,7 @@ where
                             .separated_by(just(Token::Comma))
                             .allow_trailing()
                             .at_least(1)
-                            .delimited_by(just(Token::LBrace), just(Token::RBrace))
+                            .delimited_by(lbrace_same_line(), just(Token::RBrace))
                             .map(|fields| PostfixOp::StructInit(vec![], fields))
                     )
                     // Generic call: <int, float>(args)
