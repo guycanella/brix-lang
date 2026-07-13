@@ -76,6 +76,14 @@ pub trait MatrixFunctions<'ctx> {
 
     /// Get or declare: IntMatrix* intmatrix_prepend(IntMatrix*, long)
     fn get_intmatrix_prepend(&self) -> inkwell::values::FunctionValue<'ctx>;
+
+    // ===== Slice (v1.7 Group C) =====
+
+    /// Get or declare: Matrix* matrix_slice(Matrix*, long start, long end)
+    fn get_matrix_slice(&self) -> inkwell::values::FunctionValue<'ctx>;
+
+    /// Get or declare: IntMatrix* intmatrix_slice(IntMatrix*, long start, long end)
+    fn get_intmatrix_slice(&self) -> inkwell::values::FunctionValue<'ctx>;
 }
 
 impl<'a, 'ctx> MatrixFunctions<'ctx> for Compiler<'a, 'ctx> {
@@ -265,5 +273,27 @@ impl<'a, 'ctx> MatrixFunctions<'ctx> for Compiler<'a, 'ctx> {
         let fn_type = ptr_type.fn_type(&[ptr_type.into(), i64_type.into()], false);
         self.module
             .add_function("intmatrix_prepend", fn_type, Some(Linkage::External))
+    }
+
+    fn get_matrix_slice(&self) -> inkwell::values::FunctionValue<'ctx> {
+        if let Some(func) = self.module.get_function("matrix_slice") {
+            return func;
+        }
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let i64_type = self.context.i64_type();
+        let fn_type = ptr_type.fn_type(&[ptr_type.into(), i64_type.into(), i64_type.into()], false);
+        self.module
+            .add_function("matrix_slice", fn_type, Some(Linkage::External))
+    }
+
+    fn get_intmatrix_slice(&self) -> inkwell::values::FunctionValue<'ctx> {
+        if let Some(func) = self.module.get_function("intmatrix_slice") {
+            return func;
+        }
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let i64_type = self.context.i64_type();
+        let fn_type = ptr_type.fn_type(&[ptr_type.into(), i64_type.into(), i64_type.into()], false);
+        self.module
+            .add_function("intmatrix_slice", fn_type, Some(Linkage::External))
     }
 }

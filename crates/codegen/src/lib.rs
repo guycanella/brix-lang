@@ -4691,6 +4691,132 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         Ok(())
     }
 
+    /// Adjust a possibly-negative index at runtime: `idx < 0 ? idx + len : idx`.
+    /// Emits a `select` so it works for both negative literals and runtime-negative
+    /// expressions (e.g. `nums[i - 1]` where `i` is 0). Used for single-index access
+    /// only (not the `mat[i][j]` 2D case).
+    fn adjust_negative_index(
+        &mut self,
+        idx: inkwell::values::IntValue<'ctx>,
+        len: inkwell::values::IntValue<'ctx>,
+        span: &std::ops::Range<usize>,
+    ) -> CodegenResult<inkwell::values::IntValue<'ctx>> {
+        let i64_type = self.context.i64_type();
+        let zero = i64_type.const_int(0, false);
+        let is_neg = self
+            .builder
+            .build_int_compare(IntPredicate::SLT, idx, zero, "idx_is_neg")
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_int_compare".to_string(),
+                details: "Failed to compare index against zero".to_string(),
+                span: Some(span.clone()),
+            })?;
+        let adjusted = self
+            .builder
+            .build_int_add(idx, len, "idx_adjusted")
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_int_add".to_string(),
+                details: "Failed to add length to negative index".to_string(),
+                span: Some(span.clone()),
+            })?;
+        let selected = self
+            .builder
+            .build_select(is_neg, adjusted, idx, "idx_final")
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_select".to_string(),
+                details: "Failed to select adjusted index".to_string(),
+                span: Some(span.clone()),
+            })?;
+        Ok(selected.into_int_value())
+    }
+
+    /// Compile an array slice: `arr[start..end]` / `arr[start..<end]` (v1.7 Group C).
+    /// Delegates to the runtime `matrix_slice` / `intmatrix_slice` functions. `end`
+    /// is exclusive at the runtime boundary, so inclusive ranges add 1 to `end`.
+    /// Stepped ranges (`arr[0..4 step 2]`) are rejected — stepped slicing was never
+    /// implemented, so silently accepting the syntax would compile a contiguous
+    /// slice while discarding `step`, which is wrong rather than merely unsupported.
+    fn compile_array_slice(
+        &mut self,
+        receiver_val: BasicValueEnum<'ctx>,
+        receiver_type: &BrixType,
+        start: &Expr,
+        end: &Expr,
+        step: Option<&Expr>,
+        inclusive: bool,
+        span: &std::ops::Range<usize>,
+    ) -> CodegenResult<(BasicValueEnum<'ctx>, BrixType)> {
+        if step.is_some() {
+            return Err(CodegenError::InvalidOperation {
+                operation: "array slice".to_string(),
+                reason: "stepped ranges are not supported as a slice index (e.g. arr[0..4 step 2])".to_string(),
+                span: Some(span.clone()),
+            });
+        }
+        let i64_type = self.context.i64_type();
+        let (start_val, start_type) = self.compile_expr(start)?;
+        let (end_val, end_type) = self.compile_expr(end)?;
+        if start_type != BrixType::Int {
+            return Err(CodegenError::TypeError {
+                expected: "Int".to_string(),
+                found: format!("{:?}", start_type),
+                context: "array slice start".to_string(),
+                span: Some(span.clone()),
+            });
+        }
+        if end_type != BrixType::Int {
+            return Err(CodegenError::TypeError {
+                expected: "Int".to_string(),
+                found: format!("{:?}", end_type),
+                context: "array slice end".to_string(),
+                span: Some(span.clone()),
+            });
+        }
+        let end_int = end_val.into_int_value();
+        let end_adjusted = if inclusive {
+            self.builder
+                .build_int_add(end_int, i64_type.const_int(1, false), "slice_end_incl")
+                .map_err(|_| CodegenError::LLVMError {
+                    operation: "build_int_add".to_string(),
+                    details: "Failed to adjust inclusive slice end".to_string(),
+                    span: Some(span.clone()),
+                })?
+        } else {
+            end_int
+        };
+        let is_int = *receiver_type == BrixType::IntMatrix;
+        let func = if is_int {
+            self.get_intmatrix_slice()
+        } else {
+            self.get_matrix_slice()
+        };
+        let call = self
+            .builder
+            .build_call(
+                func,
+                &[
+                    receiver_val.into(),
+                    start_val.into_int_value().into(),
+                    end_adjusted.into(),
+                ],
+                "slice",
+            )
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_call".to_string(),
+                details: "Failed to call slice function".to_string(),
+                span: Some(span.clone()),
+            })?;
+        let result = call
+            .try_as_basic_value()
+            .left()
+            .ok_or_else(|| CodegenError::MissingValue {
+                what: "slice result".to_string(),
+                context: "array slice".to_string(),
+                span: Some(span.clone()),
+            })?;
+        Ok((result, receiver_type.clone()))
+    }
+
     fn compile_lvalue_addr(&mut self, expr: &Expr) -> CodegenResult<(PointerValue<'ctx>, BrixType)> {
         match &expr.kind {
             ExprKind::Identifier(name) => {
@@ -4726,6 +4852,24 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     self.get_matrix_type()
                 };
                 let i64_type = self.context.i64_type();
+
+                let rows_ptr = self
+                    .builder
+                    .build_struct_gep(matrix_type, matrix_ptr, 1, "rows")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_struct_gep".to_string(),
+                        details: "Failed to get matrix rows pointer".to_string(),
+                                            span: None,
+                    })?;
+                let rows = self
+                    .builder
+                    .build_load(i64_type, rows_ptr, "rows")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_load".to_string(),
+                        details: "Failed to load matrix rows".to_string(),
+                                            span: None,
+                    })?
+                    .into_int_value();
 
                 let cols_ptr = self
                     .builder
@@ -4769,7 +4913,20 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
                 let final_offset = if indices.len() == 1 {
                     let (idx0_val, _) = self.compile_expr(&indices[0])?;
-                    idx0_val.into_int_value()
+                    let idx0 = idx0_val.into_int_value();
+                    // Negative index adjustment (runtime): idx < 0 ? idx + total : idx.
+                    // Uses rows*cols (not just cols), so it stays correct for a flat
+                    // single-index access into a 2D matrix (rows > 1), matching the
+                    // flat-indexing convention already used elsewhere (.map/.filter/
+                    // .flatten, and the positive-index case a few lines below).
+                    let total = self.builder
+                        .build_int_mul(rows, cols, "neg_idx_total")
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_int_mul".to_string(),
+                            details: "Failed to compute total element count for negative index".to_string(),
+                            span: None,
+                        })?;
+                    self.adjust_negative_index(idx0, total, &expr.span)?
                 } else if indices.len() == 2 {
                     let (row_val, _) = self.compile_expr(&indices[0])?;
                     let (col_val, _) = self.compile_expr(&indices[1])?;
@@ -9860,6 +10017,21 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     return Err(CodegenError::General("compilation error".to_string()));
                 }
 
+                // Array slicing (v1.7 Group C): nums[1..4], nums[1..<4]
+                if indices.len() == 1 {
+                    if let ExprKind::Range { start, end, step, inclusive } = &indices[0].kind {
+                        return self.compile_array_slice(
+                            target_val,
+                            &target_type,
+                            start,
+                            end,
+                            step.as_deref(),
+                            *inclusive,
+                            &expr.span,
+                        );
+                    }
+                }
+
                 let is_int_matrix = target_type == BrixType::IntMatrix;
                 let matrix_ptr = target_val.into_pointer_value();
                 let matrix_type = if is_int_matrix {
@@ -9868,6 +10040,25 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     self.get_matrix_type()
                 };
                 let i64_type = self.context.i64_type();
+
+                // Get rows (needed for negative-index adjustment on flat single-index access)
+                let rows_ptr = self
+                    .builder
+                    .build_struct_gep(matrix_type, matrix_ptr, 1, "rows")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_struct_gep".to_string(),
+                        details: "Failed to get matrix rows pointer".to_string(),
+                                            span: Some(expr.span.clone()),
+                    })?;
+                let rows = self
+                    .builder
+                    .build_load(i64_type, rows_ptr, "rows")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_load".to_string(),
+                        details: "Failed to load matrix rows".to_string(),
+                                            span: Some(expr.span.clone()),
+                    })?
+                    .into_int_value();
 
                 // Get cols (same for both Matrix and IntMatrix)
                 let cols_ptr = self
@@ -9914,7 +10105,18 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 // Calculate offset (same logic for both)
                 let final_offset = if indices.len() == 1 {
                     let (idx0_val, _) = self.compile_expr(&indices[0])?;
-                    idx0_val.into_int_value()
+                    let idx0 = idx0_val.into_int_value();
+                    // Negative index adjustment (runtime): idx < 0 ? idx + total : idx.
+                    // Uses rows*cols so a flat single-index access into a 2D matrix
+                    // (rows > 1) stays consistent with the positive-index case below.
+                    let total = self.builder
+                        .build_int_mul(rows, cols, "neg_idx_total")
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_int_mul".to_string(),
+                            details: "Failed to compute total element count for negative index".to_string(),
+                            span: Some(expr.span.clone()),
+                        })?;
+                    self.adjust_negative_index(idx0, total, &expr.span)?
                 } else if indices.len() == 2 {
                     let (row_val, _) = self.compile_expr(&indices[0])?;
                     let (col_val, _) = self.compile_expr(&indices[1])?;

@@ -1473,3 +1473,23 @@ fn test_160_array_append() {
         "4\n99\n4\n0\n1\n3.5"
     );
 }
+
+// ==========================================
+// v1.7 Grupo C: Array slicing + negative index
+// ==========================================
+
+#[test]
+fn test_161_array_slice() {
+    assert_success(
+        "tests/integration/success/161_array_slice.bx",
+        "3\n20\n30\n40\n3\n20\n30\n40\n3\n2.5\n4.5\n2\n2.5\n3.5"
+    );
+}
+
+#[test]
+fn test_162_negative_index() {
+    assert_success(
+        "tests/integration/success/162_negative_index.bx",
+        "50\n40\n50\n99\n99\n3.5\n9.9"
+    );
+}
