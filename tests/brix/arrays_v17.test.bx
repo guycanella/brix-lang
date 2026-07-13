@@ -75,3 +75,48 @@ test.describe("Array methods (v1.7 Group B)", () -> {
         test.expect(m.count()).toBe(6)
     })
 })
+
+test.describe("Array slicing + negative index (v1.7 Group C)", () -> {
+    test.it("slices with an inclusive range (nums[1..3])", () -> {
+        var nums := [10, 20, 30, 40, 50]
+        var sub := nums[1..3]
+        test.expect(sub).toEqual([20, 30, 40])
+
+        var fnums := [1.5, 2.5, 3.5, 4.5]
+        var fsub := fnums[1..3]
+        test.expect(fsub.cols).toBe(3)
+        test.expect(fsub[0]).toBeCloseTo(2.5)
+        test.expect(fsub[2]).toBeCloseTo(4.5)
+    })
+
+    test.it("slices with an exclusive range (nums[1..<4])", () -> {
+        var nums := [10, 20, 30, 40, 50]
+        var sub := nums[1..<4]
+        test.expect(sub).toEqual([20, 30, 40])
+
+        var fnums := [1.5, 2.5, 3.5, 4.5]
+        var fsub := fnums[1..<3]
+        test.expect(fsub).toHaveLength(2)
+        test.expect(fsub[1]).toBeCloseTo(3.5)
+    })
+
+    test.it("supports negative indices, including from an expression", () -> {
+        var nums := [10, 20, 30, 40, 50]
+        test.expect(nums[-1]).toBe(50)
+        test.expect(nums[-2]).toBe(40)
+
+        var i := 0
+        test.expect(nums[i - 1]).toBe(50)
+    })
+
+    test.it("allows assignment through a negative index", () -> {
+        var nums := [10, 20, 30, 40, 50]
+        nums[-1] := 99
+        test.expect(nums[4]).toBe(99)
+        test.expect(nums[-1]).toBe(99)
+
+        var fnums := [1.5, 2.5, 3.5]
+        fnums[-1] := 9.9
+        test.expect(fnums[2]).toBeCloseTo(9.9)
+    })
+})

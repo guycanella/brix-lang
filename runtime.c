@@ -1437,6 +1437,43 @@ IntMatrix* intmatrix_prepend(IntMatrix* m, long val) {
   return result;
 }
 
+// --- Slicing (v1.7 Grupo C) ---
+// start/end are flat element indices, start inclusive, end exclusive.
+// Result is always a 1-row array (element slicing only, no 2D row
+// extraction). Unlike scalar Matrix/IntMatrix indexing elsewhere in this
+// runtime (which does no bounds checking at all), start/end here ARE
+// clamped to [0, total]: a slice copies a *range* of elements via memcpy,
+// so an out-of-range start/end would read past the buffer rather than the
+// single stray element a bad scalar index reads.
+
+Matrix* matrix_slice(Matrix* m, long start, long end) {
+  long total = m->rows * m->cols;
+  if (start < 0) start = 0;
+  if (start > total) start = total;
+  if (end > total) end = total;
+  if (end < start) end = start;
+  long len = end - start;
+  Matrix* result = matrix_new(1, len);
+  if (len > 0) {
+    memcpy(result->data, m->data + start, len * sizeof(double));
+  }
+  return result;
+}
+
+IntMatrix* intmatrix_slice(IntMatrix* m, long start, long end) {
+  long total = m->rows * m->cols;
+  if (start < 0) start = 0;
+  if (start > total) start = total;
+  if (end > total) end = total;
+  if (end < start) end = start;
+  long len = end - start;
+  IntMatrix* result = intmatrix_new(1, len);
+  if (len > 0) {
+    memcpy(result->data, m->data + start, len * sizeof(long));
+  }
+  return result;
+}
+
 // ==========================================
 // SECTION 1: ERROR HANDLING (v1.1)
 // ==========================================

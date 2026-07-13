@@ -2,7 +2,7 @@
 
 use crate::Compiler;
 use inkwell::context::Context;
-use parser::ast::{BinaryOp, Closure, Expr, Literal, Program, Stmt, ExprKind, StmtKind};
+use parser::ast::{BinaryOp, Closure, Expr, Literal, Program, Stmt, ExprKind, StmtKind, UnaryOp};
 
 fn compile_program(program: Program) -> Result<String, String> {
     let result = std::panic::catch_unwind(|| {
@@ -2206,3 +2206,224 @@ fn test_map_callback_infers_matrix_via_max() {
     );
 }
 
+// =========================================================
+// SECTION: v1.7 Group C — Array slicing + negative index
+// (closed-range slicing only: `nums[1..4]` / `nums[1..<4]`;
+//  open-ended slicing `nums[..<3]` / `nums[2..]` is out of scope)
+// =========================================================
+
+/// Helper: build an inclusive/exclusive range expr `start..end` / `start..<end`
+fn range_expr(start: i64, end: i64, inclusive: bool) -> Expr {
+    Expr::dummy(ExprKind::Range {
+        start: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(start)))),
+        end: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(end)))),
+        step: None,
+        inclusive,
+    })
+}
+
+/// Helper: build `target[index_expr]`
+fn index_expr(target: Expr, index: Expr) -> Expr {
+    Expr::dummy(ExprKind::Index {
+        array: Box::new(target),
+        indices: vec![index],
+    })
+}
+
+/// Helper: build unary negation `-expr`
+fn negate(expr: Expr) -> Expr {
+    Expr::dummy(ExprKind::Unary {
+        op: UnaryOp::Negate,
+        expr: Box::new(expr),
+    })
+}
+
+/// Helper: build a stepped range expr `start..end step step_val`
+fn stepped_range_expr(start: i64, end: i64, step_val: i64, inclusive: bool) -> Expr {
+    Expr::dummy(ExprKind::Range {
+        start: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(start)))),
+        end: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(end)))),
+        step: Some(Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(step_val))))),
+        inclusive,
+    })
+}
+
+#[test]
+fn test_slice_inclusive_intmatrix() {
+    // [10, 20, 30, 40, 50][1..3]
+    let arr = int_array_literal(&[10, 20, 30, 40, 50]);
+    let sliced = index_expr(arr, range_expr(1, 3, true));
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::Expr(sliced))],
+    };
+    let ir = compile_program(program).unwrap();
+    assert!(
+        ir.contains("call ptr @intmatrix_slice"),
+        "expected call to intmatrix_slice, got IR:\n{}",
+        ir
+    );
+    // Inclusive `1..3` must reach the runtime call as exclusive `end=4` (3 + 1).
+    // LLVM constant-folds the `end + 1` for literal operands, so we assert on
+    // the call-site argument rather than a named `slice_end_incl` instruction.
+    assert!(
+        ir.contains("call ptr @intmatrix_slice(ptr %alloc_intarr, i64 1, i64 4)"),
+        "expected inclusive-end adjustment (3 -> 4) at the slice call site, got IR:\n{}",
+        ir
+    );
+}
+
+#[test]
+fn test_slice_exclusive_matrix() {
+    // [1.0, 2.0, 3.0, 4.0][1..<3]
+    let arr = float_array_literal(&[1.0, 2.0, 3.0, 4.0]);
+    let sliced = index_expr(arr, range_expr(1, 3, false));
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::Expr(sliced))],
+    };
+    let ir = compile_program(program).unwrap();
+    assert!(
+        ir.contains("call ptr @matrix_slice"),
+        "expected call to matrix_slice, got IR:\n{}",
+        ir
+    );
+    // Exclusive range must NOT go through the +1 adjustment
+    assert!(
+        !ir.contains("slice_end_incl"),
+        "exclusive slice should not adjust end, got IR:\n{}",
+        ir
+    );
+}
+
+#[test]
+fn test_negative_index_literal() {
+    // [10, 20, 30][-1]
+    let arr = int_array_literal(&[10, 20, 30]);
+    let idx = negate(Expr::dummy(ExprKind::Literal(Literal::Int(1))));
+    let indexed = index_expr(arr, idx);
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::Expr(indexed))],
+    };
+    let ir = compile_program(program).unwrap();
+    // Negative index adjustment: idx < 0 ? idx + len : idx
+    // For a *literal* negative index (`-1`), inkwell/LLVM constant-folds the
+    // `icmp slt` comparison down to `i1 true` at build time, so we can't
+    // assert on "idx_is_neg" / "icmp slt" text directly — assert on the
+    // surviving `idx_adjusted` (idx + len) and `select` instructions instead.
+    assert!(ir.contains("idx_adjusted"), "expected idx + len adjustment, got IR:\n{}", ir);
+    assert!(ir.contains("select"), "expected select to pick adjusted vs raw index, got IR:\n{}", ir);
+    // Length is rows*cols (not bare cols), so flat single-index access stays
+    // correct for 2D matrices too (see review finding: negative index on a
+    // rows>1 matrix must use total element count, not just cols).
+    assert!(
+        ir.contains("neg_idx_total") && ir.contains("mul i64 %rows"),
+        "expected adjusted index to add rows*cols (total) to the negative index, got IR:\n{}",
+        ir
+    );
+    assert!(
+        ir.contains("add i64 -1, %neg_idx_total") || ir.contains("add i64 %neg_idx_total"),
+        "expected the index adjustment to add the computed total, got IR:\n{}",
+        ir
+    );
+}
+
+#[test]
+fn test_negative_index_assignment() {
+    // var nums := [10, 20, 30]
+    // nums[-1] := 99
+    let decl = Stmt::dummy(StmtKind::VariableDecl {
+        name: "nums".to_string(),
+        type_hint: None,
+        value: int_array_literal(&[10, 20, 30]),
+        is_const: false,
+    });
+    let idx = negate(Expr::dummy(ExprKind::Literal(Literal::Int(1))));
+    let target = index_expr(Expr::dummy(ExprKind::Identifier("nums".to_string())), idx);
+    let assign = Stmt::dummy(StmtKind::Assignment {
+        target,
+        value: Expr::dummy(ExprKind::Literal(Literal::Int(99))),
+    });
+    let program = Program {
+        statements: vec![decl, assign],
+    };
+    let ir = compile_program(program).unwrap();
+    // Same constant-folding caveat as test_negative_index_literal applies here.
+    assert!(ir.contains("idx_adjusted"), "expected idx + len adjustment in lvalue path, got IR:\n{}", ir);
+    assert!(ir.contains("select"), "expected select in lvalue negative-index path, got IR:\n{}", ir);
+    assert!(
+        ir.contains("store i64 99, ptr %addr_ptr"),
+        "expected the assignment to store through the adjusted address, got IR:\n{}",
+        ir
+    );
+}
+
+
+// =========================================================
+// SECTION: v1.7 Group C review fixes — regression coverage
+// (stepped-range rejection, float-range type error, negative
+// index on a genuine 2D matrix using rows*cols)
+// =========================================================
+
+#[test]
+fn test_slice_with_step_is_rejected() {
+    // [10, 20, 30, 40, 50][0..4 step 2] — stepped slicing was never
+    // implemented; silently compiling a contiguous slice while dropping
+    // `step` would be wrong, not just unsupported, so this must error.
+    let arr = int_array_literal(&[10, 20, 30, 40, 50]);
+    let sliced = index_expr(arr, stepped_range_expr(0, 4, 2, false));
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::Expr(sliced))],
+    };
+    let context = Context::create();
+    let module = context.create_module("test");
+    let builder = context.create_builder();
+    let mut compiler = Compiler::new(&context, &builder, &module, "test.bx".to_string(), "".to_string());
+    let result = compiler.compile_program(&program);
+    assert!(result.is_err(), "expected stepped range as a slice index to be rejected");
+}
+
+#[test]
+fn test_slice_with_float_bounds_is_rejected() {
+    // [10, 20, 30][1.0..3.0] — start/end must be Int; a Float range should
+    // produce a clean CodegenError, not panic on into_int_value().
+    let arr = int_array_literal(&[10, 20, 30]);
+    let range = Expr::dummy(ExprKind::Range {
+        start: Box::new(Expr::dummy(ExprKind::Literal(Literal::Float(1.0)))),
+        end: Box::new(Expr::dummy(ExprKind::Literal(Literal::Float(3.0)))),
+        step: None,
+        inclusive: false,
+    });
+    let sliced = index_expr(arr, range);
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::Expr(sliced))],
+    };
+    let context = Context::create();
+    let module = context.create_module("test");
+    let builder = context.create_builder();
+    let mut compiler = Compiler::new(&context, &builder, &module, "test.bx".to_string(), "".to_string());
+    let result = compiler.compile_program(&program);
+    assert!(result.is_err(), "expected Float slice bounds to be rejected with a CodegenError");
+}
+
+#[test]
+fn test_negative_index_on_2d_matrix_uses_total_elements() {
+    // izeros(2, 3); m[-1] must equal m[5] (the last of rows*cols=6 elements),
+    // not m[2] (which is what bare `cols` would have given before the fix).
+    let zeros_call = Expr::dummy(ExprKind::Call {
+        func: Box::new(Expr::dummy(ExprKind::Identifier("izeros".to_string()))),
+        args: vec![
+            Expr::dummy(ExprKind::Literal(Literal::Int(2))),
+            Expr::dummy(ExprKind::Literal(Literal::Int(3))),
+        ],
+    });
+    let idx = negate(Expr::dummy(ExprKind::Literal(Literal::Int(1))));
+    let indexed = index_expr(zeros_call, idx);
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::Expr(indexed))],
+    };
+    let ir = compile_program(program).unwrap();
+    assert!(
+        ir.contains("neg_idx_total") && ir.contains("mul i64 %rows"),
+        "expected negative index on a 2D matrix to compute rows*cols as the total, got IR:\n{}",
+        ir
+    );
+}

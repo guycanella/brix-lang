@@ -1,0 +1,16 @@
+// Test: negative index access + assignment (v1.7 Group C)
+var nums := [10, 20, 30, 40, 50]
+println(nums[-1])
+println(nums[-2])
+
+var i := 0
+println(nums[i - 1])
+
+nums[-1] := 99
+println(nums[4])
+println(nums[-1])
+
+var fnums := [1.5, 2.5, 3.5]
+println(fnums[-1])
+fnums[-1] := 9.9
+println(fnums[2])
