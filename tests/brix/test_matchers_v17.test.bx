@@ -1,0 +1,58 @@
+import test
+
+struct Point { x: int, y: int }
+
+test.describe("toStartWith / toEndWith / toMatch (v1.7 Grupo G)", () -> {
+    test.it("toStartWith passes when the string starts with the prefix", () -> {
+        var s := "hello world"
+        test.expect(s).toStartWith("hello")
+    })
+
+    test.it("toStartWith with not passes when the prefix does not match", () -> {
+        var s := "hello world"
+        test.expect(s).not.toStartWith("world")
+    })
+
+    test.it("toEndWith passes when the string ends with the suffix", () -> {
+        var s := "hello world"
+        test.expect(s).toEndWith("world")
+    })
+
+    test.it("toMatch supports simple glob patterns", () -> {
+        var s := "hello123"
+        test.expect(s).toMatch("hello*")
+        test.expect(s).toMatch("*123")
+    })
+})
+
+test.describe("toHaveProperty (v1.7 Grupo G)", () -> {
+    test.it("toHaveProperty passes when the struct has the field", () -> {
+        var p := Point { x: 3, y: 4 }
+        test.expect(p).toHaveProperty("x")
+        test.expect(p).toHaveProperty("y")
+    })
+
+    test.it("toHaveProperty with not passes when the struct does not have the field", () -> {
+        var p := Point { x: 3, y: 4 }
+        test.expect(p).not.toHaveProperty("z")
+    })
+})
+
+// ── Regression test ──────────────────────────────────────────────────────
+// `.not.` had never been parseable on ANY Test Library matcher since v1.5:
+// `not` lexes as Token::Not (the `not x` prefix-negation keyword), and the
+// parser's postfix field-access rule only accepted Token::Identifier after
+// `.`, so a chain like `test.expect(x).not.toBe(y)` failed to parse at all.
+// Fixed in crates/parser/src/parser.rs (postfix_chain field-access rule) by
+// also accepting Token::Not, mapped to the literal field name "not". This
+// test confirms `.not.toBe(...)` now parses, compiles, and reports
+// pass/fail correctly end-to-end (the oldest and most basic matcher).
+test.describe("not.toBe regression (v1.5 bug, fixed alongside Grupo G)", () -> {
+    test.it("not.toBe passes when values differ", () -> {
+        test.expect(1).not.toBe(2)
+    })
+
+    test.it("not.toBe passes for strings that differ", () -> {
+        test.expect("foo").not.toBe("bar")
+    })
+})

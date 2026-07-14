@@ -1,0 +1,18 @@
+import test
+
+test.describe("toMatch matcher (glob)", () -> {
+    test.it("toMatch with prefix glob", () -> {
+        var s := "hello123"
+        test.expect(s).toMatch("hello*")
+    })
+
+    test.it("toMatch with suffix glob", () -> {
+        var s := "hello123"
+        test.expect(s).toMatch("*123")
+    })
+
+    test.it("toMatch not passes when pattern does not match", () -> {
+        var s := "hello123"
+        test.expect(s).not.toMatch("bye*")
+    })
+})

@@ -1,0 +1,23 @@
+import test
+
+test.describe("toStartWith / toEndWith matchers", () -> {
+    test.it("toStartWith passes", () -> {
+        var s := "hello world"
+        test.expect(s).toStartWith("hello")
+    })
+
+    test.it("toStartWith not passes", () -> {
+        var s := "hello world"
+        test.expect(s).not.toStartWith("world")
+    })
+
+    test.it("toEndWith passes", () -> {
+        var s := "hello world"
+        test.expect(s).toEndWith("world")
+    })
+
+    test.it("toEndWith not passes", () -> {
+        var s := "hello world"
+        test.expect(s).not.toEndWith("hello")
+    })
+})

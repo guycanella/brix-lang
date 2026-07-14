@@ -1,0 +1,20 @@
+import test
+
+struct Point { x: int, y: int }
+
+test.describe("toHaveProperty matcher", () -> {
+    test.it("has property x", () -> {
+        var p := Point { x: 3, y: 4 }
+        test.expect(p).toHaveProperty("x")
+    })
+
+    test.it("has property y", () -> {
+        var p := Point { x: 3, y: 4 }
+        test.expect(p).toHaveProperty("y")
+    })
+
+    test.it("not has property z", () -> {
+        var p := Point { x: 3, y: 4 }
+        test.expect(p).not.toHaveProperty("z")
+    })
+})

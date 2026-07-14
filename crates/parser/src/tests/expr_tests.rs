@@ -616,6 +616,59 @@ fn test_field_access_chained() {
     }
 }
 
+#[test]
+fn test_field_access_not_keyword_as_field_name() {
+    // Regression test: `not` is lexed as Token::Not (used for the `not x`
+    // prefix operator), so the postfix field-access rule must special-case
+    // it to allow `.not.` chains like `test.expect(1).not.toBe(2)` — prior to
+    // the fix (parser.rs, postfix_chain field-access rule), only
+    // Token::Identifier was accepted after `.`, so `.not.toBe(...)` never
+    // parsed at all (affected every `not.*` matcher since v1.5).
+    let expr = parse_expr("test.expect(1).not.toBe(2)").unwrap();
+    match &expr.kind {
+        ExprKind::Call { func, args } => {
+            assert_eq!(args.len(), 1);
+            match &func.kind {
+                ExprKind::FieldAccess { target, field } => {
+                    assert_eq!(field, "toBe");
+                    match &target.kind {
+                        ExprKind::FieldAccess { target: not_target, field: not_field } => {
+                            assert_eq!(not_field, "not");
+                            match &not_target.kind {
+                                ExprKind::Call { .. } => {} // test.expect(1)
+                                _ => panic!("Expected test.expect(1) call under .not."),
+                            }
+                        }
+                        _ => panic!("Expected `.not.` field access in the chain"),
+                    }
+                }
+                _ => panic!("Expected `.toBe` field access as the outer call target"),
+            }
+        }
+        _ => panic!("Expected a call expression (the .toBe(2) call)"),
+    }
+}
+
+#[test]
+fn test_field_access_not_chained_with_further_field() {
+    // `.not.` followed by another plain field access (no call) still parses
+    // as a FieldAccess chain with "not" as an intermediate field name.
+    let expr = parse_expr("obj.not.field").unwrap();
+    match &expr.kind {
+        ExprKind::FieldAccess { target, field } => {
+            assert_eq!(field, "field");
+            match &target.kind {
+                ExprKind::FieldAccess { target: inner_target, field: not_field } => {
+                    assert_eq!(not_field, "not");
+                    assert_eq!(inner_target.kind, ExprKind::Identifier("obj".to_string()));
+                }
+                _ => panic!("Expected `.not` field access in the chain"),
+            }
+        }
+        _ => panic!("Expected field access"),
+    }
+}
+
 // ==================== RANGE TESTS ====================
 
 #[test]

@@ -1,0 +1,12 @@
+// Regression: `.not.` was never parseable in any Test Library matcher before
+// this session (see Grupo G) — `not.toBe` was documented since v1.5 but never
+// actually worked end-to-end. This confirms the FAIL path specifically: if the
+// negation logic regresses (e.g. the not_/non-not_ runtime functions get
+// swapped), `not.toBe(2)` on a value that IS 2 must report FAIL, not silently
+// pass.
+import test
+test.describe("not.toBe fail path", () -> {
+    test.it("fails when the value equals the not-expected value", () -> {
+        test.expect(2).not.toBe(2)
+    })
+})

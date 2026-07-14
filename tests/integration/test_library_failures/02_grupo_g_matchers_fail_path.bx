@@ -1,0 +1,9 @@
+// Regression: Grupo G matchers (toStartWith/toEndWith/toMatch/toHaveProperty)
+// were only ever tested on their pass path. This confirms toStartWith's FAIL
+// path reports correctly when the prefix genuinely doesn't match.
+import test
+test.describe("toStartWith fail path", () -> {
+    test.it("fails when the string does not start with the given prefix", () -> {
+        test.expect("hello world").toStartWith("world")
+    })
+})

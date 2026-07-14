@@ -1049,6 +1049,30 @@ fn test_codegen_non_exhaustive_guarded_catchall() {
 }
 
 // ==========================================
+// TEST LIBRARY FAILURE PATHS - Exit Code 1
+// (regression coverage for matcher fail-paths, which were previously
+// untested — see the v1.7 Grupo G review)
+// ==========================================
+
+#[test]
+fn test_library_not_tobe_fails_when_equal() {
+    assert_output(
+        "tests/integration/test_library_failures/01_not_tobe_fails_when_equal.bx",
+        1,
+        Some("Expected: not 2")
+    );
+}
+
+#[test]
+fn test_library_grupo_g_matchers_fail_path() {
+    assert_output(
+        "tests/integration/test_library_failures/02_grupo_g_matchers_fail_path.bx",
+        1,
+        Some("Expected string to start with")
+    );
+}
+
+// ==========================================
 // RUNTIME ERRORS - Exit Code 1
 // ==========================================
 
@@ -1558,5 +1582,36 @@ fn test_168_array_rest_guard() {
     assert_success(
         "tests/integration/success/168_array_rest_guard.bx",
         "-1\n6\n-3"
+    );
+}
+
+// ==========================================
+// v1.7 Grupo G: Test matchers (toStartWith, toEndWith, toMatch, toHaveProperty)
+// ==========================================
+
+#[test]
+fn test_169_matcher_starts_ends_with() {
+    assert_output(
+        "tests/integration/success/169_matcher_starts_ends_with.bx",
+        0,
+        Some("4 passed")
+    );
+}
+
+#[test]
+fn test_170_matcher_to_match() {
+    assert_output(
+        "tests/integration/success/170_matcher_to_match.bx",
+        0,
+        Some("3 passed")
+    );
+}
+
+#[test]
+fn test_171_matcher_has_property() {
+    assert_output(
+        "tests/integration/success/171_matcher_has_property.bx",
+        0,
+        Some("3 passed")
     );
 }
