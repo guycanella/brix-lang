@@ -216,6 +216,26 @@ fn test_dot_dot_lt_priority_over_dot_dot() {
 }
 
 #[test]
+fn test_dot_dot_dot_priority_over_dot_dot() {
+    // "...rest" should lex as DotDotDot, Identifier("rest") — not DotDot, Dot, Identifier("rest")
+    let tokens = tokenize("...rest");
+    assert_eq!(tokens.len(), 2);
+    assert_eq!(tokens[0], Ok(Token::DotDotDot));
+    assert_eq!(tokens[1], Ok(Token::Identifier("rest".to_string())));
+}
+
+#[test]
+fn test_dot_dot_dot_in_destructure_context() {
+    // "1, ...rest" should lex as Int(1), Comma, DotDotDot, Identifier("rest")
+    let tokens = tokenize("1, ...rest");
+    assert_eq!(tokens.len(), 4);
+    assert_eq!(tokens[0], Ok(Token::Int(1)));
+    assert_eq!(tokens[1], Ok(Token::Comma));
+    assert_eq!(tokens[2], Ok(Token::DotDotDot));
+    assert_eq!(tokens[3], Ok(Token::Identifier("rest".to_string())));
+}
+
+#[test]
 fn test_pipe_gt() {
     // "|>" is the pipeline operator
     let tokens = tokenize("|>");

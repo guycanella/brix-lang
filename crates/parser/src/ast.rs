@@ -59,6 +59,7 @@ pub enum Pattern {
     Destructure(Vec<Pattern>),   // { p1, p2, ... } — positional
     NamedField(Vec<(String, Pattern)>),  // { field_name: sub_pattern, ... }
     Range { start: Literal, end: Literal, inclusive: bool },  // 1..5 or 1..<5
+    ArrayRest { head: Vec<Pattern>, rest: String },  // { first, ...rest } — positional head + rest capture
 }
 
 #[derive(Debug, Clone, PartialEq)]

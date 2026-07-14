@@ -326,3 +326,106 @@ fn test_struct_init_same_line_still_works() {
         other => panic!("Expected VariableDecl, got {:?}", other),
     }
 }
+
+// ==================== GRUPO E: ARRAY REST PATTERNS ====================
+
+#[test]
+fn test_array_rest_pattern_one_head() {
+    // { first, ...rest } -> ArrayRest { head: [Binding("first")], rest: "rest" }
+    let expr = parse_expr("match arr { { first, ...rest } -> 1 _ -> 0 }").unwrap();
+    match &expr.kind {
+        ExprKind::Match { arms, .. } => {
+            assert_eq!(
+                arms[0].pattern,
+                Pattern::ArrayRest {
+                    head: vec![Pattern::Binding("first".to_string())],
+                    rest: "rest".to_string(),
+                }
+            );
+        }
+        _ => panic!("Expected match"),
+    }
+}
+
+#[test]
+fn test_array_rest_pattern_two_head() {
+    // { a, b, ...tail } -> ArrayRest { head: [Binding("a"), Binding("b")], rest: "tail" }
+    let expr = parse_expr("match arr { { a, b, ...tail } -> 1 _ -> 0 }").unwrap();
+    match &expr.kind {
+        ExprKind::Match { arms, .. } => {
+            assert_eq!(
+                arms[0].pattern,
+                Pattern::ArrayRest {
+                    head: vec![
+                        Pattern::Binding("a".to_string()),
+                        Pattern::Binding("b".to_string()),
+                    ],
+                    rest: "tail".to_string(),
+                }
+            );
+        }
+        _ => panic!("Expected match"),
+    }
+}
+
+#[test]
+fn test_array_rest_pattern_no_head() {
+    // { ...all } -> ArrayRest { head: [], rest: "all" }
+    let expr = parse_expr("match arr { { ...all } -> 1 _ -> 0 }").unwrap();
+    match &expr.kind {
+        ExprKind::Match { arms, .. } => {
+            assert_eq!(
+                arms[0].pattern,
+                Pattern::ArrayRest {
+                    head: vec![],
+                    rest: "all".to_string(),
+                }
+            );
+        }
+        _ => panic!("Expected match"),
+    }
+}
+
+#[test]
+fn test_destructure_without_rest_still_works() {
+    // Non-regression: { a, b, c } (no `...rest`) must still parse as Pattern::Destructure,
+    // not Pattern::ArrayRest — confirms the DestructureItem-based grammar doesn't change
+    // behavior for the plain positional-destructure case added in Grupo/Fase 4a.
+    let expr = parse_expr("match arr { { a, b, c } -> 1 _ -> 0 }").unwrap();
+    match &expr.kind {
+        ExprKind::Match { arms, .. } => {
+            assert_eq!(
+                arms[0].pattern,
+                Pattern::Destructure(vec![
+                    Pattern::Binding("a".to_string()),
+                    Pattern::Binding("b".to_string()),
+                    Pattern::Binding("c".to_string()),
+                ])
+            );
+        }
+        _ => panic!("Expected match"),
+    }
+}
+
+#[test]
+fn test_array_rest_pattern_must_be_last() {
+    // Regression: `{ ...rest, a }` (rest not in last position) used to be silently
+    // accepted with misleading semantics (`a` reinterpreted as head[0], ignoring
+    // the position the user wrote it in). Must now be a parse error.
+    let result = parse_expr("match arr { { ...rest, a } -> a _ -> 0 }");
+    assert!(
+        result.is_err(),
+        "expected an array rest capture not in the last position to be a parse error"
+    );
+}
+
+#[test]
+fn test_array_rest_pattern_only_one_rest_allowed() {
+    // Regression: `{ ...a, ...b }` used to silently drop `a` ("last rest wins").
+    // Must now be a parse error instead of silently discarding a capture.
+    let result = parse_expr("match arr { { ...a, ...b } -> 1 _ -> 0 }");
+    assert!(
+        result.is_err(),
+        "expected multiple array rest captures in one pattern to be a parse error"
+    );
+}

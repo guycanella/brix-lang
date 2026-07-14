@@ -1818,3 +1818,295 @@ fn test_match_arm_binding_does_not_leak_to_next_arm() {
         "expected 'px' in the wildcard arm to be undefined (leaked from the previous arm's binding otherwise)"
     );
 }
+
+// ==================== v1.7 Grupo E — ARRAY REST PATTERNS ====================
+
+#[test]
+fn test_match_array_rest_one_head() {
+    // var arr := [1, 2, 3, 4, 5]
+    // var result := match arr {
+    //     { first, ...rest } -> first
+    // }
+    // Confirms the IR calls intmatrix_slice to build the `rest` capture.
+    let program = Program {
+        statements: vec![
+            Stmt::dummy(StmtKind::VariableDecl {
+                name: "arr".to_string(),
+                type_hint: None,
+                value: Expr::dummy(ExprKind::Array(vec![
+                    Expr::dummy(ExprKind::Literal(Literal::Int(1))),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(2))),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(3))),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(4))),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(5))),
+                ])),
+                is_const: false,
+            }),
+            Stmt::dummy(StmtKind::VariableDecl {
+                name: "result".to_string(),
+                type_hint: None,
+                value: Expr::dummy(ExprKind::Match {
+                    value: Box::new(Expr::dummy(ExprKind::Identifier("arr".to_string()))),
+                    arms: vec![MatchArm {
+                        pattern: Pattern::ArrayRest {
+                            head: vec![Pattern::Binding("first".to_string())],
+                            rest: "rest".to_string(),
+                        },
+                        guard: None,
+                        body: Box::new(Expr::dummy(ExprKind::Identifier("first".to_string()))),
+                    }],
+                }),
+                is_const: false,
+            }),
+        ],
+    };
+    let ir = compile_program(program).unwrap();
+    assert!(
+        ir.contains("intmatrix_slice"),
+        "expected a call to intmatrix_slice to build the array-rest capture, got IR:\n{}",
+        ir
+    );
+}
+
+#[test]
+fn test_match_array_rest_multi_head() {
+    // var arr := [1, 2, 3, 4, 5]
+    // var result := match arr {
+    //     { a, b, ...tail } -> a + b
+    // }
+    let program = Program {
+        statements: vec![
+            Stmt::dummy(StmtKind::VariableDecl {
+                name: "arr".to_string(),
+                type_hint: None,
+                value: Expr::dummy(ExprKind::Array(vec![
+                    Expr::dummy(ExprKind::Literal(Literal::Int(1))),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(2))),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(3))),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(4))),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(5))),
+                ])),
+                is_const: false,
+            }),
+            Stmt::dummy(StmtKind::VariableDecl {
+                name: "result".to_string(),
+                type_hint: None,
+                value: Expr::dummy(ExprKind::Match {
+                    value: Box::new(Expr::dummy(ExprKind::Identifier("arr".to_string()))),
+                    arms: vec![
+                        MatchArm {
+                            pattern: Pattern::ArrayRest {
+                                head: vec![
+                                    Pattern::Binding("a".to_string()),
+                                    Pattern::Binding("b".to_string()),
+                                ],
+                                rest: "tail".to_string(),
+                            },
+                            guard: None,
+                            body: Box::new(binary(
+                                BinaryOp::Add,
+                                Expr::dummy(ExprKind::Identifier("a".to_string())),
+                                Expr::dummy(ExprKind::Identifier("b".to_string())),
+                            )),
+                        },
+                        MatchArm {
+                            pattern: Pattern::Wildcard,
+                            guard: None,
+                            body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(-1)))),
+                        },
+                    ],
+                }),
+                is_const: false,
+            }),
+        ],
+    };
+    let ir = compile_program(program).unwrap();
+    assert!(
+        ir.contains("intmatrix_slice"),
+        "expected a call to intmatrix_slice to build the array-rest capture, got IR:\n{}",
+        ir
+    );
+}
+
+#[test]
+fn test_match_array_rest_only_rest() {
+    // var arr := [1, 2, 3, 4, 5]
+    // var result := match arr {
+    //     { ...all } -> all.count()
+    // }
+    // No head elements: `head` is empty, so the length check degenerates
+    // to `total >= 0` (always true) and the whole array is captured as `all`.
+    let program = Program {
+        statements: vec![
+            Stmt::dummy(StmtKind::VariableDecl {
+                name: "arr".to_string(),
+                type_hint: None,
+                value: Expr::dummy(ExprKind::Array(vec![
+                    Expr::dummy(ExprKind::Literal(Literal::Int(1))),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(2))),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(3))),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(4))),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(5))),
+                ])),
+                is_const: false,
+            }),
+            Stmt::dummy(StmtKind::VariableDecl {
+                name: "result".to_string(),
+                type_hint: None,
+                value: Expr::dummy(ExprKind::Match {
+                    value: Box::new(Expr::dummy(ExprKind::Identifier("arr".to_string()))),
+                    arms: vec![MatchArm {
+                        pattern: Pattern::ArrayRest {
+                            head: vec![],
+                            rest: "all".to_string(),
+                        },
+                        guard: None,
+                        body: Box::new(Expr::dummy(ExprKind::Call {
+                            func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                                target: Box::new(Expr::dummy(ExprKind::Identifier("all".to_string()))),
+                                field: "count".to_string(),
+                            })),
+                            args: vec![],
+                        })),
+                    }],
+                }),
+                is_const: false,
+            }),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok(), "Failed: {:?}", result);
+}
+
+#[test]
+fn test_array_rest_head_reads_and_slice_gated_by_len_check() {
+    // Regression: [1, 2] matched against { a, b, c, ...rest } used to
+    // unconditionally read data[2] (out of bounds — only 2 elements exist)
+    // and unconditionally call intmatrix_slice (a real heap allocation),
+    // even though this arm's length check (total >= 3) fails. Both must
+    // now be gated inside basic blocks only reached when the length check
+    // (and, for the slice, the head sub-patterns too) actually succeed —
+    // confirmed here by checking the *block structure* the calls / GEPs
+    // land in, not just that the program produces the right answer.
+    let arr = Expr::dummy(ExprKind::Array(vec![
+        Expr::dummy(ExprKind::Literal(Literal::Int(1))),
+        Expr::dummy(ExprKind::Literal(Literal::Int(2))),
+    ]));
+    let matched = Expr::dummy(ExprKind::Match {
+        value: Box::new(arr),
+        arms: vec![
+            MatchArm {
+                pattern: Pattern::ArrayRest {
+                    head: vec![
+                        Pattern::Binding("a".to_string()),
+                        Pattern::Binding("b".to_string()),
+                        Pattern::Binding("c".to_string()),
+                    ],
+                    rest: "rest".to_string(),
+                },
+                guard: None,
+                body: Box::new(Expr::dummy(ExprKind::Identifier("a".to_string()))),
+            },
+            MatchArm {
+                pattern: Pattern::Wildcard,
+                guard: None,
+                body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(-1)))),
+            },
+        ],
+    });
+    let program = Program { statements: vec![Stmt::dummy(StmtKind::Expr(matched))] };
+    let ir = compile_program(program).unwrap();
+
+    // The length check must branch BEFORE any head element is read or the
+    // slice function is called — i.e. those must appear textually after
+    // the `br i1 %ar_len_chk` line, inside their own labeled blocks, not
+    // in the same straight-line block as the check itself.
+    let len_chk_pos = ir.find("br i1 %ar_len_chk").expect("expected a length-check branch");
+    let head_read_pos = ir.find("ar_ep_2").expect("expected head element 2 to still be read on the matching path");
+    let slice_call_pos = ir.find("call ptr @intmatrix_slice").expect("expected the rest slice call to still be emitted on the matching path");
+    assert!(head_read_pos > len_chk_pos, "head element reads must come after the length-check branch, not before it");
+    assert!(slice_call_pos > len_chk_pos, "the rest slice call must come after the length-check branch, not before it");
+
+    // And the head reads / slice call must be inside a DIFFERENT block than
+    // the one containing the length check — confirmed by each living after
+    // its own `br i1 %ar_len_chk`/`ar_head_check:` label boundary.
+    let head_check_label_pos = ir.find("ar_head_check:").expect("expected an ar_head_check block");
+    let match_label_pos = ir.find("ar_match:").expect("expected an ar_match block");
+    assert!(head_read_pos > head_check_label_pos, "head reads must be inside the ar_head_check block");
+    assert!(slice_call_pos > match_label_pos, "the slice call must be inside the ar_match block");
+}
+
+#[test]
+fn test_array_rest_guard_only_evaluated_when_pattern_matched() {
+    // Regression (CRITICAL, SIGSEGV): a guard referencing a rest capture used
+    // to be compiled unconditionally right after compile_pattern_match's PHI
+    // merge block, so it ran even on the runtime path where the pattern's
+    // length check failed and `rest` was never bound (only ar_match binds
+    // it) — reading an uninitialized pointer and crashing.
+    //
+    // Fix: the match-arm loop now branches on the pattern's PHI result
+    // BEFORE compiling the guard, so the guard's code lives in its own block
+    // reached only when the pattern truly matched. Confirmed here by the
+    // block structure: `ar_merge`'s PHI result must branch to a
+    // `match_arm_0_guard` block (not fall straight into guard code), and the
+    // guard's own instructions (which reference `rest`) must be inside that
+    // block, i.e. positioned after its label.
+    let arr = Expr::dummy(ExprKind::Array(vec![
+        Expr::dummy(ExprKind::Literal(Literal::Int(1))),
+        Expr::dummy(ExprKind::Literal(Literal::Int(2))),
+    ]));
+    let guard = Expr::dummy(ExprKind::Binary {
+        op: BinaryOp::Eq,
+        lhs: Box::new(Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                target: Box::new(Expr::dummy(ExprKind::Identifier("rest".to_string()))),
+                field: "count".to_string(),
+            })),
+            args: vec![],
+        })),
+        rhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(0)))),
+    });
+    let matched = Expr::dummy(ExprKind::Match {
+        value: Box::new(arr),
+        arms: vec![
+            MatchArm {
+                pattern: Pattern::ArrayRest {
+                    head: vec![
+                        Pattern::Binding("a".to_string()),
+                        Pattern::Binding("b".to_string()),
+                        Pattern::Binding("c".to_string()),
+                    ],
+                    rest: "rest".to_string(),
+                },
+                guard: Some(Box::new(guard)),
+                body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(99)))),
+            },
+            MatchArm {
+                pattern: Pattern::Wildcard,
+                guard: None,
+                body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(-1)))),
+            },
+        ],
+    });
+    let program = Program { statements: vec![Stmt::dummy(StmtKind::Expr(matched))] };
+    let ir = compile_program(program).unwrap();
+
+    // The PHI'd pattern result must branch to a guard block, not fall
+    // straight through into guard code in the same block as the PHI.
+    assert!(
+        ir.contains("br i1 %ar_result, label %match_arm_0_guard"),
+        "expected the pattern's PHI result to branch to a dedicated guard block, got IR:\n{}",
+        ir
+    );
+
+    // The guard's reference to `rest` (via .count()) must be inside that
+    // guard block (after its label), not before it / in ar_merge itself.
+    let guard_label_pos = ir.find("match_arm_0_guard:").expect("expected a match_arm_0_guard block");
+    let rest_load_in_guard = ir[guard_label_pos..].find("load ptr, ptr %rest")
+        .expect("expected the guard to load `rest` inside its own block");
+    let phi_pos = ir.find("%ar_result = phi").expect("expected the pattern match PHI");
+    assert!(
+        guard_label_pos + rest_load_in_guard > phi_pos,
+        "the guard's use of `rest` must come after the pattern PHI, inside match_arm_0_guard"
+    );
+}

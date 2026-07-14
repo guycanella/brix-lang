@@ -1,0 +1,29 @@
+// Test: array rest pattern with multiple head elements and rest-only (v1.7 Group E)
+var arr := [1, 2, 3, 4, 5]
+
+var r1 := match arr {
+    { a, b, ...tail } -> a + b
+}
+println(r1)
+
+var r2 := match arr {
+    { a, b, ...tail } -> tail.count()
+}
+println(r2)
+
+var r3 := match arr {
+    { a, b, ...tail } -> tail[0]
+}
+println(r3)
+
+var short := [1, 2]
+var r4 := match short {
+    { a, b, c, ...rest } -> a + b + c
+    _ -> -1
+}
+println(r4)
+
+var r5 := match arr {
+    { ...all } -> all.count()
+}
+println(r5)

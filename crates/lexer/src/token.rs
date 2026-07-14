@@ -220,6 +220,9 @@ pub enum Token {
     #[token(":")]
     Colon,
 
+    #[token("...")]
+    DotDotDot, // Array rest pattern ({ a, ...rest }) — "..." has priority over ".." and "."
+
     #[token("..<")]
     DotDotLt, // Exclusive range (..<  has priority over ..)
 

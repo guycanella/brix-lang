@@ -2,6 +2,15 @@ use crate::ast::{BinaryOp, Closure, Expr, ExprKind, FStringPart, Literal, MatchA
 use chumsky::prelude::*;
 use lexer::token::Token;
 
+/// Helper enum used only while parsing a `{ ... }` destructure pattern: each
+/// comma-separated item is either a head sub-pattern or a `...name` rest capture.
+/// See `destructure_item` in the pattern parser for why this list is homogeneous.
+#[derive(Debug, Clone)]
+enum DestructureItem {
+    Head(Pattern),
+    Rest(String),
+}
+
 /// Process escape sequences in a string (e.g., \n, \t, \\, \")
 fn process_escape_sequences(s: &str) -> String {
     let mut result = String::new();
@@ -831,15 +840,66 @@ where
                 .or(wildcard_pattern)
                 .or(binding_pattern);
 
-            // Destructure pattern: { p1, p2, ... }
+            // Destructure pattern: { p1, p2, ... } or with an array rest capture:
+            // { p1, p2, ...rest }. Rather than parsing head patterns and the optional
+            // `...rest` suffix as two separate grammar productions (which would require
+            // relying on `separated_by(...).allow_trailing()` backtracking cleanly when
+            // it hits a non-atomic `...` token after a trailing comma — an assumption
+            // that's fragile to depend on), `...rest` is folded into the SAME
+            // comma-separated item list as just another kind of item. This sidesteps the
+            // backtracking question entirely: the list is homogeneous from chumsky's
+            // point of view (each item is either a head pattern or a rest-capture), so
+            // the existing (already proven) `separated_by(Comma).allow_trailing()`
+            // machinery handles all shapes uniformly: `{ a, b, c }`, `{ first, ...rest }`,
+            // `{ a, b, ...tail }`, and `{ ...all }`.
+            let destructure_item = just(Token::DotDotDot)
+                .ignore_then(select! { Token::Identifier(s) => s })
+                .map(DestructureItem::Rest)
+                .or(atomic.clone().map(DestructureItem::Head));
+
             let destructure = lbrace()
                 .ignore_then(
-                    atomic.clone()
+                    destructure_item
                         .separated_by(just(Token::Comma))
                         .allow_trailing()
                 )
                 .then_ignore(just(Token::RBrace))
-                .map(Pattern::Destructure);
+                .try_map(|items, span: std::ops::Range<usize>| {
+                    let mut head = Vec::new();
+                    let mut rest = None;
+                    for item in items {
+                        match item {
+                            // A head pattern after `...rest` has already been seen
+                            // would silently be reinterpreted as "before the rest"
+                            // by the codegen (head = first N elements, rest = the
+                            // remainder) - i.e. `{ ...rest, a }` would NOT bind `a`
+                            // to the last element as its position suggests. Reject
+                            // it instead of accepting misleading position.
+                            DestructureItem::Head(p) => {
+                                if rest.is_some() {
+                                    return Err(Simple::custom(
+                                        span,
+                                        "array rest capture (`...name`) must be the last item in a destructure pattern",
+                                    ));
+                                }
+                                head.push(p);
+                            }
+                            DestructureItem::Rest(name) => {
+                                if rest.is_some() {
+                                    return Err(Simple::custom(
+                                        span,
+                                        "a destructure pattern can only have one array rest capture (`...name`)",
+                                    ));
+                                }
+                                rest = Some(name);
+                            }
+                        }
+                    }
+                    Ok(match rest {
+                        Some(name) => Pattern::ArrayRest { head, rest: name },
+                        None => Pattern::Destructure(head),
+                    })
+                });
 
             // Named field destructure pattern: { field_name: sub_pattern, ... }
             let named_destructure = lbrace()

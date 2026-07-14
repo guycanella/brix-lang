@@ -10541,13 +10541,46 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     let pattern_matches =
                         self.compile_pattern_match(&arm.pattern, match_val, &match_type)?;
 
-                    // If guard exists, evaluate it (binding is already available)
+                    // Determine next block if this arm doesn't match
+                    let next_bb = if i < arms.len() - 1 {
+                        arm_test_bbs[i + 1]
+                    } else {
+                        merge_bb // Last arm: if doesn't match, go to merge (undefined behavior, but warning was issued)
+                    };
+
+                    // If guard exists, evaluate it — but ONLY when pattern_matches is true.
+                    // Some patterns (e.g. ArrayRest) only bind their captures on the runtime
+                    // path where the pattern actually matched (see compile_pattern_match's
+                    // ar_match/ar_fail branches); a guard referencing such a binding would
+                    // read garbage/uninitialized memory if evaluated unconditionally on a
+                    // non-matching path. Branch on pattern_matches FIRST, so the guard is
+                    // only ever compiled on the block reached when the pattern truly matched.
                     let final_condition = if let Some(guard_expr) = &arm.guard {
+                        let cur_block = self.builder.get_insert_block().ok_or_else(|| CodegenError::LLVMError {
+                            operation: "get_insert_block".to_string(),
+                            details: "No current basic block before match arm guard".to_string(),
+                                                        span: Some(expr.span.clone()),
+                        })?;
+                        let parent_fn = cur_block.get_parent().ok_or_else(|| CodegenError::LLVMError {
+                            operation: "get_parent".to_string(),
+                            details: "Basic block has no parent function".to_string(),
+                                                        span: Some(expr.span.clone()),
+                        })?;
+                        let guard_bb = self.context.append_basic_block(parent_fn, &format!("match_arm_{}_guard", i));
+
+                        self.builder
+                            .build_conditional_branch(pattern_matches, guard_bb, next_bb)
+                            .map_err(|_| CodegenError::LLVMError {
+                                operation: "build_conditional_branch".to_string(),
+                                details: "Failed to branch on match arm pattern before guard".to_string(),
+                                                            span: Some(expr.span.clone()),
+                            })?;
+
+                        self.builder.position_at_end(guard_bb);
                         let (guard_val, _) = self.compile_expr(guard_expr)?;
                         let guard_int = guard_val.into_int_value();
                         let zero = self.context.i64_type().const_int(0, false);
-                        let guard_bool = self
-                            .builder
+                        self.builder
                             .build_int_compare(
                                 inkwell::IntPredicate::NE,
                                 guard_int,
@@ -10558,35 +10591,32 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                 operation: "build_int_compare".to_string(),
                                 details: "Failed to compare guard value".to_string(),
                                                             span: Some(expr.span.clone()),
-                            })?;
-
-                        // pattern_matches AND guard
-                        self.builder
-                            .build_and(pattern_matches, guard_bool, "pattern_and_guard")
-                            .map_err(|_| CodegenError::LLVMError {
-                                operation: "build_and".to_string(),
-                                details: "Failed to AND pattern match with guard".to_string(),
-                                                            span: Some(expr.span.clone()),
                             })?
                     } else {
                         pattern_matches
                     };
 
-                    // Determine next block if this arm doesn't match
-                    let next_bb = if i < arms.len() - 1 {
-                        arm_test_bbs[i + 1]
+                    // Branch: if pattern matches (and guard passes), execute body; otherwise try next arm.
+                    // Irrefutable, unguarded arms must not emit a false edge to `next_bb`: the
+                    // match-result PHI has no value for that impossible edge, and LLVM still treats
+                    // it as a real predecessor under optimization.
+                    if arm.guard.is_none() && matches!(arm.pattern, Pattern::Wildcard | Pattern::Binding(_)) {
+                        self.builder
+                            .build_unconditional_branch(arm_body_bbs[i])
+                            .map_err(|_| CodegenError::LLVMError {
+                                operation: "build_unconditional_branch".to_string(),
+                                details: "Failed to branch to irrefutable match arm body".to_string(),
+                                span: Some(expr.span.clone()),
+                            })?;
                     } else {
-                        merge_bb // Last arm: if doesn't match, go to merge (undefined behavior, but warning was issued)
-                    };
-
-                    // Branch: if pattern matches (and guard passes), execute body; otherwise try next arm
-                    self.builder
-                        .build_conditional_branch(final_condition, arm_body_bbs[i], next_bb)
-                        .map_err(|_| CodegenError::LLVMError {
-                            operation: "build_conditional_branch".to_string(),
-                            details: "Failed to branch on match arm condition".to_string(),
-                                                    span: Some(expr.span.clone()),
-                        })?;
+                        self.builder
+                            .build_conditional_branch(final_condition, arm_body_bbs[i], next_bb)
+                            .map_err(|_| CodegenError::LLVMError {
+                                operation: "build_conditional_branch".to_string(),
+                                details: "Failed to branch on match arm condition".to_string(),
+                                                        span: Some(expr.span.clone()),
+                            })?;
+                    }
 
                     // Compile arm body
                     self.builder.position_at_end(arm_body_bbs[i]);
@@ -16232,6 +16262,13 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     self.collect_pattern_binding_names(p, out);
                 }
             }
+            Pattern::ArrayRest { head, rest } => {
+                for p in head {
+                    self.collect_pattern_binding_names(p, out);
+                }
+                // The rest capture is always a direct binding
+                out.push(rest.clone());
+            }
             Pattern::Literal(_) | Pattern::Wildcard | Pattern::Range { .. } => {}
         }
     }
@@ -16667,6 +16704,249 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     })
                 }
             }
+
+            Pattern::ArrayRest { head, rest } => {
+                match value_type {
+                    BrixType::IntMatrix | BrixType::Matrix => {
+                        let is_int = matches!(value_type, BrixType::IntMatrix);
+                        let elem_brix = if is_int { BrixType::Int } else { BrixType::Float };
+                        let elem_llvm = if is_int {
+                            self.context.i64_type().as_basic_type_enum()
+                        } else {
+                            self.context.f64_type().as_basic_type_enum()
+                        };
+                        let matrix_struct_type = if is_int {
+                            self.get_intmatrix_type()
+                        } else {
+                            self.get_matrix_type()
+                        };
+                        let i64_type = self.context.i64_type();
+                        let ptr_type = self.context.ptr_type(AddressSpace::default());
+                        let matrix_ptr = value.into_pointer_value();
+
+                        // Load rows (field 1) and cols (field 2), compute total = rows * cols
+                        let rows_ptr = self.builder.build_struct_gep(matrix_struct_type, matrix_ptr, 1, "ar_rows_p")
+                            .map_err(|_| CodegenError::LLVMError {
+                                operation: "build_struct_gep".to_string(),
+                                details: "Failed to get matrix rows pointer".to_string(),
+                                span: None,
+                            })?;
+                        let rows = self.builder.build_load(i64_type, rows_ptr, "ar_rows")
+                            .map_err(|_| CodegenError::LLVMError {
+                                operation: "build_load".to_string(),
+                                details: "Failed to load matrix rows".to_string(),
+                                span: None,
+                            })?
+                            .into_int_value();
+                        let cols_ptr = self.builder.build_struct_gep(matrix_struct_type, matrix_ptr, 2, "ar_cols_p")
+                            .map_err(|_| CodegenError::LLVMError {
+                                operation: "build_struct_gep".to_string(),
+                                details: "Failed to get matrix cols pointer".to_string(),
+                                span: None,
+                            })?;
+                        let cols = self.builder.build_load(i64_type, cols_ptr, "ar_cols")
+                            .map_err(|_| CodegenError::LLVMError {
+                                operation: "build_load".to_string(),
+                                details: "Failed to load matrix cols".to_string(),
+                                span: None,
+                            })?
+                            .into_int_value();
+                        let total = self.builder.build_int_mul(rows, cols, "ar_total")
+                            .map_err(|_| CodegenError::LLVMError {
+                                operation: "build_int_mul".to_string(),
+                                details: "Failed to compute matrix total elements".to_string(),
+                                span: None,
+                            })?;
+
+                        // Load data pointer (field 3)
+                        let data_ptr_ptr = self.builder.build_struct_gep(matrix_struct_type, matrix_ptr, 3, "ar_data_pp")
+                            .map_err(|_| CodegenError::LLVMError {
+                                operation: "build_struct_gep".to_string(),
+                                details: "Failed to get matrix data pointer".to_string(),
+                                span: None,
+                            })?;
+                        let data_ptr = self.builder.build_load(ptr_type, data_ptr_ptr, "ar_data_p")
+                            .map_err(|_| CodegenError::LLVMError {
+                                operation: "build_load".to_string(),
+                                details: "Failed to load matrix data pointer".to_string(),
+                                span: None,
+                            })?
+                            .into_pointer_value();
+
+                        // len check: total >= head.len()
+                        let head_len_val = i64_type.const_int(head.len() as u64, false);
+                        let len_check = self.builder.build_int_compare(
+                            inkwell::IntPredicate::SGE, total, head_len_val, "ar_len_chk"
+                        ).map_err(|_| CodegenError::LLVMError {
+                            operation: "build_int_compare".to_string(),
+                            details: "Failed to build array-rest length check".to_string(),
+                            span: None,
+                        })?;
+
+                        // Pre-allocate all bindings before the conditional CFG below. Stores
+                        // still happen only on the matched path, but the alloca values must
+                        // dominate later guard/body blocks that can reference these names.
+                        let mut head_binding_names = Vec::new();
+                        for sub_pat in head {
+                            self.collect_pattern_binding_names(sub_pat, &mut head_binding_names);
+                        }
+                        let mut seen_head_bindings = HashSet::new();
+                        let mut prebound_head_bindings = HashMap::new();
+                        for name in head_binding_names {
+                            if !seen_head_bindings.insert(name.clone()) {
+                                continue;
+                            }
+                            let alloca = self.create_entry_block_alloca(elem_llvm, &name)?;
+                            prebound_head_bindings.insert(name.clone(), (alloca, elem_brix.clone()));
+                            self.variables.insert(name, (alloca, elem_brix.clone()));
+                        }
+
+                        let rest_alloca = self.create_entry_block_alloca(ptr_type.into(), rest)?;
+                        self.variables.insert(rest.clone(), (rest_alloca, value_type.clone()));
+
+                        // The head element reads (out-of-bounds if total < head.len()) and the
+                        // rest slice call (a real heap allocation) are side-effecting/unsafe, so
+                        // they must be gated behind len_check actually holding — not run
+                        // unconditionally and only affect the boolean *result*. Branch into real
+                        // basic blocks (same PHI-merge shape used for ternary/match elsewhere)
+                        // instead of a straight-line AND chain.
+                        let cur_block = self.builder.get_insert_block()
+                            .ok_or_else(|| CodegenError::LLVMError {
+                                operation: "get_insert_block".to_string(),
+                                details: "No current basic block for array-rest pattern".to_string(),
+                                span: None,
+                            })?;
+                        let parent_fn = cur_block.get_parent()
+                            .ok_or_else(|| CodegenError::LLVMError {
+                                operation: "get_parent".to_string(),
+                                details: "Basic block has no parent function".to_string(),
+                                span: None,
+                            })?;
+
+                        let head_bb = self.context.append_basic_block(parent_fn, "ar_head_check");
+                        let match_bb = self.context.append_basic_block(parent_fn, "ar_match");
+                        let fail_bb = self.context.append_basic_block(parent_fn, "ar_fail");
+                        let merge_bb = self.context.append_basic_block(parent_fn, "ar_merge");
+
+                        self.builder.build_conditional_branch(len_check, head_bb, fail_bb)
+                            .map_err(|_| CodegenError::LLVMError {
+                                operation: "build_conditional_branch".to_string(),
+                                details: "Failed to branch on array-rest length check".to_string(),
+                                span: None,
+                            })?;
+
+                        // head_bb: only reached when total >= head.len(), so these reads are
+                        // in-bounds. Apply each head sub-pattern, AND-ing into head_combined.
+                        self.builder.position_at_end(head_bb);
+                        let mut head_combined = self.context.bool_type().const_int(1, false);
+                        for (i, sub_pat) in head.iter().enumerate() {
+                            let idx_val = i64_type.const_int(i as u64, false);
+                            let elem_ptr = unsafe {
+                                self.builder.build_gep(elem_llvm, data_ptr, &[idx_val], &format!("ar_ep_{}", i))
+                                    .map_err(|_| CodegenError::LLVMError {
+                                        operation: "build_gep".to_string(),
+                                        details: format!("Failed to GEP array-rest head element {}", i),
+                                        span: None,
+                                    })?
+                            };
+                            let extracted = self.builder.build_load(elem_llvm, elem_ptr, &format!("ar_ev_{}", i))
+                                .map_err(|_| CodegenError::LLVMError {
+                                    operation: "build_load".to_string(),
+                                    details: format!("Failed to load array-rest head element {}", i),
+                                    span: None,
+                                })?;
+                            head_combined = self.apply_sub_pattern_with_prebound(
+                                sub_pat,
+                                extracted,
+                                &elem_brix,
+                                head_combined,
+                                i,
+                                &prebound_head_bindings,
+                            )?;
+                        }
+                        self.builder.build_conditional_branch(head_combined, match_bb, fail_bb)
+                            .map_err(|_| CodegenError::LLVMError {
+                                operation: "build_conditional_branch".to_string(),
+                                details: "Failed to branch on array-rest head sub-patterns".to_string(),
+                                span: None,
+                            })?;
+
+                        // match_bb: only reached when the whole pattern matched. Build the rest
+                        // sub-array here — elements [head.len() .. total) — so the allocation
+                        // (matrix_slice/intmatrix_slice) never runs for a failed match attempt.
+                        self.builder.position_at_end(match_bb);
+                        let slice_fn = if is_int {
+                            self.get_intmatrix_slice()
+                        } else {
+                            self.get_matrix_slice()
+                        };
+                        let start_const = i64_type.const_int(head.len() as u64, false);
+                        let slice_call = self.builder.build_call(
+                            slice_fn,
+                            &[matrix_ptr.into(), start_const.into(), total.into()],
+                            "ar_rest_slice",
+                        ).map_err(|_| CodegenError::LLVMError {
+                            operation: "build_call".to_string(),
+                            details: "Failed to call slice for array-rest capture".to_string(),
+                            span: None,
+                        })?;
+                        let rest_val = slice_call.try_as_basic_value().left()
+                            .ok_or_else(|| CodegenError::MissingValue {
+                                what: "slice result".to_string(),
+                                context: "array-rest capture".to_string(),
+                                span: None,
+                            })?;
+
+                        self.builder.build_store(rest_alloca, rest_val)
+                            .map_err(|_| CodegenError::LLVMError {
+                                operation: "build_store".to_string(),
+                                details: format!("Failed to store array-rest binding '{}'", rest),
+                                span: None,
+                            })?;
+                        self.builder.build_unconditional_branch(merge_bb)
+                            .map_err(|_| CodegenError::LLVMError {
+                                operation: "build_unconditional_branch".to_string(),
+                                details: "Failed to branch from array-rest match block".to_string(),
+                                span: None,
+                            })?;
+                        let match_end_bb = self.builder.get_insert_block()
+                            .ok_or_else(|| CodegenError::LLVMError {
+                                operation: "get_insert_block".to_string(),
+                                details: "No insert block after array-rest match".to_string(),
+                                span: None,
+                            })?;
+
+                        // fail_bb: length check or head sub-patterns failed — no rest allocated.
+                        self.builder.position_at_end(fail_bb);
+                        self.builder.build_unconditional_branch(merge_bb)
+                            .map_err(|_| CodegenError::LLVMError {
+                                operation: "build_unconditional_branch".to_string(),
+                                details: "Failed to branch from array-rest fail block".to_string(),
+                                span: None,
+                            })?;
+
+                        // merge_bb: PHI the final boolean result.
+                        self.builder.position_at_end(merge_bb);
+                        let phi = self.builder.build_phi(self.context.bool_type(), "ar_result")
+                            .map_err(|_| CodegenError::LLVMError {
+                                operation: "build_phi".to_string(),
+                                details: "Failed to build PHI for array-rest pattern result".to_string(),
+                                span: None,
+                            })?;
+                        let true_val = self.context.bool_type().const_int(1, false);
+                        let false_val = self.context.bool_type().const_int(0, false);
+                        phi.add_incoming(&[(&true_val, match_end_bb), (&false_val, fail_bb)]);
+
+                        Ok(phi.as_basic_value().into_int_value())
+                    }
+                    _ => Err(CodegenError::TypeError {
+                        expected: "IntMatrix or Matrix".to_string(),
+                        found: format!("{:?}", value_type),
+                        context: "Array-rest pattern".to_string(),
+                        span: None,
+                    })
+                }
+            }
         }
     }
 
@@ -16700,6 +16980,50 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         span: None,
                     })?;
                 self.variables.insert(name.clone(), (alloca, ft.clone()));
+                Ok(combined)
+            }
+            _ => {
+                let field_match = self.compile_pattern_match(sub_pat, extracted, ft)?;
+                Ok(self.builder.build_and(combined, field_match, &format!("da_{}", i))
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_and".to_string(),
+                        details: format!("Failed to AND sub-pattern at index {}", i),
+                        span: None,
+                    })?)
+            }
+        }
+    }
+
+    /// Apply a sub-pattern while reusing binding slots allocated in a dominating
+    /// block. Array-rest head bindings need this because the element reads are
+    /// gated behind a length check, but guards/bodies compiled later may still
+    /// reference those names.
+    fn apply_sub_pattern_with_prebound(
+        &mut self,
+        sub_pat: &parser::ast::Pattern,
+        extracted: inkwell::values::BasicValueEnum<'ctx>,
+        ft: &BrixType,
+        combined: inkwell::values::IntValue<'ctx>,
+        i: usize,
+        prebound: &HashMap<String, (PointerValue<'ctx>, BrixType)>,
+    ) -> CodegenResult<inkwell::values::IntValue<'ctx>> {
+        use parser::ast::Pattern;
+        match sub_pat {
+            Pattern::Wildcard => Ok(combined),
+            Pattern::Binding(name) => {
+                let (alloca, _) = prebound.get(name)
+                    .ok_or_else(|| CodegenError::UndefinedSymbol {
+                        name: name.clone(),
+                        context: "prebound array-rest pattern binding".to_string(),
+                        span: None,
+                    })?;
+                self.builder.build_store(*alloca, extracted)
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_store".to_string(),
+                        details: format!("Failed to store prebound binding '{}'", name),
+                        span: None,
+                    })?;
+                self.variables.insert(name.clone(), (*alloca, ft.clone()));
                 Ok(combined)
             }
             _ => {
