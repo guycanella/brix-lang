@@ -3679,11 +3679,24 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             param_types.push(llvm_param_type);
         }
 
-        // Return type
+        // Return type. When there's no explicit annotation, infer it from the body's
+        // return statements — the SAME inference every call site (compile_iterator_method's
+        // "map", compile_test_matcher's "toThrow") already performs independently to decide
+        // the type it calls this closure AS. Defaulting to Void here unconditionally (as
+        // before) made compile_closure() declare a `void`-returning LLVM function while its
+        // body still emitted `ret <value>` for any closure with a return statement, and every
+        // caller then built its indirect-call fn_type from ITS OWN inferred type instead of
+        // the function's real (void) declared type. That mismatch is undefined behavior at
+        // the LLVM IR level; it only "worked" because callers and the body agreed on a type
+        // that the function's own `define void` header never verified against.
+        // infer_return_type_from_body() returns None when there's no return statement at all
+        // (a purely side-effecting closure), for which Void is still the correct answer — the
+        // "no terminator -> ret void" fallback further down handles that case.
         let return_brix_type = if let Some(ret_type_str) = &closure.return_type {
             self.string_to_brix_type(ret_type_str)
         } else {
-            BrixType::Void
+            self.infer_return_type_from_body(&closure.body, &closure.params)
+                .unwrap_or(BrixType::Void)
         };
 
         let fn_type = if return_brix_type == BrixType::Void {
@@ -9311,6 +9324,38 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     if fn_name == "irand" {
                         let val = self.compile_irand(args)?;
                         return Ok((val, BrixType::IntMatrix));
+                    }
+                    if fn_name == "panic" {
+                        if args.len() != 1 {
+                            return Err(CodegenError::InvalidOperation {
+                                operation: "panic()".to_string(),
+                                reason: "expects exactly 1 argument (message string)".to_string(),
+                                span: Some(expr.span.clone()),
+                            });
+                        }
+                        let (msg_val, msg_type) = self.compile_expr(&args[0])?;
+                        if msg_type != BrixType::String {
+                            return Err(CodegenError::TypeError {
+                                expected: "String".to_string(),
+                                found: format!("{:?}", msg_type),
+                                context: "panic() argument".to_string(),
+                                span: Some(expr.span.clone()),
+                            });
+                        }
+                        let ptr_type = self.context.ptr_type(AddressSpace::default());
+                        let fn_type = self.context.void_type().fn_type(&[ptr_type.into()], false);
+                        let panic_fn = self.module.get_function("brix_panic")
+                            .unwrap_or_else(|| self.module.add_function("brix_panic", fn_type, Some(Linkage::External)));
+                        self.builder.build_call(panic_fn, &[msg_val.into()], "panic_call")
+                            .map_err(|_| CodegenError::LLVMError {
+                                operation: "build_call".to_string(),
+                                details: "brix_panic".to_string(),
+                                span: Some(expr.span.clone()),
+                            })?;
+                        // panic() never returns (brix_panic calls exit(1) internally),
+                        // but codegen still needs a value — return a dummy Nil.
+                        let dummy = self.context.i64_type().const_int(0, false);
+                        return Ok((dummy.into(), BrixType::Nil));
                     }
                     if fn_name == "zip" {
                         let (val, tuple_type) = self.compile_zip(args).ok_or_else(|| {
@@ -17754,6 +17799,126 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     &[i64_type.into(), ptr_type.into(), i32_type.into()]);
                 self.builder.build_call(f, &[is_nil.into(), file_ptr.into(), line_val.into()], "tbn")
                     .map_err(|_| CodegenError::LLVMError { operation: "build_call".to_string(), details: fn_name.to_string(), span: Some(span.clone()) })?;
+                Ok((dummy_val, BrixType::Nil))
+            }
+
+            // ──────────────────────────────────────────────────────────────
+            "toThrow" => {
+                // RESTRICTED SCOPE (v1.7 Grupo H): only a synchronous,
+                // zero-parameter closure *literal* is supported.
+                let closure = match &actual_expr.kind {
+                    ExprKind::Closure(c) => c,
+                    _ => {
+                        return Err(CodegenError::TypeError {
+                            expected: "closure literal".to_string(),
+                            found: format!("{:?}", actual_type),
+                            context: "toThrow only supports a synchronous, zero-parameter closure literal for now".to_string(),
+                            span: Some(span.clone()),
+                        });
+                    }
+                };
+                if !closure.params.is_empty() {
+                    return Err(CodegenError::TypeError {
+                        expected: "zero-parameter closure".to_string(),
+                        found: format!("closure with {} parameter(s)", closure.params.len()),
+                        context: "toThrow only supports a synchronous, zero-parameter closure literal for now".to_string(),
+                        span: Some(span.clone()),
+                    });
+                }
+                if closure.is_async {
+                    return Err(CodegenError::TypeError {
+                        expected: "synchronous closure".to_string(),
+                        found: "async closure".to_string(),
+                        context: "toThrow only supports a synchronous, zero-parameter closure literal for now".to_string(),
+                        span: Some(span.clone()),
+                    });
+                }
+                if !matcher_args.is_empty() {
+                    return Err(CodegenError::InvalidOperation {
+                        operation: "toThrow".to_string(),
+                        reason: "toThrow() takes no arguments".to_string(),
+                        span: Some(span.clone()),
+                    });
+                }
+
+                // Extract (fn_ptr, env_ptr) from the already-compiled closure value.
+                let (fn_ptr, env_ptr) = self.load_closure_fn_env(actual_val, span)?;
+
+                // Determine the closure's return type so the indirect call's
+                // fn_type is valid (single param env_ptr: ptr, return = inferred).
+                let ret_brix_type = if let Some(rt) = &closure.return_type {
+                    self.string_to_brix_type(rt)
+                } else {
+                    self.infer_return_type_from_body(&closure.body, &closure.params)
+                        .unwrap_or(BrixType::Void)
+                };
+                let closure_fn_type = if ret_brix_type == BrixType::Void {
+                    self.context.void_type().fn_type(&[ptr_type.into()], false)
+                } else {
+                    self.brix_type_to_llvm(&ret_brix_type)
+                        .fn_type(&[ptr_type.into()], false)
+                };
+
+                // Declare libc externals (idempotent).
+                let fork_fn = self.module.get_function("fork").unwrap_or_else(|| {
+                    self.module.add_function("fork", i32_type.fn_type(&[], false), Some(Linkage::External))
+                });
+                let fflush_fn = self.module.get_function("fflush").unwrap_or_else(|| {
+                    self.module.add_function("fflush", i32_type.fn_type(&[ptr_type.into()], false), Some(Linkage::External))
+                });
+                let exit_fn = self.module.get_function("_exit").unwrap_or_else(|| {
+                    self.module.add_function("_exit", self.context.void_type().fn_type(&[i32_type.into()], false), Some(Linkage::External))
+                });
+                let wait_fn = self.module.get_function("brix_wait_for_child").unwrap_or_else(|| {
+                    self.module.add_function("brix_wait_for_child", i32_type.fn_type(&[i32_type.into()], false), Some(Linkage::External))
+                });
+
+                // Flush all open streams before forking so buffered output
+                // isn't duplicated in the child.
+                self.builder.build_call(fflush_fn, &[ptr_type.const_null().into()], "fflush_all")
+                    .map_err(|_| CodegenError::LLVMError { operation: "build_call".to_string(), details: "fflush".to_string(), span: Some(span.clone()) })?;
+
+                // pid = fork()
+                let pid = self.builder.build_call(fork_fn, &[], "fork_pid")
+                    .map_err(|_| CodegenError::LLVMError { operation: "build_call".to_string(), details: "fork".to_string(), span: Some(span.clone()) })?
+                    .try_as_basic_value().left()
+                    .ok_or_else(|| CodegenError::MissingValue { what: "fork() result".to_string(), context: "toThrow".to_string(), span: Some(span.clone()) })?
+                    .into_int_value();
+
+                let parent_fn = self.current_function()?;
+                let child_bb  = self.context.append_basic_block(parent_fn, "throw_child_bb");
+                let parent_bb = self.context.append_basic_block(parent_fn, "throw_parent_bb");
+                let merge_bb  = self.context.append_basic_block(parent_fn, "throw_merge_bb");
+
+                let is_child = self.builder.build_int_compare(IntPredicate::EQ, pid, i32_type.const_int(0, false), "is_child")
+                    .map_err(|_| CodegenError::LLVMError { operation: "build_int_compare".to_string(), details: "fork pid".to_string(), span: Some(span.clone()) })?;
+                self.builder.build_conditional_branch(is_child, child_bb, parent_bb)
+                    .map_err(|_| CodegenError::LLVMError { operation: "build_conditional_branch".to_string(), details: "fork branch".to_string(), span: Some(span.clone()) })?;
+
+                // Child: run the closure body. If it returns normally (no panic),
+                // exit cleanly with 0; brix_panic() calls exit(1) on its own path.
+                self.builder.position_at_end(child_bb);
+                self.builder.build_indirect_call(closure_fn_type, fn_ptr, &[env_ptr.into()], "throw_call")
+                    .map_err(|_| CodegenError::LLVMError { operation: "build_indirect_call".to_string(), details: "toThrow closure".to_string(), span: Some(span.clone()) })?;
+                self.builder.build_call(exit_fn, &[i32_type.const_int(0, false).into()], "child_exit")
+                    .map_err(|_| CodegenError::LLVMError { operation: "build_call".to_string(), details: "_exit".to_string(), span: Some(span.clone()) })?;
+                self.builder.build_unreachable()
+                    .map_err(|_| CodegenError::LLVMError { operation: "build_unreachable".to_string(), details: "after _exit".to_string(), span: Some(span.clone()) })?;
+
+                // Parent: wait for the child, then dispatch to the matcher.
+                self.builder.position_at_end(parent_bb);
+                let threw = self.builder.build_call(wait_fn, &[pid.into()], "threw")
+                    .map_err(|_| CodegenError::LLVMError { operation: "build_call".to_string(), details: "brix_wait_for_child".to_string(), span: Some(span.clone()) })?
+                    .try_as_basic_value().left()
+                    .ok_or_else(|| CodegenError::MissingValue { what: "brix_wait_for_child result".to_string(), context: "toThrow".to_string(), span: Some(span.clone()) })?;
+                let fn_name = format!("test_expect_{}to_throw", not_prefix);
+                let f = self.declare_test_matcher_void(&fn_name, &[i32_type.into(), ptr_type.into(), i32_type.into()]);
+                self.builder.build_call(f, &[threw.into(), file_ptr.into(), line_val.into()], "ttm")
+                    .map_err(|_| CodegenError::LLVMError { operation: "build_call".to_string(), details: fn_name.clone(), span: Some(span.clone()) })?;
+                self.builder.build_unconditional_branch(merge_bb)
+                    .map_err(|_| CodegenError::LLVMError { operation: "build_unconditional_branch".to_string(), details: "parent to merge".to_string(), span: Some(span.clone()) })?;
+
+                self.builder.position_at_end(merge_bb);
                 Ok((dummy_val, BrixType::Nil))
             }
 

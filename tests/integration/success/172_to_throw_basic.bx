@@ -1,0 +1,16 @@
+import test
+
+fn divide(a: int, b: int) -> int {
+    if b == 0 { panic("division by zero") }
+    return a / b
+}
+
+test.describe("toThrow matcher", () -> {
+    test.it("throws on division by zero", () -> {
+        test.expect(() -> { divide(10, 0) }).toThrow()
+    })
+
+    test.it("does not throw on valid division", () -> {
+        test.expect(() -> { divide(10, 2) }).not.toThrow()
+    })
+})
