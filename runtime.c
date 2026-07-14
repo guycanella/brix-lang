@@ -4,6 +4,8 @@
 #include <math.h>
 #include <time.h>
 #include <setjmp.h>
+#include <unistd.h>
+#include <sys/wait.h>
 
 // ==========================================
 // SECTION -2: MEMORY ALLOCATION (v1.3 - Closures)
@@ -1610,6 +1612,12 @@ void print_brix_string(BrixString *s) {
 // ==========================================
 
 #include <ctype.h>  // For toupper, tolower
+
+// panic(msg) - Print message to stderr and abort the process (v1.7 Grupo H)
+void brix_panic(BrixString* msg) {
+    fprintf(stderr, "%.*s\n", (int)msg->len, msg->data);
+    exit(1);
+}
 
 // uppercase(str) - Convert string to uppercase
 // Returns new string with all characters in uppercase
@@ -3397,6 +3405,47 @@ void test_expect_not_has_property(int has_prop, BrixString* prop_name, char* fil
         snprintf(msg, BRIX_ERR_BUF,
             "      " ANSI_RED "Expected struct not to have property: \"%.*s\"" ANSI_RESET,
             nlen, prop_name->data);
+        BrixTestEntry* e = brix_get_current();
+        if (e) brix_test_fail(e, msg, file, line);
+    }
+}
+
+// ---- toThrow (v1.7 Grupo H) ----
+// The fork() + closure-call dance happens in codegen (LLVM IR), because each
+// Brix closure has its own signature. This helper only decodes the child's
+// exit status once codegen has forked, run the closure, and waited on it.
+
+// brix_wait_for_child: waits on `pid` and reports whether it "threw"
+// (non-zero exit code or killed by signal). Returns 1 if it threw, 0 otherwise.
+int brix_wait_for_child(int pid) {
+    int status = 0;
+    if (waitpid(pid, &status, 0) < 0) {
+        return 1;
+    }
+    if (WIFEXITED(status) && WEXITSTATUS(status) != 0) {
+        return 1;
+    }
+    if (WIFSIGNALED(status)) {
+        return 1;
+    }
+    return 0;
+}
+
+void test_expect_to_throw(int threw, char* file, int line) {
+    if (!threw) {
+        char msg[BRIX_ERR_BUF];
+        snprintf(msg, BRIX_ERR_BUF,
+            "      " ANSI_RED "Expected function to throw" ANSI_RESET);
+        BrixTestEntry* e = brix_get_current();
+        if (e) brix_test_fail(e, msg, file, line);
+    }
+}
+
+void test_expect_not_to_throw(int threw, char* file, int line) {
+    if (threw) {
+        char msg[BRIX_ERR_BUF];
+        snprintf(msg, BRIX_ERR_BUF,
+            "      " ANSI_RED "Expected function not to throw" ANSI_RESET);
         BrixTestEntry* e = brix_get_current();
         if (e) brix_test_fail(e, msg, file, line);
     }

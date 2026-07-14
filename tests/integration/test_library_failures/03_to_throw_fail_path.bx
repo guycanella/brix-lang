@@ -1,0 +1,9 @@
+// Regression coverage for toThrow's FAIL path (v1.7 Grupo H): a closure that
+// returns normally (never calls panic()) but is asserted with a bare
+// `toThrow()` (no `.not.`) must report a test failure, not silently pass.
+import test
+test.describe("toThrow fail path", () -> {
+    test.it("fails when the closure does not panic", () -> {
+        test.expect(() -> { var x := 1 + 1 }).toThrow()
+    })
+})

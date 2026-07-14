@@ -38,6 +38,16 @@ test.describe("toHaveProperty (v1.7 Grupo G)", () -> {
     })
 })
 
+test.describe("toThrow (v1.7 Grupo H)", () -> {
+    test.it("toThrow passes when the closure calls panic()", () -> {
+        test.expect(() -> { panic("boom") }).toThrow()
+    })
+
+    test.it("not.toThrow passes when the closure does not panic", () -> {
+        test.expect(() -> { var x := 1 + 1 }).not.toThrow()
+    })
+})
+
 // ── Regression test ──────────────────────────────────────────────────────
 // `.not.` had never been parseable on ANY Test Library matcher since v1.5:
 // `not` lexes as Token::Not (the `not x` prefix-negation keyword), and the

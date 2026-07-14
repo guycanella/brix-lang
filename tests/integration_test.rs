@@ -1072,6 +1072,15 @@ fn test_library_grupo_g_matchers_fail_path() {
     );
 }
 
+#[test]
+fn test_library_grupo_h_to_throw_fail_path() {
+    assert_output(
+        "tests/integration/test_library_failures/03_to_throw_fail_path.bx",
+        1,
+        Some("Expected function to throw")
+    );
+}
+
 // ==========================================
 // RUNTIME ERRORS - Exit Code 1
 // ==========================================
@@ -1613,5 +1622,27 @@ fn test_171_matcher_has_property() {
         "tests/integration/success/171_matcher_has_property.bx",
         0,
         Some("3 passed")
+    );
+}
+
+// ==========================================
+// v1.7 Grupo H: toThrow matcher + panic() builtin
+// ==========================================
+
+#[test]
+fn test_172_to_throw_basic() {
+    assert_output(
+        "tests/integration/success/172_to_throw_basic.bx",
+        0,
+        Some("2 passed")
+    );
+}
+
+#[test]
+fn test_173_panic_builtin() {
+    assert_output(
+        "tests/integration/success/173_panic_builtin.bx",
+        1,
+        Some("something went wrong")
     );
 }
