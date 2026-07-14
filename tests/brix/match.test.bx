@@ -117,6 +117,7 @@ test.describe("Destructuring patterns", () -> {
         var p := Pt { x: 3, y: 4 }
         var result := match p {
             { x, y } -> x + y
+            _ -> -1
         }
         test.expect(result).toBe(7)
     })
@@ -127,6 +128,7 @@ test.describe("Destructuring patterns", () -> {
         var result := match p {
             { x, 0 } -> x
             { x, y } -> x + y
+            _ -> -1
         }
         test.expect(result).toBe(5)
     })
@@ -136,6 +138,7 @@ test.describe("Destructuring patterns", () -> {
         var p := Pt3 { x: 99, y: 7 }
         var result := match p {
             { _, y } -> y
+            _ -> -1
         }
         test.expect(result).toBe(7)
     })
@@ -145,6 +148,7 @@ test.describe("Destructuring patterns", () -> {
         var p := Pt4 { x: 10, y: 20 }
         var result := match p {
             { x, y } -> x + y
+            _ -> -1
         }
         test.expect(result).toBe(30)
     })
@@ -156,6 +160,7 @@ test.describe("Named field patterns", () -> {
         var p := NfPt1 { x: 3, y: 4 }
         var result := match p {
             { x: px, y: py } -> px + py
+            _ -> -1
         }
         test.expect(result).toBe(7)
     })
@@ -166,6 +171,7 @@ test.describe("Named field patterns", () -> {
         var result := match p {
             { x: px, y: 0 } -> px
             { x: px, y: py } -> px + py
+            _ -> -1
         }
         test.expect(result).toBe(5)
     })
@@ -175,6 +181,7 @@ test.describe("Named field patterns", () -> {
         var p := NfPt3 { x: 99, y: 7 }
         var result := match p {
             { x: _, y: py } -> py
+            _ -> -1
         }
         test.expect(result).toBe(7)
     })
@@ -184,6 +191,7 @@ test.describe("Named field patterns", () -> {
         var p := NfPt4 { x: 2, y: 9 }
         var result := match p {
             { y: py, x: px } -> px - py
+            _ -> -1
         }
         test.expect(result).toBe(-7)
     })
@@ -227,9 +235,11 @@ test.describe("Array rest patterns", () -> {
         var arr := [1, 2, 3, 4, 5]
         var first := match arr {
             { first, ...rest } -> first
+            _ -> -1
         }
         var restCount := match arr {
             { first, ...rest } -> rest.count()
+            _ -> -1
         }
         test.expect(first).toBe(1)
         test.expect(restCount).toBe(4)
@@ -239,9 +249,11 @@ test.describe("Array rest patterns", () -> {
         var arr := [1, 2, 3, 4, 5]
         var sum := match arr {
             { a, b, ...tail } -> a + b
+            _ -> -1
         }
         var tailFirst := match arr {
             { a, b, ...tail } -> tail[0]
+            _ -> -1
         }
         test.expect(sum).toBe(3)
         test.expect(tailFirst).toBe(3)
@@ -251,7 +263,26 @@ test.describe("Array rest patterns", () -> {
         var arr := [1, 2, 3, 4, 5]
         var result := match arr {
             { ...all } -> all.count()
+            _ -> -1
         }
         test.expect(result).toBe(5)
+    })
+})
+
+test.describe("Exhaustiveness (v1.7 Grupo F)", () -> {
+    test.it("a lone wildcard arm is exhaustive on its own", () -> {
+        var x := 123
+        var result := match x {
+            _ -> "matched"
+        }
+        test.expect(result).toBe("matched")
+    })
+
+    test.it("a lone binding arm is exhaustive without an explicit wildcard", () -> {
+        var x := "hello"
+        var result := match x {
+            s -> s
+        }
+        test.expect(result).toBe("hello")
     })
 })

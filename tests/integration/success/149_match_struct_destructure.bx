@@ -7,5 +7,6 @@ var p := Point { x: 3, y: 0 }
 var result := match p {
     { x, 0 } -> x
     { x, y } -> x + y
+    _ -> -1
 }
 println(result)

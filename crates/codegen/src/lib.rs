@@ -10438,13 +10438,25 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 // Compile the match value once
                 let (match_val, match_type) = self.compile_expr(value)?;
 
-                // Check for exhaustiveness (warning only)
-                let has_wildcard = arms
-                    .iter()
-                    .any(|arm| matches!(arm.pattern, Pattern::Wildcard));
-                if !has_wildcard {
-                    eprintln!("⚠️  Warning: Non-exhaustive match expression");
-                    eprintln!("    Consider adding: _ -> ...");
+                // Check for exhaustiveness (compile error)
+                // A match is exhaustive only if it has a root-level catch-all arm:
+                // either a wildcard (`_ -> ...`) or a bare binding (`n -> ...`),
+                // both of which match any value regardless of scrutinee type.
+                // A guard on that arm (`_ if cond -> ...`) disqualifies it: the guard
+                // can fail at runtime with no further arm to fall through to, which
+                // is exactly the silently-uncovered-case this check exists to prevent.
+                let has_exhaustive_arm = arms.iter().any(|arm| {
+                    arm.guard.is_none()
+                        && matches!(arm.pattern, Pattern::Wildcard | Pattern::Binding(_))
+                });
+                if !has_exhaustive_arm {
+                    return Err(CodegenError::TypeError {
+                        expected: "exhaustive match arm (`_ -> ...` or a binding)"
+                            .to_string(),
+                        found: "non-exhaustive match expression".to_string(),
+                        context: "match expression exhaustiveness".to_string(),
+                        span: Some(expr.span.clone()),
+                    });
                 }
 
                 // Get parent function

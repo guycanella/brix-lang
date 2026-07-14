@@ -8,6 +8,7 @@ var result1 := match p1 {
     { x: px, y: 0 } -> px
     { x: 0, y: py } -> py
     { x: px, y: py } -> px + py
+    _ -> -1
 }
 println(result1)
 
@@ -16,6 +17,7 @@ var result2 := match p2 {
     { x: px, y: 0 } -> px
     { x: 0, y: py } -> py
     { x: px, y: py } -> px + py
+    _ -> -1
 }
 println(result2)
 
@@ -24,5 +26,6 @@ var result3 := match p3 {
     { x: px, y: 0 } -> px
     { x: 0, y: py } -> py
     { x: px, y: py } -> px + py
+    _ -> -1
 }
 println(result3)

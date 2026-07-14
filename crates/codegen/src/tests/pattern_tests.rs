@@ -553,6 +553,11 @@ fn test_match_with_boolean_patterns() {
                     guard: None,
                     body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(0)))),
                 },
+                MatchArm {
+                    pattern: Pattern::Wildcard,
+                    guard: None,
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(-1)))),
+                },
             ],
         })))],
     };
@@ -1266,7 +1271,7 @@ fn test_match_struct_destructure_all_bindings() {
             Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Match {
                 value: Box::new(Expr::dummy(ExprKind::Identifier("p".to_string()))),
                 arms: vec![
-                    MatchArm {
+    MatchArm {
                         pattern: Pattern::Destructure(vec![
                             Pattern::Binding("x".to_string()),
                             Pattern::Binding("y".to_string()),
@@ -1277,6 +1282,11 @@ fn test_match_struct_destructure_all_bindings() {
                             Expr::dummy(ExprKind::Identifier("x".to_string())),
                             Expr::dummy(ExprKind::Identifier("y".to_string())),
                         )),
+                    },
+                    MatchArm {
+                        pattern: Pattern::Wildcard,
+                        guard: None,
+                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(-1)))),
                     },
                 ],
             }))),
@@ -1372,6 +1382,11 @@ fn test_match_struct_wildcard() {
                         ]),
                         guard: None,
                         body: Box::new(Expr::dummy(ExprKind::Identifier("y".to_string()))),
+                    },
+                    MatchArm {
+                        pattern: Pattern::Wildcard,
+                        guard: None,
+                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(-1)))),
                     },
                 ],
             }))),
@@ -1594,6 +1609,11 @@ fn test_match_named_field_pattern_two_bindings() {
                             Expr::dummy(ExprKind::Identifier("py".to_string())),
                         )),
                     },
+                    MatchArm {
+                        pattern: Pattern::Wildcard,
+                        guard: None,
+                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(-1)))),
+                    },
                 ],
             }))),
         ],
@@ -1687,6 +1707,11 @@ fn test_match_named_field_pattern_unknown_struct_and_field_error() {
                         guard: None,
                         body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(0)))),
                     },
+                    MatchArm {
+                        pattern: Pattern::Wildcard,
+                        guard: None,
+                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(-1)))),
+                    },
                 ],
             }))),
         ],
@@ -1733,6 +1758,11 @@ fn test_match_named_field_pattern_unknown_struct_and_field_error() {
                         ]),
                         guard: None,
                         body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(0)))),
+                    },
+                    MatchArm {
+                        pattern: Pattern::Wildcard,
+                        guard: None,
+                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(-1)))),
                     },
                 ],
             }))),
@@ -1847,14 +1877,21 @@ fn test_match_array_rest_one_head() {
                 type_hint: None,
                 value: Expr::dummy(ExprKind::Match {
                     value: Box::new(Expr::dummy(ExprKind::Identifier("arr".to_string()))),
-                    arms: vec![MatchArm {
-                        pattern: Pattern::ArrayRest {
-                            head: vec![Pattern::Binding("first".to_string())],
-                            rest: "rest".to_string(),
+                    arms: vec![
+                        MatchArm {
+                            pattern: Pattern::ArrayRest {
+                                head: vec![Pattern::Binding("first".to_string())],
+                                rest: "rest".to_string(),
+                            },
+                            guard: None,
+                            body: Box::new(Expr::dummy(ExprKind::Identifier("first".to_string()))),
                         },
-                        guard: None,
-                        body: Box::new(Expr::dummy(ExprKind::Identifier("first".to_string()))),
-                    }],
+                        MatchArm {
+                            pattern: Pattern::Wildcard,
+                            guard: None,
+                            body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(-1)))),
+                        },
+                    ],
                 }),
                 is_const: false,
             }),
@@ -1955,20 +1992,27 @@ fn test_match_array_rest_only_rest() {
                 type_hint: None,
                 value: Expr::dummy(ExprKind::Match {
                     value: Box::new(Expr::dummy(ExprKind::Identifier("arr".to_string()))),
-                    arms: vec![MatchArm {
-                        pattern: Pattern::ArrayRest {
-                            head: vec![],
-                            rest: "all".to_string(),
-                        },
-                        guard: None,
-                        body: Box::new(Expr::dummy(ExprKind::Call {
-                            func: Box::new(Expr::dummy(ExprKind::FieldAccess {
-                                target: Box::new(Expr::dummy(ExprKind::Identifier("all".to_string()))),
-                                field: "count".to_string(),
+                    arms: vec![
+                        MatchArm {
+                            pattern: Pattern::ArrayRest {
+                                head: vec![],
+                                rest: "all".to_string(),
+                            },
+                            guard: None,
+                            body: Box::new(Expr::dummy(ExprKind::Call {
+                                func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                                    target: Box::new(Expr::dummy(ExprKind::Identifier("all".to_string()))),
+                                    field: "count".to_string(),
+                                })),
+                                args: vec![],
                             })),
-                            args: vec![],
-                        })),
-                    }],
+                        },
+                        MatchArm {
+                            pattern: Pattern::Wildcard,
+                            guard: None,
+                            body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(-1)))),
+                        },
+                    ],
                 }),
                 is_const: false,
             }),
@@ -2108,5 +2152,178 @@ fn test_array_rest_guard_only_evaluated_when_pattern_matched() {
     assert!(
         guard_label_pos + rest_load_in_guard > phi_pos,
         "the guard's use of `rest` must come after the pattern PHI, inside match_arm_0_guard"
+    );
+}
+
+// ==================== v1.7 Grupo F — EXHAUSTIVENESS CHECKING ====================
+
+#[test]
+fn test_match_non_exhaustive_is_rejected() {
+    // match 5 {
+    //     1 -> "one",
+    //     2 -> "two"
+    // }
+    // No root-level Wildcard or Binding arm -> must be a compile error.
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Match {
+            value: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(5)))),
+            arms: vec![
+                MatchArm {
+                    pattern: Pattern::Literal(Literal::Int(1)),
+                    guard: None,
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("one".to_string())))),
+                },
+                MatchArm {
+                    pattern: Pattern::Literal(Literal::Int(2)),
+                    guard: None,
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("two".to_string())))),
+                },
+            ],
+        })))],
+    };
+    let context = Context::create();
+    let module = context.create_module("test_non_exhaustive");
+    let builder = context.create_builder();
+    let mut compiler = Compiler::new(&context, &builder, &module, "test_non_exhaustive.bx".to_string(), "".to_string());
+    let result = compiler.compile_program(&program);
+    assert!(result.is_err(), "expected a match with only literal arms (no wildcard/binding) to be rejected as non-exhaustive");
+}
+
+#[test]
+fn test_match_with_wildcard_arm_is_exhaustive() {
+    // match 5 {
+    //     1 -> "one",
+    //     _ -> "other"
+    // }
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Match {
+            value: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(5)))),
+            arms: vec![
+                MatchArm {
+                    pattern: Pattern::Literal(Literal::Int(1)),
+                    guard: None,
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("one".to_string())))),
+                },
+                MatchArm {
+                    pattern: Pattern::Wildcard,
+                    guard: None,
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("other".to_string())))),
+                },
+            ],
+        })))],
+    };
+    let context = Context::create();
+    let module = context.create_module("test_exhaustive_wildcard");
+    let builder = context.create_builder();
+    let mut compiler = Compiler::new(&context, &builder, &module, "test_exhaustive_wildcard.bx".to_string(), "".to_string());
+    let result = compiler.compile_program(&program);
+    assert!(result.is_ok(), "expected a match with a root-level Wildcard arm to be accepted as exhaustive, got: {:?}", result);
+}
+
+#[test]
+fn test_match_with_root_binding_arm_is_exhaustive_without_wildcard() {
+    // match 5 {
+    //     1 -> "one",
+    //     n -> "other"
+    // }
+    // A bare binding at the root level (no explicit `_`) must be enough to
+    // satisfy exhaustiveness on its own.
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Match {
+            value: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(5)))),
+            arms: vec![
+                MatchArm {
+                    pattern: Pattern::Literal(Literal::Int(1)),
+                    guard: None,
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("one".to_string())))),
+                },
+                MatchArm {
+                    pattern: Pattern::Binding("n".to_string()),
+                    guard: None,
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("other".to_string())))),
+                },
+            ],
+        })))],
+    };
+    let context = Context::create();
+    let module = context.create_module("test_exhaustive_binding");
+    let builder = context.create_builder();
+    let mut compiler = Compiler::new(&context, &builder, &module, "test_exhaustive_binding.bx".to_string(), "".to_string());
+    let result = compiler.compile_program(&program);
+    assert!(result.is_ok(), "expected a match with a root-level Binding arm (no explicit wildcard) to be accepted as exhaustive, got: {:?}", result);
+}
+
+#[test]
+fn test_match_guarded_catch_all_is_not_exhaustive() {
+    // match 5 { n if n > 100 -> 1 }
+    // Regression: a root-level Binding/Wildcard *with a guard* used to be
+    // wrongly accepted as exhaustive (the has_exhaustive_arm check ignored
+    // arm.guard). At runtime, if the guard fails and there's no further arm,
+    // the match falls through with no matching arm and the PHI result is
+    // garbage/uninitialized — exactly the silently-uncovered-case this
+    // feature exists to prevent. A guarded catch-all must NOT satisfy
+    // exhaustiveness on its own.
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Match {
+            value: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(5)))),
+            arms: vec![
+                MatchArm {
+                    pattern: Pattern::Binding("n".to_string()),
+                    guard: Some(Box::new(Expr::dummy(ExprKind::Binary {
+                        op: BinaryOp::Gt,
+                        lhs: Box::new(Expr::dummy(ExprKind::Identifier("n".to_string()))),
+                        rhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(100)))),
+                    }))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(1)))),
+                },
+            ],
+        })))],
+    };
+    let context = Context::create();
+    let module = context.create_module("test_guarded_catch_all");
+    let builder = context.create_builder();
+    let mut compiler = Compiler::new(&context, &builder, &module, "test_guarded_catch_all.bx".to_string(), "".to_string());
+    let result = compiler.compile_program(&program);
+    assert!(
+        result.is_err(),
+        "expected a guarded root-level binding/wildcard arm to NOT satisfy exhaustiveness on its own"
+    );
+}
+
+#[test]
+fn test_match_guarded_catch_all_plus_unguarded_fallback_is_exhaustive() {
+    // match 5 { n if n > 100 -> 1  _ -> 0 }
+    // A guarded catch-all followed by a real (unguarded) wildcard/binding
+    // arm is exhaustive — the unguarded arm is what actually satisfies it.
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Match {
+            value: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(5)))),
+            arms: vec![
+                MatchArm {
+                    pattern: Pattern::Binding("n".to_string()),
+                    guard: Some(Box::new(Expr::dummy(ExprKind::Binary {
+                        op: BinaryOp::Gt,
+                        lhs: Box::new(Expr::dummy(ExprKind::Identifier("n".to_string()))),
+                        rhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(100)))),
+                    }))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(1)))),
+                },
+                MatchArm {
+                    pattern: Pattern::Wildcard,
+                    guard: None,
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(0)))),
+                },
+            ],
+        })))],
+    };
+    let context = Context::create();
+    let module = context.create_module("test_guarded_catch_all_with_fallback");
+    let builder = context.create_builder();
+    let mut compiler = Compiler::new(&context, &builder, &module, "test_guarded_catch_all_with_fallback.bx".to_string(), "".to_string());
+    let result = compiler.compile_program(&program);
+    assert!(
+        result.is_ok(),
+        "expected a guarded catch-all followed by an unguarded wildcard to be accepted as exhaustive, got: {:?}",
+        result
     );
 }
