@@ -3248,3 +3248,156 @@ void test_expect_toHaveLength_string(BrixString* s, long expected_len, char* fil
         if (e) brix_test_fail(e, msg, file, line);
     }
 }
+
+// ---- toStartWith / toEndWith (v1.7 Grupo G) ----
+
+void test_expect_toStartWith_string(BrixString* actual, BrixString* prefix, char* file, int line) {
+    long ok = brix_str_starts_with(actual, prefix);
+    if (!ok) {
+        char msg[BRIX_ERR_BUF];
+        int plen = (int)(prefix->len < 100 ? prefix->len : 100);
+        int alen = (int)(actual->len < 100 ? actual->len : 100);
+        snprintf(msg, BRIX_ERR_BUF,
+            "      " ANSI_RED "Expected string to start with: \"%.*s\"\n" ANSI_RESET
+            "      " ANSI_RED "Received:                      \"%.*s\"" ANSI_RESET,
+            plen, prefix->data, alen, actual->data);
+        BrixTestEntry* e = brix_get_current();
+        if (e) brix_test_fail(e, msg, file, line);
+    }
+}
+
+void test_expect_not_toStartWith_string(BrixString* actual, BrixString* prefix, char* file, int line) {
+    long ok = brix_str_starts_with(actual, prefix);
+    if (ok) {
+        char msg[BRIX_ERR_BUF];
+        int plen = (int)(prefix->len < 100 ? prefix->len : 100);
+        int alen = (int)(actual->len < 100 ? actual->len : 100);
+        snprintf(msg, BRIX_ERR_BUF,
+            "      " ANSI_RED "Expected string not to start with: \"%.*s\"\n" ANSI_RESET
+            "      " ANSI_RED "Received:                          \"%.*s\"" ANSI_RESET,
+            plen, prefix->data, alen, actual->data);
+        BrixTestEntry* e = brix_get_current();
+        if (e) brix_test_fail(e, msg, file, line);
+    }
+}
+
+void test_expect_toEndWith_string(BrixString* actual, BrixString* suffix, char* file, int line) {
+    long ok = brix_str_ends_with(actual, suffix);
+    if (!ok) {
+        char msg[BRIX_ERR_BUF];
+        int slen = (int)(suffix->len < 100 ? suffix->len : 100);
+        int alen = (int)(actual->len < 100 ? actual->len : 100);
+        snprintf(msg, BRIX_ERR_BUF,
+            "      " ANSI_RED "Expected string to end with: \"%.*s\"\n" ANSI_RESET
+            "      " ANSI_RED "Received:                    \"%.*s\"" ANSI_RESET,
+            slen, suffix->data, alen, actual->data);
+        BrixTestEntry* e = brix_get_current();
+        if (e) brix_test_fail(e, msg, file, line);
+    }
+}
+
+void test_expect_not_toEndWith_string(BrixString* actual, BrixString* suffix, char* file, int line) {
+    long ok = brix_str_ends_with(actual, suffix);
+    if (ok) {
+        char msg[BRIX_ERR_BUF];
+        int slen = (int)(suffix->len < 100 ? suffix->len : 100);
+        int alen = (int)(actual->len < 100 ? actual->len : 100);
+        snprintf(msg, BRIX_ERR_BUF,
+            "      " ANSI_RED "Expected string not to end with: \"%.*s\"\n" ANSI_RESET
+            "      " ANSI_RED "Received:                        \"%.*s\"" ANSI_RESET,
+            slen, suffix->data, alen, actual->data);
+        BrixTestEntry* e = brix_get_current();
+        if (e) brix_test_fail(e, msg, file, line);
+    }
+}
+
+// ---- toMatch (glob pattern, v1.7 Grupo G) ----
+// Supports only the '*' wildcard (matches any sequence, including empty).
+// '?' and other metacharacters are out of scope.
+
+static int glob_match(const char* text, long text_len, const char* pattern, long pattern_len) {
+    long ti = 0, pi = 0;
+    long star_idx = -1, star_ti = -1;
+
+    while (ti < text_len) {
+        if (pi < pattern_len && pattern[pi] == '*') {
+            // Record star position; tentatively match zero characters.
+            star_idx = pi;
+            star_ti = ti;
+            pi++;
+        } else if (pi < pattern_len && pattern[pi] == text[ti]) {
+            pi++;
+            ti++;
+        } else if (star_idx != -1) {
+            // Backtrack: let the last '*' consume one more character.
+            pi = star_idx + 1;
+            star_ti++;
+            ti = star_ti;
+        } else {
+            return 0;
+        }
+    }
+
+    // Consume any trailing '*' in the pattern.
+    while (pi < pattern_len && pattern[pi] == '*') {
+        pi++;
+    }
+
+    return pi == pattern_len;
+}
+
+void test_expect_matches_string(BrixString* actual, BrixString* pattern, char* file, int line) {
+    int ok = glob_match(actual->data, actual->len, pattern->data, pattern->len);
+    if (!ok) {
+        char msg[BRIX_ERR_BUF];
+        int plen = (int)(pattern->len < 100 ? pattern->len : 100);
+        int alen = (int)(actual->len  < 100 ? actual->len  : 100);
+        snprintf(msg, BRIX_ERR_BUF,
+            "      " ANSI_RED "Expected string to match: \"%.*s\"\n" ANSI_RESET
+            "      " ANSI_RED "Received:                 \"%.*s\"" ANSI_RESET,
+            plen, pattern->data, alen, actual->data);
+        BrixTestEntry* e = brix_get_current();
+        if (e) brix_test_fail(e, msg, file, line);
+    }
+}
+
+void test_expect_not_matches_string(BrixString* actual, BrixString* pattern, char* file, int line) {
+    int ok = glob_match(actual->data, actual->len, pattern->data, pattern->len);
+    if (ok) {
+        char msg[BRIX_ERR_BUF];
+        int plen = (int)(pattern->len < 100 ? pattern->len : 100);
+        int alen = (int)(actual->len  < 100 ? actual->len  : 100);
+        snprintf(msg, BRIX_ERR_BUF,
+            "      " ANSI_RED "Expected string not to match: \"%.*s\"\n" ANSI_RESET
+            "      " ANSI_RED "Received:                     \"%.*s\"" ANSI_RESET,
+            plen, pattern->data, alen, actual->data);
+        BrixTestEntry* e = brix_get_current();
+        if (e) brix_test_fail(e, msg, file, line);
+    }
+}
+
+// ---- toHaveProperty (resolved at compile-time, v1.7 Grupo G) ----
+
+void test_expect_has_property(int has_prop, BrixString* prop_name, char* file, int line) {
+    if (!has_prop) {
+        char msg[BRIX_ERR_BUF];
+        int nlen = (int)(prop_name->len < 100 ? prop_name->len : 100);
+        snprintf(msg, BRIX_ERR_BUF,
+            "      " ANSI_RED "Expected struct to have property: \"%.*s\"" ANSI_RESET,
+            nlen, prop_name->data);
+        BrixTestEntry* e = brix_get_current();
+        if (e) brix_test_fail(e, msg, file, line);
+    }
+}
+
+void test_expect_not_has_property(int has_prop, BrixString* prop_name, char* file, int line) {
+    if (has_prop) {
+        char msg[BRIX_ERR_BUF];
+        int nlen = (int)(prop_name->len < 100 ? prop_name->len : 100);
+        snprintf(msg, BRIX_ERR_BUF,
+            "      " ANSI_RED "Expected struct not to have property: \"%.*s\"" ANSI_RESET,
+            nlen, prop_name->data);
+        BrixTestEntry* e = brix_get_current();
+        if (e) brix_test_fail(e, msg, file, line);
+    }
+}

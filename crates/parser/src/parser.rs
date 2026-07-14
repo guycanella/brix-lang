@@ -1136,8 +1136,16 @@ where
             .or(atom.clone())
             .then(
                 // Field access: .field
+                // `not` is lexed as the keyword Token::Not (used for the `not x` prefix
+                // operator elsewhere), so it never matches Token::Identifier here on its
+                // own - accept it explicitly as the literal field name "not" so chains
+                // like `test.expect(x).not.toBe(y)` parse. Unambiguous: `not` right after
+                // `.` can never mean the prefix negation operator.
                 just(Token::Dot)
-                    .ignore_then(select! { Token::Identifier(name) => name })
+                    .ignore_then(
+                        select! { Token::Identifier(name) => name }
+                            .or(just(Token::Not).to("not".to_string()))
+                    )
                     .map(PostfixOp::Field)
                     // Index: [expr]
                     .or(expr.clone()

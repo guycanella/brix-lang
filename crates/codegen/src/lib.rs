@@ -17570,6 +17570,159 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             }
 
             // ──────────────────────────────────────────────────────────────
+            "toStartWith" => {
+                if matcher_args.is_empty() {
+                    return Err(CodegenError::InvalidOperation {
+                        operation: "toStartWith".to_string(),
+                        reason: "requires one string argument".to_string(),
+                        span: Some(span.clone()),
+                    });
+                }
+                let (prefix_val, prefix_type) = self.compile_expr(&matcher_args[0])?;
+                if actual_type != BrixType::String || prefix_type != BrixType::String {
+                    return Err(CodegenError::TypeError {
+                        expected: "string receiver and string prefix".to_string(),
+                        found: format!("{:?} receiver and {:?} prefix", actual_type, prefix_type),
+                        context: "toStartWith".to_string(),
+                        span: Some(span.clone()),
+                    });
+                }
+                match &actual_type {
+                    BrixType::String => {
+                        let fn_name = format!("test_expect_{}toStartWith_string", not_prefix);
+                        let f = self.declare_test_matcher_void(
+                            &fn_name,
+                            &[ptr_type.into(), ptr_type.into(), ptr_type.into(), i32_type.into()],
+                        );
+                        self.builder.build_call(f, &[actual_val.into(), prefix_val.into(), file_ptr.into(), line_val.into()], "tsw")
+                            .map_err(|_| CodegenError::LLVMError { operation: "build_call".to_string(), details: fn_name.clone(), span: Some(span.clone()) })?;
+                    }
+                    _ => unreachable!("toStartWith type check should reject non-string receivers"),
+                }
+                Ok((dummy_val, BrixType::Nil))
+            }
+
+            // ──────────────────────────────────────────────────────────────
+            "toEndWith" => {
+                if matcher_args.is_empty() {
+                    return Err(CodegenError::InvalidOperation {
+                        operation: "toEndWith".to_string(),
+                        reason: "requires one string argument".to_string(),
+                        span: Some(span.clone()),
+                    });
+                }
+                let (suffix_val, suffix_type) = self.compile_expr(&matcher_args[0])?;
+                if actual_type != BrixType::String || suffix_type != BrixType::String {
+                    return Err(CodegenError::TypeError {
+                        expected: "string receiver and string suffix".to_string(),
+                        found: format!("{:?} receiver and {:?} suffix", actual_type, suffix_type),
+                        context: "toEndWith".to_string(),
+                        span: Some(span.clone()),
+                    });
+                }
+                match &actual_type {
+                    BrixType::String => {
+                        let fn_name = format!("test_expect_{}toEndWith_string", not_prefix);
+                        let f = self.declare_test_matcher_void(
+                            &fn_name,
+                            &[ptr_type.into(), ptr_type.into(), ptr_type.into(), i32_type.into()],
+                        );
+                        self.builder.build_call(f, &[actual_val.into(), suffix_val.into(), file_ptr.into(), line_val.into()], "tew")
+                            .map_err(|_| CodegenError::LLVMError { operation: "build_call".to_string(), details: fn_name.clone(), span: Some(span.clone()) })?;
+                    }
+                    _ => unreachable!("toEndWith type check should reject non-string receivers"),
+                }
+                Ok((dummy_val, BrixType::Nil))
+            }
+
+            // ──────────────────────────────────────────────────────────────
+            "toMatch" => {
+                if matcher_args.is_empty() {
+                    return Err(CodegenError::InvalidOperation {
+                        operation: "toMatch".to_string(),
+                        reason: "requires one string pattern argument".to_string(),
+                        span: Some(span.clone()),
+                    });
+                }
+                let (pattern_val, pattern_type) = self.compile_expr(&matcher_args[0])?;
+                if actual_type != BrixType::String || pattern_type != BrixType::String {
+                    return Err(CodegenError::TypeError {
+                        expected: "string receiver and string pattern".to_string(),
+                        found: format!("{:?} receiver and {:?} pattern", actual_type, pattern_type),
+                        context: "toMatch".to_string(),
+                        span: Some(span.clone()),
+                    });
+                }
+                match &actual_type {
+                    BrixType::String => {
+                        let fn_name = format!("test_expect_{}matches_string", not_prefix);
+                        let f = self.declare_test_matcher_void(
+                            &fn_name,
+                            &[ptr_type.into(), ptr_type.into(), ptr_type.into(), i32_type.into()],
+                        );
+                        self.builder.build_call(f, &[actual_val.into(), pattern_val.into(), file_ptr.into(), line_val.into()], "tm")
+                            .map_err(|_| CodegenError::LLVMError { operation: "build_call".to_string(), details: fn_name.clone(), span: Some(span.clone()) })?;
+                    }
+                    _ => unreachable!("toMatch type check should reject non-string receivers"),
+                }
+                Ok((dummy_val, BrixType::Nil))
+            }
+
+            // ──────────────────────────────────────────────────────────────
+            "toHaveProperty" => {
+                // Resolved at compile-time: check the static struct definition.
+                if matcher_args.is_empty() {
+                    return Err(CodegenError::InvalidOperation {
+                        operation: "toHaveProperty".to_string(),
+                        reason: "requires one string-literal argument".to_string(),
+                        span: Some(span.clone()),
+                    });
+                }
+                let struct_name = match &actual_type {
+                    BrixType::Struct(name) => name.clone(),
+                    other => {
+                        return Err(CodegenError::TypeError {
+                            expected: "struct".to_string(),
+                            found: format!("{:?}", other),
+                            context: "toHaveProperty".to_string(),
+                            span: Some(span.clone()),
+                        });
+                    }
+                };
+                let prop_name = match &matcher_args[0].kind {
+                    ExprKind::Literal(Literal::String(s)) => s.clone(),
+                    _ => {
+                        return Err(CodegenError::TypeError {
+                            expected: "string literal".to_string(),
+                            found: "non-literal expression".to_string(),
+                            context: "toHaveProperty property name".to_string(),
+                            span: Some(span.clone()),
+                        });
+                    }
+                };
+                let has_prop = match self.struct_defs.get(&struct_name) {
+                    Some(fields) => fields.iter().any(|(n, _, _)| n == &prop_name),
+                    None => {
+                        return Err(CodegenError::UndefinedSymbol {
+                            name: struct_name.clone(),
+                            context: "toHaveProperty struct definition".to_string(),
+                            span: Some(span.clone()),
+                        });
+                    }
+                };
+                let has_prop_val = i32_type.const_int(has_prop as u64, false);
+                let (prop_name_ptr, _) = self.compile_expr(&matcher_args[0])?;
+                let fn_name = format!("test_expect_{}has_property", not_prefix);
+                let f = self.declare_test_matcher_void(
+                    &fn_name,
+                    &[i32_type.into(), ptr_type.into(), ptr_type.into(), i32_type.into()],
+                );
+                self.builder.build_call(f, &[has_prop_val.into(), prop_name_ptr.into(), file_ptr.into(), line_val.into()], "thp")
+                    .map_err(|_| CodegenError::LLVMError { operation: "build_call".to_string(), details: fn_name.clone(), span: Some(span.clone()) })?;
+                Ok((dummy_val, BrixType::Nil))
+            }
+
+            // ──────────────────────────────────────────────────────────────
             "toBeNil" => {
                 // For optional/nil: if actual is a pointer, check if null.
                 // For union types (struct): extract tag field (field 0) and check if == 1 (nil tag).
