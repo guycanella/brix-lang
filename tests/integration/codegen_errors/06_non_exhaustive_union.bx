@@ -1,0 +1,4 @@
+var x: int | float = 42
+var y := match x {
+    42 -> 1
+}

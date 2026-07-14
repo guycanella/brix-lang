@@ -1,0 +1,3 @@
+var result := match 1 {
+    1 -> "a"
+}

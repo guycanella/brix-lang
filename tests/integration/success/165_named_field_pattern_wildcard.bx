@@ -6,6 +6,7 @@ struct Point {
 var p1 := Point { x: 3, y: 7 }
 var result1 := match p1 {
     { x: _, y: py } -> py
+    _ -> -2
 }
 println(result1)
 
@@ -13,6 +14,7 @@ var p2 := Point { x: 0, y: 9 }
 var result2 := match p2 {
     { x: 0, y: _ } -> 100
     { x: _, y: _ } -> -1
+    _ -> -2
 }
 println(result2)
 
@@ -20,5 +22,6 @@ var p3 := Point { x: 4, y: 9 }
 var result3 := match p3 {
     { x: 0, y: _ } -> 100
     { x: _, y: _ } -> -1
+    _ -> -2
 }
 println(result3)

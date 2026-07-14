@@ -1,0 +1,8 @@
+// Regression: a root-level binding/wildcard arm WITH a guard must not count
+// as exhaustive on its own — the guard can fail at runtime with no other
+// arm to fall through to.
+var x := 5
+var r := match x {
+    n if n > 100 -> 1
+}
+println(r)

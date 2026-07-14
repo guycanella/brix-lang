@@ -1021,6 +1021,33 @@ fn test_codegen_type_mismatch_binop() {
     );
 }
 
+#[test]
+fn test_codegen_non_exhaustive_primitive() {
+    assert_output(
+        "tests/integration/codegen_errors/05_non_exhaustive_primitive.bx",
+        102, // TypeError (match exhaustiveness)
+        Some("non-exhaustive")
+    );
+}
+
+#[test]
+fn test_codegen_non_exhaustive_union() {
+    assert_output(
+        "tests/integration/codegen_errors/06_non_exhaustive_union.bx",
+        102, // TypeError (match exhaustiveness)
+        Some("non-exhaustive")
+    );
+}
+
+#[test]
+fn test_codegen_non_exhaustive_guarded_catchall() {
+    assert_output(
+        "tests/integration/codegen_errors/07_non_exhaustive_guarded_catchall.bx",
+        102, // TypeError (match exhaustiveness)
+        Some("non-exhaustive")
+    );
+}
+
 // ==========================================
 // RUNTIME ERRORS - Exit Code 1
 // ==========================================

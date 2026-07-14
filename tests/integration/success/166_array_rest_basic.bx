@@ -3,20 +3,24 @@ var arr := [1, 2, 3, 4, 5]
 
 var r1 := match arr {
     { first, ...rest } -> first
+    _ -> -99
 }
 println(r1)
 
 var r2 := match arr {
     { first, ...rest } -> rest.count()
+    _ -> -99
 }
 println(r2)
 
 var r3 := match arr {
     { first, ...rest } -> rest[0]
+    _ -> -99
 }
 println(r3)
 
 var r4 := match arr {
     { first, ...rest } -> rest[3]
+    _ -> -99
 }
 println(r4)

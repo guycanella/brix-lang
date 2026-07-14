@@ -3,16 +3,19 @@ var arr := [1, 2, 3, 4, 5]
 
 var r1 := match arr {
     { a, b, ...tail } -> a + b
+    _ -> -99
 }
 println(r1)
 
 var r2 := match arr {
     { a, b, ...tail } -> tail.count()
+    _ -> -99
 }
 println(r2)
 
 var r3 := match arr {
     { a, b, ...tail } -> tail[0]
+    _ -> -99
 }
 println(r3)
 
@@ -25,5 +28,6 @@ println(r4)
 
 var r5 := match arr {
     { ...all } -> all.count()
+    _ -> -99
 }
 println(r5)
