@@ -221,3 +221,37 @@ test.describe("Range patterns", () -> {
         test.expect(result).toBe("pass")
     })
 })
+
+test.describe("Array rest patterns", () -> {
+    test.it("single head element binds first, rest captures remainder", () -> {
+        var arr := [1, 2, 3, 4, 5]
+        var first := match arr {
+            { first, ...rest } -> first
+        }
+        var restCount := match arr {
+            { first, ...rest } -> rest.count()
+        }
+        test.expect(first).toBe(1)
+        test.expect(restCount).toBe(4)
+    })
+
+    test.it("multiple head elements bind and tail captures remainder", () -> {
+        var arr := [1, 2, 3, 4, 5]
+        var sum := match arr {
+            { a, b, ...tail } -> a + b
+        }
+        var tailFirst := match arr {
+            { a, b, ...tail } -> tail[0]
+        }
+        test.expect(sum).toBe(3)
+        test.expect(tailFirst).toBe(3)
+    })
+
+    test.it("rest-only pattern captures the whole array", () -> {
+        var arr := [1, 2, 3, 4, 5]
+        var result := match arr {
+            { ...all } -> all.count()
+        }
+        test.expect(result).toBe(5)
+    })
+})

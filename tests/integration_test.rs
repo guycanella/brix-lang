@@ -1509,3 +1509,27 @@ fn test_165_named_field_pattern_wildcard() {
         "7\n100\n-1"
     );
 }
+
+#[test]
+fn test_166_array_rest_basic() {
+    assert_success(
+        "tests/integration/success/166_array_rest_basic.bx",
+        "1\n4\n2\n5"
+    );
+}
+
+#[test]
+fn test_167_array_rest_multi_head() {
+    assert_success(
+        "tests/integration/success/167_array_rest_multi_head.bx",
+        "3\n3\n3\n-1\n5"
+    );
+}
+
+#[test]
+fn test_168_array_rest_guard() {
+    assert_success(
+        "tests/integration/success/168_array_rest_guard.bx",
+        "-1\n6\n-3"
+    );
+}

@@ -1,0 +1,24 @@
+// Regression: a guard referencing an array-rest binding used to crash
+// (SIGSEGV) when the arm's length check failed, because the guard was
+// compiled unconditionally right after the pattern check, reading `rest`
+// before it was ever bound on the non-matching path.
+var short := [1, 2]
+var r1 := match short {
+    { a, b, c, ...rest } if rest.count() == 0 -> 99
+    _ -> -1
+}
+println(r1)
+
+var arr := [1, 2, 3]
+var r2 := match arr {
+    { a, b, c, ...rest } if rest.count() == 0 -> a + b + c
+    _ -> -2
+}
+println(r2)
+
+var arr2 := [1, 2, 3, 4]
+var r3 := match arr2 {
+    { a, b, c, ...rest } if rest.count() == 99 -> 999
+    _ -> -3
+}
+println(r3)
