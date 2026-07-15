@@ -70,15 +70,16 @@ brix/
 │   │   ├── closure_analysis.rs  # Capture analysis pass (runs after parse)
 │   │   └── error.rs         # Ariadne-based parse error reporting
 │   └── codegen/src/
-│       ├── lib.rs           # Main compiler (~17,953 lines)
+│       ├── lib.rs           # Main compiler (~11,014 lines, post-refactor)
 │       ├── stmt.rs          # Statement compilation (~1,114 lines)
-│       ├── expr.rs          # Expression compilation (~369 lines)
+│       ├── expr.rs          # Expression compilation + list comprehension (~1,434 lines)
 │       ├── helpers.rs       # LLVM helpers
 │       ├── error.rs         # CodegenError enum + CodegenResult<T>
 │       ├── error_report.rs  # Ariadne codegen error formatting
 │       ├── types.rs         # BrixType enum
 │       ├── operators.rs     # Operator logic (refactor postponed)
-│       └── builtins/        # math.rs, stats.rs, linalg.rs, string.rs, io.rs, matrix.rs, test.rs
+│       └── builtins/        # math.rs, stats.rs, linalg.rs, string.rs, io.rs, matrix.rs, test.rs,
+│                            #   iterator.rs, match_compiler.rs, async_compiler.rs, closure_compiler.rs
 ├── tests/
 │   ├── integration/         # End-to-end .bx files (success/, parser_errors/, codegen_errors/, runtime_errors/, test_library_failures/)
 │   └── brix/                # Language test files (*.test.bx) — 26 files, 434 tests, all passing
@@ -215,9 +216,18 @@ Jest-style framework. 17 matchers (all support `.not.`): `toBe`, `toEqual`, `toB
 
 - **Grupo I** List comprehension result-type inference: `[x * 2 for x in [1, 2, 3]]` now produces `IntMatrix` instead of always defaulting to `Matrix` (float). In `compile_list_comprehension()`, the previously-hardcoded `result_elem_type` is now inferred per-generator (`Int` for an `IntMatrix` iterable, `Float` otherwise) via `infer_expr_type_static()`, with all of a generator's `var_names` bound to the same type — correct even for destructuring generators (`for a, b in m`, note: **no parentheses**), since a `Matrix`/`IntMatrix` row is always homogeneously typed. Falls back to `Float` when inference can't resolve something (preserves prior behavior for those cases; a non-`Matrix`/`IntMatrix` iterable like a `StringMatrix` from `.split()` is still rejected by the pre-existing iterable-type check regardless of what this inference produces). Integration test 174; +5 codegen unit tests; +3 Test Library tests. No regressions, no additional fixes needed — reviewed clean.
 
-**Next: the planned `lib.rs` refactor.** See `REFACTOR_LIB.md`. Goal: split `lib.rs` (~17,953 lines) into dedicated modules — `builtins/iterator.rs`, `builtins/match_compiler.rs`, `builtins/async_compiler.rs`, `builtins/closure_compiler.rs` — reducing `lib.rs` to under 9,000 lines. This was planned for "between v1.7 and v1.8"; v1.7 is now complete, so this is the immediate next step before starting v1.8.
+**`lib.rs` refactor — COMPLETE.** See `REFACTOR_LIB.md`. Split `lib.rs` into dedicated modules across 6 extractions, zero behavior change, all test counts identical to baseline (lexer 312 + parser 202 + codegen 753 unit, 179 integration, 434 Test Library):
 
-**Planned for v1.8+:** `Vector<T>` (dynamic arrays with `realloc`), `Stack`, `Queue`, `MinHeap`/`MaxHeap`, `HashMap<K,V>`, LAPACK decompositions (LU, QR, SVD, Cholesky). See `ROADMAP_V1.8.md`.
+1. `compile_list_comprehension` + `generate_comp_loop` → `expr.rs`
+2. `compile_test_matcher` + `try_compile_test_call` + helpers → `builtins/test.rs`
+3. `compile_iterator_method` + `compile_array_*` + `call_array_*` → `builtins/iterator.rs`
+4. `compile_pattern_match` + `apply_sub_pattern*` + `collect_pattern_binding_names` → `builtins/match_compiler.rs`
+5. `compile_async_fn_def`/`_nested`/`_closure`/`_block` → `builtins/async_compiler.rs`
+6. closure codegen (`compile_closure`, `closure_retain`/`_release`, `load_closure_fn_env`, `infer_closure_return_type`, `is_closure_type`) → `builtins/closure_compiler.rs`
+
+Result: `lib.rs` **17,953 → 11,014 lines (−39%)**; codegen crate 12 → 20 files. The general per-type ARC dispatch (`is_ref_counted`/`insert_retain`/`insert_release`/`release_function_scope_vars`) and the `ExprKind::Match` handler + exhaustiveness check stay inline in `lib.rs`. Extracted functions that are called from `lib.rs` or other modules are `pub(crate)`; purely-internal helpers stay private. The `REFACTOR_LIB.md` <9,000-line target was aspirational and not reached — the cohesive extractable blocks totaled ~6,900 lines; the primary criterion (zero behavior change) is fully met.
+
+**Next: v1.8.** `Vector<T>` (dynamic arrays with `realloc`), `Stack`, `Queue`, `MinHeap`/`MaxHeap`, `HashMap<K,V>`, LAPACK decompositions (LU, QR, SVD, Cholesky). See `ROADMAP_V1.8.md`.
 
 ## Troubleshooting
 
