@@ -3,7 +3,7 @@
 
 use crate::Compiler;
 use inkwell::context::Context;
-use parser::ast::{Closure, Expr, ExprKind, Literal, Program, Stmt, StmtKind, BinaryOp, StructDef};
+use parser::ast::{BinaryOp, Closure, Expr, ExprKind, Literal, Program, Stmt, StmtKind, StructDef};
 
 /// Helper to compile a program and check for errors
 fn compile_program(stmts: Vec<Stmt>) -> Result<String, String> {
@@ -74,7 +74,10 @@ fn test_closure_many_captures_10() {
         is_const: false,
     }));
 
-    assert!(compile_program(stmts).is_ok(), "Closure with 10 captures should compile");
+    assert!(
+        compile_program(stmts).is_ok(),
+        "Closure with 10 captures should compile"
+    );
 }
 
 #[test]
@@ -114,7 +117,10 @@ fn test_nested_closures_3_levels() {
         }),
     ];
 
-    assert!(compile_program(stmts).is_ok(), "Nested closures (3 levels) should compile");
+    assert!(
+        compile_program(stmts).is_ok(),
+        "Nested closures (3 levels) should compile"
+    );
 }
 
 #[test]
@@ -148,7 +154,10 @@ fn test_closure_chain_5_calls() {
         }));
     }
 
-    assert!(compile_program(stmts).is_ok(), "5 closure definitions should compile");
+    assert!(
+        compile_program(stmts).is_ok(),
+        "5 closure definitions should compile"
+    );
 }
 
 // ==========================================
@@ -169,7 +178,10 @@ fn test_struct_many_fields_15() {
         fields,
     }))];
 
-    assert!(compile_program(stmts).is_ok(), "Struct with 15 fields should compile");
+    assert!(
+        compile_program(stmts).is_ok(),
+        "Struct with 15 fields should compile"
+    );
 }
 
 #[test]
@@ -190,7 +202,10 @@ fn test_struct_with_many_defaults_10() {
         fields,
     }))];
 
-    assert!(compile_program(stmts).is_ok(), "Struct with 10 default values should compile");
+    assert!(
+        compile_program(stmts).is_ok(),
+        "Struct with 10 default values should compile"
+    );
 }
 
 // ==========================================
@@ -204,9 +219,15 @@ fn test_generic_struct_multiple_type_params_3() {
     let stmts = vec![Stmt::dummy(StmtKind::StructDef(StructDef {
         name: "Triple".to_string(),
         type_params: vec![
-            parser::ast::TypeParam { name: "A".to_string() },
-            parser::ast::TypeParam { name: "B".to_string() },
-            parser::ast::TypeParam { name: "C".to_string() },
+            parser::ast::TypeParam {
+                name: "A".to_string(),
+            },
+            parser::ast::TypeParam {
+                name: "B".to_string(),
+            },
+            parser::ast::TypeParam {
+                name: "C".to_string(),
+            },
         ],
         fields: vec![
             ("first".to_string(), "A".to_string(), None),
@@ -215,7 +236,10 @@ fn test_generic_struct_multiple_type_params_3() {
         ],
     }))];
 
-    assert!(compile_program(stmts).is_ok(), "Generic struct with 3 type params should compile");
+    assert!(
+        compile_program(stmts).is_ok(),
+        "Generic struct with 3 type params should compile"
+    );
 }
 
 // ==========================================
@@ -232,7 +256,9 @@ fn test_complex_combination() {
     let stmts = vec![
         Stmt::dummy(StmtKind::StructDef(StructDef {
             name: "Container".to_string(),
-            type_params: vec![parser::ast::TypeParam { name: "T".to_string() }],
+            type_params: vec![parser::ast::TypeParam {
+                name: "T".to_string(),
+            }],
             fields: vec![("value".to_string(), "T".to_string(), None)],
         })),
         Stmt::dummy(StmtKind::VariableDecl {
@@ -257,5 +283,8 @@ fn test_complex_combination() {
         }),
     ];
 
-    assert!(compile_program(stmts).is_ok(), "Complex combination should compile");
+    assert!(
+        compile_program(stmts).is_ok(),
+        "Complex combination should compile"
+    );
 }

@@ -23,13 +23,13 @@ pub enum BrixType {
     ComplexMatrix, // Matrix of Complex (2D)
     FloatPtr,
     Void,
-    Tuple(Vec<BrixType>), // Multiple returns (stored as struct)
-    Nil,                  // Represents null/nil value (null pointer)
-    Error,                // Error type (pointer to BrixError struct in runtime.c)
-    Atom,                 // Elixir-style atom (interned string, i64 ID)
-    Struct(String),       // User-defined struct (name stored as String)
-    Optional(Box<BrixType>), // Optional type: int?, String?, Matrix? (v1.4)
-    Union(Vec<BrixType>), // Union type: int | float | string (v1.4)
+    Tuple(Vec<BrixType>),        // Multiple returns (stored as struct)
+    Nil,                         // Represents null/nil value (null pointer)
+    Error,                       // Error type (pointer to BrixError struct in runtime.c)
+    Atom,                        // Elixir-style atom (interned string, i64 ID)
+    Struct(String),              // User-defined struct (name stored as String)
+    Optional(Box<BrixType>),     // Optional type: int?, String?, Matrix? (v1.4)
+    Union(Vec<BrixType>),        // Union type: int | float | string (v1.4)
     Intersection(Vec<BrixType>), // Intersection type: Point & Label (v1.4)
     AsyncFuture, // async { } block result: state_ptr (i8*) with embedded poll_fn at offset 0 (v1.6 Phase 3b)
 }

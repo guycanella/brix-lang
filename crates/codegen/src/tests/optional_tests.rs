@@ -17,7 +17,13 @@ fn compile_program(program: Program) -> Result<String, String> {
         let context = Context::create();
         let module = context.create_module("test");
         let builder = context.create_builder();
-        let mut compiler = Compiler::new(&context, &builder, &module, "test.bx".to_string(), "".to_string());
+        let mut compiler = Compiler::new(
+            &context,
+            &builder,
+            &module,
+            "test.bx".to_string(),
+            "".to_string(),
+        );
         compiler.compile_program(&program);
         module.print_to_string().to_string()
     });
@@ -88,7 +94,10 @@ fn test_optional_float_with_value() {
         )],
     };
     let result = compile_program(program);
-    assert!(result.is_ok(), "Should create Optional<float> with value 3.14");
+    assert!(
+        result.is_ok(),
+        "Should create Optional<float> with value 3.14"
+    );
 }
 
 #[test]
@@ -142,9 +151,11 @@ fn test_optional_not_equal_nil() {
             var_decl!("x", Some("int?".to_string()), lit_int!(42)),
             Stmt::dummy(StmtKind::If {
                 condition: binary_op!(BinaryOp::NotEq, ident!("x"), lit_nil!()),
-                then_block: Box::new(Stmt::dummy(StmtKind::Block(
-                    vec![var_decl!("y", None, lit_int!(1))]
-                ))),
+                then_block: Box::new(Stmt::dummy(StmtKind::Block(vec![var_decl!(
+                    "y",
+                    None,
+                    lit_int!(1)
+                )]))),
                 else_block: None,
             }),
         ],
@@ -160,9 +171,11 @@ fn test_optional_equal_nil() {
             var_decl!("x", Some("int?".to_string()), lit_nil!()),
             Stmt::dummy(StmtKind::If {
                 condition: binary_op!(BinaryOp::Eq, ident!("x"), lit_nil!()),
-                then_block: Box::new(Stmt::dummy(StmtKind::Block(
-                    vec![var_decl!("y", None, lit_int!(1))]
-                ))),
+                then_block: Box::new(Stmt::dummy(StmtKind::Block(vec![var_decl!(
+                    "y",
+                    None,
+                    lit_int!(1)
+                )]))),
                 else_block: None,
             }),
         ],
@@ -187,7 +200,10 @@ fn test_multiple_optional_declarations() {
         ],
     };
     let result = compile_program(program);
-    assert!(result.is_ok(), "Should compile multiple Optional declarations");
+    assert!(
+        result.is_ok(),
+        "Should compile multiple Optional declarations"
+    );
 }
 
 // --- OPTIONAL LOADING (IDENTIFIER) ---
@@ -232,9 +248,11 @@ fn test_optional_chained_conditions() {
                     binary_op!(BinaryOp::NotEq, ident!("x"), lit_nil!()),
                     binary_op!(BinaryOp::Eq, ident!("y"), lit_nil!())
                 ),
-                then_block: Box::new(Stmt::dummy(StmtKind::Block(
-                    vec![var_decl!("result", None, lit_int!(1))]
-                ))),
+                then_block: Box::new(Stmt::dummy(StmtKind::Block(vec![var_decl!(
+                    "result",
+                    None,
+                    lit_int!(1)
+                )]))),
                 else_block: None,
             }),
         ],
@@ -252,12 +270,12 @@ fn test_optional_in_while_loop() {
             var_decl!("x", Some("int?".to_string()), lit_int!(10)),
             Stmt::dummy(StmtKind::While {
                 condition: binary_op!(BinaryOp::NotEq, ident!("x"), lit_nil!()),
-                body: Box::new(Stmt::dummy(StmtKind::Block(
-                    vec![Stmt::dummy(StmtKind::Assignment {
+                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                    StmtKind::Assignment {
                         target: ident!("x"),
                         value: lit_nil!(),
-                    })]
-                ))),
+                    },
+                )]))),
             }),
         ],
     };

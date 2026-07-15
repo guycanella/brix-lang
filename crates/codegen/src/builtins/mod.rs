@@ -15,14 +15,14 @@
 // - io.rs (5 lines) - I/O functions (placeholder for future)
 // - matrix.rs (5 lines) - Matrix constructors (placeholder for future)
 
-pub mod math;
-pub mod stats;
-pub mod linalg;
-pub mod string;
-pub mod io;
-pub mod matrix;
-pub mod test;
-pub mod iterator;
-pub mod match_compiler;
 pub mod async_compiler;
 pub mod closure_compiler;
+pub mod io;
+pub mod iterator;
+pub mod linalg;
+pub mod match_compiler;
+pub mod math;
+pub mod matrix;
+pub mod stats;
+pub mod string;
+pub mod test;

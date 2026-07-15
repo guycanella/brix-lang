@@ -61,7 +61,10 @@ fn test_async_fn_no_awaits_compiles() {
     let ir = compile_program(program);
     assert!(ir.is_ok(), "async fn with no awaits should compile");
     let ir = ir.unwrap();
-    assert!(ir.contains("create_answer"), "IR should contain create_answer");
+    assert!(
+        ir.contains("create_answer"),
+        "IR should contain create_answer"
+    );
     assert!(ir.contains("poll_answer"), "IR should contain poll_answer");
 }
 
@@ -242,7 +245,10 @@ fn test_async_fn_two_sequential_awaits_compiles() {
         statements: vec![step, pipeline],
     };
     let ir = compile_program(program);
-    assert!(ir.is_ok(), "async fn with two sequential awaits should compile");
+    assert!(
+        ir.is_ok(),
+        "async fn with two sequential awaits should compile"
+    );
     let ir = ir.unwrap();
     assert!(ir.contains("create_pipeline"));
     assert!(ir.contains("poll_pipeline"));
@@ -277,9 +283,7 @@ fn test_async_fn_main_emits_run_to_completion() {
                 type_hint: None,
                 value: Expr::dummy(ExprKind::Await {
                     expr: Box::new(Expr::dummy(ExprKind::Call {
-                        func: Box::new(Expr::dummy(ExprKind::Identifier(
-                            "helper".to_string(),
-                        ))),
+                        func: Box::new(Expr::dummy(ExprKind::Identifier("helper".to_string()))),
                         args: vec![],
                     })),
                 }),
@@ -294,7 +298,10 @@ fn test_async_fn_main_emits_run_to_completion() {
     let ir = compile_program(program);
     assert!(ir.is_ok(), "async fn main with await should compile");
     let ir = ir.unwrap();
-    assert!(ir.contains("brix_run_to_completion"), "IR must call brix_run_to_completion");
+    assert!(
+        ir.contains("brix_run_to_completion"),
+        "IR must call brix_run_to_completion"
+    );
     assert!(ir.contains("create_main"));
     assert!(ir.contains("poll_main"));
 }
@@ -400,11 +407,20 @@ fn test_async_block_simple() {
             }),
         ]))),
     });
-    let program = Program { statements: vec![main_fn] };
+    let program = Program {
+        statements: vec![main_fn],
+    };
     let ir = compile_program(program);
-    assert!(ir.is_ok(), "async block simple should compile: {:?}", ir.err());
+    assert!(
+        ir.is_ok(),
+        "async block simple should compile: {:?}",
+        ir.err()
+    );
     let ir = ir.unwrap();
-    assert!(ir.contains("async_block_"), "IR should contain async_block_ functions");
+    assert!(
+        ir.contains("async_block_"),
+        "IR should contain async_block_ functions"
+    );
 }
 
 #[test]
@@ -479,12 +495,21 @@ fn test_async_block_with_inner_await() {
             }),
         ]))),
     });
-    let program = Program { statements: vec![double_fn, main_fn] };
+    let program = Program {
+        statements: vec![double_fn, main_fn],
+    };
     let ir = compile_program(program);
-    assert!(ir.is_ok(), "async block with inner await should compile: {:?}", ir.err());
+    assert!(
+        ir.is_ok(),
+        "async block with inner await should compile: {:?}",
+        ir.err()
+    );
     let ir = ir.unwrap();
     assert!(ir.contains("create_double") && ir.contains("poll_double"));
-    assert!(ir.contains("async_block_"), "IR should contain async_block_ functions");
+    assert!(
+        ir.contains("async_block_"),
+        "IR should contain async_block_ functions"
+    );
 }
 
 #[test]
@@ -517,9 +542,15 @@ fn test_async_block_type_is_async_future() {
             }),
         ]))),
     });
-    let program = Program { statements: vec![main_fn] };
+    let program = Program {
+        statements: vec![main_fn],
+    };
     let ir = compile_program(program);
-    assert!(ir.is_ok(), "async block type test should compile: {:?}", ir.err());
+    assert!(
+        ir.is_ok(),
+        "async block type test should compile: {:?}",
+        ir.err()
+    );
 }
 
 #[test]
@@ -538,7 +569,10 @@ fn test_extract_await_segments_variable_await() {
     let body = Stmt::dummy(StmtKind::Block(vec![stmt]));
     let (await_points, segments) = extract_await_segments(&body);
     assert_eq!(await_points.len(), 1, "Expected 1 await point");
-    assert!(await_points[0].is_variable_await, "Expected is_variable_await=true");
+    assert!(
+        await_points[0].is_variable_await,
+        "Expected is_variable_await=true"
+    );
     assert_eq!(await_points[0].callee_name, "future");
     assert_eq!(segments.len(), 2, "Expected 2 segments");
 }
@@ -598,16 +632,24 @@ fn test_async_await_in_if_compiles() {
                     lhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(1)))),
                     rhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(1)))),
                 }),
-                then_block: Box::new(Stmt::dummy(StmtKind::Block(vec![
-                    make_await_call("x", "helper", vec![]),
-                ]))),
+                then_block: Box::new(Stmt::dummy(StmtKind::Block(vec![make_await_call(
+                    "x",
+                    "helper",
+                    vec![],
+                )]))),
                 else_block: None,
             }),
         ]))),
     });
-    let program = Program { statements: vec![helper, main_fn] };
+    let program = Program {
+        statements: vec![helper, main_fn],
+    };
     let ir = compile_program(program);
-    assert!(ir.is_ok(), "async await in if should compile: {:?}", ir.err());
+    assert!(
+        ir.is_ok(),
+        "async await in if should compile: {:?}",
+        ir.err()
+    );
     let ir = ir.unwrap();
     assert!(ir.contains("poll_main"), "IR should contain poll_main");
     assert!(ir.contains("create_main"), "IR should contain create_main");
@@ -654,9 +696,15 @@ fn test_async_await_in_while_compiles() {
             }),
         ]))),
     });
-    let program = Program { statements: vec![helper, main_fn] };
+    let program = Program {
+        statements: vec![helper, main_fn],
+    };
     let ir = compile_program(program);
-    assert!(ir.is_ok(), "async await in while should compile: {:?}", ir.err());
+    assert!(
+        ir.is_ok(),
+        "async await in while should compile: {:?}",
+        ir.err()
+    );
     let ir = ir.unwrap();
     assert!(ir.contains("poll_main"), "IR should contain poll_main");
 }
@@ -665,35 +713,43 @@ fn test_async_await_in_while_compiles() {
 fn test_extract_async_stmts_if_await() {
     use crate::extract_async_stmts;
     use crate::AsyncStmt;
-    let stmts = vec![
-        Stmt::dummy(StmtKind::If {
-            condition: Expr::dummy(ExprKind::Literal(Literal::Int(1))),
-            then_block: Box::new(Stmt::dummy(StmtKind::Block(vec![
-                make_await_call("x", "helper", vec![]),
-            ]))),
-            else_block: None,
-        }),
-    ];
+    let stmts = vec![Stmt::dummy(StmtKind::If {
+        condition: Expr::dummy(ExprKind::Literal(Literal::Int(1))),
+        then_block: Box::new(Stmt::dummy(StmtKind::Block(vec![make_await_call(
+            "x",
+            "helper",
+            vec![],
+        )]))),
+        else_block: None,
+    })];
     let result = extract_async_stmts(&stmts, &[]);
-    assert!(result.iter().any(|s| matches!(s, AsyncStmt::IfAwait { .. })),
-        "Should produce IfAwait");
+    assert!(
+        result
+            .iter()
+            .any(|s| matches!(s, AsyncStmt::IfAwait { .. })),
+        "Should produce IfAwait"
+    );
 }
 
 #[test]
 fn test_extract_async_stmts_while_await() {
     use crate::extract_async_stmts;
     use crate::AsyncStmt;
-    let stmts = vec![
-        Stmt::dummy(StmtKind::While {
-            condition: Expr::dummy(ExprKind::Literal(Literal::Int(1))),
-            body: Box::new(Stmt::dummy(StmtKind::Block(vec![
-                make_await_call("x", "helper", vec![]),
-            ]))),
-        }),
-    ];
+    let stmts = vec![Stmt::dummy(StmtKind::While {
+        condition: Expr::dummy(ExprKind::Literal(Literal::Int(1))),
+        body: Box::new(Stmt::dummy(StmtKind::Block(vec![make_await_call(
+            "x",
+            "helper",
+            vec![],
+        )]))),
+    })];
     let result = extract_async_stmts(&stmts, &[]);
-    assert!(result.iter().any(|s| matches!(s, AsyncStmt::WhileAwait { .. })),
-        "Should produce WhileAwait");
+    assert!(
+        result
+            .iter()
+            .any(|s| matches!(s, AsyncStmt::WhileAwait { .. })),
+        "Should produce WhileAwait"
+    );
 }
 
 // --- Phase 3c: Async Closure tests ---
@@ -713,11 +769,11 @@ fn test_async_closure_no_captures_compiles() {
                 value: Expr::dummy(ExprKind::Closure(parser::ast::Closure {
                     params: vec![],
                     return_type: None,
-                    body: Box::new(Stmt::dummy(StmtKind::Block(vec![
-                        Stmt::dummy(StmtKind::Return {
+                    body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                        StmtKind::Return {
                             values: vec![Expr::dummy(ExprKind::Literal(Literal::Int(42)))],
-                        }),
-                    ]))),
+                        },
+                    )]))),
                     captured_vars: vec![],
                     is_async: true,
                 })),
@@ -726,11 +782,16 @@ fn test_async_closure_no_captures_compiles() {
             make_await_call("result", "f", vec![]),
         ]))),
     });
-    let program = Program { statements: vec![main_fn] };
+    let program = Program {
+        statements: vec![main_fn],
+    };
     let ir = compile_program(program);
     assert!(ir.is_ok(), "async closure should compile: {:?}", ir.err());
     let ir = ir.unwrap();
-    assert!(ir.contains("poll_async_closure_"), "IR should contain async closure poll function");
+    assert!(
+        ir.contains("poll_async_closure_"),
+        "IR should contain async closure poll function"
+    );
 }
 
 #[test]
@@ -763,10 +824,18 @@ fn test_async_closure_with_await_compiles() {
             make_await_call("result", "f", vec![]),
         ]))),
     });
-    let program = Program { statements: vec![helper, main_fn] };
+    let program = Program {
+        statements: vec![helper, main_fn],
+    };
     let ir = compile_program(program);
-    assert!(ir.is_ok(), "async closure with await should compile: {:?}", ir.err());
+    assert!(
+        ir.is_ok(),
+        "async closure with await should compile: {:?}",
+        ir.err()
+    );
     let ir = ir.unwrap();
-    assert!(ir.contains("poll_async_closure_"), "IR should contain async closure poll function");
+    assert!(
+        ir.contains("poll_async_closure_"),
+        "IR should contain async closure poll function"
+    );
 }
-

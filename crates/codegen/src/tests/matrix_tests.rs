@@ -2,14 +2,20 @@
 
 use crate::Compiler;
 use inkwell::context::Context;
-use parser::ast::{BinaryOp, Closure, Expr, Literal, Program, Stmt, ExprKind, StmtKind, UnaryOp};
+use parser::ast::{BinaryOp, Closure, Expr, ExprKind, Literal, Program, Stmt, StmtKind, UnaryOp};
 
 fn compile_program(program: Program) -> Result<String, String> {
     let result = std::panic::catch_unwind(|| {
         let context = Context::create();
         let module = context.create_module("test");
         let builder = context.create_builder();
-        let mut compiler = Compiler::new(&context, &builder, &module, "test.bx".to_string(), "".to_string());
+        let mut compiler = Compiler::new(
+            &context,
+            &builder,
+            &module,
+            "test.bx".to_string(),
+            "".to_string(),
+        );
         compiler.compile_program(&program);
         module.print_to_string().to_string()
     });
@@ -113,10 +119,12 @@ fn test_matrix_index_2d() {
 #[test]
 fn test_static_init_int() {
     let program = Program {
-        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::StaticInit {
-            element_type: "int".to_string(),
-            dimensions: vec![Expr::dummy(ExprKind::Literal(Literal::Int(5)))],
-        })))],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(
+            ExprKind::StaticInit {
+                element_type: "int".to_string(),
+                dimensions: vec![Expr::dummy(ExprKind::Literal(Literal::Int(5)))],
+            },
+        )))],
     };
     let ir = compile_program(program).unwrap();
     assert!(ir.contains("izeros") || ir.contains("calloc") || ir.contains("call"));
@@ -125,10 +133,12 @@ fn test_static_init_int() {
 #[test]
 fn test_static_init_float() {
     let program = Program {
-        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::StaticInit {
-            element_type: "float".to_string(),
-            dimensions: vec![Expr::dummy(ExprKind::Literal(Literal::Int(5)))],
-        })))],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(
+            ExprKind::StaticInit {
+                element_type: "float".to_string(),
+                dimensions: vec![Expr::dummy(ExprKind::Literal(Literal::Int(5)))],
+            },
+        )))],
     };
     let ir = compile_program(program).unwrap();
     assert!(ir.contains("zeros") || ir.contains("calloc") || ir.contains("call"));
@@ -137,13 +147,15 @@ fn test_static_init_float() {
 #[test]
 fn test_static_init_2d() {
     let program = Program {
-        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::StaticInit {
-            element_type: "float".to_string(),
-            dimensions: vec![
-                Expr::dummy(ExprKind::Literal(Literal::Int(3))),
-                Expr::dummy(ExprKind::Literal(Literal::Int(4))),
-            ],
-        })))],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(
+            ExprKind::StaticInit {
+                element_type: "float".to_string(),
+                dimensions: vec![
+                    Expr::dummy(ExprKind::Literal(Literal::Int(3))),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(4))),
+                ],
+            },
+        )))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -152,11 +164,13 @@ fn test_static_init_2d() {
 #[test]
 fn test_array_literal_int() {
     let program = Program {
-        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Array(vec![
-            Expr::dummy(ExprKind::Literal(Literal::Int(1))),
-            Expr::dummy(ExprKind::Literal(Literal::Int(2))),
-            Expr::dummy(ExprKind::Literal(Literal::Int(3))),
-        ]))))],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Array(
+            vec![
+                Expr::dummy(ExprKind::Literal(Literal::Int(1))),
+                Expr::dummy(ExprKind::Literal(Literal::Int(2))),
+                Expr::dummy(ExprKind::Literal(Literal::Int(3))),
+            ],
+        ))))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -165,11 +179,13 @@ fn test_array_literal_int() {
 #[test]
 fn test_array_literal_float() {
     let program = Program {
-        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Array(vec![
-            Expr::dummy(ExprKind::Literal(Literal::Float(1.0))),
-            Expr::dummy(ExprKind::Literal(Literal::Float(2.0))),
-            Expr::dummy(ExprKind::Literal(Literal::Float(3.0))),
-        ]))))],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Array(
+            vec![
+                Expr::dummy(ExprKind::Literal(Literal::Float(1.0))),
+                Expr::dummy(ExprKind::Literal(Literal::Float(2.0))),
+                Expr::dummy(ExprKind::Literal(Literal::Float(3.0))),
+            ],
+        ))))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -180,7 +196,9 @@ fn test_array_literal_float() {
 #[test]
 fn test_array_literal_empty() {
     let program = Program {
-        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Array(vec![]))))],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Array(
+            vec![],
+        ))))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -189,7 +207,9 @@ fn test_array_literal_empty() {
 #[test]
 fn test_array_literal_single_element() {
     let program = Program {
-        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Array(vec![Expr::dummy(ExprKind::Literal(Literal::Int(42)))]))))],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Array(
+            vec![Expr::dummy(ExprKind::Literal(Literal::Int(42)))],
+        ))))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -199,11 +219,13 @@ fn test_array_literal_single_element() {
 fn test_array_literal_mixed_int_float() {
     // Mixed int/float should promote to Matrix (float)
     let program = Program {
-        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Array(vec![
-            Expr::dummy(ExprKind::Literal(Literal::Int(1))),
-            Expr::dummy(ExprKind::Literal(Literal::Float(2.5))),
-            Expr::dummy(ExprKind::Literal(Literal::Int(3))),
-        ]))))],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Array(
+            vec![
+                Expr::dummy(ExprKind::Literal(Literal::Int(1))),
+                Expr::dummy(ExprKind::Literal(Literal::Float(2.5))),
+                Expr::dummy(ExprKind::Literal(Literal::Int(3))),
+            ],
+        ))))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -213,7 +235,9 @@ fn test_array_literal_mixed_int_float() {
 fn test_array_literal_large() {
     let program = Program {
         statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Array(
-            (0..100).map(|i| Expr::dummy(ExprKind::Literal(Literal::Int(i)))).collect(),
+            (0..100)
+                .map(|i| Expr::dummy(ExprKind::Literal(Literal::Int(i))))
+                .collect(),
         ))))],
     };
     let result = compile_program(program);
@@ -649,200 +673,10 @@ fn test_matrix_chained_assignment() {
 #[test]
 fn test_list_comprehension_empty_result() {
     let program = Program {
-        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::ListComprehension {
-            expr: Box::new(Expr::dummy(ExprKind::Identifier("x".to_string()))),
-            generators: vec![parser::ast::ComprehensionGen {
-                var_names: vec!["x".to_string()],
-                iterable: Box::new(Expr::dummy(ExprKind::Array(vec![
-                    Expr::dummy(ExprKind::Literal(Literal::Int(1))),
-                    Expr::dummy(ExprKind::Literal(Literal::Int(2))),
-                    Expr::dummy(ExprKind::Literal(Literal::Int(3))),
-                ]))),
-                conditions: vec![Expr::dummy(ExprKind::Binary {
-                    op: parser::ast::BinaryOp::Gt,
-                    lhs: Box::new(Expr::dummy(ExprKind::Identifier("x".to_string()))),
-                    rhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(10)))),
-                })],
-            }],
-        })))],
-    };
-    let result = compile_program(program);
-    assert!(result.is_ok());
-}
-
-#[test]
-fn test_list_comprehension_no_filter() {
-    let program = Program {
-        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::ListComprehension {
-            expr: Box::new(Expr::dummy(ExprKind::Binary {
-                op: parser::ast::BinaryOp::Mul,
-                lhs: Box::new(Expr::dummy(ExprKind::Identifier("x".to_string()))),
-                rhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(2)))),
-            })),
-            generators: vec![parser::ast::ComprehensionGen {
-                var_names: vec!["x".to_string()],
-                iterable: Box::new(Expr::dummy(ExprKind::Array(vec![
-                    Expr::dummy(ExprKind::Literal(Literal::Int(1))),
-                    Expr::dummy(ExprKind::Literal(Literal::Int(2))),
-                    Expr::dummy(ExprKind::Literal(Literal::Int(3))),
-                ]))),
-                conditions: vec![],
-            }],
-        })))],
-    };
-    let result = compile_program(program);
-    assert!(result.is_ok());
-}
-
-#[test]
-fn test_list_comprehension_three_loops() {
-    let program = Program {
-        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::ListComprehension {
-            expr: Box::new(Expr::dummy(ExprKind::Binary {
-                op: parser::ast::BinaryOp::Add,
-                lhs: Box::new(Expr::dummy(ExprKind::Binary {
-                    op: parser::ast::BinaryOp::Add,
-                    lhs: Box::new(Expr::dummy(ExprKind::Identifier("x".to_string()))),
-                    rhs: Box::new(Expr::dummy(ExprKind::Identifier("y".to_string()))),
-                })),
-                rhs: Box::new(Expr::dummy(ExprKind::Identifier("z".to_string()))),
-            })),
-            generators: vec![
-                parser::ast::ComprehensionGen {
-                    var_names: vec!["x".to_string()],
-                    iterable: Box::new(Expr::dummy(ExprKind::Array(vec![
-                        Expr::dummy(ExprKind::Literal(Literal::Float(1.0))),
-                        Expr::dummy(ExprKind::Literal(Literal::Float(2.0))),
-                    ]))),
-                    conditions: vec![],
-                },
-                parser::ast::ComprehensionGen {
-                    var_names: vec!["y".to_string()],
-                    iterable: Box::new(Expr::dummy(ExprKind::Array(vec![
-                        Expr::dummy(ExprKind::Literal(Literal::Float(10.0))),
-                        Expr::dummy(ExprKind::Literal(Literal::Float(20.0))),
-                    ]))),
-                    conditions: vec![],
-                },
-                parser::ast::ComprehensionGen {
-                    var_names: vec!["z".to_string()],
-                    iterable: Box::new(Expr::dummy(ExprKind::Array(vec![
-                        Expr::dummy(ExprKind::Literal(Literal::Float(100.0))),
-                        Expr::dummy(ExprKind::Literal(Literal::Float(200.0))),
-                    ]))),
-                    conditions: vec![],
-                },
-            ],
-        })))],
-    };
-    let result = compile_program(program);
-    assert!(result.is_ok());
-}
-
-#[test]
-fn test_list_comprehension_multiple_conditions() {
-    let program = Program {
-        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::ListComprehension {
-            expr: Box::new(Expr::dummy(ExprKind::Identifier("x".to_string()))),
-            generators: vec![parser::ast::ComprehensionGen {
-                var_names: vec!["x".to_string()],
-                iterable: Box::new(Expr::dummy(ExprKind::Array(vec![
-                    Expr::dummy(ExprKind::Literal(Literal::Int(1))),
-                    Expr::dummy(ExprKind::Literal(Literal::Int(2))),
-                    Expr::dummy(ExprKind::Literal(Literal::Int(3))),
-                    Expr::dummy(ExprKind::Literal(Literal::Int(4))),
-                    Expr::dummy(ExprKind::Literal(Literal::Int(5))),
-                ]))),
-                conditions: vec![
-                    Expr::dummy(ExprKind::Binary {
-                        op: parser::ast::BinaryOp::Gt,
-                        lhs: Box::new(Expr::dummy(ExprKind::Identifier("x".to_string()))),
-                        rhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(2)))),
-                    }),
-                    Expr::dummy(ExprKind::Binary {
-                        op: parser::ast::BinaryOp::Lt,
-                        lhs: Box::new(Expr::dummy(ExprKind::Identifier("x".to_string()))),
-                        rhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(5)))),
-                    }),
-                ],
-            }],
-        })))],
-    };
-    let result = compile_program(program);
-    assert!(result.is_ok());
-}
-
-#[test]
-fn test_list_comprehension_with_destructuring() {
-    let program = Program {
-        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::ListComprehension {
-            expr: Box::new(Expr::dummy(ExprKind::Binary {
-                op: parser::ast::BinaryOp::Add,
-                lhs: Box::new(Expr::dummy(ExprKind::Identifier("a".to_string()))),
-                rhs: Box::new(Expr::dummy(ExprKind::Identifier("b".to_string()))),
-            })),
-            generators: vec![parser::ast::ComprehensionGen {
-                var_names: vec!["a".to_string(), "b".to_string()],
-                iterable: Box::new(Expr::dummy(ExprKind::Call {
-                    func: Box::new(Expr::dummy(ExprKind::Identifier("zip".to_string()))),
-                    args: vec![
-                        Expr::dummy(ExprKind::Array(vec![
-                            Expr::dummy(ExprKind::Literal(Literal::Float(1.0))),
-                            Expr::dummy(ExprKind::Literal(Literal::Float(2.0))),
-                        ])),
-                        Expr::dummy(ExprKind::Array(vec![
-                            Expr::dummy(ExprKind::Literal(Literal::Float(10.0))),
-                            Expr::dummy(ExprKind::Literal(Literal::Float(20.0))),
-                        ])),
-                    ],
-                })),
-                conditions: vec![],
-            }],
-        })))],
-    };
-    let result = compile_program(program);
-    assert!(result.is_ok());
-}
-
-#[test]
-fn test_list_comprehension_complex_expression() {
-    let program = Program {
-        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::ListComprehension {
-            expr: Box::new(Expr::dummy(ExprKind::Binary {
-                op: parser::ast::BinaryOp::Mul,
-                lhs: Box::new(Expr::dummy(ExprKind::Binary {
-                    op: parser::ast::BinaryOp::Add,
-                    lhs: Box::new(Expr::dummy(ExprKind::Identifier("x".to_string()))),
-                    rhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Float(1.0)))),
-                })),
-                rhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Float(2.0)))),
-            })),
-            generators: vec![parser::ast::ComprehensionGen {
-                var_names: vec!["x".to_string()],
-                iterable: Box::new(Expr::dummy(ExprKind::Array(vec![
-                    Expr::dummy(ExprKind::Literal(Literal::Float(1.0))),
-                    Expr::dummy(ExprKind::Literal(Literal::Float(2.0))),
-                    Expr::dummy(ExprKind::Literal(Literal::Float(3.0))),
-                ]))),
-                conditions: vec![],
-            }],
-        })))],
-    };
-    let result = compile_program(program);
-    assert!(result.is_ok());
-}
-
-#[test]
-fn test_list_comprehension_nested_with_condition() {
-    let program = Program {
-        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::ListComprehension {
-            expr: Box::new(Expr::dummy(ExprKind::Binary {
-                op: parser::ast::BinaryOp::Mul,
-                lhs: Box::new(Expr::dummy(ExprKind::Identifier("x".to_string()))),
-                rhs: Box::new(Expr::dummy(ExprKind::Identifier("y".to_string()))),
-            })),
-            generators: vec![
-                parser::ast::ComprehensionGen {
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(
+            ExprKind::ListComprehension {
+                expr: Box::new(Expr::dummy(ExprKind::Identifier("x".to_string()))),
+                generators: vec![parser::ast::ComprehensionGen {
                     var_names: vec!["x".to_string()],
                     iterable: Box::new(Expr::dummy(ExprKind::Array(vec![
                         Expr::dummy(ExprKind::Literal(Literal::Int(1))),
@@ -852,19 +686,223 @@ fn test_list_comprehension_nested_with_condition() {
                     conditions: vec![Expr::dummy(ExprKind::Binary {
                         op: parser::ast::BinaryOp::Gt,
                         lhs: Box::new(Expr::dummy(ExprKind::Identifier("x".to_string()))),
-                        rhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(1)))),
+                        rhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(10)))),
                     })],
-                },
-                parser::ast::ComprehensionGen {
-                    var_names: vec!["y".to_string()],
+                }],
+            },
+        )))],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_list_comprehension_no_filter() {
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(
+            ExprKind::ListComprehension {
+                expr: Box::new(Expr::dummy(ExprKind::Binary {
+                    op: parser::ast::BinaryOp::Mul,
+                    lhs: Box::new(Expr::dummy(ExprKind::Identifier("x".to_string()))),
+                    rhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(2)))),
+                })),
+                generators: vec![parser::ast::ComprehensionGen {
+                    var_names: vec!["x".to_string()],
                     iterable: Box::new(Expr::dummy(ExprKind::Array(vec![
-                        Expr::dummy(ExprKind::Literal(Literal::Int(10))),
-                        Expr::dummy(ExprKind::Literal(Literal::Int(20))),
+                        Expr::dummy(ExprKind::Literal(Literal::Int(1))),
+                        Expr::dummy(ExprKind::Literal(Literal::Int(2))),
+                        Expr::dummy(ExprKind::Literal(Literal::Int(3))),
                     ]))),
                     conditions: vec![],
-                },
-            ],
-        })))],
+                }],
+            },
+        )))],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_list_comprehension_three_loops() {
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(
+            ExprKind::ListComprehension {
+                expr: Box::new(Expr::dummy(ExprKind::Binary {
+                    op: parser::ast::BinaryOp::Add,
+                    lhs: Box::new(Expr::dummy(ExprKind::Binary {
+                        op: parser::ast::BinaryOp::Add,
+                        lhs: Box::new(Expr::dummy(ExprKind::Identifier("x".to_string()))),
+                        rhs: Box::new(Expr::dummy(ExprKind::Identifier("y".to_string()))),
+                    })),
+                    rhs: Box::new(Expr::dummy(ExprKind::Identifier("z".to_string()))),
+                })),
+                generators: vec![
+                    parser::ast::ComprehensionGen {
+                        var_names: vec!["x".to_string()],
+                        iterable: Box::new(Expr::dummy(ExprKind::Array(vec![
+                            Expr::dummy(ExprKind::Literal(Literal::Float(1.0))),
+                            Expr::dummy(ExprKind::Literal(Literal::Float(2.0))),
+                        ]))),
+                        conditions: vec![],
+                    },
+                    parser::ast::ComprehensionGen {
+                        var_names: vec!["y".to_string()],
+                        iterable: Box::new(Expr::dummy(ExprKind::Array(vec![
+                            Expr::dummy(ExprKind::Literal(Literal::Float(10.0))),
+                            Expr::dummy(ExprKind::Literal(Literal::Float(20.0))),
+                        ]))),
+                        conditions: vec![],
+                    },
+                    parser::ast::ComprehensionGen {
+                        var_names: vec!["z".to_string()],
+                        iterable: Box::new(Expr::dummy(ExprKind::Array(vec![
+                            Expr::dummy(ExprKind::Literal(Literal::Float(100.0))),
+                            Expr::dummy(ExprKind::Literal(Literal::Float(200.0))),
+                        ]))),
+                        conditions: vec![],
+                    },
+                ],
+            },
+        )))],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_list_comprehension_multiple_conditions() {
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(
+            ExprKind::ListComprehension {
+                expr: Box::new(Expr::dummy(ExprKind::Identifier("x".to_string()))),
+                generators: vec![parser::ast::ComprehensionGen {
+                    var_names: vec!["x".to_string()],
+                    iterable: Box::new(Expr::dummy(ExprKind::Array(vec![
+                        Expr::dummy(ExprKind::Literal(Literal::Int(1))),
+                        Expr::dummy(ExprKind::Literal(Literal::Int(2))),
+                        Expr::dummy(ExprKind::Literal(Literal::Int(3))),
+                        Expr::dummy(ExprKind::Literal(Literal::Int(4))),
+                        Expr::dummy(ExprKind::Literal(Literal::Int(5))),
+                    ]))),
+                    conditions: vec![
+                        Expr::dummy(ExprKind::Binary {
+                            op: parser::ast::BinaryOp::Gt,
+                            lhs: Box::new(Expr::dummy(ExprKind::Identifier("x".to_string()))),
+                            rhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(2)))),
+                        }),
+                        Expr::dummy(ExprKind::Binary {
+                            op: parser::ast::BinaryOp::Lt,
+                            lhs: Box::new(Expr::dummy(ExprKind::Identifier("x".to_string()))),
+                            rhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(5)))),
+                        }),
+                    ],
+                }],
+            },
+        )))],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_list_comprehension_with_destructuring() {
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(
+            ExprKind::ListComprehension {
+                expr: Box::new(Expr::dummy(ExprKind::Binary {
+                    op: parser::ast::BinaryOp::Add,
+                    lhs: Box::new(Expr::dummy(ExprKind::Identifier("a".to_string()))),
+                    rhs: Box::new(Expr::dummy(ExprKind::Identifier("b".to_string()))),
+                })),
+                generators: vec![parser::ast::ComprehensionGen {
+                    var_names: vec!["a".to_string(), "b".to_string()],
+                    iterable: Box::new(Expr::dummy(ExprKind::Call {
+                        func: Box::new(Expr::dummy(ExprKind::Identifier("zip".to_string()))),
+                        args: vec![
+                            Expr::dummy(ExprKind::Array(vec![
+                                Expr::dummy(ExprKind::Literal(Literal::Float(1.0))),
+                                Expr::dummy(ExprKind::Literal(Literal::Float(2.0))),
+                            ])),
+                            Expr::dummy(ExprKind::Array(vec![
+                                Expr::dummy(ExprKind::Literal(Literal::Float(10.0))),
+                                Expr::dummy(ExprKind::Literal(Literal::Float(20.0))),
+                            ])),
+                        ],
+                    })),
+                    conditions: vec![],
+                }],
+            },
+        )))],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_list_comprehension_complex_expression() {
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(
+            ExprKind::ListComprehension {
+                expr: Box::new(Expr::dummy(ExprKind::Binary {
+                    op: parser::ast::BinaryOp::Mul,
+                    lhs: Box::new(Expr::dummy(ExprKind::Binary {
+                        op: parser::ast::BinaryOp::Add,
+                        lhs: Box::new(Expr::dummy(ExprKind::Identifier("x".to_string()))),
+                        rhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Float(1.0)))),
+                    })),
+                    rhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Float(2.0)))),
+                })),
+                generators: vec![parser::ast::ComprehensionGen {
+                    var_names: vec!["x".to_string()],
+                    iterable: Box::new(Expr::dummy(ExprKind::Array(vec![
+                        Expr::dummy(ExprKind::Literal(Literal::Float(1.0))),
+                        Expr::dummy(ExprKind::Literal(Literal::Float(2.0))),
+                        Expr::dummy(ExprKind::Literal(Literal::Float(3.0))),
+                    ]))),
+                    conditions: vec![],
+                }],
+            },
+        )))],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_list_comprehension_nested_with_condition() {
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(
+            ExprKind::ListComprehension {
+                expr: Box::new(Expr::dummy(ExprKind::Binary {
+                    op: parser::ast::BinaryOp::Mul,
+                    lhs: Box::new(Expr::dummy(ExprKind::Identifier("x".to_string()))),
+                    rhs: Box::new(Expr::dummy(ExprKind::Identifier("y".to_string()))),
+                })),
+                generators: vec![
+                    parser::ast::ComprehensionGen {
+                        var_names: vec!["x".to_string()],
+                        iterable: Box::new(Expr::dummy(ExprKind::Array(vec![
+                            Expr::dummy(ExprKind::Literal(Literal::Int(1))),
+                            Expr::dummy(ExprKind::Literal(Literal::Int(2))),
+                            Expr::dummy(ExprKind::Literal(Literal::Int(3))),
+                        ]))),
+                        conditions: vec![Expr::dummy(ExprKind::Binary {
+                            op: parser::ast::BinaryOp::Gt,
+                            lhs: Box::new(Expr::dummy(ExprKind::Identifier("x".to_string()))),
+                            rhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(1)))),
+                        })],
+                    },
+                    parser::ast::ComprehensionGen {
+                        var_names: vec!["y".to_string()],
+                        iterable: Box::new(Expr::dummy(ExprKind::Array(vec![
+                            Expr::dummy(ExprKind::Literal(Literal::Int(10))),
+                            Expr::dummy(ExprKind::Literal(Literal::Int(20))),
+                        ]))),
+                        conditions: vec![],
+                    },
+                ],
+            },
+        )))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -971,7 +1009,10 @@ fn test_zip_empty_arrays() {
     let program = Program {
         statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
             func: Box::new(Expr::dummy(ExprKind::Identifier("zip".to_string()))),
-            args: vec![Expr::dummy(ExprKind::Array(vec![])), Expr::dummy(ExprKind::Array(vec![]))],
+            args: vec![
+                Expr::dummy(ExprKind::Array(vec![])),
+                Expr::dummy(ExprKind::Array(vec![])),
+            ],
         })))],
     };
     let result = compile_program(program);
@@ -1447,20 +1488,18 @@ fn test_matrix_element_in_ternary() {
 #[test]
 fn test_array_from_function_call_then_index() {
     let program = Program {
-        statements: vec![
-            Stmt::dummy(StmtKind::VariableDecl {
-                name: "z".to_string(),
-                type_hint: None,
-                value: Expr::dummy(ExprKind::Index {
-                    array: Box::new(Expr::dummy(ExprKind::Call {
-                        func: Box::new(Expr::dummy(ExprKind::Identifier("zeros".to_string()))),
-                        args: vec![Expr::dummy(ExprKind::Literal(Literal::Int(5)))],
-                    })),
-                    indices: vec![Expr::dummy(ExprKind::Literal(Literal::Int(2)))],
-                }),
-                is_const: false,
+        statements: vec![Stmt::dummy(StmtKind::VariableDecl {
+            name: "z".to_string(),
+            type_hint: None,
+            value: Expr::dummy(ExprKind::Index {
+                array: Box::new(Expr::dummy(ExprKind::Call {
+                    func: Box::new(Expr::dummy(ExprKind::Identifier("zeros".to_string()))),
+                    args: vec![Expr::dummy(ExprKind::Literal(Literal::Int(5)))],
+                })),
+                indices: vec![Expr::dummy(ExprKind::Literal(Literal::Int(2)))],
             }),
-        ],
+            is_const: false,
+        })],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -1685,7 +1724,10 @@ fn make_unary_closure_no_return(param: &str, param_ty: &str, body: Expr) -> Expr
 /// Helper: build closure expr `(a: T, b: U) -> R { return body }`
 fn make_binary_closure(p0: &str, t0: &str, p1: &str, t1: &str, ret_ty: &str, body: Expr) -> Expr {
     Expr::dummy(ExprKind::Closure(Closure {
-        params: vec![(p0.to_string(), t0.to_string()), (p1.to_string(), t1.to_string())],
+        params: vec![
+            (p0.to_string(), t0.to_string()),
+            (p1.to_string(), t1.to_string()),
+        ],
         return_type: Some(ret_ty.to_string()),
         body: Box::new(Stmt::dummy(StmtKind::Return { values: vec![body] })),
         captured_vars: vec![],
@@ -1705,7 +1747,9 @@ fn test_map_2d_intmatrix() {
         ],
     });
     let callback = make_unary_closure(
-        "x", "int", "int",
+        "x",
+        "int",
+        "int",
         Expr::dummy(ExprKind::Binary {
             op: BinaryOp::Add,
             lhs: Box::new(Expr::dummy(ExprKind::Identifier("x".to_string()))),
@@ -1738,7 +1782,9 @@ fn test_map_2d_matrix() {
         ],
     });
     let callback = make_unary_closure(
-        "x", "float", "float",
+        "x",
+        "float",
+        "float",
         Expr::dummy(ExprKind::Binary {
             op: BinaryOp::Add,
             lhs: Box::new(Expr::dummy(ExprKind::Identifier("x".to_string()))),
@@ -1770,7 +1816,9 @@ fn test_filter_2d() {
         ],
     });
     let callback = make_unary_closure(
-        "x", "float", "int",
+        "x",
+        "float",
+        "int",
         Expr::dummy(ExprKind::Literal(Literal::Int(1))),
     );
     let filter_call = Expr::dummy(ExprKind::Call {
@@ -1798,7 +1846,11 @@ fn test_reduce_2d() {
         ],
     });
     let callback = make_binary_closure(
-        "acc", "float", "x", "float", "float",
+        "acc",
+        "float",
+        "x",
+        "float",
+        "float",
         Expr::dummy(ExprKind::Binary {
             op: BinaryOp::Add,
             lhs: Box::new(Expr::dummy(ExprKind::Identifier("acc".to_string()))),
@@ -1832,7 +1884,8 @@ fn test_infer_float_from_literal() {
         args: vec![Expr::dummy(ExprKind::Literal(Literal::Int(3)))],
     });
     let callback = make_unary_closure_no_return(
-        "x", "float",
+        "x",
+        "float",
         Expr::dummy(ExprKind::Binary {
             op: BinaryOp::Mul,
             lhs: Box::new(Expr::dummy(ExprKind::Identifier("x".to_string()))),
@@ -1861,7 +1914,8 @@ fn test_infer_float_from_param() {
         args: vec![Expr::dummy(ExprKind::Literal(Literal::Int(3)))],
     });
     let callback = make_unary_closure_no_return(
-        "x", "float",
+        "x",
+        "float",
         Expr::dummy(ExprKind::Identifier("x".to_string())),
     );
     let map_call = Expr::dummy(ExprKind::Call {
@@ -1886,7 +1940,8 @@ fn test_infer_int_from_literal() {
         args: vec![Expr::dummy(ExprKind::Literal(Literal::Int(3)))],
     });
     let callback = make_unary_closure_no_return(
-        "x", "int",
+        "x",
+        "int",
         Expr::dummy(ExprKind::Binary {
             op: BinaryOp::Add,
             lhs: Box::new(Expr::dummy(ExprKind::Identifier("x".to_string()))),
@@ -1915,7 +1970,8 @@ fn test_infer_float_binary_mixed() {
         args: vec![Expr::dummy(ExprKind::Literal(Literal::Int(3)))],
     });
     let callback = make_unary_closure_no_return(
-        "x", "float",
+        "x",
+        "float",
         Expr::dummy(ExprKind::Binary {
             op: BinaryOp::Add,
             lhs: Box::new(Expr::dummy(ExprKind::Identifier("x".to_string()))),
@@ -2120,9 +2176,18 @@ fn test_infer_expr_type_static_max_on_matrix_is_float() {
     let context = Context::create();
     let module = context.create_module("test");
     let builder = context.create_builder();
-    let compiler = Compiler::new(&context, &builder, &module, "test.bx".to_string(), "".to_string());
+    let compiler = Compiler::new(
+        &context,
+        &builder,
+        &module,
+        "test.bx".to_string(),
+        "".to_string(),
+    );
     let expr = method_call(float_array_literal(&[1.0, 2.0]), "max");
-    assert_eq!(compiler.infer_expr_type_static(&expr, &[]), Some(crate::BrixType::Float));
+    assert_eq!(
+        compiler.infer_expr_type_static(&expr, &[]),
+        Some(crate::BrixType::Float)
+    );
 }
 
 #[test]
@@ -2130,9 +2195,18 @@ fn test_infer_expr_type_static_min_on_intmatrix_is_int() {
     let context = Context::create();
     let module = context.create_module("test");
     let builder = context.create_builder();
-    let compiler = Compiler::new(&context, &builder, &module, "test.bx".to_string(), "".to_string());
+    let compiler = Compiler::new(
+        &context,
+        &builder,
+        &module,
+        "test.bx".to_string(),
+        "".to_string(),
+    );
     let expr = method_call(int_array_literal(&[3, 1, 4]), "min");
-    assert_eq!(compiler.infer_expr_type_static(&expr, &[]), Some(crate::BrixType::Int));
+    assert_eq!(
+        compiler.infer_expr_type_static(&expr, &[]),
+        Some(crate::BrixType::Int)
+    );
 }
 
 #[test]
@@ -2140,9 +2214,18 @@ fn test_infer_expr_type_static_sort_preserves_matrix() {
     let context = Context::create();
     let module = context.create_module("test");
     let builder = context.create_builder();
-    let compiler = Compiler::new(&context, &builder, &module, "test.bx".to_string(), "".to_string());
+    let compiler = Compiler::new(
+        &context,
+        &builder,
+        &module,
+        "test.bx".to_string(),
+        "".to_string(),
+    );
     let expr = method_call(float_array_literal(&[3.0, 1.0]), "sort");
-    assert_eq!(compiler.infer_expr_type_static(&expr, &[]), Some(crate::BrixType::Matrix));
+    assert_eq!(
+        compiler.infer_expr_type_static(&expr, &[]),
+        Some(crate::BrixType::Matrix)
+    );
 }
 
 #[test]
@@ -2150,7 +2233,13 @@ fn test_infer_expr_type_static_append_preserves_intmatrix() {
     let context = Context::create();
     let module = context.create_module("test");
     let builder = context.create_builder();
-    let compiler = Compiler::new(&context, &builder, &module, "test.bx".to_string(), "".to_string());
+    let compiler = Compiler::new(
+        &context,
+        &builder,
+        &module,
+        "test.bx".to_string(),
+        "".to_string(),
+    );
     let expr = Expr::dummy(ExprKind::Call {
         func: Box::new(Expr::dummy(ExprKind::FieldAccess {
             target: Box::new(int_array_literal(&[1, 2])),
@@ -2158,7 +2247,10 @@ fn test_infer_expr_type_static_append_preserves_intmatrix() {
         })),
         args: vec![Expr::dummy(ExprKind::Literal(Literal::Int(3)))],
     });
-    assert_eq!(compiler.infer_expr_type_static(&expr, &[]), Some(crate::BrixType::IntMatrix));
+    assert_eq!(
+        compiler.infer_expr_type_static(&expr, &[]),
+        Some(crate::BrixType::IntMatrix)
+    );
 }
 
 #[test]
@@ -2166,9 +2258,18 @@ fn test_infer_expr_type_static_count_is_int() {
     let context = Context::create();
     let module = context.create_module("test");
     let builder = context.create_builder();
-    let compiler = Compiler::new(&context, &builder, &module, "test.bx".to_string(), "".to_string());
+    let compiler = Compiler::new(
+        &context,
+        &builder,
+        &module,
+        "test.bx".to_string(),
+        "".to_string(),
+    );
     let expr = method_call(int_array_literal(&[1, 2, 3]), "count");
-    assert_eq!(compiler.infer_expr_type_static(&expr, &[]), Some(crate::BrixType::Int));
+    assert_eq!(
+        compiler.infer_expr_type_static(&expr, &[]),
+        Some(crate::BrixType::Int)
+    );
 }
 
 #[test]
@@ -2185,7 +2286,8 @@ fn test_map_callback_infers_matrix_via_max() {
         args: vec![Expr::dummy(ExprKind::Literal(Literal::Int(3)))],
     });
     let callback = make_unary_closure_no_return(
-        "x", "int",
+        "x",
+        "int",
         method_call(float_array_literal(&[1.0, 2.0]), "max"),
     );
     let map_call = Expr::dummy(ExprKind::Call {
@@ -2243,7 +2345,9 @@ fn stepped_range_expr(start: i64, end: i64, step_val: i64, inclusive: bool) -> E
     Expr::dummy(ExprKind::Range {
         start: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(start)))),
         end: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(end)))),
-        step: Some(Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(step_val))))),
+        step: Some(Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(
+            step_val,
+        ))))),
         inclusive,
     })
 }
@@ -2309,8 +2413,16 @@ fn test_negative_index_literal() {
     // `icmp slt` comparison down to `i1 true` at build time, so we can't
     // assert on "idx_is_neg" / "icmp slt" text directly — assert on the
     // surviving `idx_adjusted` (idx + len) and `select` instructions instead.
-    assert!(ir.contains("idx_adjusted"), "expected idx + len adjustment, got IR:\n{}", ir);
-    assert!(ir.contains("select"), "expected select to pick adjusted vs raw index, got IR:\n{}", ir);
+    assert!(
+        ir.contains("idx_adjusted"),
+        "expected idx + len adjustment, got IR:\n{}",
+        ir
+    );
+    assert!(
+        ir.contains("select"),
+        "expected select to pick adjusted vs raw index, got IR:\n{}",
+        ir
+    );
     // Length is rows*cols (not bare cols), so flat single-index access stays
     // correct for 2D matrices too (see review finding: negative index on a
     // rows>1 matrix must use total element count, not just cols).
@@ -2347,15 +2459,22 @@ fn test_negative_index_assignment() {
     };
     let ir = compile_program(program).unwrap();
     // Same constant-folding caveat as test_negative_index_literal applies here.
-    assert!(ir.contains("idx_adjusted"), "expected idx + len adjustment in lvalue path, got IR:\n{}", ir);
-    assert!(ir.contains("select"), "expected select in lvalue negative-index path, got IR:\n{}", ir);
+    assert!(
+        ir.contains("idx_adjusted"),
+        "expected idx + len adjustment in lvalue path, got IR:\n{}",
+        ir
+    );
+    assert!(
+        ir.contains("select"),
+        "expected select in lvalue negative-index path, got IR:\n{}",
+        ir
+    );
     assert!(
         ir.contains("store i64 99, ptr %addr_ptr"),
         "expected the assignment to store through the adjusted address, got IR:\n{}",
         ir
     );
 }
-
 
 // =========================================================
 // SECTION: v1.7 Group C review fixes — regression coverage
@@ -2376,9 +2495,18 @@ fn test_slice_with_step_is_rejected() {
     let context = Context::create();
     let module = context.create_module("test");
     let builder = context.create_builder();
-    let mut compiler = Compiler::new(&context, &builder, &module, "test.bx".to_string(), "".to_string());
+    let mut compiler = Compiler::new(
+        &context,
+        &builder,
+        &module,
+        "test.bx".to_string(),
+        "".to_string(),
+    );
     let result = compiler.compile_program(&program);
-    assert!(result.is_err(), "expected stepped range as a slice index to be rejected");
+    assert!(
+        result.is_err(),
+        "expected stepped range as a slice index to be rejected"
+    );
 }
 
 #[test]
@@ -2399,9 +2527,18 @@ fn test_slice_with_float_bounds_is_rejected() {
     let context = Context::create();
     let module = context.create_module("test");
     let builder = context.create_builder();
-    let mut compiler = Compiler::new(&context, &builder, &module, "test.bx".to_string(), "".to_string());
+    let mut compiler = Compiler::new(
+        &context,
+        &builder,
+        &module,
+        "test.bx".to_string(),
+        "".to_string(),
+    );
     let result = compiler.compile_program(&program);
-    assert!(result.is_err(), "expected Float slice bounds to be rejected with a CodegenError");
+    assert!(
+        result.is_err(),
+        "expected Float slice bounds to be rejected with a CodegenError"
+    );
 }
 
 #[test]
@@ -2456,7 +2593,9 @@ fn test_union_with_complex_variant_sizes_correctly() {
         }),
         is_const: false,
     });
-    let program = Program { statements: vec![decl] };
+    let program = Program {
+        statements: vec![decl],
+    };
     let ir = compile_program(program).unwrap();
     assert!(
         ir.contains("alloca { i64, { double, double } }"),

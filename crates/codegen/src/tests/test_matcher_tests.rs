@@ -430,7 +430,9 @@ fn test_closure_without_return_annotation_gets_correctly_typed_function() {
     // happened to still produce correct results in practice only because
     // caller and body agreed with each other while the declaration lied.
     // compile_closure() must infer the same type its callers already assume.
-    let arr = expr(ExprKind::Array(vec![expr(ExprKind::Literal(Literal::Float(1.0)))]));
+    let arr = expr(ExprKind::Array(vec![expr(ExprKind::Literal(
+        Literal::Float(1.0),
+    ))]));
     let callback = expr(ExprKind::Closure(Closure {
         params: vec![("x".to_string(), "float".to_string())],
         return_type: None,

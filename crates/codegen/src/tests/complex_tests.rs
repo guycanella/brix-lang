@@ -2,14 +2,20 @@
 
 use crate::Compiler;
 use inkwell::context::Context;
-use parser::ast::{BinaryOp, Expr, Literal, Program, Stmt, ExprKind, StmtKind};
+use parser::ast::{BinaryOp, Expr, ExprKind, Literal, Program, Stmt, StmtKind};
 
 fn compile_program(program: Program) -> Result<String, String> {
     let result = std::panic::catch_unwind(|| {
         let context = Context::create();
         let module = context.create_module("test");
         let builder = context.create_builder();
-        let mut compiler = Compiler::new(&context, &builder, &module, "test.bx".to_string(), "".to_string());
+        let mut compiler = Compiler::new(
+            &context,
+            &builder,
+            &module,
+            "test.bx".to_string(),
+            "".to_string(),
+        );
         compiler.compile_program(&program);
         module.print_to_string().to_string()
     });
@@ -22,7 +28,9 @@ fn compile_program(program: Program) -> Result<String, String> {
 #[test]
 fn test_complex_literal() {
     let program = Program {
-        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Literal(Literal::Complex(3.0, 4.0)))))],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Literal(
+            Literal::Complex(3.0, 4.0),
+        ))))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -31,7 +39,9 @@ fn test_complex_literal() {
 #[test]
 fn test_imaginary_literal() {
     let program = Program {
-        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Literal(Literal::Complex(0.0, 2.0)))))],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Literal(
+            Literal::Complex(0.0, 2.0),
+        ))))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -354,7 +364,9 @@ fn test_complex_cpow() {
 #[test]
 fn test_im_constant() {
     let program = Program {
-        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Identifier("im".to_string()))))],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(
+            ExprKind::Identifier("im".to_string()),
+        )))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());

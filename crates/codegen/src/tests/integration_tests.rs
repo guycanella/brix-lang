@@ -3,14 +3,22 @@
 
 use crate::Compiler;
 use inkwell::context::Context;
-use parser::ast::{BinaryOp, Expr, Literal, MatchArm, Pattern, Program, Stmt, UnaryOp, ExprKind, StmtKind};
+use parser::ast::{
+    BinaryOp, Expr, ExprKind, Literal, MatchArm, Pattern, Program, Stmt, StmtKind, UnaryOp,
+};
 
 fn compile_program(program: Program) -> Result<String, String> {
     let result = std::panic::catch_unwind(|| {
         let context = Context::create();
         let module = context.create_module("test");
         let builder = context.create_builder();
-        let mut compiler = Compiler::new(&context, &builder, &module, "test.bx".to_string(), "".to_string());
+        let mut compiler = Compiler::new(
+            &context,
+            &builder,
+            &module,
+            "test.bx".to_string(),
+            "".to_string(),
+        );
         compiler.compile_program(&program);
         module.print_to_string().to_string()
     });
@@ -372,17 +380,23 @@ fn test_match_atoms_with_string_results() {
                         MatchArm {
                             pattern: Pattern::Literal(Literal::Atom("ok".to_string())),
                             guard: None,
-                            body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("Success".to_string())))),
+                            body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String(
+                                "Success".to_string(),
+                            )))),
                         },
                         MatchArm {
                             pattern: Pattern::Literal(Literal::Atom("error".to_string())),
                             guard: None,
-                            body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("Failed".to_string())))),
+                            body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String(
+                                "Failed".to_string(),
+                            )))),
                         },
                         MatchArm {
                             pattern: Pattern::Wildcard,
                             guard: None,
-                            body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("Unknown".to_string())))),
+                            body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String(
+                                "Unknown".to_string(),
+                            )))),
                         },
                     ],
                 }),

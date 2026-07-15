@@ -3,7 +3,7 @@
 
 use crate::Compiler;
 use inkwell::context::Context;
-use parser::ast::{Expr, ExprKind, Literal, Program, Stmt, StmtKind, BinaryOp};
+use parser::ast::{BinaryOp, Expr, ExprKind, Literal, Program, Stmt, StmtKind};
 
 #[test]
 fn test_string_arc_basic() {
@@ -11,7 +11,13 @@ fn test_string_arc_basic() {
     let module = context.create_module("test");
     let builder = context.create_builder();
 
-    let mut compiler = Compiler::new(&context, &builder, &module, "test.bx".to_string(), "".to_string());
+    let mut compiler = Compiler::new(
+        &context,
+        &builder,
+        &module,
+        "test.bx".to_string(),
+        "".to_string(),
+    );
 
     // Program: var s := "hello"
     let program = Program {
@@ -36,7 +42,13 @@ fn test_string_arc_reassignment() {
     let module = context.create_module("test");
     let builder = context.create_builder();
 
-    let mut compiler = Compiler::new(&context, &builder, &module, "test.bx".to_string(), "".to_string());
+    let mut compiler = Compiler::new(
+        &context,
+        &builder,
+        &module,
+        "test.bx".to_string(),
+        "".to_string(),
+    );
 
     // Program:
     // var s := "hello"
@@ -60,8 +72,14 @@ fn test_string_arc_reassignment() {
     assert!(result.is_ok(), "String ARC reassignment test failed");
 
     // Verify that both retain and release are declared
-    assert!(module.get_function("string_retain").is_some(), "string_retain not declared");
-    assert!(module.get_function("string_release").is_some(), "string_release not declared");
+    assert!(
+        module.get_function("string_retain").is_some(),
+        "string_retain not declared"
+    );
+    assert!(
+        module.get_function("string_release").is_some(),
+        "string_release not declared"
+    );
 }
 
 #[test]
@@ -70,7 +88,13 @@ fn test_string_arc_copy() {
     let module = context.create_module("test");
     let builder = context.create_builder();
 
-    let mut compiler = Compiler::new(&context, &builder, &module, "test.bx".to_string(), "".to_string());
+    let mut compiler = Compiler::new(
+        &context,
+        &builder,
+        &module,
+        "test.bx".to_string(),
+        "".to_string(),
+    );
 
     // Program:
     // var s1 := "hello"
@@ -104,7 +128,13 @@ fn test_matrix_arc_basic() {
     let module = context.create_module("test");
     let builder = context.create_builder();
 
-    let mut compiler = Compiler::new(&context, &builder, &module, "test.bx".to_string(), "".to_string());
+    let mut compiler = Compiler::new(
+        &context,
+        &builder,
+        &module,
+        "test.bx".to_string(),
+        "".to_string(),
+    );
 
     // Program: var m := [1.0, 2.0, 3.0]
     let program = Program {
@@ -132,7 +162,13 @@ fn test_matrix_arc_reassignment() {
     let module = context.create_module("test");
     let builder = context.create_builder();
 
-    let mut compiler = Compiler::new(&context, &builder, &module, "test.bx".to_string(), "".to_string());
+    let mut compiler = Compiler::new(
+        &context,
+        &builder,
+        &module,
+        "test.bx".to_string(),
+        "".to_string(),
+    );
 
     // Program:
     // var m := [1.0, 2.0]
@@ -162,8 +198,14 @@ fn test_matrix_arc_reassignment() {
     assert!(result.is_ok(), "Matrix ARC reassignment test failed");
 
     // Verify that both retain and release are declared
-    assert!(module.get_function("matrix_retain").is_some(), "matrix_retain not declared");
-    assert!(module.get_function("matrix_release").is_some(), "matrix_release not declared");
+    assert!(
+        module.get_function("matrix_retain").is_some(),
+        "matrix_retain not declared"
+    );
+    assert!(
+        module.get_function("matrix_release").is_some(),
+        "matrix_release not declared"
+    );
 }
 
 #[test]
@@ -172,7 +214,13 @@ fn test_intmatrix_arc_basic() {
     let module = context.create_module("test");
     let builder = context.create_builder();
 
-    let mut compiler = Compiler::new(&context, &builder, &module, "test.bx".to_string(), "".to_string());
+    let mut compiler = Compiler::new(
+        &context,
+        &builder,
+        &module,
+        "test.bx".to_string(),
+        "".to_string(),
+    );
 
     // Program: var m := [1, 2, 3]
     let program = Program {
@@ -200,7 +248,13 @@ fn test_intmatrix_arc_reassignment() {
     let module = context.create_module("test");
     let builder = context.create_builder();
 
-    let mut compiler = Compiler::new(&context, &builder, &module, "test.bx".to_string(), "".to_string());
+    let mut compiler = Compiler::new(
+        &context,
+        &builder,
+        &module,
+        "test.bx".to_string(),
+        "".to_string(),
+    );
 
     // Program:
     // var m := [1, 2]
@@ -230,8 +284,14 @@ fn test_intmatrix_arc_reassignment() {
     assert!(result.is_ok(), "IntMatrix ARC reassignment test failed");
 
     // Verify that both retain and release are declared
-    assert!(module.get_function("intmatrix_retain").is_some(), "intmatrix_retain not declared");
-    assert!(module.get_function("intmatrix_release").is_some(), "intmatrix_release not declared");
+    assert!(
+        module.get_function("intmatrix_retain").is_some(),
+        "intmatrix_retain not declared"
+    );
+    assert!(
+        module.get_function("intmatrix_release").is_some(),
+        "intmatrix_release not declared"
+    );
 }
 
 #[test]
@@ -240,7 +300,13 @@ fn test_mixed_arc_types() {
     let module = context.create_module("test");
     let builder = context.create_builder();
 
-    let mut compiler = Compiler::new(&context, &builder, &module, "test.bx".to_string(), "".to_string());
+    let mut compiler = Compiler::new(
+        &context,
+        &builder,
+        &module,
+        "test.bx".to_string(),
+        "".to_string(),
+    );
 
     // Program:
     // var s := "hello"
@@ -287,7 +353,13 @@ fn test_no_arc_for_primitives() {
     let module = context.create_module("test");
     let builder = context.create_builder();
 
-    let mut compiler = Compiler::new(&context, &builder, &module, "test.bx".to_string(), "".to_string());
+    let mut compiler = Compiler::new(
+        &context,
+        &builder,
+        &module,
+        "test.bx".to_string(),
+        "".to_string(),
+    );
 
     // Program:
     // var x := 42
@@ -313,8 +385,14 @@ fn test_no_arc_for_primitives() {
     assert!(result.is_ok(), "No ARC for primitives test failed");
 
     // Verify NO retain functions are declared (primitives don't need ARC)
-    assert!(module.get_function("string_retain").is_none(), "string_retain should not be declared for primitives");
-    assert!(module.get_function("matrix_retain").is_none(), "matrix_retain should not be declared for primitives");
+    assert!(
+        module.get_function("string_retain").is_none(),
+        "string_retain should not be declared for primitives"
+    );
+    assert!(
+        module.get_function("matrix_retain").is_none(),
+        "matrix_retain should not be declared for primitives"
+    );
 }
 
 #[test]
@@ -323,7 +401,13 @@ fn test_string_concat_arc() {
     let module = context.create_module("test");
     let builder = context.create_builder();
 
-    let mut compiler = Compiler::new(&context, &builder, &module, "test.bx".to_string(), "".to_string());
+    let mut compiler = Compiler::new(
+        &context,
+        &builder,
+        &module,
+        "test.bx".to_string(),
+        "".to_string(),
+    );
 
     // Program:
     // var s1 := "hello"

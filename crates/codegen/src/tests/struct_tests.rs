@@ -45,7 +45,13 @@ fn compile_program(program: Program) -> Result<String, String> {
         let context = Context::create();
         let module = context.create_module("test");
         let builder = context.create_builder();
-        let mut compiler = Compiler::new(&context, &builder, &module, "test.bx".to_string(), "".to_string());
+        let mut compiler = Compiler::new(
+            &context,
+            &builder,
+            &module,
+            "test.bx".to_string(),
+            "".to_string(),
+        );
         match compiler.compile_program(&program) {
             Ok(_) => Ok(module.print_to_string().to_string()),
             Err(e) => Err(format!("Compilation error: {}", e)),
@@ -64,7 +70,7 @@ fn test_struct_definition_simple() {
     // Note: LLVM doesn't include unused types in IR, so we just check compilation succeeds
     let program = Program {
         statements: vec![Stmt::dummy(StmtKind::StructDef(StructDef {
-                type_params: vec![],
+            type_params: vec![],
             name: "Point".to_string(),
             fields: vec![
                 ("x".to_string(), "int".to_string(), None),
@@ -74,7 +80,10 @@ fn test_struct_definition_simple() {
     };
 
     let result = compile_program(program);
-    assert!(result.is_ok(), "Struct definition should compile without errors");
+    assert!(
+        result.is_ok(),
+        "Struct definition should compile without errors"
+    );
 }
 
 #[test]
@@ -82,7 +91,7 @@ fn test_struct_definition_with_defaults() {
     // Test that struct definition with defaults compiles without errors
     let program = Program {
         statements: vec![Stmt::dummy(StmtKind::StructDef(StructDef {
-                type_params: vec![],
+            type_params: vec![],
             name: "Config".to_string(),
             fields: vec![
                 ("timeout".to_string(), "int".to_string(), Some(lit_int!(30))),
@@ -92,7 +101,10 @@ fn test_struct_definition_with_defaults() {
     };
 
     let result = compile_program(program);
-    assert!(result.is_ok(), "Struct definition with defaults should compile without errors");
+    assert!(
+        result.is_ok(),
+        "Struct definition with defaults should compile without errors"
+    );
 }
 
 #[test]
@@ -235,7 +247,8 @@ fn test_method_definition() {
                     ("y".to_string(), "int".to_string(), None),
                 ],
             })),
-            Stmt::dummy(StmtKind::MethodDef(MethodDef { is_async: false,
+            Stmt::dummy(StmtKind::MethodDef(MethodDef {
+                is_async: false,
                 receiver_name: "p".to_string(),
                 receiver_type: "Point".to_string(),
                 method_name: "get_x".to_string(),
@@ -277,7 +290,8 @@ fn test_method_call() {
                     ("y".to_string(), "int".to_string(), None),
                 ],
             })),
-            Stmt::dummy(StmtKind::MethodDef(MethodDef { is_async: false,
+            Stmt::dummy(StmtKind::MethodDef(MethodDef {
+                is_async: false,
                 receiver_name: "p".to_string(),
                 receiver_type: "Point".to_string(),
                 method_name: "get_x".to_string(),
@@ -334,7 +348,8 @@ fn test_method_with_parameters() {
                     ("y".to_string(), "int".to_string(), None),
                 ],
             })),
-            Stmt::dummy(StmtKind::MethodDef(MethodDef { is_async: false,
+            Stmt::dummy(StmtKind::MethodDef(MethodDef {
+                is_async: false,
                 receiver_name: "p".to_string(),
                 receiver_type: "Point".to_string(),
                 method_name: "add".to_string(),
@@ -378,9 +393,7 @@ fn test_multiple_structs() {
             Stmt::dummy(StmtKind::StructDef(StructDef {
                 type_params: vec![],
                 name: "Circle".to_string(),
-                fields: vec![
-                    ("radius".to_string(), "int".to_string(), None),
-                ],
+                fields: vec![("radius".to_string(), "int".to_string(), None)],
             })),
             var_decl!(
                 "p",
@@ -398,9 +411,7 @@ fn test_multiple_structs() {
                 Expr::dummy(ExprKind::StructInit {
                     type_args: vec![],
                     struct_name: "Circle".to_string(),
-                    fields: vec![
-                        ("radius".to_string(), lit_int!(5)),
-                    ],
+                    fields: vec![("radius".to_string(), lit_int!(5)),],
                 })
             ),
         ],

@@ -17,7 +17,13 @@ fn compile_program(program: Program) -> Result<String, String> {
         let context = Context::create();
         let module = context.create_module("test");
         let builder = context.create_builder();
-        let mut compiler = Compiler::new(&context, &builder, &module, "test.bx".to_string(), "".to_string());
+        let mut compiler = Compiler::new(
+            &context,
+            &builder,
+            &module,
+            "test.bx".to_string(),
+            "".to_string(),
+        );
         compiler.compile_program(&program);
         module.print_to_string().to_string()
     });
@@ -115,9 +121,11 @@ fn test_type_alias_union() {
 #[test]
 fn test_union_int_float() {
     let program = Program {
-        statements: vec![
-            var_decl!("x", Some("int | float".to_string()), lit_int!(42)),
-        ],
+        statements: vec![var_decl!(
+            "x",
+            Some("int | float".to_string()),
+            lit_int!(42)
+        )],
     };
     let result = compile_program(program);
     assert!(result.is_ok(), "Should create union type int | float");
@@ -126,20 +134,23 @@ fn test_union_int_float() {
 #[test]
 fn test_union_int_float_string() {
     let program = Program {
-        statements: vec![
-            var_decl!("x", Some("int | float | string".to_string()), lit_string!("hello")),
-        ],
+        statements: vec![var_decl!(
+            "x",
+            Some("int | float | string".to_string()),
+            lit_string!("hello")
+        )],
     };
     let result = compile_program(program);
-    assert!(result.is_ok(), "Should create union type int | float | string");
+    assert!(
+        result.is_ok(),
+        "Should create union type int | float | string"
+    );
 }
 
 #[test]
 fn test_union_with_nil() {
     let program = Program {
-        statements: vec![
-            var_decl!("x", Some("int | nil".to_string()), lit_nil!()),
-        ],
+        statements: vec![var_decl!("x", Some("int | nil".to_string()), lit_nil!())],
     };
     let result = compile_program(program);
     assert!(result.is_ok(), "Should create union type int | nil");
@@ -149,9 +160,7 @@ fn test_union_with_nil() {
 fn test_optional_is_union() {
     // T? should be equivalent to T | nil
     let program = Program {
-        statements: vec![
-            var_decl!("x", Some("int?".to_string()), lit_nil!()),
-        ],
+        statements: vec![var_decl!("x", Some("int?".to_string()), lit_nil!())],
     };
     let result = compile_program(program);
     assert!(result.is_ok(), "Should treat int? as int | nil");
@@ -162,45 +171,53 @@ fn test_optional_is_union() {
 #[test]
 fn test_optional_with_value_as_union() {
     let program = Program {
-        statements: vec![
-            var_decl!("x", Some("int?".to_string()), lit_int!(42)),
-        ],
+        statements: vec![var_decl!("x", Some("int?".to_string()), lit_int!(42))],
     };
     let result = compile_program(program);
-    assert!(result.is_ok(), "Should create Optional as Union(int, nil) with value");
+    assert!(
+        result.is_ok(),
+        "Should create Optional as Union(int, nil) with value"
+    );
 }
 
 #[test]
 fn test_optional_nil_as_union() {
     let program = Program {
-        statements: vec![
-            var_decl!("x", Some("int?".to_string()), lit_nil!()),
-        ],
+        statements: vec![var_decl!("x", Some("int?".to_string()), lit_nil!())],
     };
     let result = compile_program(program);
-    assert!(result.is_ok(), "Should create Optional as Union(int, nil) with nil");
+    assert!(
+        result.is_ok(),
+        "Should create Optional as Union(int, nil) with nil"
+    );
 }
 
 #[test]
 fn test_optional_string_as_union() {
     let program = Program {
-        statements: vec![
-            var_decl!("x", Some("string?".to_string()), lit_string!("hello")),
-        ],
+        statements: vec![var_decl!(
+            "x",
+            Some("string?".to_string()),
+            lit_string!("hello")
+        )],
     };
     let result = compile_program(program);
-    assert!(result.is_ok(), "Should create Optional<string> as Union(string, nil)");
+    assert!(
+        result.is_ok(),
+        "Should create Optional<string> as Union(string, nil)"
+    );
 }
 
 #[test]
 fn test_optional_float_as_union() {
     let program = Program {
-        statements: vec![
-            var_decl!("x", Some("float?".to_string()), lit_float!(3.14)),
-        ],
+        statements: vec![var_decl!("x", Some("float?".to_string()), lit_float!(3.14))],
     };
     let result = compile_program(program);
-    assert!(result.is_ok(), "Should create Optional<float> as Union(float, nil)");
+    assert!(
+        result.is_ok(),
+        "Should create Optional<float> as Union(float, nil)"
+    );
 }
 
 // --- INTERSECTION TYPE TESTS ---
@@ -209,9 +226,7 @@ fn test_optional_float_as_union() {
 fn test_intersection_type_parsing() {
     // Intersection types parse correctly (even if full implementation is limited)
     let program = Program {
-        statements: vec![
-            type_alias!("Combined", "int & float"),
-        ],
+        statements: vec![type_alias!("Combined", "int & float")],
     };
     let result = compile_program(program);
     assert!(result.is_ok(), "Should parse intersection type alias");

@@ -3,7 +3,7 @@
 
 use crate::Compiler;
 use inkwell::context::Context;
-use parser::ast::{Closure, Expr, ExprKind, Literal, Program, Stmt, StmtKind, BinaryOp};
+use parser::ast::{BinaryOp, Closure, Expr, ExprKind, Literal, Program, Stmt, StmtKind};
 
 /// Helper to compile a program and check for errors
 fn compile_program(stmts: Vec<Stmt>) -> Result<String, String> {
@@ -61,7 +61,10 @@ fn test_closure_no_capture() {
         is_const: false,
     })];
 
-    assert!(compile_program(stmts).is_ok(), "Closure with no capture should compile");
+    assert!(
+        compile_program(stmts).is_ok(),
+        "Closure with no capture should compile"
+    );
 }
 
 #[test]
@@ -95,7 +98,10 @@ fn test_closure_single_capture() {
         }),
     ];
 
-    assert!(compile_program(stmts).is_ok(), "Closure with single capture should compile");
+    assert!(
+        compile_program(stmts).is_ok(),
+        "Closure with single capture should compile"
+    );
 }
 
 #[test]
@@ -128,7 +134,10 @@ fn test_closure_call_no_args() {
         }),
     ];
 
-    assert!(compile_program(stmts).is_ok(), "Closure call with no args should compile");
+    assert!(
+        compile_program(stmts).is_ok(),
+        "Closure call with no args should compile"
+    );
 }
 
 #[test]
@@ -164,7 +173,10 @@ fn test_closure_assignment_arc() {
         }),
     ];
 
-    assert!(compile_program(stmts).is_ok(), "Closure assignment with ARC should compile");
+    assert!(
+        compile_program(stmts).is_ok(),
+        "Closure assignment with ARC should compile"
+    );
 }
 
 #[test]
@@ -210,5 +222,8 @@ fn test_closure_many_captures() {
         is_const: false,
     }));
 
-    assert!(compile_program(stmts).is_ok(), "Closure with 5 captures should compile");
+    assert!(
+        compile_program(stmts).is_ok(),
+        "Closure with 5 captures should compile"
+    );
 }
