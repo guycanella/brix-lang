@@ -25,3 +25,4 @@ pub mod test;
 pub mod iterator;
 pub mod match_compiler;
 pub mod async_compiler;
+pub mod closure_compiler;
