@@ -1532,3 +1532,32 @@ fn test_175_math_physical_constants() {
         "1\n1\n1\n1\n1\n1\n1\n1",
     );
 }
+
+// ==========================================
+// v1.8 Grupo B: LAPACK decompositions
+// ==========================================
+
+#[test]
+fn test_176_lu_basic() {
+    assert_success(
+        "tests/integration/success/176_lu_basic.bx",
+        "1\n0\n1\n2\n1\n0",
+    );
+}
+
+#[test]
+fn test_177_lu_3x3() {
+    assert_success("tests/integration/success/177_lu_3x3.bx", "2\n0\n1\n8");
+}
+
+#[test]
+fn test_178_lu_singular() {
+    // math.lu succeeds on a singular matrix (info > 0), returning a zero pivot.
+    assert_success("tests/integration/success/178_lu_singular.bx", "1\n0");
+}
+
+#[test]
+fn test_179_tuple_alias_arc() {
+    // Destructuring a user tuple of aliased matrices must not double-free.
+    assert_success("tests/integration/success/179_tuple_alias_arc.bx", "1\n1");
+}

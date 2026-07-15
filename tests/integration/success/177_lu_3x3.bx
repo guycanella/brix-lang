@@ -1,0 +1,21 @@
+import math
+
+// 3x3 LU with a non-trivial pivot sequence (two row swaps) and non-trivial
+// lower factors. A = [[2,1,1],[4,3,3],[8,7,9]] pivots to P = [2,0,1].
+var A := zeros(3, 3)
+A[0][0] := 2.0
+A[0][1] := 1.0
+A[0][2] := 1.0
+A[1][0] := 4.0
+A[1][1] := 3.0
+A[1][2] := 3.0
+A[2][0] := 8.0
+A[2][1] := 7.0
+A[2][2] := 9.0
+
+var { L, U, P } := math.lu(A)
+
+println(P[0])     // 2  (row 2 of A had the largest column-0 pivot)
+println(P[1])     // 0
+println(P[2])     // 1
+println(U[0][0])  // 8  (pivot row)

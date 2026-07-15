@@ -18,3 +18,70 @@ test.describe("Physical constants (v1.8 Grupo A)", () -> {
         test.expect(math.R_gas).toBeCloseTo(8.314462618)
     })
 })
+
+test.describe("LU decomposition (v1.8 Grupo B)", () -> {
+    test.it("L has unit diagonal", () -> {
+        var A := zeros(2, 2)
+        A[0][0] := 0.0
+        A[0][1] := 2.0
+        A[1][0] := 1.0
+        A[1][1] := 0.0
+        var { L, U, P } := math.lu(A)
+        test.expect(L[0][0]).toBeCloseTo(1.0)
+        test.expect(L[1][1]).toBeCloseTo(1.0)
+    })
+
+    test.it("U is upper-triangular with expected values", () -> {
+        var A := zeros(2, 2)
+        A[0][0] := 0.0
+        A[0][1] := 2.0
+        A[1][0] := 1.0
+        A[1][1] := 0.0
+        var { L, U, P } := math.lu(A)
+        test.expect(U[0][0]).toBeCloseTo(1.0)
+        test.expect(U[1][1]).toBeCloseTo(2.0)
+    })
+
+    test.it("P is a 0-based permutation vector", () -> {
+        var A := zeros(2, 2)
+        A[0][0] := 0.0
+        A[0][1] := 2.0
+        A[1][0] := 1.0
+        A[1][1] := 0.0
+        var { L, U, P } := math.lu(A)
+        test.expect(P[0]).toBe(1)
+        test.expect(P[1]).toBe(0)
+    })
+
+    test.it("3x3 with two pivots recovers non-trivial factors", () -> {
+        var A := zeros(3, 3)
+        A[0][0] := 2.0
+        A[0][1] := 1.0
+        A[0][2] := 1.0
+        A[1][0] := 4.0
+        A[1][1] := 3.0
+        A[1][2] := 3.0
+        A[2][0] := 8.0
+        A[2][1] := 7.0
+        A[2][2] := 9.0
+        var { L, U, P } := math.lu(A)
+        test.expect(P[0]).toBe(2)
+        test.expect(P[1]).toBe(0)
+        test.expect(P[2]).toBe(1)
+        test.expect(U[0][0]).toBeCloseTo(8.0)
+        test.expect(L[1][0]).toBeCloseTo(0.25)
+        test.expect(L[2][1]).toBeCloseTo(0.666667)
+        test.expect(U[2][2]).toBeCloseTo(-0.666667)
+    })
+
+    test.it("singular matrix still factors (zero pivot, no crash)", () -> {
+        var A := zeros(2, 2)
+        A[0][0] := 1.0
+        A[0][1] := 2.0
+        A[1][0] := 2.0
+        A[1][1] := 4.0
+        var { L, U, P } := math.lu(A)
+        test.expect(L[0][0]).toBeCloseTo(1.0)
+        test.expect(U[1][1]).toBeCloseTo(0.0)
+    })
+})
