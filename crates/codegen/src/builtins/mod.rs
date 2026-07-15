@@ -23,3 +23,4 @@ pub mod io;
 pub mod matrix;
 pub mod test;
 pub mod iterator;
+pub mod match_compiler;
