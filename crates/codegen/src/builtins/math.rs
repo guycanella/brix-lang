@@ -11,7 +11,8 @@ pub trait MathFunctions<'ctx> {
     fn declare_math_function_f64_f64(&self, name: &str) -> inkwell::values::FunctionValue<'ctx>;
 
     /// Declare a math function with signature: f64 function(f64, f64)
-    fn declare_math_function_f64_f64_f64(&self, name: &str) -> inkwell::values::FunctionValue<'ctx>;
+    fn declare_math_function_f64_f64_f64(&self, name: &str)
+        -> inkwell::values::FunctionValue<'ctx>;
 
     /// Declare a stats function with signature: f64 function(Matrix*)
     fn declare_math_function_stats(&self, name: &str) -> inkwell::values::FunctionValue<'ctx>;
@@ -34,7 +35,10 @@ impl<'a, 'ctx> MathFunctions<'ctx> for Compiler<'a, 'ctx> {
             .add_function(name, fn_type, Some(Linkage::External))
     }
 
-    fn declare_math_function_f64_f64_f64(&self, name: &str) -> inkwell::values::FunctionValue<'ctx> {
+    fn declare_math_function_f64_f64_f64(
+        &self,
+        name: &str,
+    ) -> inkwell::values::FunctionValue<'ctx> {
         if let Some(fn_val) = self.module.get_function(name) {
             return fn_val;
         }
@@ -87,18 +91,18 @@ impl<'a, 'ctx> MathFunctions<'ctx> for Compiler<'a, 'ctx> {
         self.declare_math_function_f64_f64("round");
 
         // Utility functions (4): wrappers in runtime.c avoid LLVM intrinsic conflicts
-        self.declare_math_function_f64_f64("brix_abs");      // math.abs → brix_abs(x)
-        self.declare_math_function_f64_f64_f64("brix_mod");  // math.mod → brix_mod(a, b)
-        self.declare_math_function_f64_f64_f64("brix_min");  // math.min → brix_min(a, b)
-        self.declare_math_function_f64_f64_f64("brix_max");  // math.max → brix_max(a, b)
+        self.declare_math_function_f64_f64("brix_abs"); // math.abs → brix_abs(x)
+        self.declare_math_function_f64_f64_f64("brix_mod"); // math.mod → brix_mod(a, b)
+        self.declare_math_function_f64_f64_f64("brix_min"); // math.min → brix_min(a, b)
+        self.declare_math_function_f64_f64_f64("brix_max"); // math.max → brix_max(a, b)
 
         // Statistics functions (5): f64 fn(Matrix*)
-        self.declare_math_function_stats("brix_sum");        // math.sum
-        self.declare_math_function_stats("brix_mean");       // math.mean
-        self.declare_math_function_stats("brix_median");     // math.median
-        self.declare_math_function_stats("brix_variance");   // math.variance
-        self.declare_math_function_stats("brix_std");        // math.std
-        self.declare_math_function_stats("brix_stddev");     // math.stddev (alias for brix_std)
+        self.declare_math_function_stats("brix_sum"); // math.sum
+        self.declare_math_function_stats("brix_mean"); // math.mean
+        self.declare_math_function_stats("brix_median"); // math.median
+        self.declare_math_function_stats("brix_variance"); // math.variance
+        self.declare_math_function_stats("brix_std"); // math.std
+        self.declare_math_function_stats("brix_stddev"); // math.stddev (alias for brix_std)
 
         // Register math constants as variables
         self.register_math_constants(prefix);
@@ -117,18 +121,24 @@ impl<'a, 'ctx> MathFunctions<'ctx> for Compiler<'a, 'ctx> {
             ("phi", 1.61803398874989484820),
             ("sqrt2", 1.41421356237309504880),
             ("ln2", 0.69314718055994530942),
+            // Physical constants (v1.8 Grupo A). Plain f64 values — Brix has no
+            // dimensional unit system, so the units below are documentation only.
+            ("c_light", 299792458.0),      // speed of light in vacuum (m/s)
+            ("h_planck", 6.62607015e-34),  // Planck constant (J·s)
+            ("G_grav", 6.6743e-11),        // gravitational constant (m³/(kg·s²))
+            ("k_boltzmann", 1.380649e-23), // Boltzmann constant (J/K)
+            ("e_charge", 1.602176634e-19), // elementary charge (C)
+            ("g_earth", 9.80665),          // standard gravity (m/s²)
+            ("avogadro", 6.02214076e23),   // Avogadro number (mol⁻¹)
+            ("R_gas", 8.314462618),        // ideal gas constant (J/(mol·K))
         ];
 
         for (name, value) in constants.iter() {
             let const_name = format!("{}.{}", prefix, name);
             let const_val = f64_type.const_float(*value);
-            let alloca = self
-                .builder
-                .build_alloca(f64_type, &const_name)
-                .unwrap();
+            let alloca = self.builder.build_alloca(f64_type, &const_name).unwrap();
             self.builder.build_store(alloca, const_val).unwrap();
-            self.variables
-                .insert(const_name, (alloca, BrixType::Float));
+            self.variables.insert(const_name, (alloca, BrixType::Float));
         }
     }
 }

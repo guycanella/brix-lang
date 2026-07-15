@@ -1,0 +1,20 @@
+import math
+import test
+
+test.describe("Physical constants (v1.8 Grupo A)", () -> {
+    test.it("speed of light c_light", () -> {
+        test.expect(math.c_light).toBeCloseTo(299792458.0)
+    })
+
+    test.it("standard gravity g_earth", () -> {
+        test.expect(math.g_earth).toBeCloseTo(9.80665)
+    })
+
+    test.it("Avogadro number magnitude", () -> {
+        test.expect(math.avogadro).toBeGreaterThan(6.0e23)
+    })
+
+    test.it("ideal gas constant R_gas", () -> {
+        test.expect(math.R_gas).toBeCloseTo(8.314462618)
+    })
+})

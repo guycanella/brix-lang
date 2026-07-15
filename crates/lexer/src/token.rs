@@ -97,17 +97,23 @@ pub enum Token {
     #[regex(r"[a-zA-Z_][a-zA-Z0-9_]*", |lex| lex.slice().to_string())]
     Identifier(String),
 
-    // Imaginary literals (ex: 2i, 3.14i, 0.5i)
+    // Imaginary literals (ex: 2i, 3.14i, 0.5i) including scientific notation
+    // (ex: 1e3i, 6.02e23i, 1.5e-10i) — mirrors the Float rule below so a
+    // scientific-notation mantissa followed by `i` is a single imaginary token,
+    // not Float(...) + Identifier("i").
     // CRITICAL: Higher priority to match before Float/Int!
-    #[regex(r"[0-9]+\.[0-9]+i|[0-9]+i", priority = 3, callback = |lex| lex.slice().to_string())]
+    #[regex(r"[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?i", priority = 3, callback = |lex| lex.slice().to_string())]
     ImaginaryLiteral(String),
 
     // Integers (ex: 42, 100)
     #[regex(r"[0-9]+", priority = 1, callback = |lex| lex.slice().parse::<i64>().ok())]
     Int(i64),
 
-    // Floats (ex: 3.14, 0.5)
-    #[regex(r"[0-9]+\.[0-9]+", priority = 2, callback = |lex| lex.slice().to_string())]
+    // Floats (ex: 3.14, 0.5) with optional scientific notation
+    // (ex: 6.0e23, 1.5e-10, 6.02e+23, and integer-mantissa forms like 1e10).
+    // The full slice (including any exponent) is captured; the parser calls
+    // str::parse::<f64>(), which understands scientific notation natively.
+    #[regex(r"[0-9]+\.[0-9]+([eE][+-]?[0-9]+)?|[0-9]+[eE][+-]?[0-9]+", priority = 2, callback = |lex| lex.slice().to_string())]
     Float(String),
 
     // Strings (ex: "Olá Brix")
