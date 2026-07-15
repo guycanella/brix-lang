@@ -15290,10 +15290,31 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         let i64_type = self.context.i64_type();
         let f64_type = self.context.f64_type();
 
-        // Step 1: Determine result type
-        // For now, we'll use Float (Matrix) for all list comprehensions
-        // TODO: Add type inference to support IntMatrix when appropriate
-        let result_elem_type = BrixType::Float;
+        // Step 1: Determine result type via static inference (v1.7 Grupo I).
+        // For each generator, infer its iterable's element type (Int for IntMatrix,
+        // Float for Matrix) and bind every one of its var_names to that type — a
+        // Matrix/IntMatrix row is always homogeneously typed, so this is correct
+        // even for destructuring generators (`for (a, b) in matrix2d`), which
+        // generate_comp_loop() below already binds per-element the same way
+        // (BrixType::Float for a Matrix iterable, BrixType::Int for IntMatrix).
+        // Anything that doesn't statically resolve to IntMatrix/Matrix (e.g. a
+        // StringMatrix from .split(), or an iterable we can't infer at all) falls
+        // back to "float" here — harmless, since Step 2 below already rejects any
+        // non-Matrix/IntMatrix iterable with its own clear error before this
+        // (possibly wrong) result_elem_type is ever used for anything observable.
+        let mut generator_params: Vec<(String, String)> = Vec::new();
+        for generator in generators.iter() {
+            let elem_type_str = match self.infer_expr_type_static(&generator.iterable, &[]) {
+                Some(BrixType::IntMatrix) => "int",
+                _ => "float",
+            };
+            for var_name in &generator.var_names {
+                generator_params.push((var_name.clone(), elem_type_str.to_string()));
+            }
+        }
+        let result_elem_type = self
+            .infer_expr_type_static(expr, &generator_params)
+            .unwrap_or(BrixType::Float);
 
         // Step 2: Calculate max size (product of all iterable lengths)
         let mut total_size = i64_type.const_int(1, false);

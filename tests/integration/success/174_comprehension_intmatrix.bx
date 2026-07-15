@@ -1,0 +1,8 @@
+var evens := [x * 2 for x in [1, 2, 3]]
+println(typeof(evens))
+println(evens[0])
+println(evens[1])
+println(evens[2])
+var scaled := [x * 2.5 for x in [1, 2, 3]]
+println(typeof(scaled))
+println(scaled[0])
