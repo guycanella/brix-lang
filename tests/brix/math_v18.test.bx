@@ -85,3 +85,100 @@ test.describe("LU decomposition (v1.8 Grupo B)", () -> {
         test.expect(U[1][1]).toBeCloseTo(0.0)
     })
 })
+
+test.describe("QR decomposition (v1.8 Grupo B)", () -> {
+    test.it("R is upper-triangular", () -> {
+        var A := zeros(2, 2)
+        A[0][0] := 1.0
+        A[0][1] := 2.0
+        A[1][0] := 3.0
+        A[1][1] := 4.0
+        var { Q, R } := math.qr(A)
+        test.expect(R[1][0]).toBeCloseTo(0.0)
+    })
+
+    test.it("Q has orthonormal columns", () -> {
+        var A := zeros(2, 2)
+        A[0][0] := 1.0
+        A[0][1] := 2.0
+        A[1][0] := 3.0
+        A[1][1] := 4.0
+        var { Q, R } := math.qr(A)
+        test.expect(Q[0][0] * Q[0][0] + Q[1][0] * Q[1][0]).toBeCloseTo(1.0)
+    })
+
+    test.it("Q*R reconstructs A", () -> {
+        var A := zeros(2, 2)
+        A[0][0] := 1.0
+        A[0][1] := 2.0
+        A[1][0] := 3.0
+        A[1][1] := 4.0
+        var { Q, R } := math.qr(A)
+        test.expect(Q[0][0] * R[0][0] + Q[0][1] * R[1][0]).toBeCloseTo(1.0)
+        test.expect(Q[1][0] * R[0][1] + Q[1][1] * R[1][1]).toBeCloseTo(4.0)
+    })
+
+    test.it("rectangular tall QR preserves full shapes and reconstructs A", () -> {
+        var A := zeros(3, 2)
+        A[0][0] := 1.0
+        A[0][1] := 2.0
+        A[1][0] := 3.0
+        A[1][1] := 4.0
+        A[2][0] := 5.0
+        A[2][1] := 6.0
+        var { Q, R } := math.qr(A)
+        test.expect(Q.rows).toBe(3)
+        test.expect(Q.cols).toBe(3)
+        test.expect(R.rows).toBe(3)
+        test.expect(R.cols).toBe(2)
+        test.expect(R[2][0]).toBeCloseTo(0.0)
+        test.expect(R[2][1]).toBeCloseTo(0.0)
+        test.expect(Q[0][0] * R[0][0] + Q[0][1] * R[1][0] + Q[0][2] * R[2][0]).toBeCloseTo(1.0)
+        test.expect(Q[2][0] * R[0][1] + Q[2][1] * R[1][1] + Q[2][2] * R[2][1]).toBeCloseTo(6.0)
+    })
+})
+
+test.describe("SVD (v1.8 Grupo B)", () -> {
+    test.it("singular values of [[1,2],[3,4]]", () -> {
+        var A := zeros(2, 2)
+        A[0][0] := 1.0
+        A[0][1] := 2.0
+        A[1][0] := 3.0
+        A[1][1] := 4.0
+        var { U, S, Vt } := math.svd(A)
+        test.expect(S[0]).toBeCloseTo(5.464986)
+        test.expect(S[1]).toBeCloseTo(0.365966)
+    })
+
+    test.it("U*diag(S)*Vt reconstructs A", () -> {
+        var A := zeros(2, 2)
+        A[0][0] := 1.0
+        A[0][1] := 2.0
+        A[1][0] := 3.0
+        A[1][1] := 4.0
+        var { U, S, Vt } := math.svd(A)
+        test.expect(U[0][0] * S[0] * Vt[0][0] + U[0][1] * S[1] * Vt[1][0]).toBeCloseTo(1.0)
+        test.expect(U[1][0] * S[0] * Vt[0][1] + U[1][1] * S[1] * Vt[1][1]).toBeCloseTo(4.0)
+    })
+
+    test.it("rectangular wide SVD preserves full shapes and reconstructs A", () -> {
+        var A := zeros(2, 3)
+        A[0][0] := 1.0
+        A[0][1] := 2.0
+        A[0][2] := 3.0
+        A[1][0] := 4.0
+        A[1][1] := 5.0
+        A[1][2] := 6.0
+        var { U, S, Vt } := math.svd(A)
+        test.expect(U.rows).toBe(2)
+        test.expect(U.cols).toBe(2)
+        test.expect(S.rows).toBe(2)
+        test.expect(S.cols).toBe(1)
+        test.expect(Vt.rows).toBe(3)
+        test.expect(Vt.cols).toBe(3)
+        test.expect(U[0][0] * S[0] * Vt[0][0] + U[0][1] * S[1] * Vt[1][0]).toBeCloseTo(1.0)
+        test.expect(U[0][0] * S[0] * Vt[0][2] + U[0][1] * S[1] * Vt[1][2]).toBeCloseTo(3.0)
+        test.expect(U[1][0] * S[0] * Vt[0][1] + U[1][1] * S[1] * Vt[1][1]).toBeCloseTo(5.0)
+        test.expect(U[1][0] * S[0] * Vt[0][2] + U[1][1] * S[1] * Vt[1][2]).toBeCloseTo(6.0)
+    })
+})

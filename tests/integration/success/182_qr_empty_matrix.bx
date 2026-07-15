@@ -1,0 +1,5 @@
+import math
+
+var A := zeros(0, 2)
+var { Q, R } := math.qr(A)
+println(Q.rows)

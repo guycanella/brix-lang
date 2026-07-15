@@ -1561,3 +1561,39 @@ fn test_179_tuple_alias_arc() {
     // Destructuring a user tuple of aliased matrices must not double-free.
     assert_success("tests/integration/success/179_tuple_alias_arc.bx", "1\n1");
 }
+
+#[test]
+fn test_180_qr_basic() {
+    // R upper-triangular, Q orthonormal, Q*R reconstructs A.
+    assert_success(
+        "tests/integration/success/180_qr_basic.bx",
+        "0\n1\n1\n2\n3\n4\n3\n3\n3\n2\n1\n1\n1\n1\n1\n1\n1",
+    );
+}
+
+#[test]
+fn test_181_svd_basic() {
+    // Reconstruction recovers A, U orthonormal, singular values descending.
+    assert_success(
+        "tests/integration/success/181_svd_basic.bx",
+        "1\n4\n1\n1\n2\n2\n2\n1\n3\n3\n1\n1\n1\n1",
+    );
+}
+
+#[test]
+fn test_182_qr_empty_matrix() {
+    assert_output(
+        "tests/integration/success/182_qr_empty_matrix.bx",
+        1,
+        Some("Error: qr() requires a non-empty matrix"),
+    );
+}
+
+#[test]
+fn test_183_svd_empty_matrix() {
+    assert_output(
+        "tests/integration/success/183_svd_empty_matrix.bx",
+        1,
+        Some("Error: svd() requires a non-empty matrix"),
+    );
+}

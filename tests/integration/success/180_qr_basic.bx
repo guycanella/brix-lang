@@ -1,0 +1,47 @@
+import math
+
+// QR decomposition A = Q*R (v1.8 Grupo B), full QR (Q m×m, R m×n).
+// Verified sign-independently: R is upper-triangular, Q's columns are
+// orthonormal, and Q*R reconstructs A. (matmul is not a global in Brix, so
+// the 2x2 product is written out as scalar dot products.)
+var A := zeros(2, 2)
+A[0][0] := 1.0
+A[0][1] := 2.0
+A[1][0] := 3.0
+A[1][1] := 4.0
+
+var { Q, R } := math.qr(A)
+
+println(R[1][0])                                  // 0  (upper-triangular)
+println(Q[0][0] * Q[0][0] + Q[1][0] * Q[1][0])    // 1  (orthonormal column)
+println(Q[0][0] * R[0][0] + Q[0][1] * R[1][0])    // 1  = A[0][0]
+println(Q[0][0] * R[0][1] + Q[0][1] * R[1][1])    // 2  = A[0][1]
+println(Q[1][0] * R[0][0] + Q[1][1] * R[1][0])    // 3  = A[1][0]
+println(Q[1][0] * R[0][1] + Q[1][1] * R[1][1])    // 4  = A[1][1]
+
+// Rectangular tall matrix: locks full-QR shapes and reconstruction.
+var B := zeros(3, 2)
+B[0][0] := 1.0
+B[0][1] := 2.0
+B[1][0] := 3.0
+B[1][1] := 4.0
+B[2][0] := 5.0
+B[2][1] := 6.0
+
+var { QB, RB } := math.qr(B)
+println(QB.rows)
+println(QB.cols)
+println(RB.rows)
+println(RB.cols)
+println(RB[1][0] > -0.001 && RB[1][0] < 0.001)
+println(RB[2][0] > -0.001 && RB[2][0] < 0.001)
+println(RB[2][1] > -0.001 && RB[2][1] < 0.001)
+
+var b00 := QB[0][0] * RB[0][0] + QB[0][1] * RB[1][0] + QB[0][2] * RB[2][0]
+var b11 := QB[1][0] * RB[0][1] + QB[1][1] * RB[1][1] + QB[1][2] * RB[2][1]
+var b20 := QB[2][0] * RB[0][0] + QB[2][1] * RB[1][0] + QB[2][2] * RB[2][0]
+var b21 := QB[2][0] * RB[0][1] + QB[2][1] * RB[1][1] + QB[2][2] * RB[2][1]
+println(b00 > 0.999 && b00 < 1.001)
+println(b11 > 3.999 && b11 < 4.001)
+println(b20 > 4.999 && b20 < 5.001)
+println(b21 > 5.999 && b21 < 6.001)

@@ -1306,6 +1306,177 @@ LUResult *math_lu(Matrix *A) {
   return res;
 }
 
+// ------------------------------------------------------------------
+// QR decomposition (v1.8 Grupo B): A = Q * R  (full, dgeqrf + dorgqr)
+//   Q : m x m orthogonal
+//   R : m x n upper-triangular
+// Same container convention as LUResult (a plain struct of Matrix pointers).
+// ------------------------------------------------------------------
+typedef struct {
+  Matrix *Q;
+  Matrix *R;
+} QRResult;
+
+QRResult *math_qr(Matrix *A) {
+  long m = A->rows;
+  long n = A->cols;
+  if (m <= 0 || n <= 0) {
+    fprintf(stderr, "Error: qr() requires a non-empty matrix\n");
+    exit(1);
+  }
+  long k = (m < n) ? m : n; // number of Householder reflectors
+
+  int m_int = (int)m, n_int = (int)n, k_int = (int)k;
+  int info;
+
+  extern void dgeqrf_(int *m, int *n, double *a, int *lda, double *tau,
+                      double *work, int *lwork, int *info);
+  extern void dorgqr_(int *m, int *n, int *k, double *a, int *lda, double *tau,
+                      double *work, int *lwork, int *info);
+
+  // Column-major copy of A (m x n).
+  double *a = (double *)malloc(m * n * sizeof(double));
+  matrix_to_colmajor(A, a);
+  double *tau = (double *)malloc((k > 0 ? k : 1) * sizeof(double));
+
+  // Factorize: R + reflectors stored in `a`.
+  double wq;
+  int lwork = -1;
+  dgeqrf_(&m_int, &n_int, a, &m_int, tau, &wq, &lwork, &info);
+  lwork = (int)wq;
+  double *work = (double *)malloc((lwork > 0 ? lwork : 1) * sizeof(double));
+  dgeqrf_(&m_int, &n_int, a, &m_int, tau, work, &lwork, &info);
+  if (info < 0) {
+    fprintf(stderr, "Error: LAPACK dgeqrf illegal argument (info=%d)\n", info);
+    exit(1);
+  }
+
+  // R (m x n, upper-triangular) — extract before dorgqr overwrites `a`.
+  Matrix *R = matrix_new(m, n);
+  for (long i = 0; i < m; i++) {
+    for (long j = 0; j < n; j++) {
+      R->data[i * n + j] = (i <= j) ? a[j * m + i] : 0.0;
+    }
+  }
+
+  // Full Q (m x m): copy the k reflector columns into an m x m buffer and let
+  // dorgqr build the m orthonormal columns.
+  double *q = (double *)malloc(m * m * sizeof(double));
+  for (long j = 0; j < m; j++) {
+    for (long i = 0; i < m; i++) {
+      q[j * m + i] = (j < n) ? a[j * m + i] : 0.0;
+    }
+  }
+  free(work);
+  lwork = -1;
+  dorgqr_(&m_int, &m_int, &k_int, q, &m_int, tau, &wq, &lwork, &info);
+  lwork = (int)wq;
+  work = (double *)malloc((lwork > 0 ? lwork : 1) * sizeof(double));
+  dorgqr_(&m_int, &m_int, &k_int, q, &m_int, tau, work, &lwork, &info);
+  if (info < 0) {
+    fprintf(stderr, "Error: LAPACK dorgqr illegal argument (info=%d)\n", info);
+    exit(1);
+  }
+
+  Matrix *Q = matrix_new(m, m);
+  for (long i = 0; i < m; i++) {
+    for (long j = 0; j < m; j++) {
+      Q->data[i * m + j] = q[j * m + i];
+    }
+  }
+
+  free(a);
+  free(tau);
+  free(work);
+  free(q);
+
+  QRResult *res = (QRResult *)malloc(sizeof(QRResult));
+  res->Q = Q;
+  res->R = R;
+  return res;
+}
+
+// ------------------------------------------------------------------
+// SVD (v1.8 Grupo B): A = U * diag(S) * Vt  (full, LAPACK dgesdd)
+//   U  : m x m orthogonal
+//   S  : min(m,n) x 1 column vector of singular values (descending)
+//   Vt : n x n orthogonal (V transposed)
+// ------------------------------------------------------------------
+typedef struct {
+  Matrix *U;
+  Matrix *S;
+  Matrix *Vt;
+} SVDResult;
+
+SVDResult *math_svd(Matrix *A) {
+  long m = A->rows;
+  long n = A->cols;
+  if (m <= 0 || n <= 0) {
+    fprintf(stderr, "Error: svd() requires a non-empty matrix\n");
+    exit(1);
+  }
+  long k = (m < n) ? m : n;
+
+  int m_int = (int)m, n_int = (int)n, info;
+
+  extern void dgesdd_(char *jobz, int *m, int *n, double *a, int *lda,
+                      double *s, double *u, int *ldu, double *vt, int *ldvt,
+                      double *work, int *lwork, int *iwork, int *info);
+
+  double *a = (double *)malloc(m * n * sizeof(double));
+  matrix_to_colmajor(A, a);
+  double *s = (double *)malloc((k > 0 ? k : 1) * sizeof(double));
+  double *u = (double *)malloc(m * m * sizeof(double));
+  double *vt = (double *)malloc(n * n * sizeof(double));
+  int *iwork = (int *)malloc(8 * (k > 0 ? k : 1) * sizeof(int));
+  char jobz = 'A'; // full U (m x m) and Vt (n x n)
+
+  double wq;
+  int lwork = -1;
+  dgesdd_(&jobz, &m_int, &n_int, a, &m_int, s, u, &m_int, vt, &n_int, &wq,
+          &lwork, iwork, &info);
+  lwork = (int)wq;
+  double *work = (double *)malloc((lwork > 0 ? lwork : 1) * sizeof(double));
+  dgesdd_(&jobz, &m_int, &n_int, a, &m_int, s, u, &m_int, vt, &n_int, work,
+          &lwork, iwork, &info);
+  // info < 0: illegal argument; info > 0: DBDSDC did not converge. Both are
+  // genuine failures for SVD (unlike LU, there is no useful partial result).
+  if (info != 0) {
+    fprintf(stderr, "Error: LAPACK dgesdd failed with info=%d\n", info);
+    exit(1);
+  }
+
+  Matrix *U = matrix_new(m, m);
+  for (long i = 0; i < m; i++) {
+    for (long j = 0; j < m; j++) {
+      U->data[i * m + j] = u[j * m + i];
+    }
+  }
+  Matrix *S = matrix_new(k, 1);
+  for (long i = 0; i < k; i++) {
+    S->data[i] = s[i];
+  }
+  Matrix *Vt = matrix_new(n, n);
+  for (long i = 0; i < n; i++) {
+    for (long j = 0; j < n; j++) {
+      Vt->data[i * n + j] = vt[j * n + i];
+    }
+  }
+
+  free(a);
+  free(s);
+  free(u);
+  free(vt);
+  free(iwork);
+  free(work);
+
+  SVDResult *res = (SVDResult *)malloc(sizeof(SVDResult));
+  res->U = U;
+  res->S = S;
+  res->Vt = Vt;
+  return res;
+}
+
 // ==========================================
 // SECTION 1.8: ARRAY METHODS (v1.7 Grupo B)
 // ==========================================

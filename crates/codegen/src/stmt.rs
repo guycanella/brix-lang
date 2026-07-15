@@ -898,7 +898,7 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
                         self.imported_modules
                             .iter()
                             .any(|(m, p)| m == "math" && p == module)
-                            && matches!(field.as_str(), "lu")
+                            && matches!(field.as_str(), "lu" | "qr" | "svd")
                     } else {
                         false
                     }
