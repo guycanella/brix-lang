@@ -24,3 +24,4 @@ pub mod matrix;
 pub mod test;
 pub mod iterator;
 pub mod match_compiler;
+pub mod async_compiler;
