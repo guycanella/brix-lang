@@ -2464,3 +2464,243 @@ fn test_union_with_complex_variant_sizes_correctly() {
         ir
     );
 }
+
+// =========================================================
+// SECTION: Grupo I — List comprehension result type inference (v1.7)
+// `compile_list_comprehension()` used to hardcode `BrixType::Float` for
+// the result element type; it now calls `infer_expr_type_static()` using
+// each generator's iterable type to bind the comprehension expression's
+// params before inferring. These tests assert on the LLVM IR: the
+// *result* array allocation (`%result_array = call ptr @...`) must use
+// `intmatrix_new` for an inferred `IntMatrix` result and `matrix_new`
+// for `Matrix` — not just "the function name appears somewhere in the
+// IR" (the source array literal `[1,2,3]` also allocates via
+// `intmatrix_new`, so that alone would be a false positive).
+// =========================================================
+
+/// Like the module-level `compile_program`, but propagates the actual
+/// `CodegenResult` error instead of silently discarding it — needed to
+/// assert on `is_err()` for a case that must be rejected at compile time.
+fn compile_program_checked(program: Program) -> Result<String, String> {
+    let result = std::panic::catch_unwind(|| {
+        let context = Context::create();
+        let module = context.create_module("test");
+        let builder = context.create_builder();
+        let mut compiler = Compiler::new(
+            &context,
+            &builder,
+            &module,
+            "test.bx".to_string(),
+            "".to_string(),
+        );
+        match compiler.compile_program(&program) {
+            Ok(_) => Ok(module.print_to_string().to_string()),
+            Err(e) => Err(format!("Compilation error: {:?}", e)),
+        }
+    });
+    match result {
+        Ok(inner) => inner,
+        Err(_) => Err("Compilation panicked".to_string()),
+    }
+}
+
+#[test]
+fn test_comprehension_int_type() {
+    // var evens := [x * 2 for x in [1, 2, 3]]
+    // Result element type must infer to Int -> result array allocated via
+    // intmatrix_new (checked specifically for the *result_array* SSA
+    // value, not just "intmatrix_new somewhere in the IR" — the source
+    // array literal [1,2,3] also allocates via intmatrix_new).
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::VariableDecl {
+            name: "evens".to_string(),
+            type_hint: None,
+            value: Expr::dummy(ExprKind::ListComprehension {
+                expr: Box::new(Expr::dummy(ExprKind::Binary {
+                    op: BinaryOp::Mul,
+                    lhs: Box::new(Expr::dummy(ExprKind::Identifier("x".to_string()))),
+                    rhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(2)))),
+                })),
+                generators: vec![parser::ast::ComprehensionGen {
+                    var_names: vec!["x".to_string()],
+                    iterable: Box::new(Expr::dummy(ExprKind::Array(vec![
+                        Expr::dummy(ExprKind::Literal(Literal::Int(1))),
+                        Expr::dummy(ExprKind::Literal(Literal::Int(2))),
+                        Expr::dummy(ExprKind::Literal(Literal::Int(3))),
+                    ]))),
+                    conditions: vec![],
+                }],
+            }),
+            is_const: false,
+        })],
+    };
+    let ir = compile_program(program).unwrap();
+    assert!(
+        ir.contains("%result_array = call ptr @intmatrix_new"),
+        "expected the comprehension result array to be allocated via intmatrix_new, got IR:\n{}",
+        ir
+    );
+}
+
+#[test]
+fn test_comprehension_float_type() {
+    // var scaled := [x * 2.5 for x in [1, 2, 3]]
+    // The float literal in the expression forces the result to Matrix,
+    // even though the iterable itself is IntMatrix.
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::VariableDecl {
+            name: "scaled".to_string(),
+            type_hint: None,
+            value: Expr::dummy(ExprKind::ListComprehension {
+                expr: Box::new(Expr::dummy(ExprKind::Binary {
+                    op: BinaryOp::Mul,
+                    lhs: Box::new(Expr::dummy(ExprKind::Identifier("x".to_string()))),
+                    rhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Float(2.5)))),
+                })),
+                generators: vec![parser::ast::ComprehensionGen {
+                    var_names: vec!["x".to_string()],
+                    iterable: Box::new(Expr::dummy(ExprKind::Array(vec![
+                        Expr::dummy(ExprKind::Literal(Literal::Int(1))),
+                        Expr::dummy(ExprKind::Literal(Literal::Int(2))),
+                        Expr::dummy(ExprKind::Literal(Literal::Int(3))),
+                    ]))),
+                    conditions: vec![],
+                }],
+            }),
+            is_const: false,
+        })],
+    };
+    let ir = compile_program(program).unwrap();
+    assert!(
+        ir.contains("%result_array = call ptr @matrix_new"),
+        "expected the comprehension result array to be allocated via matrix_new, got IR:\n{}",
+        ir
+    );
+}
+
+#[test]
+fn test_comprehension_multi_generator_mixed_types() {
+    // [x + y for x in [1, 2] for y in [1.5, 2.5]]
+    // Mixed int/float generators promote the result to Matrix.
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::VariableDecl {
+            name: "mixed".to_string(),
+            type_hint: None,
+            value: Expr::dummy(ExprKind::ListComprehension {
+                expr: Box::new(Expr::dummy(ExprKind::Binary {
+                    op: BinaryOp::Add,
+                    lhs: Box::new(Expr::dummy(ExprKind::Identifier("x".to_string()))),
+                    rhs: Box::new(Expr::dummy(ExprKind::Identifier("y".to_string()))),
+                })),
+                generators: vec![
+                    parser::ast::ComprehensionGen {
+                        var_names: vec!["x".to_string()],
+                        iterable: Box::new(Expr::dummy(ExprKind::Array(vec![
+                            Expr::dummy(ExprKind::Literal(Literal::Int(1))),
+                            Expr::dummy(ExprKind::Literal(Literal::Int(2))),
+                        ]))),
+                        conditions: vec![],
+                    },
+                    parser::ast::ComprehensionGen {
+                        var_names: vec!["y".to_string()],
+                        iterable: Box::new(Expr::dummy(ExprKind::Array(vec![
+                            Expr::dummy(ExprKind::Literal(Literal::Float(1.5))),
+                            Expr::dummy(ExprKind::Literal(Literal::Float(2.5))),
+                        ]))),
+                        conditions: vec![],
+                    },
+                ],
+            }),
+            is_const: false,
+        })],
+    };
+    let ir = compile_program(program).unwrap();
+    assert!(
+        ir.contains("%result_array = call ptr @matrix_new"),
+        "expected mixed int/float generators to promote the comprehension result to Matrix, got IR:\n{}",
+        ir
+    );
+}
+
+#[test]
+fn test_comprehension_destructuring_int_type() {
+    // var m := izeros(2, 2); m[0,0] = 1; m[0,1] = 2; m[1,0] = 3; m[1,1] = 4
+    // var pairs := [a + b for a, b in m]
+    // Destructuring generator over an IntMatrix must still infer Int for
+    // the per-row bound vars (a, b), yielding an IntMatrix result.
+    let program = Program {
+        statements: vec![
+            Stmt::dummy(StmtKind::VariableDecl {
+                name: "m".to_string(),
+                type_hint: None,
+                value: Expr::dummy(ExprKind::Call {
+                    func: Box::new(Expr::dummy(ExprKind::Identifier("izeros".to_string()))),
+                    args: vec![
+                        Expr::dummy(ExprKind::Literal(Literal::Int(2))),
+                        Expr::dummy(ExprKind::Literal(Literal::Int(2))),
+                    ],
+                }),
+                is_const: false,
+            }),
+            Stmt::dummy(StmtKind::VariableDecl {
+                name: "pairs".to_string(),
+                type_hint: None,
+                value: Expr::dummy(ExprKind::ListComprehension {
+                    expr: Box::new(Expr::dummy(ExprKind::Binary {
+                        op: BinaryOp::Add,
+                        lhs: Box::new(Expr::dummy(ExprKind::Identifier("a".to_string()))),
+                        rhs: Box::new(Expr::dummy(ExprKind::Identifier("b".to_string()))),
+                    })),
+                    generators: vec![parser::ast::ComprehensionGen {
+                        var_names: vec!["a".to_string(), "b".to_string()],
+                        iterable: Box::new(Expr::dummy(ExprKind::Identifier("m".to_string()))),
+                        conditions: vec![],
+                    }],
+                }),
+                is_const: false,
+            }),
+        ],
+    };
+    let ir = compile_program(program).unwrap();
+    assert!(
+        ir.contains("%result_array = call ptr @intmatrix_new"),
+        "expected destructuring over an IntMatrix to infer an IntMatrix comprehension result, got IR:\n{}",
+        ir
+    );
+}
+
+#[test]
+fn test_comprehension_stringmatrix_iterable_rejected() {
+    // [x for x in "a,b,c".split(",")]
+    // A StringMatrix iterable is still explicitly rejected — this is
+    // pre-existing behavior (unrelated to the Grupo I type-inference
+    // fix), asserted here as a regression guard.
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(
+            ExprKind::ListComprehension {
+                expr: Box::new(Expr::dummy(ExprKind::Identifier("x".to_string()))),
+                generators: vec![parser::ast::ComprehensionGen {
+                    var_names: vec!["x".to_string()],
+                    iterable: Box::new(Expr::dummy(ExprKind::Call {
+                        func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                            target: Box::new(Expr::dummy(ExprKind::Literal(Literal::String(
+                                "a,b,c".to_string(),
+                            )))),
+                            field: "split".to_string(),
+                        })),
+                        args: vec![Expr::dummy(ExprKind::Literal(Literal::String(
+                            ",".to_string(),
+                        )))],
+                    })),
+                    conditions: vec![],
+                }],
+            },
+        )))],
+    };
+    let result = compile_program_checked(program);
+    assert!(
+        result.is_err(),
+        "expected a StringMatrix iterable to be rejected, got IR:\n{:?}",
+        result
+    );
+}

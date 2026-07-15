@@ -56,6 +56,23 @@ test.describe("Float comprehension", () -> {
     })
 })
 
+test.describe("Comprehension result type inference (v1.7 Grupo I)", () -> {
+    test.it("int expression over IntMatrix infers intmatrix", () -> {
+        var evens := [x * 2 for x in [1, 2, 3]]
+        test.expect(typeof(evens)).toBe("intmatrix")
+    })
+
+    test.it("float expression over IntMatrix infers matrix", () -> {
+        var scaled := [x * 2.5 for x in [1, 2, 3]]
+        test.expect(typeof(scaled)).toBe("matrix")
+    })
+
+    test.it("mixed int/float generators promote result to matrix", () -> {
+        var mixed := [x + y for x in [1, 2] for y in [1.5, 2.5]]
+        test.expect(typeof(mixed)).toBe("matrix")
+    })
+})
+
 test.describe("zip()", () -> {
     test.it("zip combines two arrays into pairs", () -> {
         var a := [1, 2, 3]

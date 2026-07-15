@@ -1646,3 +1646,15 @@ fn test_173_panic_builtin() {
         Some("something went wrong")
     );
 }
+
+// ==========================================
+// v1.7 Grupo I: List comprehension -> IntMatrix type inference fix
+// ==========================================
+
+#[test]
+fn test_174_comprehension_intmatrix() {
+    assert_success(
+        "tests/integration/success/174_comprehension_intmatrix.bx",
+        "intmatrix\n2\n4\n6\nmatrix\n2.5"
+    );
+}
