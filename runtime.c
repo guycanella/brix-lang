@@ -1212,6 +1212,100 @@ ComplexMatrix *brix_eigvecs(Matrix *A) {
   return result;
 }
 
+// ------------------------------------------------------------------
+// LU decomposition (v1.8 Grupo B): A = P * L * U  (square A, LAPACK dgetrf)
+//
+// Returns a heap LUResult whose layout is a plain triple of pointers so the
+// codegen can load it and pack a BrixType::Tuple(Matrix, Matrix, IntMatrix)
+// directly. The container is freed by the codegen after the fields are
+// extracted; the three matrices carry ref_count = 1 (owned by whoever binds
+// them, e.g. `var { L, U, P } := math.lu(A)`).
+//
+//   L : n x n unit lower-triangular (1s on the diagonal)
+//   U : n x n upper-triangular
+//   P : n x 1 IntMatrix, a 0-based row-permutation vector such that
+//       row i of (L*U) equals row P[i] of A  (i.e. P applied to A gives L*U).
+// ------------------------------------------------------------------
+typedef struct {
+  Matrix *L;
+  Matrix *U;
+  IntMatrix *P;
+} LUResult;
+
+LUResult *math_lu(Matrix *A) {
+  if (A->rows != A->cols) {
+    fprintf(stderr, "Error: lu() requires a square matrix\n");
+    exit(1);
+  }
+
+  long n = A->rows;
+
+  // Column-major copy for LAPACK (factored in place).
+  double *a = (double *)malloc(n * n * sizeof(double));
+  matrix_to_colmajor(A, a);
+
+  int *ipiv = (int *)malloc(n * sizeof(int));
+  int n_int = (int)n;
+  int info;
+
+  extern void dgetrf_(int *m, int *n, double *a, int *lda, int *ipiv,
+                      int *info);
+  dgetrf_(&n_int, &n_int, a, &n_int, ipiv, &info);
+
+  // info < 0: illegal argument (fatal). info > 0: U(i,i) is exactly zero
+  // (A is singular), but the factorization is still complete and usable, so
+  // we return L/U/P as usual — it is math.solve() that rejects singular
+  // systems, not math.lu().
+  if (info < 0) {
+    fprintf(stderr, "Error: LAPACK dgetrf illegal argument (info=%d)\n", info);
+    exit(1);
+  }
+
+  // Split the in-place factors into L (unit lower) and U (upper).
+  // Column-major element (i, j) lives at a[j * n + i].
+  Matrix *L = matrix_new(n, n);
+  Matrix *U = matrix_new(n, n);
+  for (long i = 0; i < n; i++) {
+    for (long j = 0; j < n; j++) {
+      double v = a[j * n + i];
+      if (i > j) {
+        L->data[i * n + j] = v;   // strictly lower
+        U->data[i * n + j] = 0.0;
+      } else if (i == j) {
+        L->data[i * n + j] = 1.0; // unit diagonal
+        U->data[i * n + j] = v;
+      } else {
+        L->data[i * n + j] = 0.0;
+        U->data[i * n + j] = v;   // strictly upper
+      }
+    }
+  }
+
+  // Convert LAPACK ipiv (1-based successive row swaps) into a 0-based
+  // permutation vector: start from the identity and apply each swap in order.
+  IntMatrix *P = intmatrix_new(n, 1);
+  for (long i = 0; i < n; i++) {
+    P->data[i] = i;
+  }
+  for (long k = 0; k < n; k++) {
+    long target = (long)ipiv[k] - 1; // to 0-based
+    if (target != k) {
+      long tmp = P->data[k];
+      P->data[k] = P->data[target];
+      P->data[target] = tmp;
+    }
+  }
+
+  free(a);
+  free(ipiv);
+
+  LUResult *res = (LUResult *)malloc(sizeof(LUResult));
+  res->L = L;
+  res->U = U;
+  res->P = P;
+  return res;
+}
+
 // ==========================================
 // SECTION 1.8: ARRAY METHODS (v1.7 Grupo B)
 // ==========================================

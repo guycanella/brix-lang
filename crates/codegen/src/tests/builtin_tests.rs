@@ -1321,6 +1321,35 @@ fn test_math_eigvals() {
 }
 
 #[test]
+fn test_math_lu() {
+    // math.lu(zeros(2,2)) compiles: declares math_lu, unpacks LUResult*,
+    // and assembles a Tuple(Matrix, Matrix, IntMatrix) value (v1.8 Grupo B).
+    let program = Program {
+        statements: vec![
+            Stmt::dummy(StmtKind::Import {
+                module: "math".to_string(),
+                alias: None,
+            }),
+            Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+                func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                    target: Box::new(Expr::dummy(ExprKind::Identifier("math".to_string()))),
+                    field: "lu".to_string(),
+                })),
+                args: vec![Expr::dummy(ExprKind::Call {
+                    func: Box::new(Expr::dummy(ExprKind::Identifier("zeros".to_string()))),
+                    args: vec![
+                        Expr::dummy(ExprKind::Literal(Literal::Int(2))),
+                        Expr::dummy(ExprKind::Literal(Literal::Int(2))),
+                    ],
+                })],
+            }))),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+}
+
+#[test]
 fn test_math_eigvecs() {
     let program = Program {
         statements: vec![

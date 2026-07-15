@@ -1,0 +1,18 @@
+import math
+
+// LU decomposition A = P*L*U (v1.8 Grupo B). A pivots (row swap), giving
+// L = I, U = [[1,0],[0,2]], P = [1,0] (0-based permutation vector).
+var A := zeros(2, 2)
+A[0][0] := 0.0
+A[0][1] := 2.0
+A[1][0] := 1.0
+A[1][1] := 0.0
+
+var { L, U, P } := math.lu(A)
+
+println(L[0][0])   // 1  (unit diagonal)
+println(L[1][0])   // 0
+println(U[0][0])   // 1
+println(U[1][1])   // 2
+println(P[0])      // 1  (row 1 of A became row 0 of L*U)
+println(P[1])      // 0

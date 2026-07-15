@@ -1,0 +1,15 @@
+// ARC regression: a user function may return ALIASES of an existing
+// ref-counted value (not fresh allocations). Destructuring such a tuple with
+// an ignored `_` field must NOT release it as if it were owned — otherwise the
+// still-live original (A) would be freed early / double-freed. Only proven
+// fresh-tuple builtins (math.lu/qr/svd) use owning semantics; a plain user
+// call takes the safe retain-and-keep path.
+function dup(m: float[]) -> (float[], float[]) {
+    return m, m
+}
+
+var A := ones(2)
+var { _, U } := dup(A)
+
+println(U[0])   // 1  (no crash, no double-free)
+println(U[1])   // 1

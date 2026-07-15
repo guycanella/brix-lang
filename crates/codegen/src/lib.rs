@@ -4479,6 +4479,20 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         // Check if this is a math module function
                         let fn_name = field.as_str();
 
+                        // math.lu(A) -> Tuple(Matrix L, Matrix U, IntMatrix P).
+                        // Handled here (not via the generic math dispatch below)
+                        // because the C wrapper returns a heap LUResult* struct
+                        // that must be unpacked and assembled into a Brix tuple.
+                        // Gated to the math module (honouring `import math as m`).
+                        if fn_name == "lu"
+                            && self
+                                .imported_modules
+                                .iter()
+                                .any(|(m, p)| m == "math" && p == _module_name)
+                        {
+                            return self.compile_math_lu(args, expr);
+                        }
+
                         // Check for brix_ prefixed functions (stats/linalg/utility wrappers)
                         let brix_fn_name = format!("brix_{}", fn_name);
                         let lookup_name = if self.module.get_function(&brix_fn_name).is_some() {
@@ -9906,6 +9920,129 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 span: None,
             }),
         }
+    }
+
+    /// Compile `math.lu(A)` -> Tuple(Matrix L, Matrix U, IntMatrix P).
+    ///
+    /// The C wrapper `math_lu` returns a heap `LUResult*` whose layout is a
+    /// plain `{ ptr, ptr, ptr }` triple (L, U, P). We load the three fields,
+    /// assemble them into the Brix tuple value (whose LLVM type is the same
+    /// `{ ptr, ptr, ptr }`), and free the container shell. The three matrices
+    /// keep ref_count = 1 and become owned by whatever binds the tuple.
+    fn compile_math_lu(
+        &mut self,
+        args: &[Expr],
+        expr: &Expr,
+    ) -> CodegenResult<(BasicValueEnum<'ctx>, BrixType)> {
+        use inkwell::AddressSpace;
+
+        if args.len() != 1 {
+            return Err(CodegenError::InvalidOperation {
+                operation: "math.lu".to_string(),
+                reason: format!("expected 1 argument (a matrix), got {}", args.len()),
+                span: Some(expr.span.clone()),
+            });
+        }
+
+        let (matrix_val, matrix_type) = self.compile_expr(&args[0])?;
+        if matrix_type != BrixType::Matrix {
+            return Err(CodegenError::TypeError {
+                expected: "Matrix (float)".to_string(),
+                found: format!("{:?}", matrix_type),
+                context: "math.lu argument".to_string(),
+                span: Some(expr.span.clone()),
+            });
+        }
+
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+
+        // Declare `LUResult* math_lu(Matrix*)` on demand (opaque-pointer ABI).
+        let lu_fn = self.module.get_function("math_lu").unwrap_or_else(|| {
+            let fn_type = ptr_type.fn_type(&[ptr_type.into()], false);
+            self.module
+                .add_function("math_lu", fn_type, Some(Linkage::External))
+        });
+
+        let call = self
+            .builder
+            .build_call(lu_fn, &[matrix_val.into()], "lu_call")
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_call".to_string(),
+                details: "Failed to call math_lu".to_string(),
+                span: Some(expr.span.clone()),
+            })?;
+        let res_ptr = call
+            .try_as_basic_value()
+            .left()
+            .ok_or_else(|| CodegenError::MissingValue {
+                what: "math_lu result".to_string(),
+                context: "math.lu".to_string(),
+                span: Some(expr.span.clone()),
+            })?
+            .into_pointer_value();
+
+        // LUResult layout: { Matrix* L, Matrix* U, IntMatrix* P } == { ptr, ptr, ptr }.
+        let lu_struct_type = self
+            .context
+            .struct_type(&[ptr_type.into(), ptr_type.into(), ptr_type.into()], false);
+
+        let mut fields = Vec::with_capacity(3);
+        for (i, name) in ["lu_L", "lu_U", "lu_P"].iter().enumerate() {
+            let field_ptr = self
+                .builder
+                .build_struct_gep(lu_struct_type, res_ptr, i as u32, name)
+                .map_err(|_| CodegenError::LLVMError {
+                    operation: "build_struct_gep".to_string(),
+                    details: format!("Failed to GEP LUResult field {}", i),
+                    span: Some(expr.span.clone()),
+                })?;
+            let loaded = self
+                .builder
+                .build_load(ptr_type, field_ptr, name)
+                .map_err(|_| CodegenError::LLVMError {
+                    operation: "build_load".to_string(),
+                    details: format!("Failed to load LUResult field {}", i),
+                    span: Some(expr.span.clone()),
+                })?;
+            fields.push(loaded);
+        }
+
+        // Assemble the Brix tuple value { ptr, ptr, ptr }.
+        let tuple_type = BrixType::Tuple(vec![
+            BrixType::Matrix,
+            BrixType::Matrix,
+            BrixType::IntMatrix,
+        ]);
+        let struct_type = self.brix_type_to_llvm(&tuple_type).into_struct_type();
+        let mut struct_val = struct_type.get_undef();
+        for (i, field) in fields.iter().enumerate() {
+            struct_val = self
+                .builder
+                .build_insert_value(struct_val, *field, i as u32, "lu_tuple")
+                .map_err(|_| CodegenError::LLVMError {
+                    operation: "build_insert_value".to_string(),
+                    details: format!("Failed to insert LU field {} into tuple", i),
+                    span: Some(expr.span.clone()),
+                })?
+                .into_struct_value();
+        }
+
+        // Free the LUResult container shell (NOT the matrices — they live on
+        // in the tuple with ref_count = 1).
+        let free_fn = self.module.get_function("free").unwrap_or_else(|| {
+            let fn_type = self.context.void_type().fn_type(&[ptr_type.into()], false);
+            self.module
+                .add_function("free", fn_type, Some(Linkage::External))
+        });
+        self.builder
+            .build_call(free_fn, &[res_ptr.into()], "")
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_call".to_string(),
+                details: "Failed to free LUResult container".to_string(),
+                span: Some(expr.span.clone()),
+            })?;
+
+        Ok((struct_val.into(), tuple_type))
     }
 
     fn compile_zip(&mut self, args: &[Expr]) -> Option<(BasicValueEnum<'ctx>, BrixType)> {

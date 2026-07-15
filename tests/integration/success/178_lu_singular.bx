@@ -1,0 +1,15 @@
+import math
+
+// Singular matrix (rank 1): dgetrf reports info > 0, but the factorization is
+// still complete and usable — math.lu() must succeed and return L/U/P with a
+// zero pivot in U (it is math.solve() that rejects singular systems).
+var A := zeros(2, 2)
+A[0][0] := 1.0
+A[0][1] := 2.0
+A[1][0] := 2.0
+A[1][1] := 4.0
+
+var { L, U, P } := math.lu(A)
+
+println(L[0][0])   // 1  (unit diagonal, no crash)
+println(U[1][1])   // 0  (singular pivot — factorization still returned)
