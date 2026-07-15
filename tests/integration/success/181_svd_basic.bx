@@ -1,0 +1,43 @@
+import math
+
+// SVD A = U*diag(S)*Vt (v1.8 Grupo B). Verified sign-independently:
+// reconstruction recovers A, U has orthonormal columns, and the singular
+// values come out in descending order. (S is a 1D vector of length min(m,n).)
+var A := zeros(2, 2)
+A[0][0] := 1.0
+A[0][1] := 2.0
+A[1][0] := 3.0
+A[1][1] := 4.0
+
+var { U, S, Vt } := math.svd(A)
+
+println(U[0][0] * S[0] * Vt[0][0] + U[0][1] * S[1] * Vt[1][0])   // 1 = A[0][0]
+println(U[1][0] * S[0] * Vt[0][1] + U[1][1] * S[1] * Vt[1][1])   // 4 = A[1][1]
+println(U[0][0] * U[0][0] + U[1][0] * U[1][0])                   // 1 orthonormal
+println(S[0] > S[1])                                             // 1 descending
+
+// Rectangular wide matrix: locks full-SVD shapes and reconstruction.
+var B := zeros(2, 3)
+B[0][0] := 1.0
+B[0][1] := 2.0
+B[0][2] := 3.0
+B[1][0] := 4.0
+B[1][1] := 5.0
+B[1][2] := 6.0
+
+var { UB, SB, VtB } := math.svd(B)
+println(UB.rows)
+println(UB.cols)
+println(SB.rows)
+println(SB.cols)
+println(VtB.rows)
+println(VtB.cols)
+
+var b00 := UB[0][0] * SB[0] * VtB[0][0] + UB[0][1] * SB[1] * VtB[1][0]
+var b02 := UB[0][0] * SB[0] * VtB[0][2] + UB[0][1] * SB[1] * VtB[1][2]
+var b11 := UB[1][0] * SB[0] * VtB[0][1] + UB[1][1] * SB[1] * VtB[1][1]
+var b12 := UB[1][0] * SB[0] * VtB[0][2] + UB[1][1] * SB[1] * VtB[1][2]
+println(b00 > 0.999 && b00 < 1.001)
+println(b02 > 2.999 && b02 < 3.001)
+println(b11 > 4.999 && b11 < 5.001)
+println(b12 > 5.999 && b12 < 6.001)
