@@ -13,7 +13,7 @@
 // - get_printf(), get_scanf(), get_sprintf() - C stdio functions
 // - get_atoi(), get_atof() - String conversion functions
 
-use crate::{Compiler, CodegenError, CodegenResult};
+use crate::{CodegenError, CodegenResult, Compiler};
 use inkwell::module::Linkage;
 use inkwell::types::BasicTypeEnum;
 use inkwell::values::PointerValue;
@@ -22,13 +22,21 @@ use inkwell::AddressSpace;
 /// Trait for LLVM helper functions
 pub trait HelperFunctions<'ctx> {
     /// Create an alloca instruction in the entry block of the current function
-    fn create_entry_block_alloca(&self, ty: BasicTypeEnum<'ctx>, name: &str) -> CodegenResult<PointerValue<'ctx>>;
+    fn create_entry_block_alloca(
+        &self,
+        ty: BasicTypeEnum<'ctx>,
+        name: &str,
+    ) -> CodegenResult<PointerValue<'ctx>>;
 
     /// Create an alloca in the entry block AND null-initialize it.
     /// Used for ref-counted types (String, Matrix, etc.) so that conditional
     /// declarations don't leave garbage in the alloca — preventing SIGSEGV
     /// when release_function_scope_vars loads from an uninitialized alloca.
-    fn create_null_init_entry_block_alloca(&self, ty: BasicTypeEnum<'ctx>, name: &str) -> CodegenResult<PointerValue<'ctx>>;
+    fn create_null_init_entry_block_alloca(
+        &self,
+        ty: BasicTypeEnum<'ctx>,
+        name: &str,
+    ) -> CodegenResult<PointerValue<'ctx>>;
 
     /// Get or declare printf function
     fn get_printf(&self) -> inkwell::values::FunctionValue<'ctx>;
@@ -47,7 +55,11 @@ pub trait HelperFunctions<'ctx> {
 }
 
 impl<'a, 'ctx> HelperFunctions<'ctx> for Compiler<'a, 'ctx> {
-    fn create_entry_block_alloca(&self, ty: BasicTypeEnum<'ctx>, name: &str) -> CodegenResult<PointerValue<'ctx>> {
+    fn create_entry_block_alloca(
+        &self,
+        ty: BasicTypeEnum<'ctx>,
+        name: &str,
+    ) -> CodegenResult<PointerValue<'ctx>> {
         let builder = self.context.create_builder();
 
         let block = self
@@ -59,83 +71,89 @@ impl<'a, 'ctx> HelperFunctions<'ctx> for Compiler<'a, 'ctx> {
                 span: None,
             })?;
 
-        let parent = block
-            .get_parent()
-            .ok_or_else(|| CodegenError::LLVMError {
-                operation: "get_parent".to_string(),
-                details: "Basic block has no parent function".to_string(),
-                span: None,
-            })?;
-
-        let entry = parent
-            .get_first_basic_block()
-            .ok_or_else(|| CodegenError::LLVMError {
-                operation: "get_first_basic_block".to_string(),
-                details: "Function has no entry block".to_string(),
-                span: None,
-            })?;
-
-        match entry.get_first_instruction() {
-            Some(first_instr) => builder.position_before(&first_instr),
-            None => builder.position_at_end(entry),
-        }
-
-        builder.build_alloca(ty, name).map_err(|_| CodegenError::LLVMError {
-            operation: "build_alloca".to_string(),
-            details: format!("Failed to allocate variable '{}'", name),
-            span: None,
-        })
-    }
-
-    fn create_null_init_entry_block_alloca(&self, ty: BasicTypeEnum<'ctx>, name: &str) -> CodegenResult<PointerValue<'ctx>> {
-        let builder = self.context.create_builder();
-
-        let block = self
-            .builder
-            .get_insert_block()
-            .ok_or_else(|| CodegenError::LLVMError {
-                operation: "get_insert_block".to_string(),
-                details: "No current basic block".to_string(),
-                span: None,
-            })?;
-
-        let parent = block
-            .get_parent()
-            .ok_or_else(|| CodegenError::LLVMError {
-                operation: "get_parent".to_string(),
-                details: "Basic block has no parent function".to_string(),
-                span: None,
-            })?;
-
-        let entry = parent
-            .get_first_basic_block()
-            .ok_or_else(|| CodegenError::LLVMError {
-                operation: "get_first_basic_block".to_string(),
-                details: "Function has no entry block".to_string(),
-                span: None,
-            })?;
-
-        match entry.get_first_instruction() {
-            Some(first_instr) => builder.position_before(&first_instr),
-            None => builder.position_at_end(entry),
-        }
-
-        let alloca = builder.build_alloca(ty, name).map_err(|_| CodegenError::LLVMError {
-            operation: "build_alloca".to_string(),
-            details: format!("Failed to allocate variable '{}'", name),
+        let parent = block.get_parent().ok_or_else(|| CodegenError::LLVMError {
+            operation: "get_parent".to_string(),
+            details: "Basic block has no parent function".to_string(),
             span: None,
         })?;
+
+        let entry = parent
+            .get_first_basic_block()
+            .ok_or_else(|| CodegenError::LLVMError {
+                operation: "get_first_basic_block".to_string(),
+                details: "Function has no entry block".to_string(),
+                span: None,
+            })?;
+
+        match entry.get_first_instruction() {
+            Some(first_instr) => builder.position_before(&first_instr),
+            None => builder.position_at_end(entry),
+        }
+
+        builder
+            .build_alloca(ty, name)
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_alloca".to_string(),
+                details: format!("Failed to allocate variable '{}'", name),
+                span: None,
+            })
+    }
+
+    fn create_null_init_entry_block_alloca(
+        &self,
+        ty: BasicTypeEnum<'ctx>,
+        name: &str,
+    ) -> CodegenResult<PointerValue<'ctx>> {
+        let builder = self.context.create_builder();
+
+        let block = self
+            .builder
+            .get_insert_block()
+            .ok_or_else(|| CodegenError::LLVMError {
+                operation: "get_insert_block".to_string(),
+                details: "No current basic block".to_string(),
+                span: None,
+            })?;
+
+        let parent = block.get_parent().ok_or_else(|| CodegenError::LLVMError {
+            operation: "get_parent".to_string(),
+            details: "Basic block has no parent function".to_string(),
+            span: None,
+        })?;
+
+        let entry = parent
+            .get_first_basic_block()
+            .ok_or_else(|| CodegenError::LLVMError {
+                operation: "get_first_basic_block".to_string(),
+                details: "Function has no entry block".to_string(),
+                span: None,
+            })?;
+
+        match entry.get_first_instruction() {
+            Some(first_instr) => builder.position_before(&first_instr),
+            None => builder.position_at_end(entry),
+        }
+
+        let alloca = builder
+            .build_alloca(ty, name)
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_alloca".to_string(),
+                details: format!("Failed to allocate variable '{}'", name),
+                span: None,
+            })?;
 
         // Null-initialize right after the alloca (still in entry block).
         // The builder cursor is now right after the alloca instruction,
         // so the store lands in the entry block — guaranteeing it runs
         // even if the actual value store is inside a conditional branch.
         let null_val = self.context.ptr_type(AddressSpace::default()).const_null();
-        builder.build_store(alloca, null_val).map_err(|_| CodegenError::LLVMError {
-            operation: "build_store".to_string(),
-            details: format!("Failed to null-initialize alloca '{}'", name),
-            span: None,
-        })?;
+        builder
+            .build_store(alloca, null_val)
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_store".to_string(),
+                details: format!("Failed to null-initialize alloca '{}'", name),
+                span: None,
+            })?;
 
         Ok(alloca)
     }

@@ -2,14 +2,20 @@
 
 use crate::Compiler;
 use inkwell::context::Context;
-use parser::ast::{BinaryOp, Expr, Literal, Program, Stmt, ExprKind, StmtKind};
+use parser::ast::{BinaryOp, Expr, ExprKind, Literal, Program, Stmt, StmtKind};
 
 fn compile_program(program: Program) -> Result<String, String> {
     let result = std::panic::catch_unwind(|| {
         let context = Context::create();
         let module = context.create_module("test");
         let builder = context.create_builder();
-        let mut compiler = Compiler::new(&context, &builder, &module, "test.bx".to_string(), "".to_string());
+        let mut compiler = Compiler::new(
+            &context,
+            &builder,
+            &module,
+            "test.bx".to_string(),
+            "".to_string(),
+        );
         compiler.compile_program(&program);
         module.print_to_string().to_string()
     });
@@ -35,7 +41,8 @@ fn test_default_param_int_literal() {
     // fn greet(times: int = 1) -> int { return times; }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "greet".to_string(),
                 params: vec![(
@@ -44,9 +51,11 @@ fn test_default_param_int_literal() {
                     Some(Expr::dummy(ExprKind::Literal(Literal::Int(1)))),
                 )],
                 return_type: Some(vec!["int".to_string()]),
-                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Return {
-                    values: vec![Expr::dummy(ExprKind::Identifier("times".to_string()))],
-                })]))),
+                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                    StmtKind::Return {
+                        values: vec![Expr::dummy(ExprKind::Identifier("times".to_string()))],
+                    },
+                )]))),
             }),
             // Call with default
             Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
@@ -64,7 +73,8 @@ fn test_default_param_float_literal() {
     // fn multiply(x: float = 2.5) -> float { return x * 2.0; }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "multiply".to_string(),
                 params: vec![(
@@ -73,13 +83,15 @@ fn test_default_param_float_literal() {
                     Some(Expr::dummy(ExprKind::Literal(Literal::Float(2.5)))),
                 )],
                 return_type: Some(vec!["float".to_string()]),
-                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Return {
-                    values: vec![binary(
-                        BinaryOp::Mul,
-                        Expr::dummy(ExprKind::Identifier("x".to_string())),
-                        Expr::dummy(ExprKind::Literal(Literal::Float(2.0))),
-                    )],
-                })]))),
+                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                    StmtKind::Return {
+                        values: vec![binary(
+                            BinaryOp::Mul,
+                            Expr::dummy(ExprKind::Identifier("x".to_string())),
+                            Expr::dummy(ExprKind::Literal(Literal::Float(2.0))),
+                        )],
+                    },
+                )]))),
             }),
             Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
                 func: Box::new(Expr::dummy(ExprKind::Identifier("multiply".to_string()))),
@@ -96,18 +108,23 @@ fn test_default_param_string_literal() {
     // fn greet(name: string = "World") -> string { return name; }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "greet".to_string(),
                 params: vec![(
                     "name".to_string(),
                     "string".to_string(),
-                    Some(Expr::dummy(ExprKind::Literal(Literal::String("World".to_string())))),
+                    Some(Expr::dummy(ExprKind::Literal(Literal::String(
+                        "World".to_string(),
+                    )))),
                 )],
                 return_type: Some(vec!["string".to_string()]),
-                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Return {
-                    values: vec![Expr::dummy(ExprKind::Identifier("name".to_string()))],
-                })]))),
+                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                    StmtKind::Return {
+                        values: vec![Expr::dummy(ExprKind::Identifier("name".to_string()))],
+                    },
+                )]))),
             }),
             Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
                 func: Box::new(Expr::dummy(ExprKind::Identifier("greet".to_string()))),
@@ -124,7 +141,8 @@ fn test_default_param_expression() {
     // fn add(a: int, b: int = a + 1) -> int { return a + b; }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "add".to_string(),
                 params: vec![
@@ -140,13 +158,15 @@ fn test_default_param_expression() {
                     ),
                 ],
                 return_type: Some(vec!["int".to_string()]),
-                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Return {
-                    values: vec![binary(
-                        BinaryOp::Add,
-                        Expr::dummy(ExprKind::Identifier("a".to_string())),
-                        Expr::dummy(ExprKind::Identifier("b".to_string())),
-                    )],
-                })]))),
+                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                    StmtKind::Return {
+                        values: vec![binary(
+                            BinaryOp::Add,
+                            Expr::dummy(ExprKind::Identifier("a".to_string())),
+                            Expr::dummy(ExprKind::Identifier("b".to_string())),
+                        )],
+                    },
+                )]))),
             }),
             Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
                 func: Box::new(Expr::dummy(ExprKind::Identifier("add".to_string()))),
@@ -163,7 +183,8 @@ fn test_multiple_defaults() {
     // fn func(a: int = 1, b: int = 2, c: int = 3) -> int { return a + b + c; }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "func".to_string(),
                 params: vec![
@@ -184,17 +205,19 @@ fn test_multiple_defaults() {
                     ),
                 ],
                 return_type: Some(vec!["int".to_string()]),
-                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Return {
-                    values: vec![binary(
-                        BinaryOp::Add,
-                        binary(
+                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                    StmtKind::Return {
+                        values: vec![binary(
                             BinaryOp::Add,
-                            Expr::dummy(ExprKind::Identifier("a".to_string())),
-                            Expr::dummy(ExprKind::Identifier("b".to_string())),
-                        ),
-                        Expr::dummy(ExprKind::Identifier("c".to_string())),
-                    )],
-                })]))),
+                            binary(
+                                BinaryOp::Add,
+                                Expr::dummy(ExprKind::Identifier("a".to_string())),
+                                Expr::dummy(ExprKind::Identifier("b".to_string())),
+                            ),
+                            Expr::dummy(ExprKind::Identifier("c".to_string())),
+                        )],
+                    },
+                )]))),
             }),
             Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
                 func: Box::new(Expr::dummy(ExprKind::Identifier("func".to_string()))),
@@ -212,22 +235,29 @@ fn test_override_default_value() {
     // greet("Alice")
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "greet".to_string(),
                 params: vec![(
                     "name".to_string(),
                     "string".to_string(),
-                    Some(Expr::dummy(ExprKind::Literal(Literal::String("World".to_string())))),
+                    Some(Expr::dummy(ExprKind::Literal(Literal::String(
+                        "World".to_string(),
+                    )))),
                 )],
                 return_type: Some(vec!["string".to_string()]),
-                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Return {
-                    values: vec![Expr::dummy(ExprKind::Identifier("name".to_string()))],
-                })]))),
+                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                    StmtKind::Return {
+                        values: vec![Expr::dummy(ExprKind::Identifier("name".to_string()))],
+                    },
+                )]))),
             }),
             Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
                 func: Box::new(Expr::dummy(ExprKind::Identifier("greet".to_string()))),
-                args: vec![Expr::dummy(ExprKind::Literal(Literal::String("Alice".to_string())))],
+                args: vec![Expr::dummy(ExprKind::Literal(Literal::String(
+                    "Alice".to_string(),
+                )))],
             }))),
         ],
     };
@@ -240,7 +270,8 @@ fn test_required_and_default_params() {
     // fn func(required: int, optional: int = 10) -> int { return required + optional; }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "func".to_string(),
                 params: vec![
@@ -252,13 +283,15 @@ fn test_required_and_default_params() {
                     ),
                 ],
                 return_type: Some(vec!["int".to_string()]),
-                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Return {
-                    values: vec![binary(
-                        BinaryOp::Add,
-                        Expr::dummy(ExprKind::Identifier("required".to_string())),
-                        Expr::dummy(ExprKind::Identifier("optional".to_string())),
-                    )],
-                })]))),
+                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                    StmtKind::Return {
+                        values: vec![binary(
+                            BinaryOp::Add,
+                            Expr::dummy(ExprKind::Identifier("required".to_string())),
+                            Expr::dummy(ExprKind::Identifier("optional".to_string())),
+                        )],
+                    },
+                )]))),
             }),
             // Call with only required param
             Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
@@ -277,7 +310,8 @@ fn test_partial_default_override() {
     // func(10, 20) - override first two, use default for c
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "func".to_string(),
                 params: vec![
@@ -298,17 +332,19 @@ fn test_partial_default_override() {
                     ),
                 ],
                 return_type: Some(vec!["int".to_string()]),
-                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Return {
-                    values: vec![binary(
-                        BinaryOp::Add,
-                        binary(
+                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                    StmtKind::Return {
+                        values: vec![binary(
                             BinaryOp::Add,
-                            Expr::dummy(ExprKind::Identifier("a".to_string())),
-                            Expr::dummy(ExprKind::Identifier("b".to_string())),
-                        ),
-                        Expr::dummy(ExprKind::Identifier("c".to_string())),
-                    )],
-                })]))),
+                            binary(
+                                BinaryOp::Add,
+                                Expr::dummy(ExprKind::Identifier("a".to_string())),
+                                Expr::dummy(ExprKind::Identifier("b".to_string())),
+                            ),
+                            Expr::dummy(ExprKind::Identifier("c".to_string())),
+                        )],
+                    },
+                )]))),
             }),
             Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
                 func: Box::new(Expr::dummy(ExprKind::Identifier("func".to_string()))),
@@ -328,7 +364,8 @@ fn test_default_param_boolean() {
     // fn check(flag: bool = true) -> int { return flag ? 1 : 0; }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "check".to_string(),
                 params: vec![(
@@ -337,13 +374,17 @@ fn test_default_param_boolean() {
                     Some(Expr::dummy(ExprKind::Literal(Literal::Bool(true)))),
                 )],
                 return_type: Some(vec!["int".to_string()]),
-                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Return {
-                    values: vec![Expr::dummy(ExprKind::Ternary {
-                        condition: Box::new(Expr::dummy(ExprKind::Identifier("flag".to_string()))),
-                        then_expr: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(1)))),
-                        else_expr: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(0)))),
-                    })],
-                })]))),
+                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                    StmtKind::Return {
+                        values: vec![Expr::dummy(ExprKind::Ternary {
+                            condition: Box::new(Expr::dummy(ExprKind::Identifier(
+                                "flag".to_string(),
+                            ))),
+                            then_expr: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(1)))),
+                            else_expr: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(0)))),
+                        })],
+                    },
+                )]))),
             }),
             Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
                 func: Box::new(Expr::dummy(ExprKind::Identifier("check".to_string()))),
@@ -360,7 +401,8 @@ fn test_default_param_with_float_types() {
     // fn calculate(x: float = 1.5, y: float = 2.5) -> float { return x * y; }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "calculate".to_string(),
                 params: vec![
@@ -376,13 +418,15 @@ fn test_default_param_with_float_types() {
                     ),
                 ],
                 return_type: Some(vec!["float".to_string()]),
-                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Return {
-                    values: vec![binary(
-                        BinaryOp::Mul,
-                        Expr::dummy(ExprKind::Identifier("x".to_string())),
-                        Expr::dummy(ExprKind::Identifier("y".to_string())),
-                    )],
-                })]))),
+                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                    StmtKind::Return {
+                        values: vec![binary(
+                            BinaryOp::Mul,
+                            Expr::dummy(ExprKind::Identifier("x".to_string())),
+                            Expr::dummy(ExprKind::Identifier("y".to_string())),
+                        )],
+                    },
+                )]))),
             }),
             Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
                 func: Box::new(Expr::dummy(ExprKind::Identifier("calculate".to_string()))),
@@ -401,17 +445,20 @@ fn test_tuple_return_two_ints() {
     // fn get_coords() -> (int, int) { return 10, 20; }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "get_coords".to_string(),
                 params: vec![],
                 return_type: Some(vec!["int".to_string(), "int".to_string()]),
-                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Return {
-                    values: vec![
-                        Expr::dummy(ExprKind::Literal(Literal::Int(10))),
-                        Expr::dummy(ExprKind::Literal(Literal::Int(20))),
-                    ],
-                })]))),
+                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                    StmtKind::Return {
+                        values: vec![
+                            Expr::dummy(ExprKind::Literal(Literal::Int(10))),
+                            Expr::dummy(ExprKind::Literal(Literal::Int(20))),
+                        ],
+                    },
+                )]))),
             }),
             Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
                 func: Box::new(Expr::dummy(ExprKind::Identifier("get_coords".to_string()))),
@@ -428,17 +475,20 @@ fn test_tuple_return_int_and_float() {
     // fn get_data() -> (int, float) { return 42, 3.14; }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "get_data".to_string(),
                 params: vec![],
                 return_type: Some(vec!["int".to_string(), "float".to_string()]),
-                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Return {
-                    values: vec![
-                        Expr::dummy(ExprKind::Literal(Literal::Int(42))),
-                        Expr::dummy(ExprKind::Literal(Literal::Float(3.14))),
-                    ],
-                })]))),
+                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                    StmtKind::Return {
+                        values: vec![
+                            Expr::dummy(ExprKind::Literal(Literal::Int(42))),
+                            Expr::dummy(ExprKind::Literal(Literal::Float(3.14))),
+                        ],
+                    },
+                )]))),
             }),
             Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
                 func: Box::new(Expr::dummy(ExprKind::Identifier("get_data".to_string()))),
@@ -455,7 +505,8 @@ fn test_tuple_return_three_values() {
     // fn get_rgb() -> (int, int, int) { return 255, 128, 0; }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "get_rgb".to_string(),
                 params: vec![],
@@ -464,13 +515,15 @@ fn test_tuple_return_three_values() {
                     "int".to_string(),
                     "int".to_string(),
                 ]),
-                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Return {
-                    values: vec![
-                        Expr::dummy(ExprKind::Literal(Literal::Int(255))),
-                        Expr::dummy(ExprKind::Literal(Literal::Int(128))),
-                        Expr::dummy(ExprKind::Literal(Literal::Int(0))),
-                    ],
-                })]))),
+                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                    StmtKind::Return {
+                        values: vec![
+                            Expr::dummy(ExprKind::Literal(Literal::Int(255))),
+                            Expr::dummy(ExprKind::Literal(Literal::Int(128))),
+                            Expr::dummy(ExprKind::Literal(Literal::Int(0))),
+                        ],
+                    },
+                )]))),
             }),
             Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
                 func: Box::new(Expr::dummy(ExprKind::Identifier("get_rgb".to_string()))),
@@ -487,7 +540,8 @@ fn test_tuple_return_mixed_types() {
     // fn get_info() -> (int, float, string) { return 42, 3.14, "hello"; }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "get_info".to_string(),
                 params: vec![],
@@ -496,13 +550,15 @@ fn test_tuple_return_mixed_types() {
                     "float".to_string(),
                     "string".to_string(),
                 ]),
-                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Return {
-                    values: vec![
-                        Expr::dummy(ExprKind::Literal(Literal::Int(42))),
-                        Expr::dummy(ExprKind::Literal(Literal::Float(3.14))),
-                        Expr::dummy(ExprKind::Literal(Literal::String("hello".to_string()))),
-                    ],
-                })]))),
+                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                    StmtKind::Return {
+                        values: vec![
+                            Expr::dummy(ExprKind::Literal(Literal::Int(42))),
+                            Expr::dummy(ExprKind::Literal(Literal::Float(3.14))),
+                            Expr::dummy(ExprKind::Literal(Literal::String("hello".to_string()))),
+                        ],
+                    },
+                )]))),
             }),
             Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
                 func: Box::new(Expr::dummy(ExprKind::Identifier("get_info".to_string()))),
@@ -520,14 +576,20 @@ fn test_tuple_destructuring_simple() {
     // var { a, b } := pair();
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "pair".to_string(),
                 params: vec![],
                 return_type: Some(vec!["int".to_string(), "int".to_string()]),
-                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Return {
-                    values: vec![Expr::dummy(ExprKind::Literal(Literal::Int(1))), Expr::dummy(ExprKind::Literal(Literal::Int(2)))],
-                })]))),
+                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                    StmtKind::Return {
+                        values: vec![
+                            Expr::dummy(ExprKind::Literal(Literal::Int(1))),
+                            Expr::dummy(ExprKind::Literal(Literal::Int(2))),
+                        ],
+                    },
+                )]))),
             }),
             Stmt::dummy(StmtKind::DestructuringDecl {
                 names: vec!["a".to_string(), "b".to_string()],
@@ -549,7 +611,8 @@ fn test_tuple_destructuring_three_values() {
     // var { x, y, z } := triple();
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "triple".to_string(),
                 params: vec![],
@@ -558,13 +621,15 @@ fn test_tuple_destructuring_three_values() {
                     "int".to_string(),
                     "int".to_string(),
                 ]),
-                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Return {
-                    values: vec![
-                        Expr::dummy(ExprKind::Literal(Literal::Int(1))),
-                        Expr::dummy(ExprKind::Literal(Literal::Int(2))),
-                        Expr::dummy(ExprKind::Literal(Literal::Int(3))),
-                    ],
-                })]))),
+                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                    StmtKind::Return {
+                        values: vec![
+                            Expr::dummy(ExprKind::Literal(Literal::Int(1))),
+                            Expr::dummy(ExprKind::Literal(Literal::Int(2))),
+                            Expr::dummy(ExprKind::Literal(Literal::Int(3))),
+                        ],
+                    },
+                )]))),
             }),
             Stmt::dummy(StmtKind::DestructuringDecl {
                 names: vec!["x".to_string(), "y".to_string(), "z".to_string()],
@@ -586,14 +651,20 @@ fn test_tuple_destructuring_ignore_value() {
     // var { a, _ } := pair();  // Ignore second value
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "pair".to_string(),
                 params: vec![],
                 return_type: Some(vec!["int".to_string(), "int".to_string()]),
-                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Return {
-                    values: vec![Expr::dummy(ExprKind::Literal(Literal::Int(1))), Expr::dummy(ExprKind::Literal(Literal::Int(2)))],
-                })]))),
+                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                    StmtKind::Return {
+                        values: vec![
+                            Expr::dummy(ExprKind::Literal(Literal::Int(1))),
+                            Expr::dummy(ExprKind::Literal(Literal::Int(2))),
+                        ],
+                    },
+                )]))),
             }),
             Stmt::dummy(StmtKind::DestructuringDecl {
                 names: vec!["a".to_string(), "_".to_string()],
@@ -616,17 +687,20 @@ fn test_tuple_indexing() {
     // var first := result[0];
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "pair".to_string(),
                 params: vec![],
                 return_type: Some(vec!["int".to_string(), "int".to_string()]),
-                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Return {
-                    values: vec![
-                        Expr::dummy(ExprKind::Literal(Literal::Int(10))),
-                        Expr::dummy(ExprKind::Literal(Literal::Int(20))),
-                    ],
-                })]))),
+                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                    StmtKind::Return {
+                        values: vec![
+                            Expr::dummy(ExprKind::Literal(Literal::Int(10))),
+                            Expr::dummy(ExprKind::Literal(Literal::Int(20))),
+                        ],
+                    },
+                )]))),
             }),
             Stmt::dummy(StmtKind::VariableDecl {
                 name: "result".to_string(),
@@ -657,21 +731,24 @@ fn test_tuple_with_computation() {
     // fn compute(x: int) -> (int, int) { return x, x * 2; }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "compute".to_string(),
                 params: vec![("x".to_string(), "int".to_string(), None)],
                 return_type: Some(vec!["int".to_string(), "int".to_string()]),
-                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Return {
-                    values: vec![
-                        Expr::dummy(ExprKind::Identifier("x".to_string())),
-                        binary(
-                            BinaryOp::Mul,
+                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                    StmtKind::Return {
+                        values: vec![
                             Expr::dummy(ExprKind::Identifier("x".to_string())),
-                            Expr::dummy(ExprKind::Literal(Literal::Int(2))),
-                        ),
-                    ],
-                })]))),
+                            binary(
+                                BinaryOp::Mul,
+                                Expr::dummy(ExprKind::Identifier("x".to_string())),
+                                Expr::dummy(ExprKind::Literal(Literal::Int(2))),
+                            ),
+                        ],
+                    },
+                )]))),
             }),
             Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
                 func: Box::new(Expr::dummy(ExprKind::Identifier("compute".to_string()))),
@@ -688,7 +765,8 @@ fn test_tuple_four_values() {
     // fn get_quad() -> (int, int, int, int) { return 1, 2, 3, 4; }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "get_quad".to_string(),
                 params: vec![],
@@ -698,14 +776,16 @@ fn test_tuple_four_values() {
                     "int".to_string(),
                     "int".to_string(),
                 ]),
-                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Return {
-                    values: vec![
-                        Expr::dummy(ExprKind::Literal(Literal::Int(1))),
-                        Expr::dummy(ExprKind::Literal(Literal::Int(2))),
-                        Expr::dummy(ExprKind::Literal(Literal::Int(3))),
-                        Expr::dummy(ExprKind::Literal(Literal::Int(4))),
-                    ],
-                })]))),
+                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                    StmtKind::Return {
+                        values: vec![
+                            Expr::dummy(ExprKind::Literal(Literal::Int(1))),
+                            Expr::dummy(ExprKind::Literal(Literal::Int(2))),
+                            Expr::dummy(ExprKind::Literal(Literal::Int(3))),
+                            Expr::dummy(ExprKind::Literal(Literal::Int(4))),
+                        ],
+                    },
+                )]))),
             }),
             Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
                 func: Box::new(Expr::dummy(ExprKind::Identifier("get_quad".to_string()))),
@@ -717,7 +797,6 @@ fn test_tuple_four_values() {
     assert!(result.is_ok());
 }
 
-
 #[test]
 fn test_recursive_factorial() {
     // fn factorial(n: int) -> int {
@@ -726,7 +805,8 @@ fn test_recursive_factorial() {
     // }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "factorial".to_string(),
                 params: vec![("n".to_string(), "int".to_string(), None)],
@@ -738,9 +818,11 @@ fn test_recursive_factorial() {
                             Expr::dummy(ExprKind::Identifier("n".to_string())),
                             Expr::dummy(ExprKind::Literal(Literal::Int(1))),
                         ),
-                        then_block: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Return {
-                            values: vec![Expr::dummy(ExprKind::Literal(Literal::Int(1)))],
-                        })]))),
+                        then_block: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                            StmtKind::Return {
+                                values: vec![Expr::dummy(ExprKind::Literal(Literal::Int(1)))],
+                            },
+                        )]))),
                         else_block: None,
                     }),
                     Stmt::dummy(StmtKind::Return {
@@ -748,7 +830,9 @@ fn test_recursive_factorial() {
                             BinaryOp::Mul,
                             Expr::dummy(ExprKind::Identifier("n".to_string())),
                             Expr::dummy(ExprKind::Call {
-                                func: Box::new(Expr::dummy(ExprKind::Identifier("factorial".to_string()))),
+                                func: Box::new(Expr::dummy(ExprKind::Identifier(
+                                    "factorial".to_string(),
+                                ))),
                                 args: vec![binary(
                                     BinaryOp::Sub,
                                     Expr::dummy(ExprKind::Identifier("n".to_string())),
@@ -777,7 +861,8 @@ fn test_recursive_fibonacci() {
     // }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "fib".to_string(),
                 params: vec![("n".to_string(), "int".to_string(), None)],
@@ -789,16 +874,20 @@ fn test_recursive_fibonacci() {
                             Expr::dummy(ExprKind::Identifier("n".to_string())),
                             Expr::dummy(ExprKind::Literal(Literal::Int(1))),
                         ),
-                        then_block: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Return {
-                            values: vec![Expr::dummy(ExprKind::Identifier("n".to_string()))],
-                        })]))),
+                        then_block: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                            StmtKind::Return {
+                                values: vec![Expr::dummy(ExprKind::Identifier("n".to_string()))],
+                            },
+                        )]))),
                         else_block: None,
                     }),
                     Stmt::dummy(StmtKind::Return {
                         values: vec![binary(
                             BinaryOp::Add,
                             Expr::dummy(ExprKind::Call {
-                                func: Box::new(Expr::dummy(ExprKind::Identifier("fib".to_string()))),
+                                func: Box::new(Expr::dummy(ExprKind::Identifier(
+                                    "fib".to_string(),
+                                ))),
                                 args: vec![binary(
                                     BinaryOp::Sub,
                                     Expr::dummy(ExprKind::Identifier("n".to_string())),
@@ -806,7 +895,9 @@ fn test_recursive_fibonacci() {
                                 )],
                             }),
                             Expr::dummy(ExprKind::Call {
-                                func: Box::new(Expr::dummy(ExprKind::Identifier("fib".to_string()))),
+                                func: Box::new(Expr::dummy(ExprKind::Identifier(
+                                    "fib".to_string(),
+                                ))),
                                 args: vec![binary(
                                     BinaryOp::Sub,
                                     Expr::dummy(ExprKind::Identifier("n".to_string())),
@@ -835,7 +926,8 @@ fn test_recursive_power() {
     // }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "power".to_string(),
                 params: vec![
@@ -850,9 +942,11 @@ fn test_recursive_power() {
                             Expr::dummy(ExprKind::Identifier("exp".to_string())),
                             Expr::dummy(ExprKind::Literal(Literal::Int(0))),
                         ),
-                        then_block: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Return {
-                            values: vec![Expr::dummy(ExprKind::Literal(Literal::Int(1)))],
-                        })]))),
+                        then_block: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                            StmtKind::Return {
+                                values: vec![Expr::dummy(ExprKind::Literal(Literal::Int(1)))],
+                            },
+                        )]))),
                         else_block: None,
                     }),
                     Stmt::dummy(StmtKind::Return {
@@ -860,7 +954,9 @@ fn test_recursive_power() {
                             BinaryOp::Mul,
                             Expr::dummy(ExprKind::Identifier("base".to_string())),
                             Expr::dummy(ExprKind::Call {
-                                func: Box::new(Expr::dummy(ExprKind::Identifier("power".to_string()))),
+                                func: Box::new(Expr::dummy(ExprKind::Identifier(
+                                    "power".to_string(),
+                                ))),
                                 args: vec![
                                     Expr::dummy(ExprKind::Identifier("base".to_string())),
                                     binary(
@@ -876,7 +972,10 @@ fn test_recursive_power() {
             }),
             Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
                 func: Box::new(Expr::dummy(ExprKind::Identifier("power".to_string()))),
-                args: vec![Expr::dummy(ExprKind::Literal(Literal::Int(2))), Expr::dummy(ExprKind::Literal(Literal::Int(10)))],
+                args: vec![
+                    Expr::dummy(ExprKind::Literal(Literal::Int(2))),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(10))),
+                ],
             }))),
         ],
     };
@@ -892,7 +991,8 @@ fn test_recursive_gcd() {
     // }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "gcd".to_string(),
                 params: vec![
@@ -907,9 +1007,11 @@ fn test_recursive_gcd() {
                             Expr::dummy(ExprKind::Identifier("b".to_string())),
                             Expr::dummy(ExprKind::Literal(Literal::Int(0))),
                         ),
-                        then_block: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Return {
-                            values: vec![Expr::dummy(ExprKind::Identifier("a".to_string()))],
-                        })]))),
+                        then_block: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                            StmtKind::Return {
+                                values: vec![Expr::dummy(ExprKind::Identifier("a".to_string()))],
+                            },
+                        )]))),
                         else_block: None,
                     }),
                     Stmt::dummy(StmtKind::Return {
@@ -929,7 +1031,10 @@ fn test_recursive_gcd() {
             }),
             Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
                 func: Box::new(Expr::dummy(ExprKind::Identifier("gcd".to_string()))),
-                args: vec![Expr::dummy(ExprKind::Literal(Literal::Int(48))), Expr::dummy(ExprKind::Literal(Literal::Int(18)))],
+                args: vec![
+                    Expr::dummy(ExprKind::Literal(Literal::Int(48))),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(18))),
+                ],
             }))),
         ],
     };
@@ -945,7 +1050,8 @@ fn test_tail_recursive_factorial() {
     // }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "fact_helper".to_string(),
                 params: vec![
@@ -960,14 +1066,18 @@ fn test_tail_recursive_factorial() {
                             Expr::dummy(ExprKind::Identifier("n".to_string())),
                             Expr::dummy(ExprKind::Literal(Literal::Int(1))),
                         ),
-                        then_block: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Return {
-                            values: vec![Expr::dummy(ExprKind::Identifier("acc".to_string()))],
-                        })]))),
+                        then_block: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                            StmtKind::Return {
+                                values: vec![Expr::dummy(ExprKind::Identifier("acc".to_string()))],
+                            },
+                        )]))),
                         else_block: None,
                     }),
                     Stmt::dummy(StmtKind::Return {
                         values: vec![Expr::dummy(ExprKind::Call {
-                            func: Box::new(Expr::dummy(ExprKind::Identifier("fact_helper".to_string()))),
+                            func: Box::new(Expr::dummy(ExprKind::Identifier(
+                                "fact_helper".to_string(),
+                            ))),
                             args: vec![
                                 binary(
                                     BinaryOp::Sub,
@@ -986,7 +1096,10 @@ fn test_tail_recursive_factorial() {
             }),
             Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
                 func: Box::new(Expr::dummy(ExprKind::Identifier("fact_helper".to_string()))),
-                args: vec![Expr::dummy(ExprKind::Literal(Literal::Int(5))), Expr::dummy(ExprKind::Literal(Literal::Int(1)))],
+                args: vec![
+                    Expr::dummy(ExprKind::Literal(Literal::Int(5))),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(1))),
+                ],
             }))),
         ],
     };
@@ -1006,7 +1119,8 @@ fn test_mutual_recursion_even_odd() {
     // }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "is_even".to_string(),
                 params: vec![("n".to_string(), "int".to_string(), None)],
@@ -1018,9 +1132,11 @@ fn test_mutual_recursion_even_odd() {
                             Expr::dummy(ExprKind::Identifier("n".to_string())),
                             Expr::dummy(ExprKind::Literal(Literal::Int(0))),
                         ),
-                        then_block: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Return {
-                            values: vec![Expr::dummy(ExprKind::Literal(Literal::Int(1)))],
-                        })]))),
+                        then_block: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                            StmtKind::Return {
+                                values: vec![Expr::dummy(ExprKind::Literal(Literal::Int(1)))],
+                            },
+                        )]))),
                         else_block: None,
                     }),
                     Stmt::dummy(StmtKind::Return {
@@ -1035,7 +1151,8 @@ fn test_mutual_recursion_even_odd() {
                     }),
                 ]))),
             }),
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "is_odd".to_string(),
                 params: vec![("n".to_string(), "int".to_string(), None)],
@@ -1047,14 +1164,18 @@ fn test_mutual_recursion_even_odd() {
                             Expr::dummy(ExprKind::Identifier("n".to_string())),
                             Expr::dummy(ExprKind::Literal(Literal::Int(0))),
                         ),
-                        then_block: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Return {
-                            values: vec![Expr::dummy(ExprKind::Literal(Literal::Int(0)))],
-                        })]))),
+                        then_block: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                            StmtKind::Return {
+                                values: vec![Expr::dummy(ExprKind::Literal(Literal::Int(0)))],
+                            },
+                        )]))),
                         else_block: None,
                     }),
                     Stmt::dummy(StmtKind::Return {
                         values: vec![Expr::dummy(ExprKind::Call {
-                            func: Box::new(Expr::dummy(ExprKind::Identifier("is_even".to_string()))),
+                            func: Box::new(Expr::dummy(ExprKind::Identifier(
+                                "is_even".to_string(),
+                            ))),
                             args: vec![binary(
                                 BinaryOp::Sub,
                                 Expr::dummy(ExprKind::Identifier("n".to_string())),
@@ -1082,7 +1203,8 @@ fn test_recursive_countdown() {
     // }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "countdown".to_string(),
                 params: vec![("n".to_string(), "int".to_string(), None)],
@@ -1094,14 +1216,18 @@ fn test_recursive_countdown() {
                             Expr::dummy(ExprKind::Identifier("n".to_string())),
                             Expr::dummy(ExprKind::Literal(Literal::Int(0))),
                         ),
-                        then_block: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Return {
-                            values: vec![Expr::dummy(ExprKind::Literal(Literal::Int(0)))],
-                        })]))),
+                        then_block: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                            StmtKind::Return {
+                                values: vec![Expr::dummy(ExprKind::Literal(Literal::Int(0)))],
+                            },
+                        )]))),
                         else_block: None,
                     }),
                     Stmt::dummy(StmtKind::Return {
                         values: vec![Expr::dummy(ExprKind::Call {
-                            func: Box::new(Expr::dummy(ExprKind::Identifier("countdown".to_string()))),
+                            func: Box::new(Expr::dummy(ExprKind::Identifier(
+                                "countdown".to_string(),
+                            ))),
                             args: vec![binary(
                                 BinaryOp::Sub,
                                 Expr::dummy(ExprKind::Identifier("n".to_string())),
@@ -1129,7 +1255,8 @@ fn test_recursive_sum_range() {
     // }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "sum_range".to_string(),
                 params: vec![
@@ -1144,9 +1271,11 @@ fn test_recursive_sum_range() {
                             Expr::dummy(ExprKind::Identifier("start".to_string())),
                             Expr::dummy(ExprKind::Identifier("end".to_string())),
                         ),
-                        then_block: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Return {
-                            values: vec![Expr::dummy(ExprKind::Literal(Literal::Int(0)))],
-                        })]))),
+                        then_block: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                            StmtKind::Return {
+                                values: vec![Expr::dummy(ExprKind::Literal(Literal::Int(0)))],
+                            },
+                        )]))),
                         else_block: None,
                     }),
                     Stmt::dummy(StmtKind::Return {
@@ -1154,7 +1283,9 @@ fn test_recursive_sum_range() {
                             BinaryOp::Add,
                             Expr::dummy(ExprKind::Identifier("start".to_string())),
                             Expr::dummy(ExprKind::Call {
-                                func: Box::new(Expr::dummy(ExprKind::Identifier("sum_range".to_string()))),
+                                func: Box::new(Expr::dummy(ExprKind::Identifier(
+                                    "sum_range".to_string(),
+                                ))),
                                 args: vec![
                                     binary(
                                         BinaryOp::Add,
@@ -1170,7 +1301,10 @@ fn test_recursive_sum_range() {
             }),
             Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
                 func: Box::new(Expr::dummy(ExprKind::Identifier("sum_range".to_string()))),
-                args: vec![Expr::dummy(ExprKind::Literal(Literal::Int(1))), Expr::dummy(ExprKind::Literal(Literal::Int(10)))],
+                args: vec![
+                    Expr::dummy(ExprKind::Literal(Literal::Int(1))),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(10))),
+                ],
             }))),
         ],
     };
@@ -1185,7 +1319,8 @@ fn test_recursive_min() {
     // }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "min".to_string(),
                 params: vec![
@@ -1193,21 +1328,26 @@ fn test_recursive_min() {
                     ("b".to_string(), "int".to_string(), None),
                 ],
                 return_type: Some(vec!["int".to_string()]),
-                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Return {
-                    values: vec![Expr::dummy(ExprKind::Ternary {
-                        condition: Box::new(binary(
-                            BinaryOp::Lt,
-                            Expr::dummy(ExprKind::Identifier("a".to_string())),
-                            Expr::dummy(ExprKind::Identifier("b".to_string())),
-                        )),
-                        then_expr: Box::new(Expr::dummy(ExprKind::Identifier("a".to_string()))),
-                        else_expr: Box::new(Expr::dummy(ExprKind::Identifier("b".to_string()))),
-                    })],
-                })]))),
+                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                    StmtKind::Return {
+                        values: vec![Expr::dummy(ExprKind::Ternary {
+                            condition: Box::new(binary(
+                                BinaryOp::Lt,
+                                Expr::dummy(ExprKind::Identifier("a".to_string())),
+                                Expr::dummy(ExprKind::Identifier("b".to_string())),
+                            )),
+                            then_expr: Box::new(Expr::dummy(ExprKind::Identifier("a".to_string()))),
+                            else_expr: Box::new(Expr::dummy(ExprKind::Identifier("b".to_string()))),
+                        })],
+                    },
+                )]))),
             }),
             Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
                 func: Box::new(Expr::dummy(ExprKind::Identifier("min".to_string()))),
-                args: vec![Expr::dummy(ExprKind::Literal(Literal::Int(5))), Expr::dummy(ExprKind::Literal(Literal::Int(3)))],
+                args: vec![
+                    Expr::dummy(ExprKind::Literal(Literal::Int(5))),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(3))),
+                ],
             }))),
         ],
     };
@@ -1224,7 +1364,8 @@ fn test_recursive_nested_calls() {
     // }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "ackermann".to_string(),
                 params: vec![
@@ -1239,13 +1380,15 @@ fn test_recursive_nested_calls() {
                             Expr::dummy(ExprKind::Identifier("m".to_string())),
                             Expr::dummy(ExprKind::Literal(Literal::Int(0))),
                         ),
-                        then_block: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Return {
-                            values: vec![binary(
-                                BinaryOp::Add,
-                                Expr::dummy(ExprKind::Identifier("n".to_string())),
-                                Expr::dummy(ExprKind::Literal(Literal::Int(1))),
-                            )],
-                        })]))),
+                        then_block: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                            StmtKind::Return {
+                                values: vec![binary(
+                                    BinaryOp::Add,
+                                    Expr::dummy(ExprKind::Identifier("n".to_string())),
+                                    Expr::dummy(ExprKind::Literal(Literal::Int(1))),
+                                )],
+                            },
+                        )]))),
                         else_block: None,
                     }),
                     Stmt::dummy(StmtKind::If {
@@ -1254,24 +1397,30 @@ fn test_recursive_nested_calls() {
                             Expr::dummy(ExprKind::Identifier("n".to_string())),
                             Expr::dummy(ExprKind::Literal(Literal::Int(0))),
                         ),
-                        then_block: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Return {
-                            values: vec![Expr::dummy(ExprKind::Call {
-                                func: Box::new(Expr::dummy(ExprKind::Identifier("ackermann".to_string()))),
-                                args: vec![
-                                    binary(
-                                        BinaryOp::Sub,
-                                        Expr::dummy(ExprKind::Identifier("m".to_string())),
+                        then_block: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                            StmtKind::Return {
+                                values: vec![Expr::dummy(ExprKind::Call {
+                                    func: Box::new(Expr::dummy(ExprKind::Identifier(
+                                        "ackermann".to_string(),
+                                    ))),
+                                    args: vec![
+                                        binary(
+                                            BinaryOp::Sub,
+                                            Expr::dummy(ExprKind::Identifier("m".to_string())),
+                                            Expr::dummy(ExprKind::Literal(Literal::Int(1))),
+                                        ),
                                         Expr::dummy(ExprKind::Literal(Literal::Int(1))),
-                                    ),
-                                    Expr::dummy(ExprKind::Literal(Literal::Int(1))),
-                                ],
-                            })],
-                        })]))),
+                                    ],
+                                })],
+                            },
+                        )]))),
                         else_block: None,
                     }),
                     Stmt::dummy(StmtKind::Return {
                         values: vec![Expr::dummy(ExprKind::Call {
-                            func: Box::new(Expr::dummy(ExprKind::Identifier("ackermann".to_string()))),
+                            func: Box::new(Expr::dummy(ExprKind::Identifier(
+                                "ackermann".to_string(),
+                            ))),
                             args: vec![
                                 binary(
                                     BinaryOp::Sub,
@@ -1279,7 +1428,9 @@ fn test_recursive_nested_calls() {
                                     Expr::dummy(ExprKind::Literal(Literal::Int(1))),
                                 ),
                                 Expr::dummy(ExprKind::Call {
-                                    func: Box::new(Expr::dummy(ExprKind::Identifier("ackermann".to_string()))),
+                                    func: Box::new(Expr::dummy(ExprKind::Identifier(
+                                        "ackermann".to_string(),
+                                    ))),
                                     args: vec![
                                         Expr::dummy(ExprKind::Identifier("m".to_string())),
                                         binary(
@@ -1296,7 +1447,10 @@ fn test_recursive_nested_calls() {
             }),
             Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
                 func: Box::new(Expr::dummy(ExprKind::Identifier("ackermann".to_string()))),
-                args: vec![Expr::dummy(ExprKind::Literal(Literal::Int(2))), Expr::dummy(ExprKind::Literal(Literal::Int(2)))],
+                args: vec![
+                    Expr::dummy(ExprKind::Literal(Literal::Int(2))),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(2))),
+                ],
             }))),
         ],
     };
@@ -1322,7 +1476,8 @@ fn test_local_shadows_global() {
                 value: Expr::dummy(ExprKind::Literal(Literal::Int(10))),
                 is_const: false,
             }),
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "test".to_string(),
                 params: vec![],
@@ -1364,14 +1519,17 @@ fn test_param_shadows_global() {
                 value: Expr::dummy(ExprKind::Literal(Literal::Int(10))),
                 is_const: false,
             }),
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "test".to_string(),
                 params: vec![("x".to_string(), "int".to_string(), None)],
                 return_type: Some(vec!["int".to_string()]),
-                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Return {
-                    values: vec![Expr::dummy(ExprKind::Identifier("x".to_string()))],
-                })]))),
+                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                    StmtKind::Return {
+                        values: vec![Expr::dummy(ExprKind::Identifier("x".to_string()))],
+                    },
+                )]))),
             }),
             Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
                 func: Box::new(Expr::dummy(ExprKind::Identifier("test".to_string()))),
@@ -1398,14 +1556,17 @@ fn test_access_global_from_function() {
                 value: Expr::dummy(ExprKind::Literal(Literal::Int(42))),
                 is_const: false,
             }),
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "get_global".to_string(),
                 params: vec![],
                 return_type: Some(vec!["int".to_string()]),
-                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Return {
-                    values: vec![Expr::dummy(ExprKind::Identifier("global".to_string()))],
-                })]))),
+                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                    StmtKind::Return {
+                        values: vec![Expr::dummy(ExprKind::Identifier("global".to_string()))],
+                    },
+                )]))),
             }),
             Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
                 func: Box::new(Expr::dummy(ExprKind::Identifier("get_global".to_string()))),
@@ -1426,7 +1587,8 @@ fn test_local_shadows_param() {
     // test(50)  // Should return 100
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "test".to_string(),
                 params: vec![("x".to_string(), "int".to_string(), None)],
@@ -1466,7 +1628,8 @@ fn test_multiple_functions_same_local_name() {
     // func1() + func2()
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "func1".to_string(),
                 params: vec![],
@@ -1483,7 +1646,8 @@ fn test_multiple_functions_same_local_name() {
                     }),
                 ]))),
             }),
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "func2".to_string(),
                 params: vec![],
@@ -1532,7 +1696,8 @@ fn test_shadowing_with_different_types() {
                 value: Expr::dummy(ExprKind::Literal(Literal::Int(10))),
                 is_const: false,
             }),
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "test".to_string(),
                 params: vec![],
@@ -1575,7 +1740,8 @@ fn test_function_modifies_global() {
                 value: Expr::dummy(ExprKind::Literal(Literal::Int(0))),
                 is_const: false,
             }),
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "increment".to_string(),
                 params: vec![],
@@ -1615,8 +1781,9 @@ fn test_nested_scopes_in_blocks() {
     //     return x;
     // }
     let program = Program {
-        statements: vec![Stmt::dummy(StmtKind::FunctionDef { is_async: false,
-                type_params: vec![],
+        statements: vec![Stmt::dummy(StmtKind::FunctionDef {
+            is_async: false,
+            type_params: vec![],
             name: "test".to_string(),
             params: vec![],
             return_type: Some(vec!["int".to_string()]),
@@ -1663,18 +1830,21 @@ fn test_param_access_in_nested_calls() {
     // For now, just test that params are accessible within their function
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "outer".to_string(),
                 params: vec![("x".to_string(), "int".to_string(), None)],
                 return_type: Some(vec!["int".to_string()]),
-                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Return {
-                    values: vec![binary(
-                        BinaryOp::Add,
-                        Expr::dummy(ExprKind::Identifier("x".to_string())),
-                        Expr::dummy(ExprKind::Literal(Literal::Int(1))),
-                    )],
-                })]))),
+                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                    StmtKind::Return {
+                        values: vec![binary(
+                            BinaryOp::Add,
+                            Expr::dummy(ExprKind::Identifier("x".to_string())),
+                            Expr::dummy(ExprKind::Literal(Literal::Int(1))),
+                        )],
+                    },
+                )]))),
             }),
             Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
                 func: Box::new(Expr::dummy(ExprKind::Identifier("outer".to_string()))),
@@ -1693,31 +1863,37 @@ fn test_multiple_params_same_name_different_functions() {
     // Each function has its own 'x' parameter
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "add".to_string(),
                 params: vec![("x".to_string(), "int".to_string(), None)],
                 return_type: Some(vec!["int".to_string()]),
-                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Return {
-                    values: vec![binary(
-                        BinaryOp::Add,
-                        Expr::dummy(ExprKind::Identifier("x".to_string())),
-                        Expr::dummy(ExprKind::Literal(Literal::Int(1))),
-                    )],
-                })]))),
+                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                    StmtKind::Return {
+                        values: vec![binary(
+                            BinaryOp::Add,
+                            Expr::dummy(ExprKind::Identifier("x".to_string())),
+                            Expr::dummy(ExprKind::Literal(Literal::Int(1))),
+                        )],
+                    },
+                )]))),
             }),
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "mul".to_string(),
                 params: vec![("x".to_string(), "int".to_string(), None)],
                 return_type: Some(vec!["int".to_string()]),
-                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Return {
-                    values: vec![binary(
-                        BinaryOp::Mul,
-                        Expr::dummy(ExprKind::Identifier("x".to_string())),
-                        Expr::dummy(ExprKind::Literal(Literal::Int(2))),
-                    )],
-                })]))),
+                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                    StmtKind::Return {
+                        values: vec![binary(
+                            BinaryOp::Mul,
+                            Expr::dummy(ExprKind::Identifier("x".to_string())),
+                            Expr::dummy(ExprKind::Literal(Literal::Int(2))),
+                        )],
+                    },
+                )]))),
             }),
             Stmt::dummy(StmtKind::Expr(binary(
                 BinaryOp::Add,
@@ -1744,7 +1920,8 @@ fn test_function_no_return_void() {
     // do_nothing()
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "do_nothing".to_string(),
                 params: vec![],
@@ -1769,7 +1946,8 @@ fn test_function_early_return() {
     // }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "early".to_string(),
                 params: vec![("x".to_string(), "int".to_string(), None)],
@@ -1781,9 +1959,11 @@ fn test_function_early_return() {
                             Expr::dummy(ExprKind::Identifier("x".to_string())),
                             Expr::dummy(ExprKind::Literal(Literal::Int(10))),
                         ),
-                        then_block: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Return {
-                            values: vec![Expr::dummy(ExprKind::Literal(Literal::Int(100)))],
-                        })]))),
+                        then_block: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                            StmtKind::Return {
+                                values: vec![Expr::dummy(ExprKind::Literal(Literal::Int(100)))],
+                            },
+                        )]))),
                         else_block: None,
                     }),
                     Stmt::dummy(StmtKind::Return {
@@ -1809,27 +1989,36 @@ fn test_function_return_in_if_else() {
     // }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "abs".to_string(),
                 params: vec![("x".to_string(), "int".to_string(), None)],
                 return_type: Some(vec!["int".to_string()]),
-                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::If {
-                    condition: binary(
-                        BinaryOp::Lt,
-                        Expr::dummy(ExprKind::Identifier("x".to_string())),
-                        Expr::dummy(ExprKind::Literal(Literal::Int(0))),
-                    ),
-                    then_block: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Return {
-                        values: vec![Expr::dummy(ExprKind::Unary {
-                            op: parser::ast::UnaryOp::Negate,
-                            expr: Box::new(Expr::dummy(ExprKind::Identifier("x".to_string()))),
-                        })],
-                    })]))),
-                    else_block: Some(Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Return {
-                        values: vec![Expr::dummy(ExprKind::Identifier("x".to_string()))],
-                    })])))),
-                })]))),
+                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                    StmtKind::If {
+                        condition: binary(
+                            BinaryOp::Lt,
+                            Expr::dummy(ExprKind::Identifier("x".to_string())),
+                            Expr::dummy(ExprKind::Literal(Literal::Int(0))),
+                        ),
+                        then_block: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                            StmtKind::Return {
+                                values: vec![Expr::dummy(ExprKind::Unary {
+                                    op: parser::ast::UnaryOp::Negate,
+                                    expr: Box::new(Expr::dummy(ExprKind::Identifier(
+                                        "x".to_string(),
+                                    ))),
+                                })],
+                            },
+                        )]))),
+                        else_block: Some(Box::new(Stmt::dummy(StmtKind::Block(vec![
+                            Stmt::dummy(StmtKind::Return {
+                                values: vec![Expr::dummy(ExprKind::Identifier("x".to_string()))],
+                            }),
+                        ])))),
+                    },
+                )]))),
             }),
             Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
                 func: Box::new(Expr::dummy(ExprKind::Identifier("abs".to_string()))),
@@ -1847,33 +2036,41 @@ fn test_function_calling_function() {
     // fn quad(x: int) -> int { return double(double(x)); }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "double".to_string(),
                 params: vec![("x".to_string(), "int".to_string(), None)],
                 return_type: Some(vec!["int".to_string()]),
-                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Return {
-                    values: vec![binary(
-                        BinaryOp::Mul,
-                        Expr::dummy(ExprKind::Identifier("x".to_string())),
-                        Expr::dummy(ExprKind::Literal(Literal::Int(2))),
-                    )],
-                })]))),
+                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                    StmtKind::Return {
+                        values: vec![binary(
+                            BinaryOp::Mul,
+                            Expr::dummy(ExprKind::Identifier("x".to_string())),
+                            Expr::dummy(ExprKind::Literal(Literal::Int(2))),
+                        )],
+                    },
+                )]))),
             }),
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "quad".to_string(),
                 params: vec![("x".to_string(), "int".to_string(), None)],
                 return_type: Some(vec!["int".to_string()]),
-                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Return {
-                    values: vec![Expr::dummy(ExprKind::Call {
-                        func: Box::new(Expr::dummy(ExprKind::Identifier("double".to_string()))),
-                        args: vec![Expr::dummy(ExprKind::Call {
+                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                    StmtKind::Return {
+                        values: vec![Expr::dummy(ExprKind::Call {
                             func: Box::new(Expr::dummy(ExprKind::Identifier("double".to_string()))),
-                            args: vec![Expr::dummy(ExprKind::Identifier("x".to_string()))],
+                            args: vec![Expr::dummy(ExprKind::Call {
+                                func: Box::new(Expr::dummy(ExprKind::Identifier(
+                                    "double".to_string(),
+                                ))),
+                                args: vec![Expr::dummy(ExprKind::Identifier("x".to_string()))],
+                            })],
                         })],
-                    })],
-                })]))),
+                    },
+                )]))),
             }),
             Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
                 func: Box::new(Expr::dummy(ExprKind::Identifier("quad".to_string()))),
@@ -1892,7 +2089,8 @@ fn test_nested_function_calls() {
     // add(mul(2, 3), mul(4, 5))
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "add".to_string(),
                 params: vec![
@@ -1900,15 +2098,18 @@ fn test_nested_function_calls() {
                     ("b".to_string(), "int".to_string(), None),
                 ],
                 return_type: Some(vec!["int".to_string()]),
-                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Return {
-                    values: vec![binary(
-                        BinaryOp::Add,
-                        Expr::dummy(ExprKind::Identifier("a".to_string())),
-                        Expr::dummy(ExprKind::Identifier("b".to_string())),
-                    )],
-                })]))),
+                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                    StmtKind::Return {
+                        values: vec![binary(
+                            BinaryOp::Add,
+                            Expr::dummy(ExprKind::Identifier("a".to_string())),
+                            Expr::dummy(ExprKind::Identifier("b".to_string())),
+                        )],
+                    },
+                )]))),
             }),
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "mul".to_string(),
                 params: vec![
@@ -1916,13 +2117,15 @@ fn test_nested_function_calls() {
                     ("b".to_string(), "int".to_string(), None),
                 ],
                 return_type: Some(vec!["int".to_string()]),
-                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Return {
-                    values: vec![binary(
-                        BinaryOp::Mul,
-                        Expr::dummy(ExprKind::Identifier("a".to_string())),
-                        Expr::dummy(ExprKind::Identifier("b".to_string())),
-                    )],
-                })]))),
+                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                    StmtKind::Return {
+                        values: vec![binary(
+                            BinaryOp::Mul,
+                            Expr::dummy(ExprKind::Identifier("a".to_string())),
+                            Expr::dummy(ExprKind::Identifier("b".to_string())),
+                        )],
+                    },
+                )]))),
             }),
             Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
                 func: Box::new(Expr::dummy(ExprKind::Identifier("add".to_string()))),
@@ -1956,7 +2159,8 @@ fn test_function_many_parameters() {
     // }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "sum5".to_string(),
                 params: vec![
@@ -1967,25 +2171,27 @@ fn test_function_many_parameters() {
                     ("e".to_string(), "int".to_string(), None),
                 ],
                 return_type: Some(vec!["int".to_string()]),
-                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Return {
-                    values: vec![binary(
-                        BinaryOp::Add,
-                        binary(
+                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                    StmtKind::Return {
+                        values: vec![binary(
                             BinaryOp::Add,
                             binary(
                                 BinaryOp::Add,
                                 binary(
                                     BinaryOp::Add,
-                                    Expr::dummy(ExprKind::Identifier("a".to_string())),
-                                    Expr::dummy(ExprKind::Identifier("b".to_string())),
+                                    binary(
+                                        BinaryOp::Add,
+                                        Expr::dummy(ExprKind::Identifier("a".to_string())),
+                                        Expr::dummy(ExprKind::Identifier("b".to_string())),
+                                    ),
+                                    Expr::dummy(ExprKind::Identifier("c".to_string())),
                                 ),
-                                Expr::dummy(ExprKind::Identifier("c".to_string())),
+                                Expr::dummy(ExprKind::Identifier("d".to_string())),
                             ),
-                            Expr::dummy(ExprKind::Identifier("d".to_string())),
-                        ),
-                        Expr::dummy(ExprKind::Identifier("e".to_string())),
-                    )],
-                })]))),
+                            Expr::dummy(ExprKind::Identifier("e".to_string())),
+                        )],
+                    },
+                )]))),
             }),
             Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
                 func: Box::new(Expr::dummy(ExprKind::Identifier("sum5".to_string()))),
@@ -2008,14 +2214,17 @@ fn test_function_no_parameters() {
     // fn get_pi() -> float { return 3.14159; }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "get_pi".to_string(),
                 params: vec![],
                 return_type: Some(vec!["float".to_string()]),
-                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Return {
-                    values: vec![Expr::dummy(ExprKind::Literal(Literal::Float(3.14159)))],
-                })]))),
+                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                    StmtKind::Return {
+                        values: vec![Expr::dummy(ExprKind::Literal(Literal::Float(3.14159)))],
+                    },
+                )]))),
             }),
             Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
                 func: Box::new(Expr::dummy(ExprKind::Identifier("get_pi".to_string()))),
@@ -2033,26 +2242,32 @@ fn test_function_returns_function_result() {
     // fn outer() -> int { return inner(); }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "inner".to_string(),
                 params: vec![],
                 return_type: Some(vec!["int".to_string()]),
-                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Return {
-                    values: vec![Expr::dummy(ExprKind::Literal(Literal::Int(42)))],
-                })]))),
+                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                    StmtKind::Return {
+                        values: vec![Expr::dummy(ExprKind::Literal(Literal::Int(42)))],
+                    },
+                )]))),
             }),
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "outer".to_string(),
                 params: vec![],
                 return_type: Some(vec!["int".to_string()]),
-                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Return {
-                    values: vec![Expr::dummy(ExprKind::Call {
-                        func: Box::new(Expr::dummy(ExprKind::Identifier("inner".to_string()))),
-                        args: vec![],
-                    })],
-                })]))),
+                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                    StmtKind::Return {
+                        values: vec![Expr::dummy(ExprKind::Call {
+                            func: Box::new(Expr::dummy(ExprKind::Identifier("inner".to_string()))),
+                            args: vec![],
+                        })],
+                    },
+                )]))),
             }),
             Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
                 func: Box::new(Expr::dummy(ExprKind::Identifier("outer".to_string()))),
@@ -2071,7 +2286,8 @@ fn test_function_with_complex_expression() {
     // }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "complex".to_string(),
                 params: vec![
@@ -2079,25 +2295,30 @@ fn test_function_with_complex_expression() {
                     ("y".to_string(), "int".to_string(), None),
                 ],
                 return_type: Some(vec!["int".to_string()]),
-                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Return {
-                    values: vec![binary(
-                        BinaryOp::Mul,
-                        binary(
-                            BinaryOp::Add,
-                            Expr::dummy(ExprKind::Identifier("x".to_string())),
-                            Expr::dummy(ExprKind::Identifier("y".to_string())),
-                        ),
-                        binary(
-                            BinaryOp::Sub,
-                            Expr::dummy(ExprKind::Identifier("x".to_string())),
-                            Expr::dummy(ExprKind::Identifier("y".to_string())),
-                        ),
-                    )],
-                })]))),
+                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                    StmtKind::Return {
+                        values: vec![binary(
+                            BinaryOp::Mul,
+                            binary(
+                                BinaryOp::Add,
+                                Expr::dummy(ExprKind::Identifier("x".to_string())),
+                                Expr::dummy(ExprKind::Identifier("y".to_string())),
+                            ),
+                            binary(
+                                BinaryOp::Sub,
+                                Expr::dummy(ExprKind::Identifier("x".to_string())),
+                                Expr::dummy(ExprKind::Identifier("y".to_string())),
+                            ),
+                        )],
+                    },
+                )]))),
             }),
             Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
                 func: Box::new(Expr::dummy(ExprKind::Identifier("complex".to_string()))),
-                args: vec![Expr::dummy(ExprKind::Literal(Literal::Int(5))), Expr::dummy(ExprKind::Literal(Literal::Int(3)))],
+                args: vec![
+                    Expr::dummy(ExprKind::Literal(Literal::Int(5))),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(3))),
+                ],
             }))),
         ],
     };
@@ -2112,7 +2333,8 @@ fn test_function_with_ternary_return() {
     // }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "max".to_string(),
                 params: vec![
@@ -2120,21 +2342,26 @@ fn test_function_with_ternary_return() {
                     ("b".to_string(), "int".to_string(), None),
                 ],
                 return_type: Some(vec!["int".to_string()]),
-                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Return {
-                    values: vec![Expr::dummy(ExprKind::Ternary {
-                        condition: Box::new(binary(
-                            BinaryOp::Gt,
-                            Expr::dummy(ExprKind::Identifier("a".to_string())),
-                            Expr::dummy(ExprKind::Identifier("b".to_string())),
-                        )),
-                        then_expr: Box::new(Expr::dummy(ExprKind::Identifier("a".to_string()))),
-                        else_expr: Box::new(Expr::dummy(ExprKind::Identifier("b".to_string()))),
-                    })],
-                })]))),
+                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                    StmtKind::Return {
+                        values: vec![Expr::dummy(ExprKind::Ternary {
+                            condition: Box::new(binary(
+                                BinaryOp::Gt,
+                                Expr::dummy(ExprKind::Identifier("a".to_string())),
+                                Expr::dummy(ExprKind::Identifier("b".to_string())),
+                            )),
+                            then_expr: Box::new(Expr::dummy(ExprKind::Identifier("a".to_string()))),
+                            else_expr: Box::new(Expr::dummy(ExprKind::Identifier("b".to_string()))),
+                        })],
+                    },
+                )]))),
             }),
             Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
                 func: Box::new(Expr::dummy(ExprKind::Identifier("max".to_string()))),
-                args: vec![Expr::dummy(ExprKind::Literal(Literal::Int(10))), Expr::dummy(ExprKind::Literal(Literal::Int(20)))],
+                args: vec![
+                    Expr::dummy(ExprKind::Literal(Literal::Int(10))),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(20))),
+                ],
             }))),
         ],
     };

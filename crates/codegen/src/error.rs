@@ -54,10 +54,17 @@ pub enum CodegenError {
 impl fmt::Display for CodegenError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            CodegenError::LLVMError { operation, details, .. } => {
+            CodegenError::LLVMError {
+                operation, details, ..
+            } => {
                 write!(f, "LLVM error in {}: {}", operation, details)
             }
-            CodegenError::TypeError { expected, found, context, .. } => {
+            CodegenError::TypeError {
+                expected,
+                found,
+                context,
+                ..
+            } => {
                 write!(
                     f,
                     "Type error in {}: expected {}, found {}",
@@ -67,7 +74,9 @@ impl fmt::Display for CodegenError {
             CodegenError::UndefinedSymbol { name, context, .. } => {
                 write!(f, "Undefined symbol '{}' in {}", name, context)
             }
-            CodegenError::InvalidOperation { operation, reason, .. } => {
+            CodegenError::InvalidOperation {
+                operation, reason, ..
+            } => {
                 write!(f, "Invalid operation '{}': {}", operation, reason)
             }
             CodegenError::MissingValue { what, context, .. } => {

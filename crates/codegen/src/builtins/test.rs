@@ -15,7 +15,7 @@
 //   test.afterEach(() -> { ... })          → test_after_each_register(ptr)
 //   test.expect(x).toBe(y)                 → compile_test_matcher (this file)
 
-use crate::{Compiler, BrixType, CodegenError, CodegenResult};
+use crate::{BrixType, CodegenError, CodegenResult, Compiler};
 use inkwell::module::Linkage;
 use inkwell::types::BasicType;
 use inkwell::values::FunctionValue;
@@ -42,7 +42,8 @@ impl<'a, 'ctx> TestFunctions<'ctx> for Compiler<'a, 'ctx> {
         let ptr_type = self.context.ptr_type(AddressSpace::default());
         let void_type = self.context.void_type();
         let fn_type = void_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
-        self.module.add_function(name, fn_type, Some(Linkage::External))
+        self.module
+            .add_function(name, fn_type, Some(Linkage::External))
     }
 
     fn declare_test_fn_ptr(&self, name: &str) -> FunctionValue<'ctx> {
@@ -52,7 +53,8 @@ impl<'a, 'ctx> TestFunctions<'ctx> for Compiler<'a, 'ctx> {
         let ptr_type = self.context.ptr_type(AddressSpace::default());
         let void_type = self.context.void_type();
         let fn_type = void_type.fn_type(&[ptr_type.into()], false);
-        self.module.add_function(name, fn_type, Some(Linkage::External))
+        self.module
+            .add_function(name, fn_type, Some(Linkage::External))
     }
 
     fn register_test_functions(&mut self, _prefix: &str) {
@@ -86,9 +88,12 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         name: &str,
         param_types: &[inkwell::types::BasicMetadataTypeEnum<'ctx>],
     ) -> inkwell::values::FunctionValue<'ctx> {
-        if let Some(f) = self.module.get_function(name) { return f; }
+        if let Some(f) = self.module.get_function(name) {
+            return f;
+        }
         let fn_type = self.context.void_type().fn_type(param_types, false);
-        self.module.add_function(name, fn_type, Some(inkwell::module::Linkage::External))
+        self.module
+            .add_function(name, fn_type, Some(inkwell::module::Linkage::External))
     }
 
     /// Top-level dispatcher: returns Some(result) if the expression is a test library call.
@@ -101,31 +106,63 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         use parser::ast::ExprKind;
 
         // ── Pattern A: test.expect(actual).matcher(expected) ──
-        if let ExprKind::FieldAccess { target: fa_target, field: matcher_name } = &func.kind {
+        if let ExprKind::FieldAccess {
+            target: fa_target,
+            field: matcher_name,
+        } = &func.kind
+        {
             // A1: test.expect(actual).matcher(expected)   (not negated)
-            if let ExprKind::Call { func: inner_func, args: expect_args } = &fa_target.kind {
-                if let ExprKind::FieldAccess { target: mod_target, field: expect_field } = &inner_func.kind {
+            if let ExprKind::Call {
+                func: inner_func,
+                args: expect_args,
+            } = &fa_target.kind
+            {
+                if let ExprKind::FieldAccess {
+                    target: mod_target,
+                    field: expect_field,
+                } = &inner_func.kind
+                {
                     if let ExprKind::Identifier(mod_name) = &mod_target.kind {
-                        if mod_name == "test" && expect_field == "expect" && expect_args.len() == 1 {
+                        if mod_name == "test" && expect_field == "expect" && expect_args.len() == 1
+                        {
                             let actual = expect_args[0].clone();
                             let matcher = matcher_name.clone();
                             let m_args: Vec<_> = args.to_vec();
-                            return Some(self.compile_test_matcher(&actual, &matcher, &m_args, false, span));
+                            return Some(
+                                self.compile_test_matcher(&actual, &matcher, &m_args, false, span),
+                            );
                         }
                     }
                 }
             }
             // A2: test.expect(actual).not.matcher(expected)   (negated)
-            if let ExprKind::FieldAccess { target: not_target, field: not_field } = &fa_target.kind {
+            if let ExprKind::FieldAccess {
+                target: not_target,
+                field: not_field,
+            } = &fa_target.kind
+            {
                 if not_field == "not" {
-                    if let ExprKind::Call { func: inner_func, args: expect_args } = &not_target.kind {
-                        if let ExprKind::FieldAccess { target: mod_target, field: expect_field } = &inner_func.kind {
+                    if let ExprKind::Call {
+                        func: inner_func,
+                        args: expect_args,
+                    } = &not_target.kind
+                    {
+                        if let ExprKind::FieldAccess {
+                            target: mod_target,
+                            field: expect_field,
+                        } = &inner_func.kind
+                        {
                             if let ExprKind::Identifier(mod_name) = &mod_target.kind {
-                                if mod_name == "test" && expect_field == "expect" && expect_args.len() == 1 {
+                                if mod_name == "test"
+                                    && expect_field == "expect"
+                                    && expect_args.len() == 1
+                                {
                                     let actual = expect_args[0].clone();
                                     let matcher = matcher_name.clone();
                                     let m_args: Vec<_> = args.to_vec();
-                                    return Some(self.compile_test_matcher(&actual, &matcher, &m_args, true, span));
+                                    return Some(self.compile_test_matcher(
+                                        &actual, &matcher, &m_args, true, span,
+                                    ));
                                 }
                             }
                         }
@@ -175,19 +212,27 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let (closure_val, _) = self.compile_expr(&args[1])?;
 
                 let fn_type = void_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
-                let describe_fn = self.module.get_function("test_describe_start")
+                let describe_fn = self
+                    .module
+                    .get_function("test_describe_start")
                     .unwrap_or_else(|| {
-                        self.module.add_function("test_describe_start", fn_type, Some(inkwell::module::Linkage::External))
+                        self.module.add_function(
+                            "test_describe_start",
+                            fn_type,
+                            Some(inkwell::module::Linkage::External),
+                        )
                     });
-                self.builder.build_call(
-                    describe_fn,
-                    &[title_val.into(), closure_val.into()],
-                    "test_describe",
-                ).map_err(|_| CodegenError::LLVMError {
-                    operation: "build_call".to_string(),
-                    details: "Failed to call test_describe_start".to_string(),
-                    span: Some(span.clone()),
-                })?;
+                self.builder
+                    .build_call(
+                        describe_fn,
+                        &[title_val.into(), closure_val.into()],
+                        "test_describe",
+                    )
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: "Failed to call test_describe_start".to_string(),
+                        span: Some(span.clone()),
+                    })?;
                 Ok((dummy_val, BrixType::Nil))
             }
 
@@ -206,41 +251,55 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let fn_type = void_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
 
                 if matches!(callback_type, BrixType::AsyncFuture) {
-                    let it_fn = self.module.get_function("test_it_async")
+                    let it_fn = self
+                        .module
+                        .get_function("test_it_async")
                         .unwrap_or_else(|| {
-                            self.module.add_function("test_it_async", fn_type, Some(inkwell::module::Linkage::External))
+                            self.module.add_function(
+                                "test_it_async",
+                                fn_type,
+                                Some(inkwell::module::Linkage::External),
+                            )
                         });
-                    self.builder.build_call(
-                        it_fn,
-                        &[title_val.into(), callback_val.into()],
-                        "test_it_async",
-                    ).map_err(|_| CodegenError::LLVMError {
-                        operation: "build_call".to_string(),
-                        details: "Failed to call test_it_async".to_string(),
-                        span: Some(span.clone()),
-                    })?;
+                    self.builder
+                        .build_call(
+                            it_fn,
+                            &[title_val.into(), callback_val.into()],
+                            "test_it_async",
+                        )
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_call".to_string(),
+                            details: "Failed to call test_it_async".to_string(),
+                            span: Some(span.clone()),
+                        })?;
                 } else {
-                    let it_fn = self.module.get_function("test_it_register")
+                    let it_fn = self
+                        .module
+                        .get_function("test_it_register")
                         .unwrap_or_else(|| {
-                            self.module.add_function("test_it_register", fn_type, Some(inkwell::module::Linkage::External))
+                            self.module.add_function(
+                                "test_it_register",
+                                fn_type,
+                                Some(inkwell::module::Linkage::External),
+                            )
                         });
-                    self.builder.build_call(
-                        it_fn,
-                        &[title_val.into(), callback_val.into()],
-                        "test_it",
-                    ).map_err(|_| CodegenError::LLVMError {
-                        operation: "build_call".to_string(),
-                        details: "Failed to call test_it_register".to_string(),
-                        span: Some(span.clone()),
-                    })?;
+                    self.builder
+                        .build_call(it_fn, &[title_val.into(), callback_val.into()], "test_it")
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_call".to_string(),
+                            details: "Failed to call test_it_register".to_string(),
+                            span: Some(span.clone()),
+                        })?;
                 }
                 Ok((dummy_val, BrixType::Nil))
             }
 
             "beforeAll" => self.compile_test_hook_register("test_before_all_register", args, span),
-            "afterAll"  => self.compile_test_hook_register("test_after_all_register",  args, span),
-            "beforeEach"=> self.compile_test_hook_register("test_before_each_register", args, span),
-            "afterEach" => self.compile_test_hook_register("test_after_each_register",  args, span),
+            "afterAll" => self.compile_test_hook_register("test_after_all_register", args, span),
+            "beforeEach" => {
+                self.compile_test_hook_register("test_before_each_register", args, span)
+            }
+            "afterEach" => self.compile_test_hook_register("test_after_each_register", args, span),
 
             _ => {
                 // Unknown test method - fall through (return nil so codegen continues)
@@ -272,11 +331,12 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         let (closure_val, _) = self.compile_expr(&args[0])?;
 
         let fn_type = void_type.fn_type(&[ptr_type.into()], false);
-        let hook_fn = self.module.get_function(c_fn_name)
-            .unwrap_or_else(|| {
-                self.module.add_function(c_fn_name, fn_type, Some(inkwell::module::Linkage::External))
-            });
-        self.builder.build_call(hook_fn, &[closure_val.into()], "hook_reg")
+        let hook_fn = self.module.get_function(c_fn_name).unwrap_or_else(|| {
+            self.module
+                .add_function(c_fn_name, fn_type, Some(inkwell::module::Linkage::External))
+        });
+        self.builder
+            .build_call(hook_fn, &[closure_val.into()], "hook_reg")
             .map_err(|_| CodegenError::LLVMError {
                 operation: "build_call".to_string(),
                 details: format!("Failed to call {}", c_fn_name),
@@ -295,20 +355,20 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         negated: bool,
         span: &parser::ast::Span,
     ) -> CodegenResult<(inkwell::values::BasicValueEnum<'ctx>, BrixType)> {
-        use inkwell::AddressSpace;
         use inkwell::types::BasicMetadataTypeEnum;
+        use inkwell::AddressSpace;
 
-        let ptr_type  = self.context.ptr_type(AddressSpace::default());
-        let i64_type  = self.context.i64_type();
-        let f64_type  = self.context.f64_type();
-        let i32_type  = self.context.i32_type();
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let i64_type = self.context.i64_type();
+        let f64_type = self.context.f64_type();
+        let i32_type = self.context.i32_type();
         let dummy_val: inkwell::values::BasicValueEnum<'ctx> = i64_type.const_int(0, false).into();
 
         let (actual_val, actual_type) = self.compile_expr(actual_expr)?;
 
         // Prepare file/line arguments
         let filename = self.filename.clone();
-        let line_no  = self.span_to_line(span);
+        let line_no = self.span_to_line(span);
         let file_ptr = self.build_str_global(&filename, "tf")?;
         let line_val = i32_type.const_int(line_no as u64, false);
 
@@ -331,57 +391,152 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         let fn_name = format!("test_expect_{}toBe_int", not_prefix);
                         let exp = if expected_type == BrixType::Float {
                             // truncate to i64 for comparison
-                            self.builder.build_float_to_signed_int(
-                                expected_val.into_float_value(), i64_type, "f2i"
-                            ).map_err(|_| CodegenError::LLVMError {
-                                operation: "build_float_to_signed_int".to_string(),
-                                details: "".to_string(), span: Some(span.clone()),
-                            })?.into()
-                        } else { expected_val };
+                            self.builder
+                                .build_float_to_signed_int(
+                                    expected_val.into_float_value(),
+                                    i64_type,
+                                    "f2i",
+                                )
+                                .map_err(|_| CodegenError::LLVMError {
+                                    operation: "build_float_to_signed_int".to_string(),
+                                    details: "".to_string(),
+                                    span: Some(span.clone()),
+                                })?
+                                .into()
+                        } else {
+                            expected_val
+                        };
                         let f = self.declare_test_matcher_void(
                             &fn_name,
-                            &[i64_type.into(), i64_type.into(), ptr_type.into(), i32_type.into()],
+                            &[
+                                i64_type.into(),
+                                i64_type.into(),
+                                ptr_type.into(),
+                                i32_type.into(),
+                            ],
                         );
-                        self.builder.build_call(f, &[actual_val.into(), exp.into(), file_ptr.into(), line_val.into()], "tbm")
-                            .map_err(|_| CodegenError::LLVMError { operation: "build_call".to_string(), details: fn_name.clone(), span: Some(span.clone()) })?;
+                        self.builder
+                            .build_call(
+                                f,
+                                &[
+                                    actual_val.into(),
+                                    exp.into(),
+                                    file_ptr.into(),
+                                    line_val.into(),
+                                ],
+                                "tbm",
+                            )
+                            .map_err(|_| CodegenError::LLVMError {
+                                operation: "build_call".to_string(),
+                                details: fn_name.clone(),
+                                span: Some(span.clone()),
+                            })?;
                     }
                     BrixType::Float => {
                         let fn_name = format!("test_expect_{}toBe_float", not_prefix);
                         let exp = if expected_type == BrixType::Int {
-                            self.builder.build_signed_int_to_float(
-                                expected_val.into_int_value(), f64_type, "i2f"
-                            ).map_err(|_| CodegenError::LLVMError {
-                                operation: "build_signed_int_to_float".to_string(),
-                                details: "".to_string(), span: Some(span.clone()),
-                            })?.into()
-                        } else { expected_val };
+                            self.builder
+                                .build_signed_int_to_float(
+                                    expected_val.into_int_value(),
+                                    f64_type,
+                                    "i2f",
+                                )
+                                .map_err(|_| CodegenError::LLVMError {
+                                    operation: "build_signed_int_to_float".to_string(),
+                                    details: "".to_string(),
+                                    span: Some(span.clone()),
+                                })?
+                                .into()
+                        } else {
+                            expected_val
+                        };
                         let f = self.declare_test_matcher_void(
                             &fn_name,
-                            &[f64_type.into(), f64_type.into(), ptr_type.into(), i32_type.into()],
+                            &[
+                                f64_type.into(),
+                                f64_type.into(),
+                                ptr_type.into(),
+                                i32_type.into(),
+                            ],
                         );
-                        self.builder.build_call(f, &[actual_val.into(), exp.into(), file_ptr.into(), line_val.into()], "tbm")
-                            .map_err(|_| CodegenError::LLVMError { operation: "build_call".to_string(), details: fn_name.clone(), span: Some(span.clone()) })?;
+                        self.builder
+                            .build_call(
+                                f,
+                                &[
+                                    actual_val.into(),
+                                    exp.into(),
+                                    file_ptr.into(),
+                                    line_val.into(),
+                                ],
+                                "tbm",
+                            )
+                            .map_err(|_| CodegenError::LLVMError {
+                                operation: "build_call".to_string(),
+                                details: fn_name.clone(),
+                                span: Some(span.clone()),
+                            })?;
                     }
                     BrixType::String => {
                         let fn_name = format!("test_expect_{}toBe_string", not_prefix);
                         let f = self.declare_test_matcher_void(
                             &fn_name,
-                            &[ptr_type.into(), ptr_type.into(), ptr_type.into(), i32_type.into()],
+                            &[
+                                ptr_type.into(),
+                                ptr_type.into(),
+                                ptr_type.into(),
+                                i32_type.into(),
+                            ],
                         );
-                        self.builder.build_call(f, &[actual_val.into(), expected_val.into(), file_ptr.into(), line_val.into()], "tbm")
-                            .map_err(|_| CodegenError::LLVMError { operation: "build_call".to_string(), details: fn_name.clone(), span: Some(span.clone()) })?;
+                        self.builder
+                            .build_call(
+                                f,
+                                &[
+                                    actual_val.into(),
+                                    expected_val.into(),
+                                    file_ptr.into(),
+                                    line_val.into(),
+                                ],
+                                "tbm",
+                            )
+                            .map_err(|_| CodegenError::LLVMError {
+                                operation: "build_call".to_string(),
+                                details: fn_name.clone(),
+                                span: Some(span.clone()),
+                            })?;
                     }
                     _ => {
                         // Boolean or generic int-like: treat as int
                         let fn_name = format!("test_expect_{}toBe_int", not_prefix);
                         let f = self.declare_test_matcher_void(
                             &fn_name,
-                            &[i64_type.into(), i64_type.into(), ptr_type.into(), i32_type.into()],
+                            &[
+                                i64_type.into(),
+                                i64_type.into(),
+                                ptr_type.into(),
+                                i32_type.into(),
+                            ],
                         );
-                        let act = if actual_val.is_int_value() { actual_val } else { i64_type.const_int(0, false).into() };
-                        let exp = if expected_val.is_int_value() { expected_val } else { i64_type.const_int(0, false).into() };
-                        self.builder.build_call(f, &[act.into(), exp.into(), file_ptr.into(), line_val.into()], "tbm")
-                            .map_err(|_| CodegenError::LLVMError { operation: "build_call".to_string(), details: fn_name.clone(), span: Some(span.clone()) })?;
+                        let act = if actual_val.is_int_value() {
+                            actual_val
+                        } else {
+                            i64_type.const_int(0, false).into()
+                        };
+                        let exp = if expected_val.is_int_value() {
+                            expected_val
+                        } else {
+                            i64_type.const_int(0, false).into()
+                        };
+                        self.builder
+                            .build_call(
+                                f,
+                                &[act.into(), exp.into(), file_ptr.into(), line_val.into()],
+                                "tbm",
+                            )
+                            .map_err(|_| CodegenError::LLVMError {
+                                operation: "build_call".to_string(),
+                                details: fn_name.clone(),
+                                span: Some(span.clone()),
+                            })?;
                     }
                 }
                 Ok((dummy_val, BrixType::Nil))
@@ -393,17 +548,44 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     return Ok((dummy_val, BrixType::Nil));
                 }
                 let (expected_val, _) = self.compile_expr(&matcher_args[0])?;
-                let (fn_name, params): (&str, Vec<BasicMetadataTypeEnum<'ctx>>) = match &actual_type {
-                    BrixType::IntMatrix =>
-                        ("test_expect_toEqual_int_array",
-                         vec![ptr_type.into(), ptr_type.into(), ptr_type.into(), i32_type.into()]),
-                    _ =>
-                        ("test_expect_toEqual_float_array",
-                         vec![ptr_type.into(), ptr_type.into(), ptr_type.into(), i32_type.into()]),
+                let (fn_name, params): (&str, Vec<BasicMetadataTypeEnum<'ctx>>) = match &actual_type
+                {
+                    BrixType::IntMatrix => (
+                        "test_expect_toEqual_int_array",
+                        vec![
+                            ptr_type.into(),
+                            ptr_type.into(),
+                            ptr_type.into(),
+                            i32_type.into(),
+                        ],
+                    ),
+                    _ => (
+                        "test_expect_toEqual_float_array",
+                        vec![
+                            ptr_type.into(),
+                            ptr_type.into(),
+                            ptr_type.into(),
+                            i32_type.into(),
+                        ],
+                    ),
                 };
                 let f = self.declare_test_matcher_void(fn_name, &params);
-                self.builder.build_call(f, &[actual_val.into(), expected_val.into(), file_ptr.into(), line_val.into()], "teq")
-                    .map_err(|_| CodegenError::LLVMError { operation: "build_call".to_string(), details: fn_name.to_string(), span: Some(span.clone()) })?;
+                self.builder
+                    .build_call(
+                        f,
+                        &[
+                            actual_val.into(),
+                            expected_val.into(),
+                            file_ptr.into(),
+                            line_val.into(),
+                        ],
+                        "teq",
+                    )
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: fn_name.to_string(),
+                        span: Some(span.clone()),
+                    })?;
                 Ok((dummy_val, BrixType::Nil))
             }
 
@@ -415,43 +597,113 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let (expected_val, expected_type) = self.compile_expr(&matcher_args[0])?;
                 // Ensure both are f64
                 let act_f64 = if actual_type == BrixType::Int {
-                    self.builder.build_signed_int_to_float(actual_val.into_int_value(), f64_type, "a2f")
-                        .map_err(|_| CodegenError::LLVMError { operation: "i2f".to_string(), details: "".to_string(), span: Some(span.clone()) })?.into()
-                } else { actual_val };
+                    self.builder
+                        .build_signed_int_to_float(actual_val.into_int_value(), f64_type, "a2f")
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "i2f".to_string(),
+                            details: "".to_string(),
+                            span: Some(span.clone()),
+                        })?
+                        .into()
+                } else {
+                    actual_val
+                };
                 let exp_f64 = if expected_type == BrixType::Int {
-                    self.builder.build_signed_int_to_float(expected_val.into_int_value(), f64_type, "e2f")
-                        .map_err(|_| CodegenError::LLVMError { operation: "i2f".to_string(), details: "".to_string(), span: Some(span.clone()) })?.into()
-                } else { expected_val };
+                    self.builder
+                        .build_signed_int_to_float(expected_val.into_int_value(), f64_type, "e2f")
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "i2f".to_string(),
+                            details: "".to_string(),
+                            span: Some(span.clone()),
+                        })?
+                        .into()
+                } else {
+                    expected_val
+                };
                 let f = self.declare_test_matcher_void(
                     "test_expect_toBeCloseTo",
-                    &[f64_type.into(), f64_type.into(), ptr_type.into(), i32_type.into()],
+                    &[
+                        f64_type.into(),
+                        f64_type.into(),
+                        ptr_type.into(),
+                        i32_type.into(),
+                    ],
                 );
-                self.builder.build_call(f, &[act_f64.into(), exp_f64.into(), file_ptr.into(), line_val.into()], "tbc")
-                    .map_err(|_| CodegenError::LLVMError { operation: "build_call".to_string(), details: "test_expect_toBeCloseTo".to_string(), span: Some(span.clone()) })?;
+                self.builder
+                    .build_call(
+                        f,
+                        &[
+                            act_f64.into(),
+                            exp_f64.into(),
+                            file_ptr.into(),
+                            line_val.into(),
+                        ],
+                        "tbc",
+                    )
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: "test_expect_toBeCloseTo".to_string(),
+                        span: Some(span.clone()),
+                    })?;
                 Ok((dummy_val, BrixType::Nil))
             }
 
             // ──────────────────────────────────────────────────────────────
             "toBeTruthy" => {
-                let fn_name = if negated { "test_expect_toBeFalsy" } else { "test_expect_toBeTruthy" };
-                let act = if actual_val.is_int_value() { actual_val } else { i64_type.const_int(0, false).into() };
-                let f = self.declare_test_matcher_void(fn_name, &[i64_type.into(), ptr_type.into(), i32_type.into()]);
-                self.builder.build_call(f, &[act.into(), file_ptr.into(), line_val.into()], "tbt")
-                    .map_err(|_| CodegenError::LLVMError { operation: "build_call".to_string(), details: fn_name.to_string(), span: Some(span.clone()) })?;
+                let fn_name = if negated {
+                    "test_expect_toBeFalsy"
+                } else {
+                    "test_expect_toBeTruthy"
+                };
+                let act = if actual_val.is_int_value() {
+                    actual_val
+                } else {
+                    i64_type.const_int(0, false).into()
+                };
+                let f = self.declare_test_matcher_void(
+                    fn_name,
+                    &[i64_type.into(), ptr_type.into(), i32_type.into()],
+                );
+                self.builder
+                    .build_call(f, &[act.into(), file_ptr.into(), line_val.into()], "tbt")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: fn_name.to_string(),
+                        span: Some(span.clone()),
+                    })?;
                 Ok((dummy_val, BrixType::Nil))
             }
 
             "toBeFalsy" => {
-                let fn_name = if negated { "test_expect_toBeTruthy" } else { "test_expect_toBeFalsy" };
-                let act = if actual_val.is_int_value() { actual_val } else { i64_type.const_int(0, false).into() };
-                let f = self.declare_test_matcher_void(fn_name, &[i64_type.into(), ptr_type.into(), i32_type.into()]);
-                self.builder.build_call(f, &[act.into(), file_ptr.into(), line_val.into()], "tbf")
-                    .map_err(|_| CodegenError::LLVMError { operation: "build_call".to_string(), details: fn_name.to_string(), span: Some(span.clone()) })?;
+                let fn_name = if negated {
+                    "test_expect_toBeTruthy"
+                } else {
+                    "test_expect_toBeFalsy"
+                };
+                let act = if actual_val.is_int_value() {
+                    actual_val
+                } else {
+                    i64_type.const_int(0, false).into()
+                };
+                let f = self.declare_test_matcher_void(
+                    fn_name,
+                    &[i64_type.into(), ptr_type.into(), i32_type.into()],
+                );
+                self.builder
+                    .build_call(f, &[act.into(), file_ptr.into(), line_val.into()], "tbf")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: fn_name.to_string(),
+                        span: Some(span.clone()),
+                    })?;
                 Ok((dummy_val, BrixType::Nil))
             }
 
             // ──────────────────────────────────────────────────────────────
-            "toBeGreaterThan" | "toBeLessThan" | "toBeGreaterThanOrEqual" | "toBeLessThanOrEqual" => {
+            "toBeGreaterThan"
+            | "toBeLessThan"
+            | "toBeGreaterThanOrEqual"
+            | "toBeLessThanOrEqual" => {
                 if matcher_args.is_empty() {
                     return Ok((dummy_val, BrixType::Nil));
                 }
@@ -460,36 +712,75 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let use_float = actual_type == BrixType::Float || threshold_type == BrixType::Float;
                 let (fn_name, params): (String, Vec<BasicMetadataTypeEnum<'ctx>>) = if use_float {
                     let suffix = match matcher_name {
-                        "toBeGreaterThan"        => "toBeGreaterThan_float",
-                        "toBeLessThan"           => "toBeLessThan_float",
+                        "toBeGreaterThan" => "toBeGreaterThan_float",
+                        "toBeLessThan" => "toBeLessThan_float",
                         "toBeGreaterThanOrEqual" => "toBeGreaterThanOrEqual_float",
-                        _                        => "toBeLessThanOrEqual_float",
+                        _ => "toBeLessThanOrEqual_float",
                     };
-                    (format!("test_expect_{}", suffix),
-                     vec![f64_type.into(), f64_type.into(), ptr_type.into(), i32_type.into()])
+                    (
+                        format!("test_expect_{}", suffix),
+                        vec![
+                            f64_type.into(),
+                            f64_type.into(),
+                            ptr_type.into(),
+                            i32_type.into(),
+                        ],
+                    )
                 } else {
                     let suffix = match matcher_name {
-                        "toBeGreaterThan"        => "toBeGreaterThan_int",
-                        "toBeLessThan"           => "toBeLessThan_int",
+                        "toBeGreaterThan" => "toBeGreaterThan_int",
+                        "toBeLessThan" => "toBeLessThan_int",
                         "toBeGreaterThanOrEqual" => "toBeGreaterThanOrEqual_int",
-                        _                        => "toBeLessThanOrEqual_int",
+                        _ => "toBeLessThanOrEqual_int",
                     };
-                    (format!("test_expect_{}", suffix),
-                     vec![i64_type.into(), i64_type.into(), ptr_type.into(), i32_type.into()])
+                    (
+                        format!("test_expect_{}", suffix),
+                        vec![
+                            i64_type.into(),
+                            i64_type.into(),
+                            ptr_type.into(),
+                            i32_type.into(),
+                        ],
+                    )
                 };
 
                 let act_v = if use_float && actual_type == BrixType::Int {
-                    self.builder.build_signed_int_to_float(actual_val.into_int_value(), f64_type, "a2f")
-                        .map_err(|_| CodegenError::LLVMError { operation: "i2f".to_string(), details: "".to_string(), span: Some(span.clone()) })?.into()
-                } else { actual_val };
+                    self.builder
+                        .build_signed_int_to_float(actual_val.into_int_value(), f64_type, "a2f")
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "i2f".to_string(),
+                            details: "".to_string(),
+                            span: Some(span.clone()),
+                        })?
+                        .into()
+                } else {
+                    actual_val
+                };
                 let thr_v = if use_float && threshold_type == BrixType::Int {
-                    self.builder.build_signed_int_to_float(threshold_val.into_int_value(), f64_type, "t2f")
-                        .map_err(|_| CodegenError::LLVMError { operation: "i2f".to_string(), details: "".to_string(), span: Some(span.clone()) })?.into()
-                } else { threshold_val };
+                    self.builder
+                        .build_signed_int_to_float(threshold_val.into_int_value(), f64_type, "t2f")
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "i2f".to_string(),
+                            details: "".to_string(),
+                            span: Some(span.clone()),
+                        })?
+                        .into()
+                } else {
+                    threshold_val
+                };
 
                 let f = self.declare_test_matcher_void(&fn_name, &params);
-                self.builder.build_call(f, &[act_v.into(), thr_v.into(), file_ptr.into(), line_val.into()], "tcmp")
-                    .map_err(|_| CodegenError::LLVMError { operation: "build_call".to_string(), details: fn_name.clone(), span: Some(span.clone()) })?;
+                self.builder
+                    .build_call(
+                        f,
+                        &[act_v.into(), thr_v.into(), file_ptr.into(), line_val.into()],
+                        "tcmp",
+                    )
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: fn_name.clone(),
+                        span: Some(span.clone()),
+                    })?;
                 Ok((dummy_val, BrixType::Nil))
             }
 
@@ -505,30 +796,99 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         // toContain(substring): both are strings
                         let f = self.declare_test_matcher_void(
                             "test_expect_toContain_string",
-                            &[ptr_type.into(), ptr_type.into(), ptr_type.into(), i32_type.into()],
+                            &[
+                                ptr_type.into(),
+                                ptr_type.into(),
+                                ptr_type.into(),
+                                i32_type.into(),
+                            ],
                         );
-                        self.builder.build_call(f, &[actual_val.into(), elem_val.into(), file_ptr.into(), line_val.into()], "tc")
-                            .map_err(|_| CodegenError::LLVMError { operation: "build_call".to_string(), details: "toContain_string".to_string(), span: Some(span.clone()) })?;
+                        self.builder
+                            .build_call(
+                                f,
+                                &[
+                                    actual_val.into(),
+                                    elem_val.into(),
+                                    file_ptr.into(),
+                                    line_val.into(),
+                                ],
+                                "tc",
+                            )
+                            .map_err(|_| CodegenError::LLVMError {
+                                operation: "build_call".to_string(),
+                                details: "toContain_string".to_string(),
+                                span: Some(span.clone()),
+                            })?;
                     }
                     BrixType::IntMatrix => {
                         let f = self.declare_test_matcher_void(
                             "test_expect_toContain_int_array",
-                            &[ptr_type.into(), i64_type.into(), ptr_type.into(), i32_type.into()],
+                            &[
+                                ptr_type.into(),
+                                i64_type.into(),
+                                ptr_type.into(),
+                                i32_type.into(),
+                            ],
                         );
-                        self.builder.build_call(f, &[actual_val.into(), elem_val.into(), file_ptr.into(), line_val.into()], "tc")
-                            .map_err(|_| CodegenError::LLVMError { operation: "build_call".to_string(), details: "toContain_int_array".to_string(), span: Some(span.clone()) })?;
+                        self.builder
+                            .build_call(
+                                f,
+                                &[
+                                    actual_val.into(),
+                                    elem_val.into(),
+                                    file_ptr.into(),
+                                    line_val.into(),
+                                ],
+                                "tc",
+                            )
+                            .map_err(|_| CodegenError::LLVMError {
+                                operation: "build_call".to_string(),
+                                details: "toContain_int_array".to_string(),
+                                span: Some(span.clone()),
+                            })?;
                     }
                     BrixType::Matrix => {
                         let elem_f = if elem_type == BrixType::Int {
-                            self.builder.build_signed_int_to_float(elem_val.into_int_value(), f64_type, "e2f")
-                                .map_err(|_| CodegenError::LLVMError { operation: "i2f".to_string(), details: "".to_string(), span: Some(span.clone()) })?.into()
-                        } else { elem_val };
+                            self.builder
+                                .build_signed_int_to_float(
+                                    elem_val.into_int_value(),
+                                    f64_type,
+                                    "e2f",
+                                )
+                                .map_err(|_| CodegenError::LLVMError {
+                                    operation: "i2f".to_string(),
+                                    details: "".to_string(),
+                                    span: Some(span.clone()),
+                                })?
+                                .into()
+                        } else {
+                            elem_val
+                        };
                         let f = self.declare_test_matcher_void(
                             "test_expect_toContain_float_array",
-                            &[ptr_type.into(), f64_type.into(), ptr_type.into(), i32_type.into()],
+                            &[
+                                ptr_type.into(),
+                                f64_type.into(),
+                                ptr_type.into(),
+                                i32_type.into(),
+                            ],
                         );
-                        self.builder.build_call(f, &[actual_val.into(), elem_f.into(), file_ptr.into(), line_val.into()], "tc")
-                            .map_err(|_| CodegenError::LLVMError { operation: "build_call".to_string(), details: "toContain_float_array".to_string(), span: Some(span.clone()) })?;
+                        self.builder
+                            .build_call(
+                                f,
+                                &[
+                                    actual_val.into(),
+                                    elem_f.into(),
+                                    file_ptr.into(),
+                                    line_val.into(),
+                                ],
+                                "tc",
+                            )
+                            .map_err(|_| CodegenError::LLVMError {
+                                operation: "build_call".to_string(),
+                                details: "toContain_float_array".to_string(),
+                                span: Some(span.clone()),
+                            })?;
                     }
                     _ => {}
                 }
@@ -541,18 +901,42 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     return Ok((dummy_val, BrixType::Nil));
                 }
                 let (len_val, _) = self.compile_expr(&matcher_args[0])?;
-                let len_i64 = if len_val.is_int_value() { len_val }
-                              else { i64_type.const_int(0, false).into() };
+                let len_i64 = if len_val.is_int_value() {
+                    len_val
+                } else {
+                    i64_type.const_int(0, false).into()
+                };
 
                 let fn_name = match &actual_type {
                     BrixType::IntMatrix => "test_expect_toHaveLength_int_array",
-                    BrixType::Matrix    => "test_expect_toHaveLength_float_array",
-                    _                   => "test_expect_toHaveLength_string",
+                    BrixType::Matrix => "test_expect_toHaveLength_float_array",
+                    _ => "test_expect_toHaveLength_string",
                 };
-                let f = self.declare_test_matcher_void(fn_name,
-                    &[ptr_type.into(), i64_type.into(), ptr_type.into(), i32_type.into()]);
-                self.builder.build_call(f, &[actual_val.into(), len_i64.into(), file_ptr.into(), line_val.into()], "thl")
-                    .map_err(|_| CodegenError::LLVMError { operation: "build_call".to_string(), details: fn_name.to_string(), span: Some(span.clone()) })?;
+                let f = self.declare_test_matcher_void(
+                    fn_name,
+                    &[
+                        ptr_type.into(),
+                        i64_type.into(),
+                        ptr_type.into(),
+                        i32_type.into(),
+                    ],
+                );
+                self.builder
+                    .build_call(
+                        f,
+                        &[
+                            actual_val.into(),
+                            len_i64.into(),
+                            file_ptr.into(),
+                            line_val.into(),
+                        ],
+                        "thl",
+                    )
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: fn_name.to_string(),
+                        span: Some(span.clone()),
+                    })?;
                 Ok((dummy_val, BrixType::Nil))
             }
 
@@ -579,10 +963,29 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         let fn_name = format!("test_expect_{}toStartWith_string", not_prefix);
                         let f = self.declare_test_matcher_void(
                             &fn_name,
-                            &[ptr_type.into(), ptr_type.into(), ptr_type.into(), i32_type.into()],
+                            &[
+                                ptr_type.into(),
+                                ptr_type.into(),
+                                ptr_type.into(),
+                                i32_type.into(),
+                            ],
                         );
-                        self.builder.build_call(f, &[actual_val.into(), prefix_val.into(), file_ptr.into(), line_val.into()], "tsw")
-                            .map_err(|_| CodegenError::LLVMError { operation: "build_call".to_string(), details: fn_name.clone(), span: Some(span.clone()) })?;
+                        self.builder
+                            .build_call(
+                                f,
+                                &[
+                                    actual_val.into(),
+                                    prefix_val.into(),
+                                    file_ptr.into(),
+                                    line_val.into(),
+                                ],
+                                "tsw",
+                            )
+                            .map_err(|_| CodegenError::LLVMError {
+                                operation: "build_call".to_string(),
+                                details: fn_name.clone(),
+                                span: Some(span.clone()),
+                            })?;
                     }
                     _ => unreachable!("toStartWith type check should reject non-string receivers"),
                 }
@@ -612,10 +1015,29 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         let fn_name = format!("test_expect_{}toEndWith_string", not_prefix);
                         let f = self.declare_test_matcher_void(
                             &fn_name,
-                            &[ptr_type.into(), ptr_type.into(), ptr_type.into(), i32_type.into()],
+                            &[
+                                ptr_type.into(),
+                                ptr_type.into(),
+                                ptr_type.into(),
+                                i32_type.into(),
+                            ],
                         );
-                        self.builder.build_call(f, &[actual_val.into(), suffix_val.into(), file_ptr.into(), line_val.into()], "tew")
-                            .map_err(|_| CodegenError::LLVMError { operation: "build_call".to_string(), details: fn_name.clone(), span: Some(span.clone()) })?;
+                        self.builder
+                            .build_call(
+                                f,
+                                &[
+                                    actual_val.into(),
+                                    suffix_val.into(),
+                                    file_ptr.into(),
+                                    line_val.into(),
+                                ],
+                                "tew",
+                            )
+                            .map_err(|_| CodegenError::LLVMError {
+                                operation: "build_call".to_string(),
+                                details: fn_name.clone(),
+                                span: Some(span.clone()),
+                            })?;
                     }
                     _ => unreachable!("toEndWith type check should reject non-string receivers"),
                 }
@@ -645,10 +1067,29 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         let fn_name = format!("test_expect_{}matches_string", not_prefix);
                         let f = self.declare_test_matcher_void(
                             &fn_name,
-                            &[ptr_type.into(), ptr_type.into(), ptr_type.into(), i32_type.into()],
+                            &[
+                                ptr_type.into(),
+                                ptr_type.into(),
+                                ptr_type.into(),
+                                i32_type.into(),
+                            ],
                         );
-                        self.builder.build_call(f, &[actual_val.into(), pattern_val.into(), file_ptr.into(), line_val.into()], "tm")
-                            .map_err(|_| CodegenError::LLVMError { operation: "build_call".to_string(), details: fn_name.clone(), span: Some(span.clone()) })?;
+                        self.builder
+                            .build_call(
+                                f,
+                                &[
+                                    actual_val.into(),
+                                    pattern_val.into(),
+                                    file_ptr.into(),
+                                    line_val.into(),
+                                ],
+                                "tm",
+                            )
+                            .map_err(|_| CodegenError::LLVMError {
+                                operation: "build_call".to_string(),
+                                details: fn_name.clone(),
+                                span: Some(span.clone()),
+                            })?;
                     }
                     _ => unreachable!("toMatch type check should reject non-string receivers"),
                 }
@@ -702,10 +1143,29 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let fn_name = format!("test_expect_{}has_property", not_prefix);
                 let f = self.declare_test_matcher_void(
                     &fn_name,
-                    &[i32_type.into(), ptr_type.into(), ptr_type.into(), i32_type.into()],
+                    &[
+                        i32_type.into(),
+                        ptr_type.into(),
+                        ptr_type.into(),
+                        i32_type.into(),
+                    ],
                 );
-                self.builder.build_call(f, &[has_prop_val.into(), prop_name_ptr.into(), file_ptr.into(), line_val.into()], "thp")
-                    .map_err(|_| CodegenError::LLVMError { operation: "build_call".to_string(), details: fn_name.clone(), span: Some(span.clone()) })?;
+                self.builder
+                    .build_call(
+                        f,
+                        &[
+                            has_prop_val.into(),
+                            prop_name_ptr.into(),
+                            file_ptr.into(),
+                            line_val.into(),
+                        ],
+                        "thp",
+                    )
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: fn_name.clone(),
+                        span: Some(span.clone()),
+                    })?;
                 Ok((dummy_val, BrixType::Nil))
             }
 
@@ -713,13 +1173,28 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             "toBeNil" => {
                 // For optional/nil: if actual is a pointer, check if null.
                 // For union types (struct): extract tag field (field 0) and check if == 1 (nil tag).
-                let fn_name = if negated { "test_expect_not_toBeNil" } else { "test_expect_toBeNil" };
+                let fn_name = if negated {
+                    "test_expect_not_toBeNil"
+                } else {
+                    "test_expect_toBeNil"
+                };
                 // Encode nil-ness as i64: 1 = nil, 0 = not nil
                 let is_nil = if actual_val.is_pointer_value() {
-                    let null_check = self.builder.build_is_null(actual_val.into_pointer_value(), "is_nil")
-                        .map_err(|_| CodegenError::LLVMError { operation: "build_is_null".to_string(), details: "".to_string(), span: Some(span.clone()) })?;
-                    self.builder.build_int_z_extend(null_check, i64_type, "nil_i64")
-                        .map_err(|_| CodegenError::LLVMError { operation: "build_int_z_extend".to_string(), details: "".to_string(), span: Some(span.clone()) })?
+                    let null_check = self
+                        .builder
+                        .build_is_null(actual_val.into_pointer_value(), "is_nil")
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_is_null".to_string(),
+                            details: "".to_string(),
+                            span: Some(span.clone()),
+                        })?;
+                    self.builder
+                        .build_int_z_extend(null_check, i64_type, "nil_i64")
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_int_z_extend".to_string(),
+                            details: "".to_string(),
+                            span: Some(span.clone()),
+                        })?
                         .into()
                 } else if actual_val.is_int_value() {
                     // For int-based nil (e.g. union tag 0 = value, 1 = nil), use actual directly
@@ -727,20 +1202,49 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 } else if actual_val.is_struct_value() {
                     // For struct-based union types: extract tag (field 0) and check if == 1 (nil tag)
                     let nil_tag_val = i64_type.const_int(1, false);
-                    let tag = self.builder.build_extract_value(actual_val.into_struct_value(), 0, "union_tag")
-                        .map_err(|_| CodegenError::LLVMError { operation: "build_extract_value".to_string(), details: "Failed to extract union tag for toBeNil".to_string(), span: Some(span.clone()) })?;
-                    let is_nil_cmp = self.builder.build_int_compare(IntPredicate::EQ, tag.into_int_value(), nil_tag_val, "is_nil_cmp")
-                        .map_err(|_| CodegenError::LLVMError { operation: "build_int_compare".to_string(), details: "".to_string(), span: Some(span.clone()) })?;
-                    self.builder.build_int_z_extend(is_nil_cmp, i64_type, "nil_i64")
-                        .map_err(|_| CodegenError::LLVMError { operation: "build_int_z_extend".to_string(), details: "".to_string(), span: Some(span.clone()) })?
+                    let tag = self
+                        .builder
+                        .build_extract_value(actual_val.into_struct_value(), 0, "union_tag")
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_extract_value".to_string(),
+                            details: "Failed to extract union tag for toBeNil".to_string(),
+                            span: Some(span.clone()),
+                        })?;
+                    let is_nil_cmp = self
+                        .builder
+                        .build_int_compare(
+                            IntPredicate::EQ,
+                            tag.into_int_value(),
+                            nil_tag_val,
+                            "is_nil_cmp",
+                        )
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_int_compare".to_string(),
+                            details: "".to_string(),
+                            span: Some(span.clone()),
+                        })?;
+                    self.builder
+                        .build_int_z_extend(is_nil_cmp, i64_type, "nil_i64")
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_int_z_extend".to_string(),
+                            details: "".to_string(),
+                            span: Some(span.clone()),
+                        })?
                         .into()
                 } else {
                     i64_type.const_int(0, false).into()
                 };
-                let f = self.declare_test_matcher_void(fn_name,
-                    &[i64_type.into(), ptr_type.into(), i32_type.into()]);
-                self.builder.build_call(f, &[is_nil.into(), file_ptr.into(), line_val.into()], "tbn")
-                    .map_err(|_| CodegenError::LLVMError { operation: "build_call".to_string(), details: fn_name.to_string(), span: Some(span.clone()) })?;
+                let f = self.declare_test_matcher_void(
+                    fn_name,
+                    &[i64_type.into(), ptr_type.into(), i32_type.into()],
+                );
+                self.builder
+                    .build_call(f, &[is_nil.into(), file_ptr.into(), line_val.into()], "tbn")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: fn_name.to_string(),
+                        span: Some(span.clone()),
+                    })?;
                 Ok((dummy_val, BrixType::Nil))
             }
 
@@ -803,62 +1307,158 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
                 // Declare libc externals (idempotent).
                 let fork_fn = self.module.get_function("fork").unwrap_or_else(|| {
-                    self.module.add_function("fork", i32_type.fn_type(&[], false), Some(Linkage::External))
+                    self.module.add_function(
+                        "fork",
+                        i32_type.fn_type(&[], false),
+                        Some(Linkage::External),
+                    )
                 });
                 let fflush_fn = self.module.get_function("fflush").unwrap_or_else(|| {
-                    self.module.add_function("fflush", i32_type.fn_type(&[ptr_type.into()], false), Some(Linkage::External))
+                    self.module.add_function(
+                        "fflush",
+                        i32_type.fn_type(&[ptr_type.into()], false),
+                        Some(Linkage::External),
+                    )
                 });
                 let exit_fn = self.module.get_function("_exit").unwrap_or_else(|| {
-                    self.module.add_function("_exit", self.context.void_type().fn_type(&[i32_type.into()], false), Some(Linkage::External))
+                    self.module.add_function(
+                        "_exit",
+                        self.context.void_type().fn_type(&[i32_type.into()], false),
+                        Some(Linkage::External),
+                    )
                 });
-                let wait_fn = self.module.get_function("brix_wait_for_child").unwrap_or_else(|| {
-                    self.module.add_function("brix_wait_for_child", i32_type.fn_type(&[i32_type.into()], false), Some(Linkage::External))
-                });
+                let wait_fn = self
+                    .module
+                    .get_function("brix_wait_for_child")
+                    .unwrap_or_else(|| {
+                        self.module.add_function(
+                            "brix_wait_for_child",
+                            i32_type.fn_type(&[i32_type.into()], false),
+                            Some(Linkage::External),
+                        )
+                    });
 
                 // Flush all open streams before forking so buffered output
                 // isn't duplicated in the child.
-                self.builder.build_call(fflush_fn, &[ptr_type.const_null().into()], "fflush_all")
-                    .map_err(|_| CodegenError::LLVMError { operation: "build_call".to_string(), details: "fflush".to_string(), span: Some(span.clone()) })?;
+                self.builder
+                    .build_call(fflush_fn, &[ptr_type.const_null().into()], "fflush_all")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: "fflush".to_string(),
+                        span: Some(span.clone()),
+                    })?;
 
                 // pid = fork()
-                let pid = self.builder.build_call(fork_fn, &[], "fork_pid")
-                    .map_err(|_| CodegenError::LLVMError { operation: "build_call".to_string(), details: "fork".to_string(), span: Some(span.clone()) })?
-                    .try_as_basic_value().left()
-                    .ok_or_else(|| CodegenError::MissingValue { what: "fork() result".to_string(), context: "toThrow".to_string(), span: Some(span.clone()) })?
+                let pid = self
+                    .builder
+                    .build_call(fork_fn, &[], "fork_pid")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: "fork".to_string(),
+                        span: Some(span.clone()),
+                    })?
+                    .try_as_basic_value()
+                    .left()
+                    .ok_or_else(|| CodegenError::MissingValue {
+                        what: "fork() result".to_string(),
+                        context: "toThrow".to_string(),
+                        span: Some(span.clone()),
+                    })?
                     .into_int_value();
 
                 let parent_fn = self.current_function()?;
-                let child_bb  = self.context.append_basic_block(parent_fn, "throw_child_bb");
-                let parent_bb = self.context.append_basic_block(parent_fn, "throw_parent_bb");
-                let merge_bb  = self.context.append_basic_block(parent_fn, "throw_merge_bb");
+                let child_bb = self.context.append_basic_block(parent_fn, "throw_child_bb");
+                let parent_bb = self
+                    .context
+                    .append_basic_block(parent_fn, "throw_parent_bb");
+                let merge_bb = self.context.append_basic_block(parent_fn, "throw_merge_bb");
 
-                let is_child = self.builder.build_int_compare(IntPredicate::EQ, pid, i32_type.const_int(0, false), "is_child")
-                    .map_err(|_| CodegenError::LLVMError { operation: "build_int_compare".to_string(), details: "fork pid".to_string(), span: Some(span.clone()) })?;
-                self.builder.build_conditional_branch(is_child, child_bb, parent_bb)
-                    .map_err(|_| CodegenError::LLVMError { operation: "build_conditional_branch".to_string(), details: "fork branch".to_string(), span: Some(span.clone()) })?;
+                let is_child = self
+                    .builder
+                    .build_int_compare(
+                        IntPredicate::EQ,
+                        pid,
+                        i32_type.const_int(0, false),
+                        "is_child",
+                    )
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_int_compare".to_string(),
+                        details: "fork pid".to_string(),
+                        span: Some(span.clone()),
+                    })?;
+                self.builder
+                    .build_conditional_branch(is_child, child_bb, parent_bb)
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_conditional_branch".to_string(),
+                        details: "fork branch".to_string(),
+                        span: Some(span.clone()),
+                    })?;
 
                 // Child: run the closure body. If it returns normally (no panic),
                 // exit cleanly with 0; brix_panic() calls exit(1) on its own path.
                 self.builder.position_at_end(child_bb);
-                self.builder.build_indirect_call(closure_fn_type, fn_ptr, &[env_ptr.into()], "throw_call")
-                    .map_err(|_| CodegenError::LLVMError { operation: "build_indirect_call".to_string(), details: "toThrow closure".to_string(), span: Some(span.clone()) })?;
-                self.builder.build_call(exit_fn, &[i32_type.const_int(0, false).into()], "child_exit")
-                    .map_err(|_| CodegenError::LLVMError { operation: "build_call".to_string(), details: "_exit".to_string(), span: Some(span.clone()) })?;
-                self.builder.build_unreachable()
-                    .map_err(|_| CodegenError::LLVMError { operation: "build_unreachable".to_string(), details: "after _exit".to_string(), span: Some(span.clone()) })?;
+                self.builder
+                    .build_indirect_call(closure_fn_type, fn_ptr, &[env_ptr.into()], "throw_call")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_indirect_call".to_string(),
+                        details: "toThrow closure".to_string(),
+                        span: Some(span.clone()),
+                    })?;
+                self.builder
+                    .build_call(
+                        exit_fn,
+                        &[i32_type.const_int(0, false).into()],
+                        "child_exit",
+                    )
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: "_exit".to_string(),
+                        span: Some(span.clone()),
+                    })?;
+                self.builder
+                    .build_unreachable()
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_unreachable".to_string(),
+                        details: "after _exit".to_string(),
+                        span: Some(span.clone()),
+                    })?;
 
                 // Parent: wait for the child, then dispatch to the matcher.
                 self.builder.position_at_end(parent_bb);
-                let threw = self.builder.build_call(wait_fn, &[pid.into()], "threw")
-                    .map_err(|_| CodegenError::LLVMError { operation: "build_call".to_string(), details: "brix_wait_for_child".to_string(), span: Some(span.clone()) })?
-                    .try_as_basic_value().left()
-                    .ok_or_else(|| CodegenError::MissingValue { what: "brix_wait_for_child result".to_string(), context: "toThrow".to_string(), span: Some(span.clone()) })?;
+                let threw = self
+                    .builder
+                    .build_call(wait_fn, &[pid.into()], "threw")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: "brix_wait_for_child".to_string(),
+                        span: Some(span.clone()),
+                    })?
+                    .try_as_basic_value()
+                    .left()
+                    .ok_or_else(|| CodegenError::MissingValue {
+                        what: "brix_wait_for_child result".to_string(),
+                        context: "toThrow".to_string(),
+                        span: Some(span.clone()),
+                    })?;
                 let fn_name = format!("test_expect_{}to_throw", not_prefix);
-                let f = self.declare_test_matcher_void(&fn_name, &[i32_type.into(), ptr_type.into(), i32_type.into()]);
-                self.builder.build_call(f, &[threw.into(), file_ptr.into(), line_val.into()], "ttm")
-                    .map_err(|_| CodegenError::LLVMError { operation: "build_call".to_string(), details: fn_name.clone(), span: Some(span.clone()) })?;
-                self.builder.build_unconditional_branch(merge_bb)
-                    .map_err(|_| CodegenError::LLVMError { operation: "build_unconditional_branch".to_string(), details: "parent to merge".to_string(), span: Some(span.clone()) })?;
+                let f = self.declare_test_matcher_void(
+                    &fn_name,
+                    &[i32_type.into(), ptr_type.into(), i32_type.into()],
+                );
+                self.builder
+                    .build_call(f, &[threw.into(), file_ptr.into(), line_val.into()], "ttm")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: fn_name.clone(),
+                        span: Some(span.clone()),
+                    })?;
+                self.builder
+                    .build_unconditional_branch(merge_bb)
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_unconditional_branch".to_string(),
+                        details: "parent to merge".to_string(),
+                        span: Some(span.clone()),
+                    })?;
 
                 self.builder.position_at_end(merge_bb);
                 Ok((dummy_val, BrixType::Nil))

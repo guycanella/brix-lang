@@ -5,7 +5,7 @@
 
 use crate::Compiler;
 use inkwell::context::Context;
-use parser::ast::{BinaryOp, Expr, Literal, Program, Stmt, ExprKind, StmtKind};
+use parser::ast::{BinaryOp, Expr, ExprKind, Literal, Program, Stmt, StmtKind};
 
 // Helper function to create a simple program with one statement
 fn make_program(stmt: Stmt) -> Program {
@@ -22,7 +22,13 @@ fn compile_program(program: Program) -> Result<String, String> {
         let module = context.create_module("test");
         let builder = context.create_builder();
 
-        let mut compiler = Compiler::new(&context, &builder, &module, "test.bx".to_string(), "".to_string());
+        let mut compiler = Compiler::new(
+            &context,
+            &builder,
+            &module,
+            "test.bx".to_string(),
+            "".to_string(),
+        );
 
         // compile_program now returns CodegenResult
         match compiler.compile_program(&program) {
@@ -51,7 +57,9 @@ fn binary(op: BinaryOp, lhs: Expr, rhs: Expr) -> Expr {
 
 #[test]
 fn test_infer_int_literal() {
-    let stmt = Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Literal(Literal::Int(42)))));
+    let stmt = Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Literal(
+        Literal::Int(42),
+    ))));
     let program = make_program(stmt);
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -59,7 +67,9 @@ fn test_infer_int_literal() {
 
 #[test]
 fn test_infer_float_literal() {
-    let stmt = Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Literal(Literal::Float(3.14)))));
+    let stmt = Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Literal(
+        Literal::Float(3.14),
+    ))));
     let program = make_program(stmt);
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -67,7 +77,9 @@ fn test_infer_float_literal() {
 
 #[test]
 fn test_infer_string_literal() {
-    let stmt = Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Literal(Literal::String("hello".to_string())))));
+    let stmt = Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Literal(
+        Literal::String("hello".to_string()),
+    ))));
     let program = make_program(stmt);
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -75,7 +87,9 @@ fn test_infer_string_literal() {
 
 #[test]
 fn test_infer_bool_literal() {
-    let stmt = Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Literal(Literal::Bool(true)))));
+    let stmt = Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Literal(
+        Literal::Bool(true),
+    ))));
     let program = make_program(stmt);
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -91,7 +105,9 @@ fn test_infer_nil_literal() {
 
 #[test]
 fn test_infer_atom_literal() {
-    let stmt = Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Literal(Literal::Atom("ok".to_string())))));
+    let stmt = Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Literal(
+        Literal::Atom("ok".to_string()),
+    ))));
     let program = make_program(stmt);
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -99,7 +115,9 @@ fn test_infer_atom_literal() {
 
 #[test]
 fn test_infer_complex_literal() {
-    let stmt = Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Literal(Literal::Complex(3.0, 4.0)))));
+    let stmt = Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Literal(
+        Literal::Complex(3.0, 4.0),
+    ))));
     let program = make_program(stmt);
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -335,7 +353,9 @@ fn test_string_plus_int_fails() {
     // "hello" + 42 should fail
     let expr = Expr::dummy(ExprKind::Binary {
         op: parser::ast::BinaryOp::Add,
-        lhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("hello".to_string())))),
+        lhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::String(
+            "hello".to_string(),
+        )))),
         rhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(42)))),
     });
     let program = make_program(Stmt::dummy(StmtKind::Expr(expr)));
@@ -469,7 +489,6 @@ fn test_inference_from_unary_negate() {
     assert!(result.is_ok());
 }
 
-
 // ==================== CASTING EDGE CASES ====================
 
 #[test]
@@ -569,7 +588,6 @@ fn test_cast_zero() {
     let result = compile_program(program);
     assert!(result.is_ok());
 }
-
 
 // ==================== NUMERIC EDGE CASES ====================
 
@@ -682,4 +700,3 @@ fn test_division_by_int_zero() {
     // Should compile (runtime error is OK)
     assert!(result.is_ok());
 }
-

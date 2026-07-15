@@ -2,14 +2,20 @@
 
 use crate::Compiler;
 use inkwell::context::Context;
-use parser::ast::{BinaryOp, Expr, Literal, Program, Stmt, ExprKind, StmtKind};
+use parser::ast::{BinaryOp, Expr, ExprKind, Literal, Program, Stmt, StmtKind};
 
 fn compile_program(program: Program) -> Result<String, String> {
     let result = std::panic::catch_unwind(|| {
         let context = Context::create();
         let module = context.create_module("test");
         let builder = context.create_builder();
-        let mut compiler = Compiler::new(&context, &builder, &module, "test.bx".to_string(), "".to_string());
+        let mut compiler = Compiler::new(
+            &context,
+            &builder,
+            &module,
+            "test.bx".to_string(),
+            "".to_string(),
+        );
         compiler.compile_program(&program);
         module.print_to_string().to_string()
     });
@@ -46,7 +52,9 @@ fn test_if_no_else() {
                     lhs: Box::new(Expr::dummy(ExprKind::Identifier("x".to_string()))),
                     rhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(5)))),
                 }),
-                then_block: Box::new(Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Literal(Literal::Int(1)))))),
+                then_block: Box::new(Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Literal(
+                    Literal::Int(1),
+                ))))),
                 else_block: None,
             }),
         ],
@@ -72,8 +80,12 @@ fn test_if_with_else() {
                     lhs: Box::new(Expr::dummy(ExprKind::Identifier("x".to_string()))),
                     rhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(5)))),
                 }),
-                then_block: Box::new(Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Literal(Literal::Int(1)))))),
-                else_block: Some(Box::new(Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Literal(Literal::Int(0))))))),
+                then_block: Box::new(Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Literal(
+                    Literal::Int(1),
+                ))))),
+                else_block: Some(Box::new(Stmt::dummy(StmtKind::Expr(Expr::dummy(
+                    ExprKind::Literal(Literal::Int(0)),
+                ))))),
             }),
         ],
     };
@@ -129,7 +141,9 @@ fn test_for_loop_range() {
                 step: None,
                 inclusive: true,
             }),
-            body: Box::new(Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Identifier("i".to_string()))))),
+            body: Box::new(Stmt::dummy(StmtKind::Expr(Expr::dummy(
+                ExprKind::Identifier("i".to_string()),
+            )))),
         })],
     };
     let ir = compile_program(program).unwrap();
@@ -148,7 +162,9 @@ fn test_for_loop_with_step() {
                 step: Some(Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(2))))),
                 inclusive: true,
             }),
-            body: Box::new(Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Identifier("i".to_string()))))),
+            body: Box::new(Stmt::dummy(StmtKind::Expr(Expr::dummy(
+                ExprKind::Identifier("i".to_string()),
+            )))),
         })],
     };
     let result = compile_program(program);
@@ -173,12 +189,16 @@ fn test_match_literal() {
                     parser::ast::MatchArm {
                         pattern: parser::ast::Pattern::Literal(Literal::Int(1)),
                         guard: None,
-                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("one".to_string())))),
+                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String(
+                            "one".to_string(),
+                        )))),
                     },
                     parser::ast::MatchArm {
                         pattern: parser::ast::Pattern::Wildcard,
                         guard: None,
-                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("other".to_string())))),
+                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String(
+                            "other".to_string(),
+                        )))),
                     },
                 ],
             }))),
@@ -194,8 +214,9 @@ fn test_match_literal() {
 #[test]
 fn test_function_definition() {
     let program = Program {
-        statements: vec![Stmt::dummy(StmtKind::FunctionDef { is_async: false,
-                type_params: vec![],
+        statements: vec![Stmt::dummy(StmtKind::FunctionDef {
+            is_async: false,
+            type_params: vec![],
             name: "add".to_string(),
             params: vec![
                 ("a".to_string(), "int".to_string(), None),
@@ -220,7 +241,8 @@ fn test_function_definition() {
 fn test_function_call() {
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "test_fn".to_string(),
                 params: vec![],
@@ -245,8 +267,9 @@ fn test_function_call() {
 #[test]
 fn test_return_void() {
     let program = Program {
-        statements: vec![Stmt::dummy(StmtKind::FunctionDef { is_async: false,
-                type_params: vec![],
+        statements: vec![Stmt::dummy(StmtKind::FunctionDef {
+            is_async: false,
+            type_params: vec![],
             name: "void_fn".to_string(),
             params: vec![],
             return_type: None,
@@ -260,8 +283,9 @@ fn test_return_void() {
 #[test]
 fn test_return_single_value() {
     let program = Program {
-        statements: vec![Stmt::dummy(StmtKind::FunctionDef { is_async: false,
-                type_params: vec![],
+        statements: vec![Stmt::dummy(StmtKind::FunctionDef {
+            is_async: false,
+            type_params: vec![],
             name: "get_int".to_string(),
             params: vec![],
             return_type: Some(vec!["int".to_string()]),
@@ -277,8 +301,9 @@ fn test_return_single_value() {
 #[test]
 fn test_return_multiple_values() {
     let program = Program {
-        statements: vec![Stmt::dummy(StmtKind::FunctionDef { is_async: false,
-                type_params: vec![],
+        statements: vec![Stmt::dummy(StmtKind::FunctionDef {
+            is_async: false,
+            type_params: vec![],
             name: "get_pair".to_string(),
             params: vec![],
             return_type: Some(vec!["int".to_string(), "int".to_string()]),
@@ -316,12 +341,16 @@ fn test_match_with_or_pattern() {
                             parser::ast::Pattern::Literal(Literal::Int(3)),
                         ]),
                         guard: None,
-                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("small".to_string())))),
+                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String(
+                            "small".to_string(),
+                        )))),
                     },
                     parser::ast::MatchArm {
                         pattern: parser::ast::Pattern::Wildcard,
                         guard: None,
-                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("large".to_string())))),
+                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String(
+                            "large".to_string(),
+                        )))),
                     },
                 ],
             }))),
@@ -351,12 +380,16 @@ fn test_match_with_guard() {
                             lhs: Box::new(Expr::dummy(ExprKind::Identifier("n".to_string()))),
                             rhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(10)))),
                         }))),
-                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("large".to_string())))),
+                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String(
+                            "large".to_string(),
+                        )))),
                     },
                     parser::ast::MatchArm {
                         pattern: parser::ast::Pattern::Wildcard,
                         guard: None,
-                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("small".to_string())))),
+                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String(
+                            "small".to_string(),
+                        )))),
                     },
                 ],
             }))),
@@ -406,17 +439,23 @@ fn test_match_with_atoms() {
                     parser::ast::MatchArm {
                         pattern: parser::ast::Pattern::Literal(Literal::Atom("ok".to_string())),
                         guard: None,
-                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("success".to_string())))),
+                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String(
+                            "success".to_string(),
+                        )))),
                     },
                     parser::ast::MatchArm {
                         pattern: parser::ast::Pattern::Literal(Literal::Atom("error".to_string())),
                         guard: None,
-                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("failed".to_string())))),
+                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String(
+                            "failed".to_string(),
+                        )))),
                     },
                     parser::ast::MatchArm {
                         pattern: parser::ast::Pattern::Wildcard,
                         guard: None,
-                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("unknown".to_string())))),
+                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String(
+                            "unknown".to_string(),
+                        )))),
                     },
                 ],
             }))),
@@ -446,7 +485,9 @@ fn test_match_multiple_guards() {
                             lhs: Box::new(Expr::dummy(ExprKind::Identifier("n".to_string()))),
                             rhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(18)))),
                         }))),
-                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("child".to_string())))),
+                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String(
+                            "child".to_string(),
+                        )))),
                     },
                     parser::ast::MatchArm {
                         pattern: parser::ast::Pattern::Binding("n".to_string()),
@@ -455,12 +496,16 @@ fn test_match_multiple_guards() {
                             lhs: Box::new(Expr::dummy(ExprKind::Identifier("n".to_string()))),
                             rhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(60)))),
                         }))),
-                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("adult".to_string())))),
+                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String(
+                            "adult".to_string(),
+                        )))),
                     },
                     parser::ast::MatchArm {
                         pattern: parser::ast::Pattern::Wildcard,
                         guard: None,
-                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("senior".to_string())))),
+                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String(
+                            "senior".to_string(),
+                        )))),
                     },
                 ],
             }))),
@@ -484,7 +529,9 @@ fn test_match_with_strings() {
                 value: Box::new(Expr::dummy(ExprKind::Identifier("msg".to_string()))),
                 arms: vec![
                     parser::ast::MatchArm {
-                        pattern: parser::ast::Pattern::Literal(Literal::String("hello".to_string())),
+                        pattern: parser::ast::Pattern::Literal(Literal::String(
+                            "hello".to_string(),
+                        )),
                         guard: None,
                         body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(1)))),
                     },
@@ -660,7 +707,9 @@ fn test_list_comp_three_levels() {
                     },
                     parser::ast::ComprehensionGen {
                         var_names: vec!["y".to_string()],
-                        iterable: Box::new(Expr::dummy(ExprKind::Array(vec![Expr::dummy(ExprKind::Literal(Literal::Int(10)))]))),
+                        iterable: Box::new(Expr::dummy(ExprKind::Array(vec![Expr::dummy(
+                            ExprKind::Literal(Literal::Int(10)),
+                        )]))),
                         conditions: vec![],
                     },
                     parser::ast::ComprehensionGen {
@@ -793,7 +842,6 @@ fn test_list_comp_from_variable() {
     assert!(result.is_ok());
 }
 
-
 // ==================== ZIP() ADVANCED ====================
 
 #[test]
@@ -802,7 +850,10 @@ fn test_zip_empty_with_empty() {
     let program = Program {
         statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
             func: Box::new(Expr::dummy(ExprKind::Identifier("zip".to_string()))),
-            args: vec![Expr::dummy(ExprKind::Array(vec![])), Expr::dummy(ExprKind::Array(vec![]))],
+            args: vec![
+                Expr::dummy(ExprKind::Array(vec![])),
+                Expr::dummy(ExprKind::Array(vec![])),
+            ],
         })))],
     };
     let result = compile_program(program);
@@ -816,8 +867,12 @@ fn test_zip_single_element() {
         statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
             func: Box::new(Expr::dummy(ExprKind::Identifier("zip".to_string()))),
             args: vec![
-                Expr::dummy(ExprKind::Array(vec![Expr::dummy(ExprKind::Literal(Literal::Int(1)))])),
-                Expr::dummy(ExprKind::Array(vec![Expr::dummy(ExprKind::Literal(Literal::Int(2)))])),
+                Expr::dummy(ExprKind::Array(vec![Expr::dummy(ExprKind::Literal(
+                    Literal::Int(1),
+                ))])),
+                Expr::dummy(ExprKind::Array(vec![Expr::dummy(ExprKind::Literal(
+                    Literal::Int(2),
+                ))])),
             ],
         })))],
     };
@@ -913,7 +968,6 @@ fn test_zip_in_loop() {
     assert!(result.is_ok());
 }
 
-
 // ==================== LOOP ADVANCED ====================
 
 #[test]
@@ -957,14 +1011,16 @@ fn test_nested_for_loops() {
                 Expr::dummy(ExprKind::Literal(Literal::Int(2))),
                 Expr::dummy(ExprKind::Literal(Literal::Int(3))),
             ])),
-            body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::For {
-                var_names: vec!["j".to_string()],
-                iterable: Expr::dummy(ExprKind::Array(vec![
-                    Expr::dummy(ExprKind::Literal(Literal::Int(10))),
-                    Expr::dummy(ExprKind::Literal(Literal::Int(20))),
-                ])),
-                body: Box::new(Stmt::dummy(StmtKind::Block(vec![]))),
-            })]))),
+            body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                StmtKind::For {
+                    var_names: vec!["j".to_string()],
+                    iterable: Expr::dummy(ExprKind::Array(vec![
+                        Expr::dummy(ExprKind::Literal(Literal::Int(10))),
+                        Expr::dummy(ExprKind::Literal(Literal::Int(20))),
+                    ])),
+                    body: Box::new(Stmt::dummy(StmtKind::Block(vec![]))),
+                },
+            )]))),
         })],
     };
     let result = compile_program(program);
@@ -1062,7 +1118,6 @@ fn test_while_immediate_false() {
     let result = compile_program(program);
     assert!(result.is_ok());
 }
-
 
 // ==================== CONSTRUCTOR ADVANCED ====================
 
@@ -1238,14 +1293,12 @@ fn test_array_range_literal_inclusive() {
         statements: vec![Stmt::dummy(StmtKind::VariableDecl {
             name: "arr".to_string(),
             type_hint: None,
-            value: Expr::dummy(ExprKind::Array(vec![
-                Expr::dummy(ExprKind::Range {
-                    start: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(1)))),
-                    end: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(5)))),
-                    step: None,
-                    inclusive: true,
-                }),
-            ])),
+            value: Expr::dummy(ExprKind::Array(vec![Expr::dummy(ExprKind::Range {
+                start: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(1)))),
+                end: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(5)))),
+                step: None,
+                inclusive: true,
+            })])),
             is_const: false,
         })],
     };
@@ -1260,14 +1313,12 @@ fn test_array_range_literal_exclusive() {
         statements: vec![Stmt::dummy(StmtKind::VariableDecl {
             name: "arr".to_string(),
             type_hint: None,
-            value: Expr::dummy(ExprKind::Array(vec![
-                Expr::dummy(ExprKind::Range {
-                    start: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(0)))),
-                    end: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(5)))),
-                    step: None,
-                    inclusive: false,
-                }),
-            ])),
+            value: Expr::dummy(ExprKind::Array(vec![Expr::dummy(ExprKind::Range {
+                start: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(0)))),
+                end: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(5)))),
+                step: None,
+                inclusive: false,
+            })])),
             is_const: false,
         })],
     };
@@ -1282,14 +1333,12 @@ fn test_array_range_literal_with_step() {
         statements: vec![Stmt::dummy(StmtKind::VariableDecl {
             name: "arr".to_string(),
             type_hint: None,
-            value: Expr::dummy(ExprKind::Array(vec![
-                Expr::dummy(ExprKind::Range {
-                    start: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(0)))),
-                    end: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(10)))),
-                    step: Some(Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(2))))),
-                    inclusive: true,
-                }),
-            ])),
+            value: Expr::dummy(ExprKind::Array(vec![Expr::dummy(ExprKind::Range {
+                start: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(0)))),
+                end: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(10)))),
+                step: Some(Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(2))))),
+                inclusive: true,
+            })])),
             is_const: false,
         })],
     };
@@ -1304,14 +1353,12 @@ fn test_array_range_literal_descending() {
         statements: vec![Stmt::dummy(StmtKind::VariableDecl {
             name: "arr".to_string(),
             type_hint: None,
-            value: Expr::dummy(ExprKind::Array(vec![
-                Expr::dummy(ExprKind::Range {
-                    start: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(5)))),
-                    end: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(0)))),
-                    step: None,
-                    inclusive: true,
-                }),
-            ])),
+            value: Expr::dummy(ExprKind::Array(vec![Expr::dummy(ExprKind::Range {
+                start: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(5)))),
+                end: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(0)))),
+                step: None,
+                inclusive: true,
+            })])),
             is_const: false,
         })],
     };
@@ -1324,24 +1371,22 @@ fn test_array_range_literal_descending() {
 fn make_while_with_break() -> Program {
     // while 1 { break }
     Program {
-        statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
-                name: "test_fn".to_string(),
-                is_async: false,
-                type_params: vec![],
-                params: vec![],
-                return_type: None,
-                body: Box::new(Stmt::dummy(StmtKind::Block(vec![
-                    Stmt::dummy(StmtKind::While {
-                        condition: Expr::dummy(ExprKind::Literal(Literal::Int(1))),
-                        body: Box::new(Stmt::dummy(StmtKind::Block(vec![
-                            Stmt::dummy(StmtKind::Break),
-                        ]))),
-                    }),
-                    Stmt::dummy(StmtKind::Return { values: vec![] }),
-                ]))),
-            }),
-        ],
+        statements: vec![Stmt::dummy(StmtKind::FunctionDef {
+            name: "test_fn".to_string(),
+            is_async: false,
+            type_params: vec![],
+            params: vec![],
+            return_type: None,
+            body: Box::new(Stmt::dummy(StmtKind::Block(vec![
+                Stmt::dummy(StmtKind::While {
+                    condition: Expr::dummy(ExprKind::Literal(Literal::Int(1))),
+                    body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                        StmtKind::Break,
+                    )]))),
+                }),
+                Stmt::dummy(StmtKind::Return { values: vec![] }),
+            ]))),
+        })],
     }
 }
 
@@ -1349,10 +1394,20 @@ fn make_while_with_break() -> Program {
 fn test_break_in_while_compiles() {
     let program = make_while_with_break();
     let ir = compile_program(program);
-    assert!(ir.is_ok(), "while with break should compile: {:?}", ir.err());
+    assert!(
+        ir.is_ok(),
+        "while with break should compile: {:?}",
+        ir.err()
+    );
     let ir = ir.unwrap();
-    assert!(ir.contains("while_after"), "IR should contain while_after block");
-    assert!(ir.contains("break_dead"), "IR should contain break dead block");
+    assert!(
+        ir.contains("while_after"),
+        "IR should contain while_after block"
+    );
+    assert!(
+        ir.contains("break_dead"),
+        "IR should contain break dead block"
+    );
 }
 
 #[test]
@@ -1367,63 +1422,73 @@ fn test_break_emits_unconditional_branch_to_after() {
 fn test_continue_in_while_compiles() {
     // while 1 { continue }
     let program = Program {
-        statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
-                name: "test_continue".to_string(),
-                is_async: false,
-                type_params: vec![],
-                params: vec![],
-                return_type: None,
-                body: Box::new(Stmt::dummy(StmtKind::Block(vec![
-                    Stmt::dummy(StmtKind::While {
-                        condition: Expr::dummy(ExprKind::Literal(Literal::Int(1))),
-                        body: Box::new(Stmt::dummy(StmtKind::Block(vec![
-                            Stmt::dummy(StmtKind::Continue),
-                        ]))),
-                    }),
-                    Stmt::dummy(StmtKind::Return { values: vec![] }),
-                ]))),
-            }),
-        ],
+        statements: vec![Stmt::dummy(StmtKind::FunctionDef {
+            name: "test_continue".to_string(),
+            is_async: false,
+            type_params: vec![],
+            params: vec![],
+            return_type: None,
+            body: Box::new(Stmt::dummy(StmtKind::Block(vec![
+                Stmt::dummy(StmtKind::While {
+                    condition: Expr::dummy(ExprKind::Literal(Literal::Int(1))),
+                    body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                        StmtKind::Continue,
+                    )]))),
+                }),
+                Stmt::dummy(StmtKind::Return { values: vec![] }),
+            ]))),
+        })],
     };
     let ir = compile_program(program);
-    assert!(ir.is_ok(), "while with continue should compile: {:?}", ir.err());
+    assert!(
+        ir.is_ok(),
+        "while with continue should compile: {:?}",
+        ir.err()
+    );
     let ir = ir.unwrap();
-    assert!(ir.contains("while_header"), "IR should contain while_header");
-    assert!(ir.contains("continue_dead"), "IR should contain continue dead block");
+    assert!(
+        ir.contains("while_header"),
+        "IR should contain while_header"
+    );
+    assert!(
+        ir.contains("continue_dead"),
+        "IR should contain continue dead block"
+    );
 }
 
 #[test]
 fn test_break_inside_if_in_while_compiles() {
     // while 1 { if 1 { break } }
     let program = Program {
-        statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
-                name: "test_break_if".to_string(),
-                is_async: false,
-                type_params: vec![],
-                params: vec![],
-                return_type: None,
-                body: Box::new(Stmt::dummy(StmtKind::Block(vec![
-                    Stmt::dummy(StmtKind::While {
-                        condition: Expr::dummy(ExprKind::Literal(Literal::Int(1))),
-                        body: Box::new(Stmt::dummy(StmtKind::Block(vec![
-                            Stmt::dummy(StmtKind::If {
-                                condition: Expr::dummy(ExprKind::Literal(Literal::Int(1))),
-                                then_block: Box::new(Stmt::dummy(StmtKind::Block(vec![
-                                    Stmt::dummy(StmtKind::Break),
-                                ]))),
-                                else_block: None,
-                            }),
-                        ]))),
-                    }),
-                    Stmt::dummy(StmtKind::Return { values: vec![] }),
-                ]))),
-            }),
-        ],
+        statements: vec![Stmt::dummy(StmtKind::FunctionDef {
+            name: "test_break_if".to_string(),
+            is_async: false,
+            type_params: vec![],
+            params: vec![],
+            return_type: None,
+            body: Box::new(Stmt::dummy(StmtKind::Block(vec![
+                Stmt::dummy(StmtKind::While {
+                    condition: Expr::dummy(ExprKind::Literal(Literal::Int(1))),
+                    body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                        StmtKind::If {
+                            condition: Expr::dummy(ExprKind::Literal(Literal::Int(1))),
+                            then_block: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                                StmtKind::Break,
+                            )]))),
+                            else_block: None,
+                        },
+                    )]))),
+                }),
+                Stmt::dummy(StmtKind::Return { values: vec![] }),
+            ]))),
+        })],
     };
     let ir = compile_program(program);
-    assert!(ir.is_ok(), "break inside if inside while should compile: {:?}", ir.err());
+    assert!(
+        ir.is_ok(),
+        "break inside if inside while should compile: {:?}",
+        ir.err()
+    );
 }
 
 #[test]
@@ -1431,70 +1496,80 @@ fn test_break_in_for_range_compiles() {
     use parser::ast::BinaryOp;
     // fn f() { for i in 0..10 { break } }
     let program = Program {
-        statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
-                name: "test_for_break".to_string(),
-                is_async: false,
-                type_params: vec![],
-                params: vec![],
-                return_type: None,
-                body: Box::new(Stmt::dummy(StmtKind::Block(vec![
-                    Stmt::dummy(StmtKind::For {
-                        var_names: vec!["i".to_string()],
-                        iterable: Expr::dummy(ExprKind::Range {
-                            start: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(0)))),
-                            end: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(10)))),
-                            step: None,
-                            inclusive: true,
-                        }),
-                        body: Box::new(Stmt::dummy(StmtKind::Block(vec![
-                            Stmt::dummy(StmtKind::Break),
-                        ]))),
+        statements: vec![Stmt::dummy(StmtKind::FunctionDef {
+            name: "test_for_break".to_string(),
+            is_async: false,
+            type_params: vec![],
+            params: vec![],
+            return_type: None,
+            body: Box::new(Stmt::dummy(StmtKind::Block(vec![
+                Stmt::dummy(StmtKind::For {
+                    var_names: vec!["i".to_string()],
+                    iterable: Expr::dummy(ExprKind::Range {
+                        start: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(0)))),
+                        end: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(10)))),
+                        step: None,
+                        inclusive: true,
                     }),
-                    Stmt::dummy(StmtKind::Return { values: vec![] }),
-                ]))),
-            }),
-        ],
+                    body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                        StmtKind::Break,
+                    )]))),
+                }),
+                Stmt::dummy(StmtKind::Return { values: vec![] }),
+            ]))),
+        })],
     };
     let ir = compile_program(program);
-    assert!(ir.is_ok(), "break in for range should compile: {:?}", ir.err());
+    assert!(
+        ir.is_ok(),
+        "break in for range should compile: {:?}",
+        ir.err()
+    );
     let ir = ir.unwrap();
-    assert!(ir.contains("for_after"), "IR should contain for_after block");
+    assert!(
+        ir.contains("for_after"),
+        "IR should contain for_after block"
+    );
 }
 
 #[test]
 fn test_continue_in_for_range_compiles() {
     // fn f() { for i in 0..10 { continue } }
     let program = Program {
-        statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
-                name: "test_for_continue".to_string(),
-                is_async: false,
-                type_params: vec![],
-                params: vec![],
-                return_type: None,
-                body: Box::new(Stmt::dummy(StmtKind::Block(vec![
-                    Stmt::dummy(StmtKind::For {
-                        var_names: vec!["i".to_string()],
-                        iterable: Expr::dummy(ExprKind::Range {
-                            start: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(0)))),
-                            end: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(10)))),
-                            step: None,
-                            inclusive: true,
-                        }),
-                        body: Box::new(Stmt::dummy(StmtKind::Block(vec![
-                            Stmt::dummy(StmtKind::Continue),
-                        ]))),
+        statements: vec![Stmt::dummy(StmtKind::FunctionDef {
+            name: "test_for_continue".to_string(),
+            is_async: false,
+            type_params: vec![],
+            params: vec![],
+            return_type: None,
+            body: Box::new(Stmt::dummy(StmtKind::Block(vec![
+                Stmt::dummy(StmtKind::For {
+                    var_names: vec!["i".to_string()],
+                    iterable: Expr::dummy(ExprKind::Range {
+                        start: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(0)))),
+                        end: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(10)))),
+                        step: None,
+                        inclusive: true,
                     }),
-                    Stmt::dummy(StmtKind::Return { values: vec![] }),
-                ]))),
-            }),
-        ],
+                    body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                        StmtKind::Continue,
+                    )]))),
+                }),
+                Stmt::dummy(StmtKind::Return { values: vec![] }),
+            ]))),
+        })],
     };
     let ir = compile_program(program);
-    assert!(ir.is_ok(), "continue in for range should compile: {:?}", ir.err());
+    assert!(
+        ir.is_ok(),
+        "continue in for range should compile: {:?}",
+        ir.err()
+    );
     let ir = ir.unwrap();
-    assert!(ir.contains("for_inc"), "IR should contain for_inc block (continue target)");
+    assert!(
+        ir.contains("for_inc"),
+        "IR should contain for_inc block (continue target)"
+    );
 }
 
 #[test]
@@ -1508,33 +1583,34 @@ fn test_nested_loops_break_innermost() {
     // }
     let inner_while = Stmt::dummy(StmtKind::While {
         condition: Expr::dummy(ExprKind::Literal(Literal::Int(1))),
-        body: Box::new(Stmt::dummy(StmtKind::Block(vec![
-            Stmt::dummy(StmtKind::Break),
-        ]))),
+        body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+            StmtKind::Break,
+        )]))),
     });
     let outer_while = Stmt::dummy(StmtKind::While {
         condition: Expr::dummy(ExprKind::Literal(Literal::Int(1))),
         body: Box::new(Stmt::dummy(StmtKind::Block(vec![inner_while]))),
     });
     let program = Program {
-        statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef {
-                name: "test_nested".to_string(),
-                is_async: false,
-                type_params: vec![],
-                params: vec![],
-                return_type: None,
-                body: Box::new(Stmt::dummy(StmtKind::Block(vec![
-                    outer_while,
-                    Stmt::dummy(StmtKind::Return { values: vec![] }),
-                ]))),
-            }),
-        ],
+        statements: vec![Stmt::dummy(StmtKind::FunctionDef {
+            name: "test_nested".to_string(),
+            is_async: false,
+            type_params: vec![],
+            params: vec![],
+            return_type: None,
+            body: Box::new(Stmt::dummy(StmtKind::Block(vec![
+                outer_while,
+                Stmt::dummy(StmtKind::Return { values: vec![] }),
+            ]))),
+        })],
     };
     let ir = compile_program(program);
-    assert!(ir.is_ok(), "nested loops with break should compile: {:?}", ir.err());
+    assert!(
+        ir.is_ok(),
+        "nested loops with break should compile: {:?}",
+        ir.err()
+    );
     let ir = ir.unwrap();
     // Should have two while_after blocks (one per loop)
     assert!(ir.contains("while_after"), "IR should have while_after");
 }
-

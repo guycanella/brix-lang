@@ -74,7 +74,13 @@ fn compile_program(program: Program) -> Result<String, String> {
         let context = Context::create();
         let module = context.create_module("test");
         let builder = context.create_builder();
-        let mut compiler = Compiler::new(&context, &builder, &module, "test.bx".to_string(), "".to_string());
+        let mut compiler = Compiler::new(
+            &context,
+            &builder,
+            &module,
+            "test.bx".to_string(),
+            "".to_string(),
+        );
         compiler.compile_program(&program);
         module.print_to_string().to_string()
     });
@@ -145,8 +151,12 @@ fn test_assignment() {
 fn test_block_statement() {
     let program = Program {
         statements: vec![Stmt::dummy(StmtKind::Block(vec![
-            Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Literal(Literal::Int(1))))),
-            Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Literal(Literal::Int(2))))),
+            Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Literal(
+                Literal::Int(1),
+            )))),
+            Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Literal(
+                Literal::Int(2),
+            )))),
         ]))],
     };
     let result = compile_program(program);
@@ -156,8 +166,9 @@ fn test_block_statement() {
 #[test]
 fn test_return_statement() {
     let program = Program {
-        statements: vec![Stmt::dummy(StmtKind::FunctionDef { is_async: false,
-                type_params: vec![],
+        statements: vec![Stmt::dummy(StmtKind::FunctionDef {
+            is_async: false,
+            type_params: vec![],
             name: "test_fn".to_string(),
             params: vec![],
             return_type: Some(vec!["int".to_string()]),
@@ -350,7 +361,7 @@ fn test_assignment_to_array_element() {
             Stmt::dummy(StmtKind::Assignment {
                 target: Expr::dummy(ExprKind::Index {
                     array: Box::new(Expr::dummy(ExprKind::Identifier("arr".to_string()))),
-                    indices: vec!(Expr::dummy(ExprKind::Literal(Literal::Int(0)))),
+                    indices: vec![Expr::dummy(ExprKind::Literal(Literal::Int(0)))],
                 }),
                 value: Expr::dummy(ExprKind::Literal(Literal::Int(10))),
             }),
@@ -380,9 +391,9 @@ fn test_assignment_to_matrix_element() {
                 target: Expr::dummy(ExprKind::Index {
                     array: Box::new(Expr::dummy(ExprKind::Index {
                         array: Box::new(Expr::dummy(ExprKind::Identifier("mat".to_string()))),
-                        indices: vec!(Expr::dummy(ExprKind::Literal(Literal::Int(0)))),
+                        indices: vec![Expr::dummy(ExprKind::Literal(Literal::Int(0)))],
                     })),
-                    indices: vec!(Expr::dummy(ExprKind::Literal(Literal::Int(0)))),
+                    indices: vec![Expr::dummy(ExprKind::Literal(Literal::Int(0)))],
                 }),
                 value: Expr::dummy(ExprKind::Literal(Literal::Float(5.5))),
             }),
@@ -443,7 +454,9 @@ fn test_function_call_as_statement() {
     let program = Program {
         statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
             func: Box::new(Expr::dummy(ExprKind::Identifier("print".to_string()))),
-            args: vec![Expr::dummy(ExprKind::Literal(Literal::String("hello".to_string())))],
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::String(
+                "hello".to_string(),
+            )))],
         })))],
     };
     let result = compile_program(program);
@@ -574,12 +587,12 @@ fn test_sequential_assignments() {
 fn test_nested_blocks() {
     let program = Program {
         statements: vec![Stmt::dummy(StmtKind::Block(vec![
-            Stmt::dummy(StmtKind::Block(vec![
-                Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Literal(Literal::Int(1))))),
-            ])),
-            Stmt::dummy(StmtKind::Block(vec![
-                Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Literal(Literal::Int(2))))),
-            ])),
+            Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Expr(
+                Expr::dummy(ExprKind::Literal(Literal::Int(1))),
+            ))])),
+            Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Expr(
+                Expr::dummy(ExprKind::Literal(Literal::Int(2))),
+            ))])),
         ]))],
     };
     let result = compile_program(program);
@@ -592,7 +605,8 @@ fn test_nested_blocks() {
 fn test_destructuring_declaration() {
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "get_pair".to_string(),
                 params: vec![],
@@ -622,7 +636,8 @@ fn test_destructuring_declaration() {
 fn test_destructuring_with_ignore() {
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "get_triple".to_string(),
                 params: vec![],
@@ -897,14 +912,17 @@ fn test_assignment_from_function_result() {
     // var x := get_value();
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "get_value".to_string(),
                 params: vec![],
                 return_type: Some(vec!["int".to_string()]),
-                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Return {
-                    values: vec![Expr::dummy(ExprKind::Literal(Literal::Int(42)))],
-                })]))),
+                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                    StmtKind::Return {
+                        values: vec![Expr::dummy(ExprKind::Literal(Literal::Int(42)))],
+                    },
+                )]))),
             }),
             Stmt::dummy(StmtKind::VariableDecl {
                 name: "x".to_string(),
@@ -920,4 +938,3 @@ fn test_assignment_from_function_result() {
     let result = compile_program(program);
     assert!(result.is_ok());
 }
-

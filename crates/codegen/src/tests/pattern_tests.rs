@@ -2,14 +2,20 @@
 
 use crate::Compiler;
 use inkwell::context::Context;
-use parser::ast::{BinaryOp, Expr, Literal, MatchArm, Pattern, Program, Stmt, ExprKind, StmtKind};
+use parser::ast::{BinaryOp, Expr, ExprKind, Literal, MatchArm, Pattern, Program, Stmt, StmtKind};
 
 fn compile_program(program: Program) -> Result<String, String> {
     let result = std::panic::catch_unwind(|| {
         let context = Context::create();
         let module = context.create_module("test");
         let builder = context.create_builder();
-        let mut compiler = Compiler::new(&context, &builder, &module, "test.bx".to_string(), "".to_string());
+        let mut compiler = Compiler::new(
+            &context,
+            &builder,
+            &module,
+            "test.bx".to_string(),
+            "".to_string(),
+        );
         compiler.compile_program(&program);
         module.print_to_string().to_string()
     });
@@ -241,7 +247,6 @@ fn test_match_all_float_arms() {
     let result = compile_program(program);
     assert!(result.is_ok());
 }
-
 
 // ==================== PATTERN MATCHING - TYPEOF() ====================
 
@@ -491,7 +496,6 @@ fn test_match_typeof_with_multiple_types() {
     assert!(result.is_ok());
 }
 
-
 // ==================== PATTERN MATCHING - PATTERN TYPES ====================
 
 #[test]
@@ -509,22 +513,30 @@ fn test_match_with_float_patterns() {
                 MatchArm {
                     pattern: Pattern::Literal(Literal::Float(1.0)),
                     guard: None,
-                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("one".to_string())))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String(
+                        "one".to_string(),
+                    )))),
                 },
                 MatchArm {
                     pattern: Pattern::Literal(Literal::Float(2.5)),
                     guard: None,
-                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("two and half".to_string())))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String(
+                        "two and half".to_string(),
+                    )))),
                 },
                 MatchArm {
                     pattern: Pattern::Literal(Literal::Float(3.14)),
                     guard: None,
-                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("pi".to_string())))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String(
+                        "pi".to_string(),
+                    )))),
                 },
                 MatchArm {
                     pattern: Pattern::Wildcard,
                     guard: None,
-                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("other".to_string())))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String(
+                        "other".to_string(),
+                    )))),
                 },
             ],
         })))],
@@ -615,17 +627,23 @@ fn test_match_with_complex_patterns() {
                 MatchArm {
                     pattern: Pattern::Literal(Literal::Complex(0.0, 0.0)),
                     guard: None,
-                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("zero".to_string())))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String(
+                        "zero".to_string(),
+                    )))),
                 },
                 MatchArm {
                     pattern: Pattern::Literal(Literal::Complex(1.0, 0.0)),
                     guard: None,
-                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("real".to_string())))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String(
+                        "real".to_string(),
+                    )))),
                 },
                 MatchArm {
                     pattern: Pattern::Wildcard,
                     guard: None,
-                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("other".to_string())))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String(
+                        "other".to_string(),
+                    )))),
                 },
             ],
         })))],
@@ -653,27 +671,37 @@ fn test_match_with_negative_numbers() {
                 MatchArm {
                     pattern: Pattern::Literal(Literal::Int(-10)),
                     guard: None,
-                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("minus ten".to_string())))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String(
+                        "minus ten".to_string(),
+                    )))),
                 },
                 MatchArm {
                     pattern: Pattern::Literal(Literal::Int(-5)),
                     guard: None,
-                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("minus five".to_string())))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String(
+                        "minus five".to_string(),
+                    )))),
                 },
                 MatchArm {
                     pattern: Pattern::Literal(Literal::Int(0)),
                     guard: None,
-                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("zero".to_string())))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String(
+                        "zero".to_string(),
+                    )))),
                 },
                 MatchArm {
                     pattern: Pattern::Literal(Literal::Int(5)),
                     guard: None,
-                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("five".to_string())))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String(
+                        "five".to_string(),
+                    )))),
                 },
                 MatchArm {
                     pattern: Pattern::Wildcard,
                     guard: None,
-                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("other".to_string())))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String(
+                        "other".to_string(),
+                    )))),
                 },
             ],
         })))],
@@ -695,12 +723,16 @@ fn test_match_with_zero() {
                 MatchArm {
                     pattern: Pattern::Literal(Literal::Int(0)),
                     guard: None,
-                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("zero".to_string())))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String(
+                        "zero".to_string(),
+                    )))),
                 },
                 MatchArm {
                     pattern: Pattern::Wildcard,
                     guard: None,
-                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("non-zero".to_string())))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String(
+                        "non-zero".to_string(),
+                    )))),
                 },
             ],
         })))],
@@ -708,7 +740,6 @@ fn test_match_with_zero() {
     let result = compile_program(program);
     assert!(result.is_ok());
 }
-
 
 // ==================== PATTERN MATCHING - COMPLEX PATTERNS ====================
 
@@ -746,7 +777,9 @@ fn test_match_with_complex_guard() {
                                 Expr::dummy(ExprKind::Literal(Literal::Int(10))),
                             ),
                         ))),
-                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("small positive".to_string())))),
+                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String(
+                            "small positive".to_string(),
+                        )))),
                     },
                     MatchArm {
                         pattern: Pattern::Binding("n".to_string()),
@@ -755,12 +788,16 @@ fn test_match_with_complex_guard() {
                             Expr::dummy(ExprKind::Identifier("n".to_string())),
                             Expr::dummy(ExprKind::Literal(Literal::Int(10))),
                         ))),
-                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("large".to_string())))),
+                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String(
+                            "large".to_string(),
+                        )))),
                     },
                     MatchArm {
                         pattern: Pattern::Wildcard,
                         guard: None,
-                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("other".to_string())))),
+                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String(
+                            "other".to_string(),
+                        )))),
                     },
                 ],
             }))),
@@ -790,7 +827,9 @@ fn test_match_or_pattern_many_options() {
                         Pattern::Literal(Literal::Int(5)),
                     ]),
                     guard: None,
-                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("small".to_string())))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String(
+                        "small".to_string(),
+                    )))),
                 },
                 MatchArm {
                     pattern: Pattern::Or(vec![
@@ -801,12 +840,16 @@ fn test_match_or_pattern_many_options() {
                         Pattern::Literal(Literal::Int(10)),
                     ]),
                     guard: None,
-                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("medium".to_string())))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String(
+                        "medium".to_string(),
+                    )))),
                 },
                 MatchArm {
                     pattern: Pattern::Wildcard,
                     guard: None,
-                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("large".to_string())))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String(
+                        "large".to_string(),
+                    )))),
                 },
             ],
         })))],
@@ -853,17 +896,23 @@ fn test_nested_match_expression() {
                                 MatchArm {
                                     pattern: Pattern::Literal(Literal::Int(1)),
                                     guard: None,
-                                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("one-one".to_string())))),
+                                    body: Box::new(Expr::dummy(ExprKind::Literal(
+                                        Literal::String("one-one".to_string()),
+                                    ))),
                                 },
                                 MatchArm {
                                     pattern: Pattern::Literal(Literal::Int(2)),
                                     guard: None,
-                                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("one-two".to_string())))),
+                                    body: Box::new(Expr::dummy(ExprKind::Literal(
+                                        Literal::String("one-two".to_string()),
+                                    ))),
                                 },
                                 MatchArm {
                                     pattern: Pattern::Wildcard,
                                     guard: None,
-                                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("one-other".to_string())))),
+                                    body: Box::new(Expr::dummy(ExprKind::Literal(
+                                        Literal::String("one-other".to_string()),
+                                    ))),
                                 },
                             ],
                         })),
@@ -871,7 +920,9 @@ fn test_nested_match_expression() {
                     MatchArm {
                         pattern: Pattern::Wildcard,
                         guard: None,
-                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("other".to_string())))),
+                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String(
+                            "other".to_string(),
+                        )))),
                     },
                 ],
             }))),
@@ -911,12 +962,14 @@ fn test_match_in_if_condition() {
                         },
                     ],
                 }),
-                then_block: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::VariableDecl {
-                    name: "result".to_string(),
-                    type_hint: None,
-                    value: Expr::dummy(ExprKind::Literal(Literal::Int(1))),
-                    is_const: false,
-                })]))),
+                then_block: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                    StmtKind::VariableDecl {
+                        name: "result".to_string(),
+                        type_hint: None,
+                        value: Expr::dummy(ExprKind::Literal(Literal::Int(1))),
+                        is_const: false,
+                    },
+                )]))),
                 else_block: None,
             }),
         ],
@@ -935,33 +988,42 @@ fn test_match_in_return() {
     //     };
     // }
     let program = Program {
-        statements: vec![Stmt::dummy(StmtKind::FunctionDef { is_async: false,
-                type_params: vec![],
+        statements: vec![Stmt::dummy(StmtKind::FunctionDef {
+            is_async: false,
+            type_params: vec![],
             name: "classify".to_string(),
             params: vec![("x".to_string(), "int".to_string(), None)],
             return_type: Some(vec!["string".to_string()]),
-            body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Return {
-                values: vec![Expr::dummy(ExprKind::Match {
-                    value: Box::new(Expr::dummy(ExprKind::Identifier("x".to_string()))),
-                    arms: vec![
-                        MatchArm {
-                            pattern: Pattern::Literal(Literal::Int(0)),
-                            guard: None,
-                            body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("zero".to_string())))),
-                        },
-                        MatchArm {
-                            pattern: Pattern::Literal(Literal::Int(1)),
-                            guard: None,
-                            body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("one".to_string())))),
-                        },
-                        MatchArm {
-                            pattern: Pattern::Wildcard,
-                            guard: None,
-                            body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("other".to_string())))),
-                        },
-                    ],
-                })],
-            })]))),
+            body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                StmtKind::Return {
+                    values: vec![Expr::dummy(ExprKind::Match {
+                        value: Box::new(Expr::dummy(ExprKind::Identifier("x".to_string()))),
+                        arms: vec![
+                            MatchArm {
+                                pattern: Pattern::Literal(Literal::Int(0)),
+                                guard: None,
+                                body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String(
+                                    "zero".to_string(),
+                                )))),
+                            },
+                            MatchArm {
+                                pattern: Pattern::Literal(Literal::Int(1)),
+                                guard: None,
+                                body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String(
+                                    "one".to_string(),
+                                )))),
+                            },
+                            MatchArm {
+                                pattern: Pattern::Wildcard,
+                                guard: None,
+                                body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String(
+                                    "other".to_string(),
+                                )))),
+                            },
+                        ],
+                    })],
+                },
+            )]))),
         })],
     };
     let result = compile_program(program);
@@ -974,14 +1036,17 @@ fn test_match_in_function_argument() {
     // foo(match 5 { 5 -> 10, _ -> 0 })
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "foo".to_string(),
                 params: vec![("x".to_string(), "int".to_string(), None)],
                 return_type: Some(vec!["int".to_string()]),
-                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Return {
-                    values: vec![Expr::dummy(ExprKind::Identifier("x".to_string()))],
-                })]))),
+                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                    StmtKind::Return {
+                        values: vec![Expr::dummy(ExprKind::Identifier("x".to_string()))],
+                    },
+                )]))),
             }),
             Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
                 func: Box::new(Expr::dummy(ExprKind::Identifier("foo".to_string()))),
@@ -1007,7 +1072,6 @@ fn test_match_in_function_argument() {
     assert!(result.is_ok());
 }
 
-
 // ==================== PATTERN MATCHING - EDGE CASES ====================
 
 #[test]
@@ -1027,12 +1091,16 @@ fn test_match_with_expression_value() {
                 MatchArm {
                     pattern: Pattern::Literal(Literal::Int(5)),
                     guard: None,
-                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("five".to_string())))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String(
+                        "five".to_string(),
+                    )))),
                 },
                 MatchArm {
                     pattern: Pattern::Wildcard,
                     guard: None,
-                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("other".to_string())))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String(
+                        "other".to_string(),
+                    )))),
                 },
             ],
         })))],
@@ -1050,14 +1118,17 @@ fn test_match_with_function_call_value() {
     // }
     let program = Program {
         statements: vec![
-            Stmt::dummy(StmtKind::FunctionDef { is_async: false,
+            Stmt::dummy(StmtKind::FunctionDef {
+                is_async: false,
                 type_params: vec![],
                 name: "get_num".to_string(),
                 params: vec![],
                 return_type: Some(vec!["int".to_string()]),
-                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Return {
-                    values: vec![Expr::dummy(ExprKind::Literal(Literal::Int(5)))],
-                })]))),
+                body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                    StmtKind::Return {
+                        values: vec![Expr::dummy(ExprKind::Literal(Literal::Int(5)))],
+                    },
+                )]))),
             }),
             Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Match {
                 value: Box::new(Expr::dummy(ExprKind::Call {
@@ -1068,12 +1139,16 @@ fn test_match_with_function_call_value() {
                     MatchArm {
                         pattern: Pattern::Literal(Literal::Int(5)),
                         guard: None,
-                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("five".to_string())))),
+                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String(
+                            "five".to_string(),
+                        )))),
                     },
                     MatchArm {
                         pattern: Pattern::Wildcard,
                         guard: None,
-                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("other".to_string())))),
+                        body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String(
+                            "other".to_string(),
+                        )))),
                     },
                 ],
             }))),
@@ -1096,12 +1171,16 @@ fn test_match_all_wildcards() {
                 MatchArm {
                     pattern: Pattern::Wildcard,
                     guard: None,
-                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("first".to_string())))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String(
+                        "first".to_string(),
+                    )))),
                 },
                 MatchArm {
                     pattern: Pattern::Wildcard,
                     guard: None,
-                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("second".to_string())))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String(
+                        "second".to_string(),
+                    )))),
                 },
             ],
         })))],
@@ -1239,7 +1318,6 @@ fn test_match_with_ternary_in_arm() {
     assert!(result.is_ok());
 }
 
-
 // ==================== PHASE 4: DESTRUCTURING PATTERNS ====================
 
 #[test]
@@ -1262,8 +1340,14 @@ fn test_match_struct_destructure_all_bindings() {
                     struct_name: "Point".to_string(),
                     type_args: vec![],
                     fields: vec![
-                        ("x".to_string(), Expr::dummy(ExprKind::Literal(Literal::Int(3)))),
-                        ("y".to_string(), Expr::dummy(ExprKind::Literal(Literal::Int(4)))),
+                        (
+                            "x".to_string(),
+                            Expr::dummy(ExprKind::Literal(Literal::Int(3))),
+                        ),
+                        (
+                            "y".to_string(),
+                            Expr::dummy(ExprKind::Literal(Literal::Int(4))),
+                        ),
                     ],
                 }),
                 is_const: false,
@@ -1271,7 +1355,7 @@ fn test_match_struct_destructure_all_bindings() {
             Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Match {
                 value: Box::new(Expr::dummy(ExprKind::Identifier("p".to_string()))),
                 arms: vec![
-    MatchArm {
+                    MatchArm {
                         pattern: Pattern::Destructure(vec![
                             Pattern::Binding("x".to_string()),
                             Pattern::Binding("y".to_string()),
@@ -1316,8 +1400,14 @@ fn test_match_struct_destructure_literal_constraint() {
                     struct_name: "Point2".to_string(),
                     type_args: vec![],
                     fields: vec![
-                        ("x".to_string(), Expr::dummy(ExprKind::Literal(Literal::Int(3)))),
-                        ("y".to_string(), Expr::dummy(ExprKind::Literal(Literal::Int(0)))),
+                        (
+                            "x".to_string(),
+                            Expr::dummy(ExprKind::Literal(Literal::Int(3))),
+                        ),
+                        (
+                            "y".to_string(),
+                            Expr::dummy(ExprKind::Literal(Literal::Int(0))),
+                        ),
                     ],
                 }),
                 is_const: false,
@@ -1366,8 +1456,14 @@ fn test_match_struct_wildcard() {
                     struct_name: "Point3".to_string(),
                     type_args: vec![],
                     fields: vec![
-                        ("x".to_string(), Expr::dummy(ExprKind::Literal(Literal::Int(5)))),
-                        ("y".to_string(), Expr::dummy(ExprKind::Literal(Literal::Int(9)))),
+                        (
+                            "x".to_string(),
+                            Expr::dummy(ExprKind::Literal(Literal::Int(5))),
+                        ),
+                        (
+                            "y".to_string(),
+                            Expr::dummy(ExprKind::Literal(Literal::Int(9))),
+                        ),
                     ],
                 }),
                 is_const: false,
@@ -1521,8 +1617,14 @@ fn test_var_destructure_struct() {
                     struct_name: "Point4".to_string(),
                     type_args: vec![],
                     fields: vec![
-                        ("x".to_string(), Expr::dummy(ExprKind::Literal(Literal::Int(3)))),
-                        ("y".to_string(), Expr::dummy(ExprKind::Literal(Literal::Int(4)))),
+                        (
+                            "x".to_string(),
+                            Expr::dummy(ExprKind::Literal(Literal::Int(3))),
+                        ),
+                        (
+                            "y".to_string(),
+                            Expr::dummy(ExprKind::Literal(Literal::Int(4))),
+                        ),
                     ],
                 }),
                 is_const: false,
@@ -1588,8 +1690,14 @@ fn test_match_named_field_pattern_two_bindings() {
                     struct_name: "Point5".to_string(),
                     type_args: vec![],
                     fields: vec![
-                        ("x".to_string(), Expr::dummy(ExprKind::Literal(Literal::Int(3)))),
-                        ("y".to_string(), Expr::dummy(ExprKind::Literal(Literal::Int(4)))),
+                        (
+                            "x".to_string(),
+                            Expr::dummy(ExprKind::Literal(Literal::Int(3))),
+                        ),
+                        (
+                            "y".to_string(),
+                            Expr::dummy(ExprKind::Literal(Literal::Int(4))),
+                        ),
                     ],
                 }),
                 is_const: false,
@@ -1647,8 +1755,14 @@ fn test_match_named_field_pattern_literal_constraint() {
                     struct_name: "Point6".to_string(),
                     type_args: vec![],
                     fields: vec![
-                        ("x".to_string(), Expr::dummy(ExprKind::Literal(Literal::Int(3)))),
-                        ("y".to_string(), Expr::dummy(ExprKind::Literal(Literal::Int(0)))),
+                        (
+                            "x".to_string(),
+                            Expr::dummy(ExprKind::Literal(Literal::Int(3))),
+                        ),
+                        (
+                            "y".to_string(),
+                            Expr::dummy(ExprKind::Literal(Literal::Int(0))),
+                        ),
                     ],
                 }),
                 is_const: false,
@@ -1682,7 +1796,11 @@ fn test_match_named_field_pattern_literal_constraint() {
     // The literal sub-pattern must be compiled as a runtime comparison
     // (icmp) rather than always matching, otherwise the wildcard arm
     // (and the y-field literal check itself) would be dead code.
-    assert!(ir.contains("icmp"), "expected the literal sub-pattern to compile to a runtime comparison, got IR:\n{}", ir);
+    assert!(
+        ir.contains("icmp"),
+        "expected the literal sub-pattern to compile to a runtime comparison, got IR:\n{}",
+        ir
+    );
 }
 
 #[test]
@@ -1701,9 +1819,10 @@ fn test_match_named_field_pattern_unknown_struct_and_field_error() {
                 value: Box::new(Expr::dummy(ExprKind::Identifier("n".to_string()))),
                 arms: vec![
                     MatchArm {
-                        pattern: Pattern::NamedField(vec![
-                            ("x".to_string(), Pattern::Binding("px".to_string())),
-                        ]),
+                        pattern: Pattern::NamedField(vec![(
+                            "x".to_string(),
+                            Pattern::Binding("px".to_string()),
+                        )]),
                         guard: None,
                         body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(0)))),
                     },
@@ -1719,9 +1838,18 @@ fn test_match_named_field_pattern_unknown_struct_and_field_error() {
     let context = Context::create();
     let module = context.create_module("test");
     let builder = context.create_builder();
-    let mut compiler = Compiler::new(&context, &builder, &module, "test.bx".to_string(), "".to_string());
+    let mut compiler = Compiler::new(
+        &context,
+        &builder,
+        &module,
+        "test.bx".to_string(),
+        "".to_string(),
+    );
     let result = compiler.compile_program(&program_wrong_type);
-    assert!(result.is_err(), "expected named field pattern on a non-Struct value to be rejected");
+    assert!(
+        result.is_err(),
+        "expected named field pattern on a non-Struct value to be rejected"
+    );
 
     // Named field pattern referencing a field that does not exist on the
     // struct must also produce a clean CodegenError, not a panic.
@@ -1743,8 +1871,14 @@ fn test_match_named_field_pattern_unknown_struct_and_field_error() {
                     struct_name: "Point7".to_string(),
                     type_args: vec![],
                     fields: vec![
-                        ("x".to_string(), Expr::dummy(ExprKind::Literal(Literal::Int(3)))),
-                        ("y".to_string(), Expr::dummy(ExprKind::Literal(Literal::Int(4)))),
+                        (
+                            "x".to_string(),
+                            Expr::dummy(ExprKind::Literal(Literal::Int(3))),
+                        ),
+                        (
+                            "y".to_string(),
+                            Expr::dummy(ExprKind::Literal(Literal::Int(4))),
+                        ),
                     ],
                 }),
                 is_const: false,
@@ -1753,9 +1887,10 @@ fn test_match_named_field_pattern_unknown_struct_and_field_error() {
                 value: Box::new(Expr::dummy(ExprKind::Identifier("p".to_string()))),
                 arms: vec![
                     MatchArm {
-                        pattern: Pattern::NamedField(vec![
-                            ("z".to_string(), Pattern::Binding("pz".to_string())),
-                        ]),
+                        pattern: Pattern::NamedField(vec![(
+                            "z".to_string(),
+                            Pattern::Binding("pz".to_string()),
+                        )]),
                         guard: None,
                         body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(0)))),
                     },
@@ -1771,9 +1906,18 @@ fn test_match_named_field_pattern_unknown_struct_and_field_error() {
     let context2 = Context::create();
     let module2 = context2.create_module("test2");
     let builder2 = context2.create_builder();
-    let mut compiler2 = Compiler::new(&context2, &builder2, &module2, "test2.bx".to_string(), "".to_string());
+    let mut compiler2 = Compiler::new(
+        &context2,
+        &builder2,
+        &module2,
+        "test2.bx".to_string(),
+        "".to_string(),
+    );
     let result2 = compiler2.compile_program(&program_unknown_field);
-    assert!(result2.is_err(), "expected named field pattern referencing an unknown struct field to be rejected");
+    assert!(
+        result2.is_err(),
+        "expected named field pattern referencing an unknown struct field to be rejected"
+    );
 }
 
 #[test]
@@ -1807,8 +1951,14 @@ fn test_match_arm_binding_does_not_leak_to_next_arm() {
                     struct_name: "PointLeak".to_string(),
                     type_args: vec![],
                     fields: vec![
-                        ("x".to_string(), Expr::dummy(ExprKind::Literal(Literal::Int(42)))),
-                        ("y".to_string(), Expr::dummy(ExprKind::Literal(Literal::Int(1)))),
+                        (
+                            "x".to_string(),
+                            Expr::dummy(ExprKind::Literal(Literal::Int(42))),
+                        ),
+                        (
+                            "y".to_string(),
+                            Expr::dummy(ExprKind::Literal(Literal::Int(1))),
+                        ),
                     ],
                 }),
                 is_const: false,
@@ -1841,7 +1991,13 @@ fn test_match_arm_binding_does_not_leak_to_next_arm() {
     let context = Context::create();
     let module = context.create_module("test_leak");
     let builder = context.create_builder();
-    let mut compiler = Compiler::new(&context, &builder, &module, "test_leak.bx".to_string(), "".to_string());
+    let mut compiler = Compiler::new(
+        &context,
+        &builder,
+        &module,
+        "test_leak.bx".to_string(),
+        "".to_string(),
+    );
     let result = compiler.compile_program(&program);
     assert!(
         result.is_err(),
@@ -2001,7 +2157,9 @@ fn test_match_array_rest_only_rest() {
                             guard: None,
                             body: Box::new(Expr::dummy(ExprKind::Call {
                                 func: Box::new(Expr::dummy(ExprKind::FieldAccess {
-                                    target: Box::new(Expr::dummy(ExprKind::Identifier("all".to_string()))),
+                                    target: Box::new(Expr::dummy(ExprKind::Identifier(
+                                        "all".to_string(),
+                                    ))),
                                     field: "count".to_string(),
                                 })),
                                 args: vec![],
@@ -2058,26 +2216,48 @@ fn test_array_rest_head_reads_and_slice_gated_by_len_check() {
             },
         ],
     });
-    let program = Program { statements: vec![Stmt::dummy(StmtKind::Expr(matched))] };
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::Expr(matched))],
+    };
     let ir = compile_program(program).unwrap();
 
     // The length check must branch BEFORE any head element is read or the
     // slice function is called — i.e. those must appear textually after
     // the `br i1 %ar_len_chk` line, inside their own labeled blocks, not
     // in the same straight-line block as the check itself.
-    let len_chk_pos = ir.find("br i1 %ar_len_chk").expect("expected a length-check branch");
-    let head_read_pos = ir.find("ar_ep_2").expect("expected head element 2 to still be read on the matching path");
-    let slice_call_pos = ir.find("call ptr @intmatrix_slice").expect("expected the rest slice call to still be emitted on the matching path");
-    assert!(head_read_pos > len_chk_pos, "head element reads must come after the length-check branch, not before it");
-    assert!(slice_call_pos > len_chk_pos, "the rest slice call must come after the length-check branch, not before it");
+    let len_chk_pos = ir
+        .find("br i1 %ar_len_chk")
+        .expect("expected a length-check branch");
+    let head_read_pos = ir
+        .find("ar_ep_2")
+        .expect("expected head element 2 to still be read on the matching path");
+    let slice_call_pos = ir
+        .find("call ptr @intmatrix_slice")
+        .expect("expected the rest slice call to still be emitted on the matching path");
+    assert!(
+        head_read_pos > len_chk_pos,
+        "head element reads must come after the length-check branch, not before it"
+    );
+    assert!(
+        slice_call_pos > len_chk_pos,
+        "the rest slice call must come after the length-check branch, not before it"
+    );
 
     // And the head reads / slice call must be inside a DIFFERENT block than
     // the one containing the length check — confirmed by each living after
     // its own `br i1 %ar_len_chk`/`ar_head_check:` label boundary.
-    let head_check_label_pos = ir.find("ar_head_check:").expect("expected an ar_head_check block");
+    let head_check_label_pos = ir
+        .find("ar_head_check:")
+        .expect("expected an ar_head_check block");
     let match_label_pos = ir.find("ar_match:").expect("expected an ar_match block");
-    assert!(head_read_pos > head_check_label_pos, "head reads must be inside the ar_head_check block");
-    assert!(slice_call_pos > match_label_pos, "the slice call must be inside the ar_match block");
+    assert!(
+        head_read_pos > head_check_label_pos,
+        "head reads must be inside the ar_head_check block"
+    );
+    assert!(
+        slice_call_pos > match_label_pos,
+        "the slice call must be inside the ar_match block"
+    );
 }
 
 #[test]
@@ -2132,7 +2312,9 @@ fn test_array_rest_guard_only_evaluated_when_pattern_matched() {
             },
         ],
     });
-    let program = Program { statements: vec![Stmt::dummy(StmtKind::Expr(matched))] };
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::Expr(matched))],
+    };
     let ir = compile_program(program).unwrap();
 
     // The PHI'd pattern result must branch to a guard block, not fall
@@ -2145,10 +2327,15 @@ fn test_array_rest_guard_only_evaluated_when_pattern_matched() {
 
     // The guard's reference to `rest` (via .count()) must be inside that
     // guard block (after its label), not before it / in ar_merge itself.
-    let guard_label_pos = ir.find("match_arm_0_guard:").expect("expected a match_arm_0_guard block");
-    let rest_load_in_guard = ir[guard_label_pos..].find("load ptr, ptr %rest")
+    let guard_label_pos = ir
+        .find("match_arm_0_guard:")
+        .expect("expected a match_arm_0_guard block");
+    let rest_load_in_guard = ir[guard_label_pos..]
+        .find("load ptr, ptr %rest")
         .expect("expected the guard to load `rest` inside its own block");
-    let phi_pos = ir.find("%ar_result = phi").expect("expected the pattern match PHI");
+    let phi_pos = ir
+        .find("%ar_result = phi")
+        .expect("expected the pattern match PHI");
     assert!(
         guard_label_pos + rest_load_in_guard > phi_pos,
         "the guard's use of `rest` must come after the pattern PHI, inside match_arm_0_guard"
@@ -2171,12 +2358,16 @@ fn test_match_non_exhaustive_is_rejected() {
                 MatchArm {
                     pattern: Pattern::Literal(Literal::Int(1)),
                     guard: None,
-                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("one".to_string())))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String(
+                        "one".to_string(),
+                    )))),
                 },
                 MatchArm {
                     pattern: Pattern::Literal(Literal::Int(2)),
                     guard: None,
-                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("two".to_string())))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String(
+                        "two".to_string(),
+                    )))),
                 },
             ],
         })))],
@@ -2184,7 +2375,13 @@ fn test_match_non_exhaustive_is_rejected() {
     let context = Context::create();
     let module = context.create_module("test_non_exhaustive");
     let builder = context.create_builder();
-    let mut compiler = Compiler::new(&context, &builder, &module, "test_non_exhaustive.bx".to_string(), "".to_string());
+    let mut compiler = Compiler::new(
+        &context,
+        &builder,
+        &module,
+        "test_non_exhaustive.bx".to_string(),
+        "".to_string(),
+    );
     let result = compiler.compile_program(&program);
     assert!(result.is_err(), "expected a match with only literal arms (no wildcard/binding) to be rejected as non-exhaustive");
 }
@@ -2202,12 +2399,16 @@ fn test_match_with_wildcard_arm_is_exhaustive() {
                 MatchArm {
                     pattern: Pattern::Literal(Literal::Int(1)),
                     guard: None,
-                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("one".to_string())))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String(
+                        "one".to_string(),
+                    )))),
                 },
                 MatchArm {
                     pattern: Pattern::Wildcard,
                     guard: None,
-                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("other".to_string())))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String(
+                        "other".to_string(),
+                    )))),
                 },
             ],
         })))],
@@ -2215,9 +2416,19 @@ fn test_match_with_wildcard_arm_is_exhaustive() {
     let context = Context::create();
     let module = context.create_module("test_exhaustive_wildcard");
     let builder = context.create_builder();
-    let mut compiler = Compiler::new(&context, &builder, &module, "test_exhaustive_wildcard.bx".to_string(), "".to_string());
+    let mut compiler = Compiler::new(
+        &context,
+        &builder,
+        &module,
+        "test_exhaustive_wildcard.bx".to_string(),
+        "".to_string(),
+    );
     let result = compiler.compile_program(&program);
-    assert!(result.is_ok(), "expected a match with a root-level Wildcard arm to be accepted as exhaustive, got: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "expected a match with a root-level Wildcard arm to be accepted as exhaustive, got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -2235,12 +2446,16 @@ fn test_match_with_root_binding_arm_is_exhaustive_without_wildcard() {
                 MatchArm {
                     pattern: Pattern::Literal(Literal::Int(1)),
                     guard: None,
-                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("one".to_string())))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String(
+                        "one".to_string(),
+                    )))),
                 },
                 MatchArm {
                     pattern: Pattern::Binding("n".to_string()),
                     guard: None,
-                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String("other".to_string())))),
+                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::String(
+                        "other".to_string(),
+                    )))),
                 },
             ],
         })))],
@@ -2248,7 +2463,13 @@ fn test_match_with_root_binding_arm_is_exhaustive_without_wildcard() {
     let context = Context::create();
     let module = context.create_module("test_exhaustive_binding");
     let builder = context.create_builder();
-    let mut compiler = Compiler::new(&context, &builder, &module, "test_exhaustive_binding.bx".to_string(), "".to_string());
+    let mut compiler = Compiler::new(
+        &context,
+        &builder,
+        &module,
+        "test_exhaustive_binding.bx".to_string(),
+        "".to_string(),
+    );
     let result = compiler.compile_program(&program);
     assert!(result.is_ok(), "expected a match with a root-level Binding arm (no explicit wildcard) to be accepted as exhaustive, got: {:?}", result);
 }
@@ -2266,23 +2487,27 @@ fn test_match_guarded_catch_all_is_not_exhaustive() {
     let program = Program {
         statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Match {
             value: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(5)))),
-            arms: vec![
-                MatchArm {
-                    pattern: Pattern::Binding("n".to_string()),
-                    guard: Some(Box::new(Expr::dummy(ExprKind::Binary {
-                        op: BinaryOp::Gt,
-                        lhs: Box::new(Expr::dummy(ExprKind::Identifier("n".to_string()))),
-                        rhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(100)))),
-                    }))),
-                    body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(1)))),
-                },
-            ],
+            arms: vec![MatchArm {
+                pattern: Pattern::Binding("n".to_string()),
+                guard: Some(Box::new(Expr::dummy(ExprKind::Binary {
+                    op: BinaryOp::Gt,
+                    lhs: Box::new(Expr::dummy(ExprKind::Identifier("n".to_string()))),
+                    rhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(100)))),
+                }))),
+                body: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(1)))),
+            }],
         })))],
     };
     let context = Context::create();
     let module = context.create_module("test_guarded_catch_all");
     let builder = context.create_builder();
-    let mut compiler = Compiler::new(&context, &builder, &module, "test_guarded_catch_all.bx".to_string(), "".to_string());
+    let mut compiler = Compiler::new(
+        &context,
+        &builder,
+        &module,
+        "test_guarded_catch_all.bx".to_string(),
+        "".to_string(),
+    );
     let result = compiler.compile_program(&program);
     assert!(
         result.is_err(),
@@ -2319,7 +2544,13 @@ fn test_match_guarded_catch_all_plus_unguarded_fallback_is_exhaustive() {
     let context = Context::create();
     let module = context.create_module("test_guarded_catch_all_with_fallback");
     let builder = context.create_builder();
-    let mut compiler = Compiler::new(&context, &builder, &module, "test_guarded_catch_all_with_fallback.bx".to_string(), "".to_string());
+    let mut compiler = Compiler::new(
+        &context,
+        &builder,
+        &module,
+        "test_guarded_catch_all_with_fallback.bx".to_string(),
+        "".to_string(),
+    );
     let result = compiler.compile_program(&program);
     assert!(
         result.is_ok(),

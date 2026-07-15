@@ -4,7 +4,7 @@
 
 use crate::Compiler;
 use inkwell::context::Context;
-use parser::ast::{BinaryOp, Expr, Literal, Program, Stmt, UnaryOp, ExprKind, StmtKind};
+use parser::ast::{BinaryOp, Expr, ExprKind, Literal, Program, Stmt, StmtKind, UnaryOp};
 
 fn make_program(stmt: Stmt) -> Program {
     Program {
@@ -18,7 +18,13 @@ fn compile_program(program: Program) -> Result<String, String> {
         let module = context.create_module("test");
         let builder = context.create_builder();
 
-        let mut compiler = Compiler::new(&context, &builder, &module, "test.bx".to_string(), "".to_string());
+        let mut compiler = Compiler::new(
+            &context,
+            &builder,
+            &module,
+            "test.bx".to_string(),
+            "".to_string(),
+        );
 
         compiler.compile_program(&program);
         module.print_to_string().to_string()
@@ -50,7 +56,9 @@ fn test_compile_float_literal() {
 
 #[test]
 fn test_compile_string_literal() {
-    let expr = Expr::dummy(ExprKind::Literal(Literal::String("hello world".to_string())));
+    let expr = Expr::dummy(ExprKind::Literal(Literal::String(
+        "hello world".to_string(),
+    )));
     let program = make_program(Stmt::dummy(StmtKind::Expr(expr)));
     let result = compile_program(program);
     // Should create a global string constant
@@ -492,8 +500,12 @@ fn test_atom_literal() {
 fn test_atom_comparison() {
     let expr = Expr::dummy(ExprKind::Binary {
         op: BinaryOp::Eq,
-        lhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Atom("ok".to_string())))),
-        rhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Atom("ok".to_string())))),
+        lhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Atom(
+            "ok".to_string(),
+        )))),
+        rhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Atom(
+            "ok".to_string(),
+        )))),
     });
     let program = make_program(Stmt::dummy(StmtKind::Expr(expr)));
     let result = compile_program(program);
@@ -504,8 +516,12 @@ fn test_atom_comparison() {
 fn test_atom_different_comparison() {
     let expr = Expr::dummy(ExprKind::Binary {
         op: BinaryOp::NotEq,
-        lhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Atom("ok".to_string())))),
-        rhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Atom("error".to_string())))),
+        lhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Atom(
+            "ok".to_string(),
+        )))),
+        rhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Atom(
+            "error".to_string(),
+        )))),
     });
     let program = make_program(Stmt::dummy(StmtKind::Expr(expr)));
     let result = compile_program(program);
@@ -526,7 +542,9 @@ fn test_nil_literal() {
 fn test_error_creation() {
     let expr = Expr::dummy(ExprKind::Call {
         func: Box::new(Expr::dummy(ExprKind::Identifier("error".to_string()))),
-        args: vec![Expr::dummy(ExprKind::Literal(Literal::String("something failed".to_string())))],
+        args: vec![Expr::dummy(ExprKind::Literal(Literal::String(
+            "something failed".to_string(),
+        )))],
     });
     let program = make_program(Stmt::dummy(StmtKind::Expr(expr)));
     let result = compile_program(program);
@@ -638,13 +656,15 @@ fn test_zip_function() {
 
 #[test]
 fn test_fstring_basic() {
-    let expr = Expr::dummy(ExprKind::FString { parts: vec![
-        parser::ast::FStringPart::Text("Value: ".to_string()),
-        parser::ast::FStringPart::Expr {
-            expr: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(42)))),
-            format: None,
-        },
-    ] });
+    let expr = Expr::dummy(ExprKind::FString {
+        parts: vec![
+            parser::ast::FStringPart::Text("Value: ".to_string()),
+            parser::ast::FStringPart::Expr {
+                expr: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(42)))),
+                format: None,
+            },
+        ],
+    });
     let program = make_program(Stmt::dummy(StmtKind::Expr(expr)));
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -652,13 +672,15 @@ fn test_fstring_basic() {
 
 #[test]
 fn test_fstring_with_hex_format() {
-    let expr = Expr::dummy(ExprKind::FString { parts: vec![
-        parser::ast::FStringPart::Text("Hex: ".to_string()),
-        parser::ast::FStringPart::Expr {
-            expr: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(255)))),
-            format: Some("x".to_string()),
-        },
-    ] });
+    let expr = Expr::dummy(ExprKind::FString {
+        parts: vec![
+            parser::ast::FStringPart::Text("Hex: ".to_string()),
+            parser::ast::FStringPart::Expr {
+                expr: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(255)))),
+                format: Some("x".to_string()),
+            },
+        ],
+    });
     let program = make_program(Stmt::dummy(StmtKind::Expr(expr)));
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -666,13 +688,15 @@ fn test_fstring_with_hex_format() {
 
 #[test]
 fn test_fstring_with_precision_format() {
-    let expr = Expr::dummy(ExprKind::FString { parts: vec![
-        parser::ast::FStringPart::Text("Pi: ".to_string()),
-        parser::ast::FStringPart::Expr {
-            expr: Box::new(Expr::dummy(ExprKind::Literal(Literal::Float(3.14159)))),
-            format: Some(".2f".to_string()),
-        },
-    ] });
+    let expr = Expr::dummy(ExprKind::FString {
+        parts: vec![
+            parser::ast::FStringPart::Text("Pi: ".to_string()),
+            parser::ast::FStringPart::Expr {
+                expr: Box::new(Expr::dummy(ExprKind::Literal(Literal::Float(3.14159)))),
+                format: Some(".2f".to_string()),
+            },
+        ],
+    });
     let program = make_program(Stmt::dummy(StmtKind::Expr(expr)));
     let result = compile_program(program);
     assert!(result.is_ok());

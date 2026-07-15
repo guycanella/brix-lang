@@ -2,14 +2,20 @@
 
 use crate::Compiler;
 use inkwell::context::Context;
-use parser::ast::{BinaryOp, Expr, Literal, Program, Stmt, UnaryOp, ExprKind, StmtKind};
+use parser::ast::{BinaryOp, Expr, ExprKind, Literal, Program, Stmt, StmtKind, UnaryOp};
 
 fn compile_program(program: Program) -> Result<String, String> {
     let result = std::panic::catch_unwind(|| {
         let context = Context::create();
         let module = context.create_module("test");
         let builder = context.create_builder();
-        let mut compiler = Compiler::new(&context, &builder, &module, "test.bx".to_string(), "".to_string());
+        let mut compiler = Compiler::new(
+            &context,
+            &builder,
+            &module,
+            "test.bx".to_string(),
+            "".to_string(),
+        );
         compiler.compile_program(&program);
         module.print_to_string().to_string()
     });
@@ -40,7 +46,9 @@ fn test_empty_block() {
 #[test]
 fn test_empty_array() {
     let program = Program {
-        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Array(vec![]))))],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Array(
+            vec![],
+        ))))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -78,9 +86,11 @@ fn test_deeply_nested_arithmetic() {
 #[test]
 fn test_deeply_nested_blocks() {
     let program = Program {
-        statements: vec![Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(StmtKind::Block(vec![
-            Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Literal(Literal::Int(1))))),
-        ]))]))]))],
+        statements: vec![Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+            StmtKind::Block(vec![Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+                StmtKind::Expr(Expr::dummy(ExprKind::Literal(Literal::Int(1)))),
+            )]))]),
+        )]))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -91,7 +101,9 @@ fn test_deeply_nested_blocks() {
 #[test]
 fn test_zero_literal() {
     let program = Program {
-        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Literal(Literal::Int(0)))))],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Literal(
+            Literal::Int(0),
+        ))))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -100,7 +112,9 @@ fn test_zero_literal() {
 #[test]
 fn test_large_int() {
     let program = Program {
-        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Literal(Literal::Int(9223372036854775807)))))], // i64::MAX
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Literal(
+            Literal::Int(9223372036854775807),
+        ))))], // i64::MAX
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -109,7 +123,9 @@ fn test_large_int() {
 #[test]
 fn test_float_zero() {
     let program = Program {
-        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Literal(Literal::Float(0.0)))))],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Literal(
+            Literal::Float(0.0),
+        ))))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -246,7 +262,9 @@ fn test_not_comparison() {
 #[test]
 fn test_empty_string() {
     let program = Program {
-        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Literal(Literal::String("".to_string())))))],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Literal(
+            Literal::String("".to_string()),
+        ))))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -255,9 +273,9 @@ fn test_empty_string() {
 #[test]
 fn test_string_with_escapes() {
     let program = Program {
-        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Literal(Literal::String(
-            "hello\\nworld".to_string(),
-        )))))],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Literal(
+            Literal::String("hello\\nworld".to_string()),
+        ))))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -268,9 +286,11 @@ fn test_string_with_escapes() {
 #[test]
 fn test_fstring_empty() {
     let program = Program {
-        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::FString {
-            parts: vec![parser::ast::FStringPart::Text("".to_string())],
-        })))],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(
+            ExprKind::FString {
+                parts: vec![parser::ast::FStringPart::Text("".to_string())],
+            },
+        )))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -666,9 +686,9 @@ fn test_boolean_comparison_result() {
 #[test]
 fn test_single_element_array() {
     let program = Program {
-        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Array(vec![Expr::dummy(ExprKind::Literal(Literal::Int(
-            42,
-        )))]))))],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Array(
+            vec![Expr::dummy(ExprKind::Literal(Literal::Int(42)))],
+        ))))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -677,9 +697,13 @@ fn test_single_element_array() {
 #[test]
 fn test_large_array() {
     // Array with 100 elements
-    let elements: Vec<Expr> = (0..100).map(|i| Expr::dummy(ExprKind::Literal(Literal::Int(i)))).collect();
+    let elements: Vec<Expr> = (0..100)
+        .map(|i| Expr::dummy(ExprKind::Literal(Literal::Int(i))))
+        .collect();
     let program = Program {
-        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Array(elements))))],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Array(
+            elements,
+        ))))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -689,23 +713,25 @@ fn test_large_array() {
 fn test_array_with_expressions() {
     // [1 + 1, 2 * 2, 3 - 1]
     let program = Program {
-        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Array(vec![
-            Expr::dummy(ExprKind::Binary {
-                op: BinaryOp::Add,
-                lhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(1)))),
-                rhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(1)))),
-            }),
-            Expr::dummy(ExprKind::Binary {
-                op: BinaryOp::Mul,
-                lhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(2)))),
-                rhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(2)))),
-            }),
-            Expr::dummy(ExprKind::Binary {
-                op: BinaryOp::Sub,
-                lhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(3)))),
-                rhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(1)))),
-            }),
-        ]))))],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Array(
+            vec![
+                Expr::dummy(ExprKind::Binary {
+                    op: BinaryOp::Add,
+                    lhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(1)))),
+                    rhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(1)))),
+                }),
+                Expr::dummy(ExprKind::Binary {
+                    op: BinaryOp::Mul,
+                    lhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(2)))),
+                    rhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(2)))),
+                }),
+                Expr::dummy(ExprKind::Binary {
+                    op: BinaryOp::Sub,
+                    lhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(3)))),
+                    rhs: Box::new(Expr::dummy(ExprKind::Literal(Literal::Int(1)))),
+                }),
+            ],
+        ))))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
@@ -801,7 +827,9 @@ fn test_negative_zero_int() {
 fn test_negative_zero_float() {
     // -0.0 exists for floats (IEEE 754)
     let program = Program {
-        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Literal(Literal::Float(-0.0)))))],
+        statements: vec![Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Literal(
+            Literal::Float(-0.0),
+        ))))],
     };
     let result = compile_program(program);
     assert!(result.is_ok());
