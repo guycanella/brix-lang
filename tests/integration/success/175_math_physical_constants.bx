@@ -1,0 +1,12 @@
+import math
+
+// Physical constants (v1.8 Grupo A) — compared to bounds so output is
+// stable booleans (1/0), independent of float-formatting precision.
+println(math.c_light > 299792457.0)   // 299792458.0
+println(math.g_earth > 9.8)           // 9.80665
+println(math.avogadro > 6.0e23)       // 6.02214076e23
+println(math.h_planck < 1.0e-33)      // 6.62607015e-34
+println(math.k_boltzmann < 1.0e-22)   // 1.380649e-23
+println(math.R_gas > 8.0)             // 8.314462618
+println(math.e_charge < 1.0e-18)      // 1.602176634e-19
+println(math.G_grav < 1.0e-10)        // 6.6743e-11

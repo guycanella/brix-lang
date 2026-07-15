@@ -44,9 +44,31 @@ fn test_literal_float() {
 }
 
 #[test]
+fn test_literal_float_scientific_integer_mantissa() {
+    // "1e10" is a float literal (v1.8 scientific notation)
+    let expr = parse_expr("1e10").unwrap();
+    assert_eq!(expr.kind, ExprKind::Literal(Literal::Float(1e10)));
+}
+
+#[test]
+fn test_literal_float_scientific_decimal_mantissa() {
+    let expr = parse_expr("6.02e23").unwrap();
+    assert_eq!(expr.kind, ExprKind::Literal(Literal::Float(6.02e23)));
+}
+
+#[test]
+fn test_literal_float_scientific_negative_exponent() {
+    let expr = parse_expr("1.5e-10").unwrap();
+    assert_eq!(expr.kind, ExprKind::Literal(Literal::Float(1.5e-10)));
+}
+
+#[test]
 fn test_literal_string() {
     let expr = parse_expr(r#""hello""#).unwrap();
-    assert_eq!(expr.kind, ExprKind::Literal(Literal::String("hello".to_string())));
+    assert_eq!(
+        expr.kind,
+        ExprKind::Literal(Literal::String("hello".to_string()))
+    );
 }
 
 #[test]
@@ -70,7 +92,10 @@ fn test_literal_nil() {
 #[test]
 fn test_literal_atom() {
     let expr = parse_expr(":ok").unwrap();
-    assert_eq!(expr.kind, ExprKind::Literal(Literal::Atom("ok".to_string())));
+    assert_eq!(
+        expr.kind,
+        ExprKind::Literal(Literal::Atom("ok".to_string()))
+    );
 }
 
 #[test]
@@ -632,7 +657,10 @@ fn test_field_access_not_keyword_as_field_name() {
                 ExprKind::FieldAccess { target, field } => {
                     assert_eq!(field, "toBe");
                     match &target.kind {
-                        ExprKind::FieldAccess { target: not_target, field: not_field } => {
+                        ExprKind::FieldAccess {
+                            target: not_target,
+                            field: not_field,
+                        } => {
                             assert_eq!(not_field, "not");
                             match &not_target.kind {
                                 ExprKind::Call { .. } => {} // test.expect(1)
@@ -658,7 +686,10 @@ fn test_field_access_not_chained_with_further_field() {
         ExprKind::FieldAccess { target, field } => {
             assert_eq!(field, "field");
             match &target.kind {
-                ExprKind::FieldAccess { target: inner_target, field: not_field } => {
+                ExprKind::FieldAccess {
+                    target: inner_target,
+                    field: not_field,
+                } => {
                     assert_eq!(not_field, "not");
                     assert_eq!(inner_target.kind, ExprKind::Identifier("obj".to_string()));
                 }
@@ -675,7 +706,12 @@ fn test_field_access_not_chained_with_further_field() {
 fn test_range_inclusive() {
     let expr = parse_expr("1..10").unwrap();
     match &expr.kind {
-        ExprKind::Range { start, end, step, inclusive } => {
+        ExprKind::Range {
+            start,
+            end,
+            step,
+            inclusive,
+        } => {
             assert_eq!(start.kind, ExprKind::Literal(Literal::Int(1)));
             assert_eq!(end.kind, ExprKind::Literal(Literal::Int(10)));
             assert!(step.is_none());
@@ -689,7 +725,12 @@ fn test_range_inclusive() {
 fn test_range_exclusive() {
     let expr = parse_expr("0..<10").unwrap();
     match &expr.kind {
-        ExprKind::Range { start, end, step, inclusive } => {
+        ExprKind::Range {
+            start,
+            end,
+            step,
+            inclusive,
+        } => {
             assert_eq!(start.kind, ExprKind::Literal(Literal::Int(0)));
             assert_eq!(end.kind, ExprKind::Literal(Literal::Int(10)));
             assert!(step.is_none());
@@ -703,7 +744,12 @@ fn test_range_exclusive() {
 fn test_range_with_step() {
     let expr = parse_expr("0..10 step 2").unwrap();
     match &expr.kind {
-        ExprKind::Range { start, end, step, inclusive } => {
+        ExprKind::Range {
+            start,
+            end,
+            step,
+            inclusive,
+        } => {
             assert_eq!(start.kind, ExprKind::Literal(Literal::Int(0)));
             assert!(step.is_some());
             assert_eq!(end.kind, ExprKind::Literal(Literal::Int(10)));
@@ -717,7 +763,12 @@ fn test_range_with_step() {
 fn test_range_exclusive_with_step() {
     let expr = parse_expr("0..<10 step 2").unwrap();
     match &expr.kind {
-        ExprKind::Range { start, end, step, inclusive } => {
+        ExprKind::Range {
+            start,
+            end,
+            step,
+            inclusive,
+        } => {
             assert_eq!(start.kind, ExprKind::Literal(Literal::Int(0)));
             assert!(step.is_some());
             assert_eq!(end.kind, ExprKind::Literal(Literal::Int(10)));
@@ -731,7 +782,12 @@ fn test_range_exclusive_with_step() {
 fn test_range_with_variables() {
     let expr = parse_expr("start..end").unwrap();
     match &expr.kind {
-        ExprKind::Range { start, end, step, inclusive } => {
+        ExprKind::Range {
+            start,
+            end,
+            step,
+            inclusive,
+        } => {
             assert_eq!(start.kind, ExprKind::Identifier("start".to_string()));
             assert_eq!(end.kind, ExprKind::Identifier("end".to_string()));
             assert!(step.is_none());
@@ -745,7 +801,12 @@ fn test_range_with_variables() {
 fn test_range_descending() {
     let expr = parse_expr("10..0").unwrap();
     match &expr.kind {
-        ExprKind::Range { start, end, inclusive, .. } => {
+        ExprKind::Range {
+            start,
+            end,
+            inclusive,
+            ..
+        } => {
             assert_eq!(start.kind, ExprKind::Literal(Literal::Int(10)));
             assert_eq!(end.kind, ExprKind::Literal(Literal::Int(0)));
             assert_eq!(*inclusive, true);

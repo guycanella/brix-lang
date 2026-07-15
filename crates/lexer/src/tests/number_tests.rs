@@ -308,16 +308,42 @@ fn test_negative_imaginary_tokenizes_as_minus_plus_imaginary() {
 }
 
 // ==================== SCIENTIFIC NOTATION TESTS ====================
-// Note: Current lexer might not support scientific notation (e.g., 1e10)
-// These tests document expected behavior if/when implemented
+// Scientific notation is supported (v1.8): a float literal may carry an
+// optional exponent, and an integer mantissa followed by an exponent is a
+// float too. The full slice is captured; the parser calls str::parse::<f64>().
 
 #[test]
-fn test_scientific_notation_not_yet_supported() {
-    // "1e10" would currently be tokenized as Int(1) + Identifier("e10")
-    // This is a documentation test for future implementation
-    let mut lexer = Token::lexer("1e10");
-    assert_eq!(lexer.next(), Some(Ok(Token::Int(1))));
-    assert_eq!(lexer.next(), Some(Ok(Token::Identifier("e10".to_string()))));
+fn test_scientific_notation_integer_mantissa() {
+    // "1e10" is a Float, not Int(1) + Identifier("e10")
+    assert_single_token("1e10", Token::Float("1e10".to_string()));
+}
+
+#[test]
+fn test_scientific_notation_decimal_mantissa() {
+    assert_single_token("6.0e23", Token::Float("6.0e23".to_string()));
+}
+
+#[test]
+fn test_scientific_notation_negative_exponent() {
+    assert_single_token("1.5e-10", Token::Float("1.5e-10".to_string()));
+}
+
+#[test]
+fn test_scientific_notation_explicit_plus_and_uppercase() {
+    assert_single_token("6.02E+23", Token::Float("6.02E+23".to_string()));
+}
+
+#[test]
+fn test_plain_int_still_int() {
+    // Regression: a bare integer with no exponent stays Int.
+    assert_single_token("42", Token::Int(42));
+}
+
+#[test]
+fn test_scientific_notation_imaginary() {
+    // "1e3i" is a single imaginary literal, not Float("1e3") + Identifier("i").
+    assert_single_token("1e3i", Token::ImaginaryLiteral("1e3i".to_string()));
+    assert_single_token("6.02e23i", Token::ImaginaryLiteral("6.02e23i".to_string()));
 }
 
 // ==================== BOUNDARY VALUE TESTS ====================
