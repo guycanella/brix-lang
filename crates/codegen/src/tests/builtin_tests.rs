@@ -2177,3 +2177,54 @@ fn test_vector_matrix_annotation_rejected() {
     };
     assert!(!vector_compiles(program));
 }
+
+#[test]
+fn test_vector_set_pop_isempty_clear_compile() {
+    // var v := Vector<int>(); v.push(1); v.set(0,2); v.pop(); v.is_empty(); v.clear()
+    let program = Program {
+        statements: vec![
+            vec_decl("v", None, "int"),
+            vec_method_stmt(
+                "v",
+                "push",
+                vec![Expr::dummy(ExprKind::Literal(Literal::Int(1)))],
+            ),
+            vec_method_stmt(
+                "v",
+                "set",
+                vec![
+                    Expr::dummy(ExprKind::Literal(Literal::Int(0))),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(2))),
+                ],
+            ),
+            vec_method_stmt("v", "pop", vec![]),
+            vec_method_stmt("v", "is_empty", vec![]),
+            vec_method_stmt("v", "clear", vec![]),
+        ],
+    };
+    assert!(vector_compiles(program));
+}
+
+#[test]
+fn test_vector_set_type_error() {
+    // v.set(0, "x") on Vector<int> must fail to compile.
+    let program = Program {
+        statements: vec![
+            vec_decl("v", None, "int"),
+            vec_method_stmt(
+                "v",
+                "push",
+                vec![Expr::dummy(ExprKind::Literal(Literal::Int(1)))],
+            ),
+            vec_method_stmt(
+                "v",
+                "set",
+                vec![
+                    Expr::dummy(ExprKind::Literal(Literal::Int(0))),
+                    Expr::dummy(ExprKind::Literal(Literal::String("x".to_string()))),
+                ],
+            ),
+        ],
+    };
+    assert!(!vector_compiles(program));
+}

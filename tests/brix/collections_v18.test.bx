@@ -23,3 +23,48 @@ test.describe("Vector<int> (v1.8 Grupo C, Phase 1)", () -> {
         test.expect(v.get(10)).toBe(100)
     })
 })
+
+test.describe("Vector<int> set/pop/is_empty/clear (v1.8 Grupo C, Phase 2)", () -> {
+    test.it("set overwrites in place", () -> {
+        var v := Vector<int>()
+        v.push(10)
+        v.push(20)
+        v.set(1, 99)
+        test.expect(v.get(1)).toBe(99)
+        test.expect(v.len()).toBe(2)
+    })
+
+    test.it("pop returns last element and shrinks", () -> {
+        var v := Vector<int>()
+        v.push(1)
+        v.push(2)
+        var x := v.pop()
+        test.expect(x ?: -1).toBe(2)
+        test.expect(v.len()).toBe(1)
+    })
+
+    test.it("pop on empty returns nil", () -> {
+        var v := Vector<int>()
+        var y := v.pop()
+        test.expect(y == nil).toBeTruthy()
+    })
+
+    test.it("is_empty reflects contents", () -> {
+        var v := Vector<int>()
+        test.expect(v.is_empty()).toBe(1)
+        v.push(5)
+        test.expect(v.is_empty()).toBe(0)
+    })
+
+    test.it("clear empties but keeps the vector reusable", () -> {
+        var v := Vector<int>()
+        v.push(1)
+        v.push(2)
+        v.push(3)
+        v.clear()
+        test.expect(v.is_empty()).toBe(1)
+        v.push(42)
+        test.expect(v.get(0)).toBe(42)
+        test.expect(v.len()).toBe(1)
+    })
+})

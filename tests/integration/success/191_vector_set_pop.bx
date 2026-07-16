@@ -1,0 +1,14 @@
+// Vector<int> Phase 2: set / pop (T?) / is_empty / clear (v1.8 Grupo C).
+var v := Vector<int>()
+v.push(10)
+v.push(20)
+v.set(0, 99)
+println(v.get(0))       // 99
+println(v.is_empty())   // 0
+var x := v.pop()
+println(x ?: -1)        // 20 (pop returns the last element as T?)
+println(v.len())        // 1  (len decremented)
+v.clear()
+println(v.is_empty())   // 1  (clear empties, keeps capacity)
+var y := v.pop()
+println(y == nil)       // 1  (pop on empty -> nil)
