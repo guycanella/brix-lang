@@ -1654,3 +1654,30 @@ fn test_190_vector_int_basic() {
         "3\n10\n20\n30",
     );
 }
+
+#[test]
+fn test_191_vector_set_pop() {
+    // set / pop (T?) / is_empty / clear, incl. Union(Int, Nil) consumption.
+    assert_success(
+        "tests/integration/success/191_vector_set_pop.bx",
+        "99\n0\n20\n1\n1\n1",
+    );
+}
+
+#[test]
+fn test_192_vector_set_oob() {
+    assert_output(
+        "tests/integration/success/192_vector_set_oob.bx",
+        1,
+        Some("Error: Vector.set(3) out of bounds"),
+    );
+}
+
+#[test]
+fn test_193_vector_get_oob() {
+    assert_output(
+        "tests/integration/success/193_vector_get_oob.bx",
+        1,
+        Some("Error: Vector.get(-1) out of bounds"),
+    );
+}

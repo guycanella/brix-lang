@@ -2623,6 +2623,51 @@ void brix_vector_push(BrixVector *v, void *elem) {
 
 long brix_vector_len(BrixVector *v) { return v->len; }
 
+// set: overwrite element at index i (0 <= i < len — no append; use push).
+// For a string slot, release the old value and retain the new one. Out-of-range
+// is a hard error.
+void brix_vector_set(BrixVector *v, long i, void *elem) {
+  if (i < 0 || i >= v->len) {
+    fprintf(stderr, "Error: Vector.set(%ld) out of bounds (len=%ld)\n", i,
+            v->len);
+    exit(1);
+  }
+  char *slot = (char *)v->data + i * v->elem_size;
+  if (v->elem_kind == BRIX_VEC_STRING) {
+    string_release(*(BrixString **)slot); // release the replaced value
+  }
+  memcpy(slot, elem, v->elem_size);
+  if (v->elem_kind == BRIX_VEC_STRING) {
+    string_retain(*(BrixString **)slot); // co-own the new value
+  }
+}
+
+// pop: remove and return the last element. Ownership TRANSFERS to the caller —
+// the removed slot is NOT released. Returns 1 and writes the element to `out`,
+// or 0 if the vector is empty. For a string vector the popped BrixString* keeps
+// its ref_count; the Union(String, Nil) codegen (Phase 4) takes over that owned
+// reference.
+long brix_vector_pop(BrixVector *v, void *out) {
+  if (v->len == 0) {
+    return 0;
+  }
+  v->len--;
+  char *slot = (char *)v->data + v->len * v->elem_size;
+  memcpy(out, slot, v->elem_size);
+  return 1;
+}
+
+// clear: reset to empty, releasing owned (string) elements. Capacity and data
+// buffer are preserved, so the vector is reusable after clear().
+void brix_vector_clear(BrixVector *v) {
+  if (v->elem_kind == BRIX_VEC_STRING) {
+    for (long i = 0; i < v->len; i++) {
+      string_release(*(BrixString **)((char *)v->data + i * v->elem_size));
+    }
+  }
+  v->len = 0;
+}
+
 void *brix_vector_retain(BrixVector *v) {
   if (!v)
     return NULL;
@@ -2635,12 +2680,7 @@ void brix_vector_release(BrixVector *v) {
     return;
   v->ref_count--;
   if (v->ref_count == 0) {
-    // Release each owned element (only strings are ref-counted in v1.8).
-    if (v->elem_kind == BRIX_VEC_STRING) {
-      for (long i = 0; i < v->len; i++) {
-        string_release(*(BrixString **)((char *)v->data + i * v->elem_size));
-      }
-    }
+    brix_vector_clear(v); // release any owned elements (no duplicated logic)
     free(v->data);
     free(v);
   }

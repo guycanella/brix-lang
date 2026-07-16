@@ -1,0 +1,3 @@
+var v := Vector<int>()
+v.push(5)
+v.set(3, 9)
