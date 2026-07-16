@@ -12498,11 +12498,13 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         }
 
         let elem = self.string_to_brix_type(&type_args[0]);
-        // Phase 1 scope: only Vector<int> is enabled. Vector<float> lands in
-        // Grupo C Phase 3 and Vector<string> (with element ARC) in Phase 4.
-        if elem != BrixType::Int {
+        // Enabled element types grow by phase: Vector<int> (Phase 1),
+        // Vector<float> (Phase 3). Vector<string> (with element ARC) lands in
+        // Phase 4 and is still rejected here.
+        if !matches!(elem, BrixType::Int | BrixType::Float) {
             return Err(CodegenError::TypeError {
-                expected: "Vector<int> (Vector<float>/Vector<string> not enabled yet)".to_string(),
+                expected: "Vector<int> or Vector<float> (Vector<string> not enabled yet)"
+                    .to_string(),
                 found: format!("Vector<{}>", type_args[0]),
                 context: "Vector constructor".to_string(),
                 span: Some(expr.span.clone()),
@@ -12710,8 +12712,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         span: Some(expr.span.clone()),
                     })?;
                 // NOTE: string elements (Phase 4) are borrowed from the vector;
-                // get() will need to return a retained (owned) copy then. Phase 1
-                // is Vector<int> only, so no element ARC here yet.
+                // get() will need to return a retained (owned) copy then. int and
+                // float elements (Phases 1/3) are plain values — no element ARC.
                 Ok((loaded, elem_type.clone()))
             }
             "set" => {

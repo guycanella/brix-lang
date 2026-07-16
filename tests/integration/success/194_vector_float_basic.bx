@@ -1,0 +1,15 @@
+// Vector<float> (v1.8 Grupo C, Phase 3): same mechanics as Vector<int>, with
+// f64 elements and pop -> float?. Output kept as booleans to avoid float
+// formatting fragility.
+var v := Vector<float>()
+v.push(1.5)
+v.push(2.5)
+v.set(0, 9.5)
+println(v.get(0) > 9.49 && v.get(0) < 9.51)       // 1
+println(v.len())                                   // 2
+var x := v.pop()
+println((x ?: 0.0) > 2.49 && (x ?: 0.0) < 2.51)    // 1 (pop -> float?)
+println(v.len())                                   // 1
+var y := v.pop()
+var z := v.pop()
+println(z == nil)                                  // 1 (pop empty -> nil)
