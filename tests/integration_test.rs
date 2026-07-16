@@ -1681,3 +1681,12 @@ fn test_193_vector_get_oob() {
         Some("Error: Vector.get(-1) out of bounds"),
     );
 }
+
+#[test]
+fn test_194_vector_float_basic() {
+    // Vector<float>: set/get/len/pop (float?) — booleans keep output stable.
+    assert_success(
+        "tests/integration/success/194_vector_float_basic.bx",
+        "1\n2\n1\n1\n1",
+    );
+}

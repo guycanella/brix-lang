@@ -2152,10 +2152,80 @@ fn test_vector_push_type_error() {
 }
 
 #[test]
-fn test_vector_float_rejected_phase1() {
-    // Vector<float>() is not enabled until Grupo C Phase 3.
+fn test_vector_float_enabled() {
+    // Vector<float>() is enabled (Grupo C Phase 3): new + push/get/set/pop compile.
     let program = Program {
-        statements: vec![vec_decl("v", None, "float")],
+        statements: vec![
+            vec_decl("v", None, "float"),
+            vec_method_stmt(
+                "v",
+                "push",
+                vec![Expr::dummy(ExprKind::Literal(Literal::Float(1.5)))],
+            ),
+            vec_method_stmt(
+                "v",
+                "set",
+                vec![
+                    Expr::dummy(ExprKind::Literal(Literal::Int(0))),
+                    Expr::dummy(ExprKind::Literal(Literal::Float(2.5))),
+                ],
+            ),
+            vec_method_stmt(
+                "v",
+                "get",
+                vec![Expr::dummy(ExprKind::Literal(Literal::Int(0)))],
+            ),
+            vec_method_stmt("v", "pop", vec![]),
+        ],
+    };
+    assert!(vector_compiles(program));
+}
+
+#[test]
+fn test_vector_string_still_rejected() {
+    // Vector<string>() is not enabled until Grupo C Phase 4.
+    let program = Program {
+        statements: vec![vec_decl("v", None, "string")],
+    };
+    assert!(!vector_compiles(program));
+}
+
+#[test]
+fn test_vector_float_push_int_type_error() {
+    // Strict typing: v.push(5) on Vector<float> must fail (no int->float coercion).
+    let program = Program {
+        statements: vec![
+            vec_decl("v", None, "float"),
+            vec_method_stmt(
+                "v",
+                "push",
+                vec![Expr::dummy(ExprKind::Literal(Literal::Int(5)))],
+            ),
+        ],
+    };
+    assert!(!vector_compiles(program));
+}
+
+#[test]
+fn test_vector_float_set_int_type_error() {
+    // Strict typing also on set: v.set(0, 5) on Vector<float> must fail.
+    let program = Program {
+        statements: vec![
+            vec_decl("v", None, "float"),
+            vec_method_stmt(
+                "v",
+                "push",
+                vec![Expr::dummy(ExprKind::Literal(Literal::Float(1.0)))],
+            ),
+            vec_method_stmt(
+                "v",
+                "set",
+                vec![
+                    Expr::dummy(ExprKind::Literal(Literal::Int(0))),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(5))),
+                ],
+            ),
+        ],
     };
     assert!(!vector_compiles(program));
 }
