@@ -1477,6 +1477,170 @@ SVDResult *math_svd(Matrix *A) {
   return res;
 }
 
+// ------------------------------------------------------------------
+// Cholesky (v1.8 Grupo B): A = L * L^T for symmetric positive-definite A.
+// dpotrf('L'); the upper triangle of the working copy keeps the original
+// input, so we zero it explicitly when extracting the lower-triangular L.
+// ------------------------------------------------------------------
+Matrix *math_cholesky(Matrix *A) {
+  if (A->rows <= 0 || A->cols <= 0) {
+    fprintf(stderr, "Error: cholesky() requires a non-empty matrix\n");
+    exit(1);
+  }
+  if (A->rows != A->cols) {
+    fprintf(stderr, "Error: cholesky() requires a square matrix\n");
+    exit(1);
+  }
+  long n = A->rows;
+  double *a = (double *)malloc(n * n * sizeof(double));
+  matrix_to_colmajor(A, a);
+
+  char uplo = 'L';
+  int n_int = (int)n, info;
+  extern void dpotrf_(char *uplo, int *n, double *a, int *lda, int *info);
+  dpotrf_(&uplo, &n_int, a, &n_int, &info);
+  if (info != 0) {
+    fprintf(stderr,
+            "Error: cholesky() failed (matrix not positive definite or "
+            "illegal argument, info=%d)\n",
+            info);
+    exit(1);
+  }
+
+  // Lower-triangular L in the lower triangle of column-major `a`; zero the
+  // strict upper triangle (dpotrf leaves the original values there).
+  Matrix *L = matrix_new(n, n);
+  for (long i = 0; i < n; i++) {
+    for (long j = 0; j < n; j++) {
+      L->data[i * n + j] = (i >= j) ? a[j * n + i] : 0.0;
+    }
+  }
+  free(a);
+  return L;
+}
+
+// ------------------------------------------------------------------
+// Solve (v1.8 Grupo B): x such that A*x = b, via LAPACK dgesv (LU + solve).
+// A is n x n. b may be an n x nrhs matrix, or a length-n vector in either
+// orientation (Brix 1-D literals are 1 x n); x is returned in b's shape.
+// A singular A makes dgesv report info > 0 — solve rejects it (fatal), unlike
+// math.lu which returns the factors regardless.
+// ------------------------------------------------------------------
+Matrix *math_solve(Matrix *A, Matrix *b) {
+  if (A->rows <= 0 || A->cols <= 0) {
+    fprintf(stderr, "Error: solve() requires a non-empty coefficient matrix\n");
+    exit(1);
+  }
+  if (A->rows != A->cols) {
+    fprintf(stderr, "Error: solve() requires a square coefficient matrix\n");
+    exit(1);
+  }
+  long n = A->rows;
+
+  long nrhs;
+  int b_is_row = 0;
+  if (b->rows == n) {
+    nrhs = b->cols; // n x nrhs (includes n x 1 column vector)
+  } else if (b->rows == 1 && b->cols == n) {
+    nrhs = 1;
+    b_is_row = 1; // 1 x n row vector → single RHS
+  } else {
+    fprintf(stderr, "Error: solve() RHS dimension mismatch\n");
+    exit(1);
+  }
+
+  double *a = (double *)malloc(n * n * sizeof(double));
+  matrix_to_colmajor(A, a);
+  double *bmat = (double *)malloc(n * nrhs * sizeof(double));
+  if (b_is_row) {
+    for (long i = 0; i < n; i++)
+      bmat[i] = b->data[i]; // 1 x n → n x 1 (contiguous)
+  } else {
+    matrix_to_colmajor(b, bmat);
+  }
+
+  int *ipiv = (int *)malloc(n * sizeof(int));
+  int n_int = (int)n, nrhs_int = (int)nrhs, info;
+  extern void dgesv_(int *n, int *nrhs, double *a, int *lda, int *ipiv,
+                     double *b, int *ldb, int *info);
+  dgesv_(&n_int, &nrhs_int, a, &n_int, ipiv, bmat, &n_int, &info);
+  if (info != 0) {
+    fprintf(stderr,
+            "Error: solve() failed (singular matrix or illegal argument, "
+            "info=%d)\n",
+            info);
+    exit(1);
+  }
+
+  Matrix *x;
+  if (b_is_row) {
+    x = matrix_new(1, n);
+    for (long i = 0; i < n; i++)
+      x->data[i] = bmat[i]; // n x 1 → 1 x n
+  } else {
+    x = matrix_new(n, nrhs);
+    for (long i = 0; i < n; i++)
+      for (long j = 0; j < nrhs; j++)
+        x->data[i * nrhs + j] = bmat[j * n + i];
+  }
+
+  free(a);
+  free(bmat);
+  free(ipiv);
+  return x;
+}
+
+// ------------------------------------------------------------------
+// Norms (v1.8 Grupo B).
+//   math_norm_vec: L2 (Euclidean) norm of a vector (any shape, flattened).
+//   math_norm_mat: 0 = Frobenius, 1 = 1-norm (max column sum),
+//                  2 = inf-norm (max row sum).
+// ------------------------------------------------------------------
+double math_norm_vec(Matrix *v) {
+  long total = v->rows * v->cols;
+  double sum = 0.0;
+  for (long i = 0; i < total; i++)
+    sum += v->data[i] * v->data[i];
+  return sqrt(sum);
+}
+
+double math_norm_mat(Matrix *A, long norm_type) {
+  if (norm_type < 0 || norm_type > 2) {
+    fprintf(stderr,
+            "Error: norm_mat() type must be 0 (Frobenius), 1 (1-norm) or "
+            "2 (inf-norm), got %ld\n",
+            norm_type);
+    exit(1);
+  }
+  long m = A->rows, n = A->cols;
+  if (norm_type == 1) {
+    double maxcol = 0.0;
+    for (long j = 0; j < n; j++) {
+      double col = 0.0;
+      for (long i = 0; i < m; i++)
+        col += fabs(A->data[i * n + j]);
+      if (col > maxcol)
+        maxcol = col;
+    }
+    return maxcol;
+  } else if (norm_type == 2) {
+    double maxrow = 0.0;
+    for (long i = 0; i < m; i++) {
+      double row = 0.0;
+      for (long j = 0; j < n; j++)
+        row += fabs(A->data[i * n + j]);
+      if (row > maxrow)
+        maxrow = row;
+    }
+    return maxrow;
+  }
+  // Frobenius (default / norm_type == 0)
+  double sum = 0.0;
+  for (long i = 0; i < m * n; i++)
+    sum += A->data[i] * A->data[i];
+  return sqrt(sum);
+}
+
 // ==========================================
 // SECTION 1.8: ARRAY METHODS (v1.7 Grupo B)
 // ==========================================

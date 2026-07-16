@@ -1,0 +1,6 @@
+import math
+
+// norm_mat only accepts type codes 0 (Frobenius), 1 (1-norm), 2 (inf-norm).
+// An out-of-range code must fail loudly, not silently alias to Frobenius.
+var M := zeros(2, 2)
+println(math.norm_mat(M, 3))

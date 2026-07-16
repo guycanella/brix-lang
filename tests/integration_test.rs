@@ -1597,3 +1597,48 @@ fn test_183_svd_empty_matrix() {
         Some("Error: svd() requires a non-empty matrix"),
     );
 }
+
+#[test]
+fn test_184_cholesky_basic() {
+    // L lower-triangular with unit reconstruction; upper triangle zeroed.
+    assert_success("tests/integration/success/184_cholesky_basic.bx", "2\n1\n0");
+}
+
+#[test]
+fn test_185_solve_basic() {
+    // A*x = b; x returned in b's (row-vector) shape.
+    assert_success("tests/integration/success/185_solve_basic.bx", "2\n3");
+}
+
+#[test]
+fn test_186_norm() {
+    // Vector L2 norm; matrix 1-norm and inf-norm.
+    assert_success("tests/integration/success/186_norm.bx", "5\n6\n7");
+}
+
+#[test]
+fn test_187_cholesky_empty_matrix() {
+    assert_output(
+        "tests/integration/success/187_cholesky_empty_matrix.bx",
+        1,
+        Some("Error: cholesky() requires a non-empty matrix"),
+    );
+}
+
+#[test]
+fn test_188_solve_empty_matrix() {
+    assert_output(
+        "tests/integration/success/188_solve_empty_matrix.bx",
+        1,
+        Some("Error: solve() requires a non-empty coefficient matrix"),
+    );
+}
+
+#[test]
+fn test_189_norm_mat_invalid() {
+    assert_output(
+        "tests/integration/success/189_norm_mat_invalid.bx",
+        1,
+        Some("Error: norm_mat() type must be"),
+    );
+}

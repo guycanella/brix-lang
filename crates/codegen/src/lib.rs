@@ -5415,6 +5415,39 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                         expr,
                                     );
                                 }
+                                "cholesky" => {
+                                    return self.compile_math_simple_builtin(
+                                        "cholesky",
+                                        "math_cholesky",
+                                        1,
+                                        BrixType::Matrix,
+                                        args,
+                                        expr,
+                                    );
+                                }
+                                "solve" => {
+                                    return self.compile_math_simple_builtin(
+                                        "solve",
+                                        "math_solve",
+                                        2,
+                                        BrixType::Matrix,
+                                        args,
+                                        expr,
+                                    );
+                                }
+                                "norm" => {
+                                    return self.compile_math_simple_builtin(
+                                        "norm",
+                                        "math_norm_vec",
+                                        1,
+                                        BrixType::Float,
+                                        args,
+                                        expr,
+                                    );
+                                }
+                                "norm_mat" => {
+                                    return self.compile_math_norm_mat(args, expr);
+                                }
                                 _ => {}
                             }
                         }
@@ -12194,6 +12227,154 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             })?;
 
         Ok((struct_val.into(), tuple_type))
+    }
+
+    /// Compile a math builtin taking a fixed number of Matrix arguments and
+    /// returning a single Matrix or Float (math.cholesky/solve/norm). The C
+    /// wrapper is `<ptr|f64> c_fn(Matrix*, ...)`.
+    fn compile_math_simple_builtin(
+        &mut self,
+        method_name: &str,
+        c_fn: &str,
+        n_args: usize,
+        ret_type: BrixType, // BrixType::Matrix or BrixType::Float
+        args: &[Expr],
+        expr: &Expr,
+    ) -> CodegenResult<(BasicValueEnum<'ctx>, BrixType)> {
+        use inkwell::AddressSpace;
+
+        if args.len() != n_args {
+            return Err(CodegenError::InvalidOperation {
+                operation: format!("math.{}", method_name),
+                reason: format!("expected {} matrix argument(s), got {}", n_args, args.len()),
+                span: Some(expr.span.clone()),
+            });
+        }
+
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let mut llvm_args = Vec::with_capacity(n_args);
+        for a in args {
+            let (v, t) = self.compile_expr(a)?;
+            if t != BrixType::Matrix {
+                return Err(CodegenError::TypeError {
+                    expected: "Matrix (float)".to_string(),
+                    found: format!("{:?}", t),
+                    context: format!("math.{} argument", method_name),
+                    span: Some(expr.span.clone()),
+                });
+            }
+            llvm_args.push(v.into());
+        }
+
+        let param_types: Vec<inkwell::types::BasicMetadataTypeEnum> =
+            (0..n_args).map(|_| ptr_type.into()).collect();
+        let math_fn = self.module.get_function(c_fn).unwrap_or_else(|| {
+            let fn_type = if ret_type == BrixType::Float {
+                self.context.f64_type().fn_type(&param_types, false)
+            } else {
+                ptr_type.fn_type(&param_types, false)
+            };
+            self.module
+                .add_function(c_fn, fn_type, Some(Linkage::External))
+        });
+
+        let call = self
+            .builder
+            .build_call(math_fn, &llvm_args, "math_call")
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_call".to_string(),
+                details: format!("Failed to call {}", c_fn),
+                span: Some(expr.span.clone()),
+            })?;
+        let result =
+            call.try_as_basic_value()
+                .left()
+                .ok_or_else(|| CodegenError::MissingValue {
+                    what: format!("{} result", c_fn),
+                    context: format!("math.{}", method_name),
+                    span: Some(expr.span.clone()),
+                })?;
+
+        Ok((result, ret_type))
+    }
+
+    /// Compile `math.norm_mat(A)` / `math.norm_mat(A, code)` -> Float.
+    /// code: 0 = Frobenius (default), 1 = 1-norm, 2 = inf-norm.
+    fn compile_math_norm_mat(
+        &mut self,
+        args: &[Expr],
+        expr: &Expr,
+    ) -> CodegenResult<(BasicValueEnum<'ctx>, BrixType)> {
+        use inkwell::AddressSpace;
+
+        if args.is_empty() || args.len() > 2 {
+            return Err(CodegenError::InvalidOperation {
+                operation: "math.norm_mat".to_string(),
+                reason: format!(
+                    "expected (matrix) or (matrix, int), got {} args",
+                    args.len()
+                ),
+                span: Some(expr.span.clone()),
+            });
+        }
+
+        let (mat_val, mat_type) = self.compile_expr(&args[0])?;
+        if mat_type != BrixType::Matrix {
+            return Err(CodegenError::TypeError {
+                expected: "Matrix (float)".to_string(),
+                found: format!("{:?}", mat_type),
+                context: "math.norm_mat argument".to_string(),
+                span: Some(expr.span.clone()),
+            });
+        }
+
+        let i64_type = self.context.i64_type();
+        let code_val = if args.len() == 2 {
+            let (c, ct) = self.compile_expr(&args[1])?;
+            if ct != BrixType::Int {
+                return Err(CodegenError::TypeError {
+                    expected: "Int (0=Frobenius, 1=1-norm, 2=inf-norm)".to_string(),
+                    found: format!("{:?}", ct),
+                    context: "math.norm_mat norm-type argument".to_string(),
+                    span: Some(expr.span.clone()),
+                });
+            }
+            c.into_int_value()
+        } else {
+            i64_type.const_int(0, false) // default: Frobenius
+        };
+
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let norm_fn = self
+            .module
+            .get_function("math_norm_mat")
+            .unwrap_or_else(|| {
+                let fn_type = self
+                    .context
+                    .f64_type()
+                    .fn_type(&[ptr_type.into(), i64_type.into()], false);
+                self.module
+                    .add_function("math_norm_mat", fn_type, Some(Linkage::External))
+            });
+
+        let call = self
+            .builder
+            .build_call(norm_fn, &[mat_val.into(), code_val.into()], "norm_mat_call")
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_call".to_string(),
+                details: "Failed to call math_norm_mat".to_string(),
+                span: Some(expr.span.clone()),
+            })?;
+        let result =
+            call.try_as_basic_value()
+                .left()
+                .ok_or_else(|| CodegenError::MissingValue {
+                    what: "math_norm_mat result".to_string(),
+                    context: "math.norm_mat".to_string(),
+                    span: Some(expr.span.clone()),
+                })?;
+
+        Ok((result, BrixType::Float))
     }
 
     fn compile_zip(&mut self, args: &[Expr]) -> Option<(BasicValueEnum<'ctx>, BrixType)> {

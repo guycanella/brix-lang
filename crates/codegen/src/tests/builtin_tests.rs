@@ -1407,6 +1407,67 @@ fn test_math_svd() {
     assert!(result.is_ok());
 }
 
+// Helper: `import math` + a call `math.<field>(zeros(2,2)[, extra])`.
+fn compile_math_linalg_call(field: &str, extra_args: Vec<Expr>) -> bool {
+    let mut call_args = vec![Expr::dummy(ExprKind::Call {
+        func: Box::new(Expr::dummy(ExprKind::Identifier("zeros".to_string()))),
+        args: vec![
+            Expr::dummy(ExprKind::Literal(Literal::Int(2))),
+            Expr::dummy(ExprKind::Literal(Literal::Int(2))),
+        ],
+    })];
+    call_args.extend(extra_args);
+    let program = Program {
+        statements: vec![
+            Stmt::dummy(StmtKind::Import {
+                module: "math".to_string(),
+                alias: None,
+            }),
+            Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+                func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                    target: Box::new(Expr::dummy(ExprKind::Identifier("math".to_string()))),
+                    field: field.to_string(),
+                })),
+                args: call_args,
+            }))),
+        ],
+    };
+    compile_program(program).is_ok()
+}
+
+#[test]
+fn test_math_cholesky() {
+    assert!(compile_math_linalg_call("cholesky", vec![]));
+}
+
+#[test]
+fn test_math_solve() {
+    // solve(A, b) — second matrix arg (reuse zeros(2,2) as the RHS).
+    let b = Expr::dummy(ExprKind::Call {
+        func: Box::new(Expr::dummy(ExprKind::Identifier("zeros".to_string()))),
+        args: vec![
+            Expr::dummy(ExprKind::Literal(Literal::Int(2))),
+            Expr::dummy(ExprKind::Literal(Literal::Int(2))),
+        ],
+    });
+    assert!(compile_math_linalg_call("solve", vec![b]));
+}
+
+#[test]
+fn test_math_norm() {
+    assert!(compile_math_linalg_call("norm", vec![]));
+}
+
+#[test]
+fn test_math_norm_mat() {
+    // Default (no code) and explicit int code both compile.
+    assert!(compile_math_linalg_call("norm_mat", vec![]));
+    assert!(compile_math_linalg_call(
+        "norm_mat",
+        vec![Expr::dummy(ExprKind::Literal(Literal::Int(1)))]
+    ));
+}
+
 #[test]
 fn test_math_eigvecs() {
     let program = Program {
