@@ -581,11 +581,38 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
             };
             let hint = &resolved_hint;
 
+            // Vector<T> annotation: validate the element and require the value
+            // to be exactly that Vector type (no implicit casts). An unsupported
+            // element (Vector(Error), e.g. Vector<Matrix>) is rejected outright —
+            // it must never silently fall back to a valid Vector type.
+            let hint_bt = self.string_to_brix_type(hint);
+            if let BrixType::Vector(inner) = &hint_bt {
+                if !matches!(
+                    inner.as_ref(),
+                    BrixType::Int | BrixType::Float | BrixType::String
+                ) {
+                    return Err(CodegenError::TypeError {
+                        expected: "Vector<int>, Vector<float> or Vector<string>".to_string(),
+                        found: hint.clone(),
+                        context: format!("Variable declaration '{}'", name),
+                        span: None,
+                    });
+                }
+                if val_type != hint_bt {
+                    return Err(CodegenError::TypeError {
+                        expected: hint.clone(),
+                        found: format!("{:?}", val_type),
+                        context: format!("Variable declaration '{}'", name),
+                        span: None,
+                    });
+                }
+                // Valid, matching Vector<T>: no cast — fall through to store.
+            }
             // Check for Union type (contains " | ")
             // Check for Intersection type (contains " & ")
             // Check for Optional type (ends with "?")
             // Otherwise, process as normal type with casting
-            if hint.contains(" | ") || hint.ends_with('?') {
+            else if hint.contains(" | ") || hint.ends_with('?') {
                 let union_type = self.string_to_brix_type(hint);
                 if let BrixType::Union(types) = &union_type {
                     // Find which variant of the union matches the value type
@@ -763,6 +790,7 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
             | BrixType::ComplexMatrix
             | BrixType::FloatPtr
             | BrixType::Nil
+            | BrixType::Vector(_)
             | BrixType::Error => self.context.ptr_type(AddressSpace::default()).into(),
             BrixType::Complex => {
                 // Allocate space for complex struct { f64, f64 }

@@ -2061,3 +2061,119 @@ fn test_is_boolean_function() {
     let result = compile_program(program);
     assert!(result.is_ok());
 }
+
+// ==================== VECTOR<T> (v1.8 Grupo C, Phase 1) ====================
+
+/// True iff the program compiles with no CodegenError and no panic. Unlike the
+/// weaker `compile_program` helper above, this surfaces CodegenErrors so that
+/// negative tests (type errors, unsupported types) are meaningful.
+fn vector_compiles(program: Program) -> bool {
+    std::panic::catch_unwind(|| {
+        let context = Context::create();
+        let module = context.create_module("test");
+        let builder = context.create_builder();
+        let mut compiler = Compiler::new(
+            &context,
+            &builder,
+            &module,
+            "test.bx".to_string(),
+            "".to_string(),
+        );
+        compiler.compile_program(&program).is_ok()
+    })
+    .unwrap_or(false)
+}
+
+fn vector_new_expr(elem: &str) -> Expr {
+    Expr::dummy(ExprKind::GenericCall {
+        func: Box::new(Expr::dummy(ExprKind::Identifier("Vector".to_string()))),
+        type_args: vec![elem.to_string()],
+        args: vec![],
+    })
+}
+
+fn vec_method_stmt(recv: &str, method: &str, args: Vec<Expr>) -> Stmt {
+    Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+        func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+            target: Box::new(Expr::dummy(ExprKind::Identifier(recv.to_string()))),
+            field: method.to_string(),
+        })),
+        args,
+    })))
+}
+
+fn vec_decl(name: &str, type_hint: Option<&str>, elem: &str) -> Stmt {
+    Stmt::dummy(StmtKind::VariableDecl {
+        name: name.to_string(),
+        type_hint: type_hint.map(|s| s.to_string()),
+        value: vector_new_expr(elem),
+        is_const: false,
+    })
+}
+
+#[test]
+fn test_vector_int_new_push_get_len() {
+    // var v := Vector<int>(); v.push(10); v.get(0); v.len() — all compile.
+    let program = Program {
+        statements: vec![
+            vec_decl("v", None, "int"),
+            vec_method_stmt(
+                "v",
+                "push",
+                vec![Expr::dummy(ExprKind::Literal(Literal::Int(10)))],
+            ),
+            vec_method_stmt(
+                "v",
+                "get",
+                vec![Expr::dummy(ExprKind::Literal(Literal::Int(0)))],
+            ),
+            vec_method_stmt("v", "len", vec![]),
+        ],
+    };
+    assert!(vector_compiles(program));
+}
+
+#[test]
+fn test_vector_push_type_error() {
+    // v.push("x") on Vector<int> must fail to compile.
+    let program = Program {
+        statements: vec![
+            vec_decl("v", None, "int"),
+            vec_method_stmt(
+                "v",
+                "push",
+                vec![Expr::dummy(ExprKind::Literal(Literal::String(
+                    "x".to_string(),
+                )))],
+            ),
+        ],
+    };
+    assert!(!vector_compiles(program));
+}
+
+#[test]
+fn test_vector_float_rejected_phase1() {
+    // Vector<float>() is not enabled until Grupo C Phase 3.
+    let program = Program {
+        statements: vec![vec_decl("v", None, "float")],
+    };
+    assert!(!vector_compiles(program));
+}
+
+#[test]
+fn test_vector_annotation_ok() {
+    // var v: Vector<int> = Vector<int>() compiles.
+    let program = Program {
+        statements: vec![vec_decl("v", Some("Vector<int>"), "int")],
+    };
+    assert!(vector_compiles(program));
+}
+
+#[test]
+fn test_vector_matrix_annotation_rejected() {
+    // var v: Vector<Matrix> = Vector<int>() must fail (invalid element type).
+    let program = Program {
+        statements: vec![vec_decl("v", Some("Vector<Matrix>"), "int")],
+    };
+    assert!(!vector_compiles(program));
+}

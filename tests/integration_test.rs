@@ -1642,3 +1642,15 @@ fn test_189_norm_mat_invalid() {
         Some("Error: norm_mat() type must be"),
     );
 }
+
+// ==========================================
+// v1.8 Grupo C: Vector<T> (Phase 1 — Vector<int>)
+// ==========================================
+
+#[test]
+fn test_190_vector_int_basic() {
+    assert_success(
+        "tests/integration/success/190_vector_int_basic.bx",
+        "3\n10\n20\n30",
+    );
+}
