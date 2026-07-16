@@ -1,0 +1,9 @@
+// Vector<int> Phase 1: new / push / get / len (v1.8 Grupo C).
+var v := Vector<int>()
+v.push(10)
+v.push(20)
+v.push(30)
+println(v.len())    // 3
+println(v.get(0))   // 10
+println(v.get(1))   // 20
+println(v.get(2))   // 30

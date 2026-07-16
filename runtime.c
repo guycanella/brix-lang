@@ -2560,6 +2560,93 @@ BrixString* brix_str_join(BrixStringMatrix* m, BrixString* sep) {
 }
 
 // ==========================================
+// SECTION 2.4: VECTOR<T> (v1.8 Grupo C)
+// ==========================================
+//
+// Dynamic array with 2x growth. Every element occupies 8 bytes (i64 / f64 /
+// BrixString* pointer), so `elem_size` is always 8 in v1.8; `elem_kind` tells
+// the runtime whether a slot owns a ref-counted object (a string) so that
+// push/set/clear/release can retain/release it correctly. int/float slots are
+// plain 8-byte copies.
+
+typedef enum {
+  BRIX_VEC_INT = 1,
+  BRIX_VEC_FLOAT = 2,
+  BRIX_VEC_STRING = 3,
+} BrixVectorElemKind;
+
+typedef struct {
+  long ref_count;
+  long len;
+  long cap;
+  long elem_size; // bytes per element (8 in v1.8)
+  long elem_kind; // BrixVectorElemKind
+  void *data;     // contiguous buffer of `cap` slots
+} BrixVector;
+
+BrixVector *brix_vector_new(long elem_size, long elem_kind) {
+  BrixVector *v = (BrixVector *)malloc(sizeof(BrixVector));
+  v->ref_count = 1;
+  v->len = 0;
+  v->cap = 8;
+  v->elem_size = elem_size;
+  v->elem_kind = elem_kind;
+  v->data = malloc(v->cap * elem_size);
+  return v;
+}
+
+// Element pointer helper. Unlike Matrix indexing, Vector is an explicit
+// dynamic-collection API, so get() bounds-checks and aborts on out-of-range.
+void *brix_vector_get_ptr(BrixVector *v, long i) {
+  if (i < 0 || i >= v->len) {
+    fprintf(stderr, "Error: Vector.get(%ld) out of bounds (len=%ld)\n", i,
+            v->len);
+    exit(1);
+  }
+  return (char *)v->data + i * v->elem_size;
+}
+
+// push: copy the 8-byte element into the next slot, growing 2x as needed.
+// A string element is retained (the vector now co-owns it).
+void brix_vector_push(BrixVector *v, void *elem) {
+  if (v->len >= v->cap) {
+    v->cap *= 2;
+    v->data = realloc(v->data, v->cap * v->elem_size);
+  }
+  char *slot = (char *)v->data + v->len * v->elem_size;
+  memcpy(slot, elem, v->elem_size);
+  if (v->elem_kind == BRIX_VEC_STRING) {
+    string_retain(*(BrixString **)slot);
+  }
+  v->len++;
+}
+
+long brix_vector_len(BrixVector *v) { return v->len; }
+
+void *brix_vector_retain(BrixVector *v) {
+  if (!v)
+    return NULL;
+  v->ref_count++;
+  return v;
+}
+
+void brix_vector_release(BrixVector *v) {
+  if (!v)
+    return;
+  v->ref_count--;
+  if (v->ref_count == 0) {
+    // Release each owned element (only strings are ref-counted in v1.8).
+    if (v->elem_kind == BRIX_VEC_STRING) {
+      for (long i = 0; i < v->len; i++) {
+        string_release(*(BrixString **)((char *)v->data + i * v->elem_size));
+      }
+    }
+    free(v->data);
+    free(v);
+  }
+}
+
+// ==========================================
 // SECTION 3: STATISTICS (v0.7)
 // ==========================================
 

@@ -1,0 +1,25 @@
+import test
+
+test.describe("Vector<int> (v1.8 Grupo C, Phase 1)", () -> {
+    test.it("push then get/len", () -> {
+        var v := Vector<int>()
+        v.push(10)
+        v.push(20)
+        v.push(30)
+        test.expect(v.len()).toBe(3)
+        test.expect(v.get(0)).toBe(10)
+        test.expect(v.get(2)).toBe(30)
+    })
+
+    test.it("grows past initial capacity (2x growth)", () -> {
+        var v := Vector<int>()
+        var i := 0
+        while i < 20 {
+            v.push(i * i)
+            i := i + 1
+        }
+        test.expect(v.len()).toBe(20)
+        test.expect(v.get(19)).toBe(361)
+        test.expect(v.get(10)).toBe(100)
+    })
+})

@@ -32,6 +32,7 @@ pub enum BrixType {
     Union(Vec<BrixType>),        // Union type: int | float | string (v1.4)
     Intersection(Vec<BrixType>), // Intersection type: Point & Label (v1.4)
     AsyncFuture, // async { } block result: state_ptr (i8*) with embedded poll_fn at offset 0 (v1.6 Phase 3b)
+    Vector(Box<BrixType>), // Dynamic array Vector<T> (BrixVector*), v1.8 Grupo C; T in {Int, Float, String}
 }
 
 // Type-related helper functions will be implemented as methods on Compiler

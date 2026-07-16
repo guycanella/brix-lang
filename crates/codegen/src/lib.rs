@@ -513,6 +513,25 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             };
         }
 
+        // Step 4d: Vector<T> (v1.8 Grupo C). Only Vector<int|float|string> are
+        // supported; nested or other element types are rejected explicitly
+        // (the GenericCall dispatch enforces this again with a CodegenError).
+        if let Some(inner) = resolved_type_str
+            .strip_prefix("Vector<")
+            .and_then(|s| s.strip_suffix('>'))
+        {
+            let elem = match inner.trim() {
+                "int" => BrixType::Int,
+                "float" => BrixType::Float,
+                "string" => BrixType::String,
+                // Unsupported element type: represent as Vector(Error) — an
+                // invalid type that the type-hint / construction paths reject
+                // (never silently fall back to a valid Vector<int>).
+                _ => BrixType::Error,
+            };
+            return BrixType::Vector(Box::new(elem));
+        }
+
         // Step 5: Base types
         match resolved_type_str {
             "int" => BrixType::Int,
@@ -582,6 +601,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             }
             BrixType::ComplexArray | BrixType::ComplexMatrix => {
                 // Pointer to runtime struct
+                self.context.ptr_type(AddressSpace::default()).into()
+            }
+            BrixType::Vector(_) => {
+                // Vector<T> is a pointer to the heap BrixVector struct.
                 self.context.ptr_type(AddressSpace::default()).into()
             }
             BrixType::Void => self.context.i64_type().into(), // Placeholder (shouldn't be used)
@@ -1123,6 +1146,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 | BrixType::IntMatrix
                 | BrixType::StringMatrix
                 | BrixType::ComplexMatrix
+                | BrixType::Vector(_)
         )
     }
 
@@ -1173,6 +1197,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             BrixType::IntMatrix => "intmatrix_retain",
             BrixType::StringMatrix => "string_matrix_retain",
             BrixType::ComplexMatrix => "complexmatrix_retain",
+            BrixType::Vector(_) => "brix_vector_retain",
             _ => unreachable!("is_ref_counted should have filtered this"),
         };
 
@@ -1222,6 +1247,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             BrixType::IntMatrix => "intmatrix_release",
             BrixType::StringMatrix => "string_matrix_release",
             BrixType::ComplexMatrix => "complexmatrix_release",
+            BrixType::Vector(_) => "brix_vector_release",
             _ => unreachable!("is_ref_counted should have filtered this"),
         };
 
@@ -3769,6 +3795,22 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                     })?;
                             Ok((val, brix_type.clone()))
                         }
+                        BrixType::Vector(_) => {
+                            // Vector<T> is stored as a BrixVector* pointer.
+                            let ptr_type = self.context.ptr_type(AddressSpace::default());
+                            let val =
+                                self.builder.build_load(ptr_type, *ptr, name).map_err(|_| {
+                                    CodegenError::LLVMError {
+                                        operation: "build_load".to_string(),
+                                        details: format!(
+                                            "Failed to load Vector variable '{}'",
+                                            name
+                                        ),
+                                        span: Some(expr.span.clone()),
+                                    }
+                                })?;
+                            Ok((val, brix_type.clone()))
+                        }
                         _ => Err(CodegenError::TypeError {
                             expected: "Nil, Error, or Atom".to_string(),
                             found: format!("{:?}", brix_type),
@@ -5567,8 +5609,34 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                 | "index_of"
                                 | "split"
                         );
-                        if is_iter_method || is_str_method {
+                        // Vector<T> methods (v1.8 Grupo C). `v.len()` is a method
+                        // call (parenthesized); the bare `.len` field access on a
+                        // Matrix takes a different AST path, so no overlap.
+                        let is_vector_method = matches!(
+                            field.as_str(),
+                            "push"
+                                | "pop"
+                                | "get"
+                                | "set"
+                                | "len"
+                                | "is_empty"
+                                | "clear"
+                                | "to_array"
+                        );
+                        if is_iter_method || is_str_method || is_vector_method {
                             let (receiver_val, receiver_type) = self.compile_expr(target)?;
+                            if is_vector_method {
+                                if let BrixType::Vector(elem) = &receiver_type {
+                                    let elem = elem.as_ref().clone();
+                                    return self.compile_vector_method(
+                                        receiver_val,
+                                        &elem,
+                                        field,
+                                        args,
+                                        expr,
+                                    );
+                                }
+                            }
                             if is_iter_method
                                 && matches!(receiver_type, BrixType::IntMatrix | BrixType::Matrix)
                             {
@@ -5784,6 +5852,15 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             BrixType::Error => "error".to_string(),
                             BrixType::Atom => "atom".to_string(),
                             BrixType::Struct(name) => name.clone(),
+                            BrixType::Vector(inner) => {
+                                let elem = match inner.as_ref() {
+                                    BrixType::Int => "int",
+                                    BrixType::Float => "float",
+                                    BrixType::String => "string",
+                                    _ => "unknown",
+                                };
+                                format!("Vector<{}>", elem)
+                            }
                             BrixType::Optional(_) => {
                                 // Optional is now Union(T, nil), should never be reached
                                 panic!("Optional type should have been converted to Union")
@@ -7713,6 +7790,12 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                 .to_string(),
                         )),
                     };
+
+                // Vector<T>() constructor (v1.8 Grupo C) — intercepted before
+                // generic function monomorphization.
+                if func_name == "Vector" {
+                    return self.compile_vector_new(type_args, args, expr);
+                }
 
                 // Get parent function for context
                 let parent_function = self.current_function.ok_or_else(|| {
@@ -12375,6 +12458,267 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 })?;
 
         Ok((result, BrixType::Float))
+    }
+
+    // --- Vector<T> (v1.8 Grupo C) ---
+
+    /// Runtime elem_kind code for a Vector element type (1=int, 2=float,
+    /// 3=string). None for unsupported element types (v1.8 restricts to those).
+    fn vector_elem_kind(elem: &BrixType) -> Option<u64> {
+        match elem {
+            BrixType::Int => Some(1),
+            BrixType::Float => Some(2),
+            BrixType::String => Some(3),
+            _ => None,
+        }
+    }
+
+    /// Compile `Vector<T>()` -> a fresh BrixVector* (ref_count = 1).
+    fn compile_vector_new(
+        &mut self,
+        type_args: &[String],
+        args: &[Expr],
+        expr: &Expr,
+    ) -> CodegenResult<(BasicValueEnum<'ctx>, BrixType)> {
+        use inkwell::AddressSpace;
+
+        if type_args.len() != 1 {
+            return Err(CodegenError::InvalidOperation {
+                operation: "Vector".to_string(),
+                reason: "expects exactly one type argument, e.g. Vector<int>()".to_string(),
+                span: Some(expr.span.clone()),
+            });
+        }
+        if !args.is_empty() {
+            return Err(CodegenError::InvalidOperation {
+                operation: "Vector".to_string(),
+                reason: "constructor takes no arguments".to_string(),
+                span: Some(expr.span.clone()),
+            });
+        }
+
+        let elem = self.string_to_brix_type(&type_args[0]);
+        // Phase 1 scope: only Vector<int> is enabled. Vector<float> lands in
+        // Grupo C Phase 3 and Vector<string> (with element ARC) in Phase 4.
+        if elem != BrixType::Int {
+            return Err(CodegenError::TypeError {
+                expected: "Vector<int> (Vector<float>/Vector<string> not enabled yet)".to_string(),
+                found: format!("Vector<{}>", type_args[0]),
+                context: "Vector constructor".to_string(),
+                span: Some(expr.span.clone()),
+            });
+        }
+        let elem_kind = Self::vector_elem_kind(&elem).ok_or_else(|| CodegenError::TypeError {
+            expected: "Vector<int>, Vector<float> or Vector<string>".to_string(),
+            found: format!("Vector<{}>", type_args[0]),
+            context: "Vector constructor".to_string(),
+            span: Some(expr.span.clone()),
+        })?;
+
+        let i64_type = self.context.i64_type();
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let new_fn = self
+            .module
+            .get_function("brix_vector_new")
+            .unwrap_or_else(|| {
+                let fn_type = ptr_type.fn_type(&[i64_type.into(), i64_type.into()], false);
+                self.module
+                    .add_function("brix_vector_new", fn_type, Some(Linkage::External))
+            });
+
+        let call = self
+            .builder
+            .build_call(
+                new_fn,
+                &[
+                    i64_type.const_int(8, false).into(),
+                    i64_type.const_int(elem_kind, false).into(),
+                ],
+                "vector_new",
+            )
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_call".to_string(),
+                details: "Failed to call brix_vector_new".to_string(),
+                span: Some(expr.span.clone()),
+            })?;
+        let result =
+            call.try_as_basic_value()
+                .left()
+                .ok_or_else(|| CodegenError::MissingValue {
+                    what: "brix_vector_new result".to_string(),
+                    context: "Vector()".to_string(),
+                    span: Some(expr.span.clone()),
+                })?;
+
+        Ok((result, BrixType::Vector(Box::new(elem))))
+    }
+
+    /// Compile a method call on a Vector receiver (Phase 1: push / get / len).
+    fn compile_vector_method(
+        &mut self,
+        receiver: BasicValueEnum<'ctx>,
+        elem_type: &BrixType,
+        method: &str,
+        args: &[Expr],
+        expr: &Expr,
+    ) -> CodegenResult<(BasicValueEnum<'ctx>, BrixType)> {
+        use inkwell::AddressSpace;
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let i64_type = self.context.i64_type();
+        let vec_ptr = receiver.into_pointer_value();
+
+        match method {
+            "len" => {
+                let len_fn = self
+                    .module
+                    .get_function("brix_vector_len")
+                    .unwrap_or_else(|| {
+                        let fn_type = i64_type.fn_type(&[ptr_type.into()], false);
+                        self.module.add_function(
+                            "brix_vector_len",
+                            fn_type,
+                            Some(Linkage::External),
+                        )
+                    });
+                let call = self
+                    .builder
+                    .build_call(len_fn, &[vec_ptr.into()], "vec_len")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: "Failed to call brix_vector_len".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                let result =
+                    call.try_as_basic_value()
+                        .left()
+                        .ok_or_else(|| CodegenError::MissingValue {
+                            what: "brix_vector_len result".to_string(),
+                            context: "Vector.len".to_string(),
+                            span: Some(expr.span.clone()),
+                        })?;
+                Ok((result, BrixType::Int))
+            }
+            "push" => {
+                if args.len() != 1 {
+                    return Err(CodegenError::InvalidOperation {
+                        operation: "Vector.push".to_string(),
+                        reason: format!("expects 1 argument, got {}", args.len()),
+                        span: Some(expr.span.clone()),
+                    });
+                }
+                let (val, val_type) = self.compile_expr(&args[0])?;
+                if &val_type != elem_type {
+                    return Err(CodegenError::TypeError {
+                        expected: format!("{:?}", elem_type),
+                        found: format!("{:?}", val_type),
+                        context: "Vector.push element".to_string(),
+                        span: Some(expr.span.clone()),
+                    });
+                }
+                // Store the 8-byte value into a temp slot and pass its pointer.
+                let elem_llvm = self.brix_type_to_llvm(elem_type);
+                let slot = self
+                    .builder
+                    .build_alloca(elem_llvm, "push_slot")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_alloca".to_string(),
+                        details: "Failed to alloca push slot".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                self.builder
+                    .build_store(slot, val)
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_store".to_string(),
+                        details: "Failed to store push element".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                let push_fn = self
+                    .module
+                    .get_function("brix_vector_push")
+                    .unwrap_or_else(|| {
+                        let fn_type = self
+                            .context
+                            .void_type()
+                            .fn_type(&[ptr_type.into(), ptr_type.into()], false);
+                        self.module.add_function(
+                            "brix_vector_push",
+                            fn_type,
+                            Some(Linkage::External),
+                        )
+                    });
+                self.builder
+                    .build_call(push_fn, &[vec_ptr.into(), slot.into()], "")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: "Failed to call brix_vector_push".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                Ok((i64_type.const_int(0, false).into(), BrixType::Void))
+            }
+            "get" => {
+                if args.len() != 1 {
+                    return Err(CodegenError::InvalidOperation {
+                        operation: "Vector.get".to_string(),
+                        reason: format!("expects 1 argument, got {}", args.len()),
+                        span: Some(expr.span.clone()),
+                    });
+                }
+                let (idx, idx_type) = self.compile_expr(&args[0])?;
+                if idx_type != BrixType::Int {
+                    return Err(CodegenError::TypeError {
+                        expected: "Int".to_string(),
+                        found: format!("{:?}", idx_type),
+                        context: "Vector.get index".to_string(),
+                        span: Some(expr.span.clone()),
+                    });
+                }
+                let get_fn = self
+                    .module
+                    .get_function("brix_vector_get_ptr")
+                    .unwrap_or_else(|| {
+                        let fn_type = ptr_type.fn_type(&[ptr_type.into(), i64_type.into()], false);
+                        self.module.add_function(
+                            "brix_vector_get_ptr",
+                            fn_type,
+                            Some(Linkage::External),
+                        )
+                    });
+                let call = self
+                    .builder
+                    .build_call(get_fn, &[vec_ptr.into(), idx.into()], "vec_slot")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: "Failed to call brix_vector_get_ptr".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                let slot_ptr = call
+                    .try_as_basic_value()
+                    .left()
+                    .ok_or_else(|| CodegenError::MissingValue {
+                        what: "brix_vector_get_ptr result".to_string(),
+                        context: "Vector.get".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?
+                    .into_pointer_value();
+                let elem_llvm = self.brix_type_to_llvm(elem_type);
+                let loaded = self
+                    .builder
+                    .build_load(elem_llvm, slot_ptr, "vec_get")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_load".to_string(),
+                        details: "Failed to load vector element".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                // NOTE: string elements (Phase 4) are borrowed from the vector;
+                // get() will need to return a retained (owned) copy then. Phase 1
+                // is Vector<int> only, so no element ARC here yet.
+                Ok((loaded, elem_type.clone()))
+            }
+            other => Err(CodegenError::General(format!(
+                "Vector method '{}' not supported yet (Phase 1: push/get/len)",
+                other
+            ))),
+        }
     }
 
     fn compile_zip(&mut self, args: &[Expr]) -> Option<(BasicValueEnum<'ctx>, BrixType)> {
