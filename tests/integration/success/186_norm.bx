@@ -1,0 +1,13 @@
+import math
+
+// Vector L2 norm and matrix norms (int type code: 1=1-norm, 2=inf-norm).
+var v := [3.0, 4.0]
+println(math.norm(v))          // 5
+
+var M := zeros(2, 2)
+M[0][0] := 1.0
+M[0][1] := 2.0
+M[1][0] := 3.0
+M[1][1] := 4.0
+println(math.norm_mat(M, 1))   // 6  (max column sum)
+println(math.norm_mat(M, 2))   // 7  (max row sum)

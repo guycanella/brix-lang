@@ -182,3 +182,60 @@ test.describe("SVD (v1.8 Grupo B)", () -> {
         test.expect(U[1][0] * S[0] * Vt[0][2] + U[1][1] * S[1] * Vt[1][2]).toBeCloseTo(6.0)
     })
 })
+
+test.describe("Cholesky / solve / norm (v1.8 Grupo B)", () -> {
+    test.it("cholesky of [[4,2],[2,3]]", () -> {
+        var A := zeros(2, 2)
+        A[0][0] := 4.0
+        A[0][1] := 2.0
+        A[1][0] := 2.0
+        A[1][1] := 3.0
+        var L := math.cholesky(A)
+        test.expect(L[0][0]).toBeCloseTo(2.0)
+        test.expect(L[1][0]).toBeCloseTo(1.0)
+        test.expect(L[1][1]).toBeCloseTo(1.414214)
+        test.expect(L[0][1]).toBeCloseTo(0.0)
+    })
+
+    test.it("solve A*x = b (row-vector RHS)", () -> {
+        var A := zeros(2, 2)
+        A[0][0] := 2.0
+        A[1][1] := 3.0
+        var b := [4.0, 9.0]
+        var x := math.solve(A, b)
+        test.expect(x[0]).toBeCloseTo(2.0)
+        test.expect(x[1]).toBeCloseTo(3.0)
+    })
+
+    test.it("solve with multiple RHS (n x nrhs)", () -> {
+        var A := zeros(2, 2)
+        A[0][0] := 2.0
+        A[1][1] := 3.0
+        var b := zeros(2, 2)
+        b[0][0] := 4.0
+        b[0][1] := 2.0
+        b[1][0] := 9.0
+        b[1][1] := 6.0
+        var x := math.solve(A, b)
+        test.expect(x[0][0]).toBeCloseTo(2.0)
+        test.expect(x[0][1]).toBeCloseTo(1.0)
+        test.expect(x[1][0]).toBeCloseTo(3.0)
+        test.expect(x[1][1]).toBeCloseTo(2.0)
+    })
+
+    test.it("vector L2 norm", () -> {
+        var v := [3.0, 4.0]
+        test.expect(math.norm(v)).toBeCloseTo(5.0)
+    })
+
+    test.it("matrix norms (Frobenius / 1 / inf)", () -> {
+        var M := zeros(2, 2)
+        M[0][0] := 1.0
+        M[0][1] := 2.0
+        M[1][0] := 3.0
+        M[1][1] := 4.0
+        test.expect(math.norm_mat(M)).toBeCloseTo(5.477226)
+        test.expect(math.norm_mat(M, 1)).toBeCloseTo(6.0)
+        test.expect(math.norm_mat(M, 2)).toBeCloseTo(7.0)
+    })
+})

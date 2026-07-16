@@ -1,0 +1,6 @@
+import math
+
+var A := zeros(0, 0)
+var b := zeros(0, 0)
+var x := math.solve(A, b)
+println(x.rows)
