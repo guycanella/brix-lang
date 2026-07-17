@@ -1,0 +1,19 @@
+// Vector<string> (v1.8 Grupo C Phase 4): element ARC. set releases the old
+// element and retains the new; get returns an owned value; pop transfers
+// ownership and is consumed via Elvis over an owned temporary string?.
+var v := Vector<string>()
+v.push("a")
+v.push("b")
+println(v.len())               // 2
+println(v.get(0))              // a
+v.set(0, "z")
+println(v.get(0))              // z (old "a" released, "z" retained)
+var a := v.get(1)
+v.clear()
+println(a)                     // b (get is owned — survives clear())
+println(v.is_empty())          // 1
+v.push("x")
+v.push("y")
+println(v.pop() ?: "none")     // y (Elvis over an owned temp string?)
+println(v.pop() ?: "none")     // x
+println(v.pop() ?: "none")     // none (empty -> nil)

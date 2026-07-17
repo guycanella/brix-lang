@@ -1,0 +1,9 @@
+// Element co-ownership: a variable pushed multiple times (and via get) must
+// survive clear() with its own reference intact.
+var s := "shared"
+var v := Vector<string>()
+v.push(s)
+v.push(s)
+v.push(v.get(0))   // get retains, push retains for vector, temp released
+v.clear()
+println(s)         // shared (s still owns its reference)

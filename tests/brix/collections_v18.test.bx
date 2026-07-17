@@ -105,3 +105,41 @@ test.describe("Vector<float> (v1.8 Grupo C, Phase 3)", () -> {
         test.expect(v.get(11)).toBeCloseTo(11.0)
     })
 })
+
+test.describe("Vector<string> (v1.8 Grupo C, Phase 4)", () -> {
+    test.it("push/get/set with element ARC", () -> {
+        var v := Vector<string>()
+        v.push("a")
+        v.push("b")
+        test.expect(v.get(0)).toBe("a")
+        v.set(0, "z")
+        test.expect(v.get(0)).toBe("z")
+        test.expect(v.len()).toBe(2)
+    })
+
+    test.it("get returns an owned value that survives clear", () -> {
+        var v := Vector<string>()
+        v.push("keep")
+        var a := v.get(0)
+        v.clear()
+        test.expect(a).toBe("keep")
+    })
+
+    test.it("pop returns string? consumed via Elvis over an owned temp", () -> {
+        var v := Vector<string>()
+        v.push("x")
+        v.push("y")
+        test.expect(v.pop() ?: "none").toBe("y")
+        test.expect(v.pop() ?: "none").toBe("x")
+        test.expect(v.pop() ?: "none").toBe("none")
+    })
+
+    test.it("element co-ownership survives clear", () -> {
+        var s := "shared"
+        var v := Vector<string>()
+        v.push(s)
+        v.push(s)
+        v.clear()
+        test.expect(s).toBe("shared")
+    })
+})

@@ -12653,13 +12653,11 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         }
 
         let elem = self.string_to_brix_type(&type_args[0]);
-        // Enabled element types grow by phase: Vector<int> (Phase 1),
-        // Vector<float> (Phase 3). Vector<string> (with element ARC) lands in
-        // Phase 4 and is still rejected here.
-        if !matches!(elem, BrixType::Int | BrixType::Float) {
+        // Enabled element types (Grupo C): Vector<int> (Phase 1),
+        // Vector<float> (Phase 3), Vector<string> (Phase 4, with element ARC).
+        if !matches!(elem, BrixType::Int | BrixType::Float | BrixType::String) {
             return Err(CodegenError::TypeError {
-                expected: "Vector<int> or Vector<float> (Vector<string> not enabled yet)"
-                    .to_string(),
+                expected: "Vector<int>, Vector<float> or Vector<string>".to_string(),
                 found: format!("Vector<{}>", type_args[0]),
                 context: "Vector constructor".to_string(),
                 span: Some(expr.span.clone()),
@@ -12810,6 +12808,13 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         details: "Failed to call brix_vector_push".to_string(),
                         span: Some(expr.span.clone()),
                     })?;
+                // ARC: the runtime retained the element for the vector. If the
+                // source is an OWNED temporary (literal/concat/call result, e.g.
+                // v.get(0)), release our temp reference so the vector owns exactly
+                // one. A borrowed source (a variable/field) keeps its own ref.
+                if Self::is_ref_counted(elem_type) && !Self::is_borrowed_ref_expr(&args[0].kind) {
+                    self.insert_release(val.into_pointer_value(), elem_type)?;
+                }
                 Ok((i64_type.const_int(0, false).into(), BrixType::Void))
             }
             "get" => {
@@ -12866,9 +12871,13 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         details: "Failed to load vector element".to_string(),
                         span: Some(expr.span.clone()),
                     })?;
-                // NOTE: string elements (Phase 4) are borrowed from the vector;
-                // get() will need to return a retained (owned) copy then. int and
-                // float elements (Phases 1/3) are plain values — no element ARC.
+                // ARC: a ref-counted element (string) is borrowed from the vector.
+                // Retain it here so get() returns an OWNED value — safe for
+                // `var s := v.get(0)` even after the vector is cleared/dropped.
+                // int/float elements are plain values (no ARC).
+                if Self::is_ref_counted(elem_type) {
+                    self.insert_retain(loaded, elem_type)?;
+                }
                 Ok((loaded, elem_type.clone()))
             }
             "set" => {
@@ -12934,6 +12943,12 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         details: "Failed to call brix_vector_set".to_string(),
                         span: Some(expr.span.clone()),
                     })?;
+                // ARC: same as push — the runtime released the old element and
+                // retained the new one. Release our temp reference to an owned
+                // temporary new value; keep a borrowed source's ref.
+                if Self::is_ref_counted(elem_type) && !Self::is_borrowed_ref_expr(&args[1].kind) {
+                    self.insert_release(val.into_pointer_value(), elem_type)?;
+                }
                 Ok((i64_type.const_int(0, false).into(), BrixType::Void))
             }
             "is_empty" => {
