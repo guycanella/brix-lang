@@ -1708,3 +1708,21 @@ fn test_196_union_self_assign() {
         "a\nrecovered\nkeep",
     );
 }
+
+#[test]
+fn test_197_vector_string_basic() {
+    // Vector<string>: set/get/clear/pop with element ARC.
+    assert_success(
+        "tests/integration/success/197_vector_string_basic.bx",
+        "2\na\nz\nb\n1\ny\nx\nnone",
+    );
+}
+
+#[test]
+fn test_198_vector_string_arc() {
+    // Element co-ownership survives clear().
+    assert_success(
+        "tests/integration/success/198_vector_string_arc.bx",
+        "shared",
+    );
+}

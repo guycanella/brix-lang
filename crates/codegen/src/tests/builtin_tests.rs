@@ -2182,10 +2182,49 @@ fn test_vector_float_enabled() {
 }
 
 #[test]
-fn test_vector_string_still_rejected() {
-    // Vector<string>() is not enabled until Grupo C Phase 4.
+fn test_vector_string_enabled() {
+    // Vector<string>() is enabled (Grupo C Phase 4): new + push/get/set/pop compile.
     let program = Program {
-        statements: vec![vec_decl("v", None, "string")],
+        statements: vec![
+            vec_decl("v", None, "string"),
+            vec_method_stmt(
+                "v",
+                "push",
+                vec![Expr::dummy(ExprKind::Literal(Literal::String(
+                    "a".to_string(),
+                )))],
+            ),
+            vec_method_stmt(
+                "v",
+                "set",
+                vec![
+                    Expr::dummy(ExprKind::Literal(Literal::Int(0))),
+                    Expr::dummy(ExprKind::Literal(Literal::String("b".to_string()))),
+                ],
+            ),
+            vec_method_stmt(
+                "v",
+                "get",
+                vec![Expr::dummy(ExprKind::Literal(Literal::Int(0)))],
+            ),
+            vec_method_stmt("v", "pop", vec![]),
+        ],
+    };
+    assert!(vector_compiles(program));
+}
+
+#[test]
+fn test_vector_string_push_int_type_error() {
+    // v.push(5) on Vector<string> must fail to compile.
+    let program = Program {
+        statements: vec![
+            vec_decl("v", None, "string"),
+            vec_method_stmt(
+                "v",
+                "push",
+                vec![Expr::dummy(ExprKind::Literal(Literal::Int(5)))],
+            ),
+        ],
     };
     assert!(!vector_compiles(program));
 }
