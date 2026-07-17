@@ -61,7 +61,7 @@ The driver (`src/main.rs`, ~314 lines) orchestrates all stages: lexing, parsing,
 ```
 brix/
 ├── src/main.rs              # CLI + compilation pipeline driver
-├── runtime.c                # C runtime (~3,452 lines) — must be in project root
+├── runtime.c                # C runtime (~4,008 lines) — must be in project root
 ├── crates/
 │   ├── lexer/src/token.rs   # Token enum (logos)
 │   ├── parser/src/
@@ -70,7 +70,7 @@ brix/
 │   │   ├── closure_analysis.rs  # Capture analysis pass (runs after parse)
 │   │   └── error.rs         # Ariadne-based parse error reporting
 │   └── codegen/src/
-│       ├── lib.rs           # Main compiler (~11,014 lines, post-refactor)
+│       ├── lib.rs           # Main compiler (~14,577 lines — post-refactor 11,014, grew with v1.8 + rustfmt expansion)
 │       ├── stmt.rs          # Statement compilation (~1,114 lines)
 │       ├── expr.rs          # Expression compilation + list comprehension (~1,434 lines)
 │       ├── helpers.rs       # LLVM helpers
@@ -115,9 +115,11 @@ Flat `HashMap<String, (PointerValue, BrixType)>` with module prefixes. `import m
 - **match**: one basic block per arm + PHI in merge block
 - **break/continue**: `Compiler` has `current_break_block` / `current_continue_block` (`Option<BasicBlock>`). Each loop saves the outer blocks, sets its own, restores after body. After emitting the unconditional branch, a dead basic block is appended to keep LLVM IR valid.
 
-### Type System (current: v1.7 complete)
+### Type System (current: v1.8 in progress — Grupos A/B done, C partial)
 
-20 core types: `Int` (i64), `Float` (f64), `String`, `Matrix` (f64, contiguous), `IntMatrix` (i64), `StringMatrix` (array of `BrixString*`, v1.7), `Complex`, `ComplexMatrix`, `Tuple`, `Nil`, `Error`, `Atom` (i64 interned), `Void`, `Struct(String)`, `Generic`, `Closure` (represented as `Tuple(Int,Int,Int)` = ref_count/fn_ptr/env_ptr), `TypeAlias(String)`, `Union(Vec<BrixType>)`, `Intersection(Vec<BrixType>)`, `FloatPtr`.
+Core types: `Int` (i64), `Float` (f64), `String`, `Matrix` (f64, contiguous), `IntMatrix` (i64), `StringMatrix` (array of `BrixString*`, v1.7), `Complex`, `ComplexArray`, `ComplexMatrix`, `Tuple`, `Nil`, `Error`, `Atom` (i64 interned), `Void`, `Struct(String)`, `Optional(Box)` (desugars to Union), `Union(Vec<BrixType>)`, `Intersection(Vec<BrixType>)`, `AsyncFuture`, `FloatPtr`, and `Vector(Box<BrixType>)` (v1.8 Grupo C — dynamic `Vector<T>`, `BrixVector*`).
+
+**Scientific notation (v1.8):** float literals accept exponents — `6.0e23`, `1.5e-10`, `6.02E+23`, and integer-mantissa `1e10`; imaginary too (`1e3i`). Lexer `Float`/`ImaginaryLiteral` regexes; parser converts via `str::parse::<f64>()`.
 
 Key rules:
 - `[1,2,3]` → `IntMatrix`; `[1, 2.5]` → `Matrix` (int→float promotion)
@@ -195,7 +197,9 @@ Jest-style framework. 17 matchers (all support `.not.`): `toBe`, `toEqual`, `toB
 
 **Test baseline (post Phase 4, pre-v1.7):** 1,194 unit + 152 integration + 390 Test Library (23 `.test.bx` files)
 
-**Current test baseline (post v1.7, all Grupos A–I complete):** 1,267 unit (312 lexer + 202 parser + 753 codegen) + 179 integration + 434 Test Library (26 `.test.bx` files)
+**Test baseline (post v1.7):** 1,267 unit (312 lexer + 202 parser + 753 codegen) + 179 integration + 434 Test Library (26 `.test.bx` files)
+
+**Current test baseline (v1.8 in progress — through Grupo C Phase 4B):** 1,297 unit (317 lexer + 205 parser + 775 codegen) + 203 integration + 472 Test Library (28 `.test.bx` files). All green.
 
 **Completed in v1.7 (Grupos A–I, all complete):**
 - **Grupo A** `BrixType::StringMatrix` + `.split()` / `join()`: new type `{ ref_count, len, BrixString** data }` in `runtime.c` (`SECTION 2.3`), with `string_matrix_new/get/set/retain/release`, `brix_str_split`, `brix_str_join`. `split()` creates each `BrixString*` with `ref_count=1` and inserts it directly into `data[i]` (not via `string_matrix_set`, which retains — that helper exists for future use but is currently dead code in codegen). Wired into `lib.rs`: `brix_type_to_llvm`, `is_ref_counted`, `insert_retain`/`insert_release`, new `get_string_matrix_type()` helper, `.len` field access, indexing (`sm[i]` → `string_matrix_get`, borrowed pointer), `for part in string_matrix` iteration, `value_to_string` (formats as `["a", "b", "c"]`), `.split()` dispatch in `compile_string_method`, global `join(arr, sep)` dispatch. **ARC note:** indexing a `StringMatrix` returns a borrowed `BrixString*` still owned by the matrix — both `is_print_temp()` (lib.rs) and the bare-expression-statement release check (`compile_expr_stmt` in `stmt.rs`) special-case `ExprKind::Index` for `BrixType::String` to avoid releasing it. **Known limitations:** no type-annotation syntax for `StringMatrix` yet (`string[]` still maps to `IntMatrix` — only reachable via inference); `var x := "...".split(...)` leaks the matrix and its constituent strings, same pre-existing pattern as `var x := ones(...)` (see `should_retain` in `stmt.rs`, which excludes `Call` results from retain-adjustment) — not a regression, not yet fixed; no bounds checking on `sm[i]` (returns `NULL` silently out of range), consistent with `Matrix`/`IntMatrix` indexing (which also has zero bounds checking) — not a Grupo A regression. Integration tests 153–155; +2 codegen unit tests; +8 Test Library tests in `strings_v17.test.bx`. Post-review fixes: a CRITICAL use-after-free (`ExprKind::Index` missing from the "borrowed" check in `compile_expr_stmt` — a bare `parts[i]` statement released a string still owned by the matrix) and two Medium findings (`infer_expr_type_static()` didn't recognize `.split()`; `string_matrix_set()` had a self-assignment use-after-free), all fixed.
@@ -227,7 +231,32 @@ Jest-style framework. 17 matchers (all support `.not.`): `toBe`, `toEqual`, `toB
 
 Result: `lib.rs` **17,953 → 11,014 lines (−39%)**; codegen crate 12 → 20 files. The general per-type ARC dispatch (`is_ref_counted`/`insert_retain`/`insert_release`/`release_function_scope_vars`) and the `ExprKind::Match` handler + exhaustiveness check stay inline in `lib.rs`. Extracted functions that are called from `lib.rs` or other modules are `pub(crate)`; purely-internal helpers stay private. The `REFACTOR_LIB.md` <9,000-line target was aspirational and not reached — the cohesive extractable blocks totaled ~6,900 lines; the primary criterion (zero behavior change) is fully met.
 
-**Next: v1.8.** `Vector<T>` (dynamic arrays with `realloc`), `Stack`, `Queue`, `MinHeap`/`MaxHeap`, `HashMap<K,V>`, LAPACK decompositions (LU, QR, SVD, Cholesky). See `ROADMAP_V1.8.md`.
+## v1.8 Status (IN PROGRESS) — see `ROADMAP_V1.8.md`
+
+Order: Grupo A (physical constants) → B (LAPACK) → C (`Vector<T>`) → D (`Stack`/`Queue`) → E (heaps) → F (`HashMap`).
+
+**Grupo A — COMPLETE** (`Phase v1.8 Grupo A completed`): 8 physical constants (`math.c_light`, `h_planck`, `G_grav`, `k_boltzmann`, `e_charge`, `g_earth`, `avogadro`, `R_gas`) as f64 globals in `register_math_constants` (`builtins/math.rs`) — no dimensional units (documented in comments). Also added **scientific-notation literals** (lexer, prerequisite). A dedicated `ROADMAP_UNITS.md` (exploratory, NOT scheduled) analyzes a compile-time units-of-measure system — decided **not worth it now**.
+
+**Grupo B — COMPLETE** (LAPACK decompositions). 7 functions in `runtime.c` + `lib.rs`:
+- `math.lu(A)` → `Tuple(Matrix L, Matrix U, IntMatrix P)` (dgetrf; P is a 0-based permutation vector; singular `info>0` still returns factors).
+- `math.qr(A)` → `Tuple(Q m×m, R m×n)` (dgeqrf+dorgqr, full).
+- `math.svd(A)` → `Tuple(U m×m, S vec, Vt n×n)` (dgesdd; S is a 1-D vector).
+- `math.cholesky(A)` → `Matrix L` (dpotrf('L'), upper triangle zeroed).
+- `math.solve(A, b)` → `Matrix x` (dgesv; b is n×nrhs or a length-n vector in either orientation; rejects singular).
+- `math.norm(v)` → `Float` (L2); `math.norm_mat(A[, code])` → `Float` (int code: 0=Frobenius, 1=1-norm, 2=inf-norm; rejects other codes).
+- Codegen: `compile_math_matrix_tuple` (shared helper for lu/qr/svd — opaque-pointer ABI, unpacks the heap `*Result` struct into a Brix `Tuple`, frees the container) + `compile_math_simple_builtin` (cholesky/solve/norm) + `compile_math_norm_mat`. All reject empty matrices. **matmul is not a Brix global** (`*` is element-wise) — reconstruction tests write out scalar dot products.
+- Also fixed **tuple-destructuring ARC** (`stmt.rs`): `var { L, U, P } := math.lu(A)` registers ref-counted fields for release; only whitelisted fresh-tuple builtins (lu/qr/svd) transfer ownership, others (aliased returns like `fn dup(m)->(m,m)`) retain-and-keep (no double-free); ignored `_` fields released only for owned temporaries.
+
+**Grupo C — `Vector<T>` — IN PROGRESS (Phases 1–4B done, Phase 5 remaining):**
+- Runtime `BrixVector { ref_count, len, cap, elem_size, elem_kind, data }` (`runtime.c` SECTION 2.4), 2× growth. `elem_kind` (1=int/2=float/3=string) written from Phase 1 so element ARC (string) worked without rework. Funcs: `brix_vector_new/get_ptr(bounds-checked)/push/len/set(bounds-checked)/pop(transfers ownership)/clear/retain/release` (release reuses clear).
+- `BrixType::Vector(Box<BrixType>)` (`types.rs`). `Vector<int>()` parses as `GenericCall` intercepted in `lib.rs` before monomorphization → `compile_vector_new` (gate: int/float/string only; rejects `Vector<Matrix>` etc.). Methods dispatched by receiver type in `compile_vector_method`: `push`/`pop`/`get`/`set`/`len`/`is_empty`/`clear`. `pop() → Union(T, Nil)` (the `T?`). Type-checked (`v.push("x")` on `Vector<int>` errors — strict, no int→float coercion).
+- **Element ARC (Phase 4B):** push/set release the temp element after the runtime retains it (only for a ref-counted elem, only when the source is an owned temporary — via the dedicated `is_borrowed_ref_expr` helper, NOT `is_print_temp`); `get` retains → returns owned; `pop` transfers ownership.
+- **Phase 4A (prerequisite, language-wide):** fixed `Union(ref-counted, Nil)` ARC — `string?` used to leak on decl/reassign and **dangle** on repeated Elvis. Now: `insert_union_release` (per-tag conditional release), Elvis returns a uniformly OWNED result (retains the borrowed not-nil branch and borrowed defaults, NOT owned temps like `pop()`), assignment releases the old union **after** compiling the RHS (so `x := x ?: "d"` is safe), scope-end releases union vars.
+- **Phase 5 (NEXT / remaining):** `to_array()` (`Vector<int>→IntMatrix`, `Vector<float>→Matrix`, `Vector<string>→StringMatrix`) and `for x in v` iteration.
+
+**Grupos D/E/F — NOT STARTED:** `Stack<T>`/`Queue<T>`, `MinHeap`/`MaxHeap`, `HashMap<K,V>` (all depend on `Vector<T>`).
+
+**Working conventions this session (memory):** run `rustfmt --edition 2021` on every touched file so `rustfmt --check` passes (the whole `codegen` crate was normalized in commit `rustfmt: format the codegen crate`); NEVER run two compile-producing suites concurrently (integration + Test Library clobber the shared `output.o`/`program` in repo root → bogus low counts + `ld: file is empty` — run each alone, sequentially); each phase is validated across all 3 test layers + a full integration run before commit.
 
 ## Troubleshooting
 
