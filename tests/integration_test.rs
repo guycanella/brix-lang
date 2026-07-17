@@ -1726,3 +1726,45 @@ fn test_198_vector_string_arc() {
         "shared",
     );
 }
+
+#[test]
+fn test_199_vector_to_array() {
+    // Vector<T>.to_array(): int/float/string all convert; the string array
+    // survives a subsequent v.clear() on the source Vector.
+    assert_success(
+        "tests/integration/success/199_vector_to_array.bx",
+        "10\n20\n1.5\n2.5\na",
+    );
+}
+
+#[test]
+fn test_200_vector_for_iter() {
+    // for x in v — basic iteration over Vector<int> and Vector<string>.
+    assert_success(
+        "tests/integration/success/200_vector_for_iter.bx",
+        "1\n2\n3\na\nb",
+    );
+}
+
+#[test]
+fn test_201_vector_for_iter_clear() {
+    // v.clear() inside the loop body doesn't invalidate the current element
+    // (element retained before the body runs).
+    assert_success(
+        "tests/integration/success/201_vector_for_iter_clear.bx",
+        "a",
+    );
+}
+
+#[test]
+fn test_202_vector_for_iter_clear_multi() {
+    // Regression: with 2+ elements, the loop bound must be reloaded on every
+    // cond check. A stale pre-loop length would compare the advanced index
+    // against the OLD length after v.clear() shrinks the vector, and
+    // brix_vector_get_ptr aborts on the resulting out-of-range access. The
+    // loop must instead end safely after the first iteration.
+    assert_success(
+        "tests/integration/success/202_vector_for_iter_clear_multi.bx",
+        "a",
+    );
+}

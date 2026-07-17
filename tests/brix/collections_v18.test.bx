@@ -143,3 +143,85 @@ test.describe("Vector<string> (v1.8 Grupo C, Phase 4)", () -> {
         test.expect(s).toBe("shared")
     })
 })
+
+test.describe("Vector<T>.to_array() (v1.8 Grupo C, Phase 5)", () -> {
+    test.it("Vector<int>.to_array() returns a matching IntMatrix", () -> {
+        var v := Vector<int>()
+        v.push(10)
+        v.push(20)
+        var arr := v.to_array()
+        test.expect(arr[0]).toBe(10)
+        test.expect(arr[1]).toBe(20)
+        test.expect(arr).toHaveLength(2)
+    })
+
+    test.it("Vector<float>.to_array() returns a matching Matrix", () -> {
+        var v := Vector<float>()
+        v.push(1.5)
+        v.push(2.5)
+        var arr := v.to_array()
+        test.expect(arr[0]).toBeCloseTo(1.5)
+        test.expect(arr[1]).toBeCloseTo(2.5)
+    })
+
+    test.it("Vector<string>.to_array() returns a matching StringMatrix that survives clear()", () -> {
+        var v := Vector<string>()
+        v.push("a")
+        v.push("b")
+        var arr := v.to_array()
+        v.clear()
+        test.expect(arr[0]).toBe("a")
+        test.expect(arr[1]).toBe("b")
+    })
+})
+
+test.describe("Vector<T> for-in iteration (v1.8 Grupo C, Phase 5)", () -> {
+    test.it("iterates Vector<int> in order", () -> {
+        var v := Vector<int>()
+        v.push(1)
+        v.push(2)
+        v.push(3)
+        var sum := 0
+        for x in v {
+            sum += x
+        }
+        test.expect(sum).toBe(6)
+    })
+
+    test.it("iterates Vector<string> in order", () -> {
+        var v := Vector<string>()
+        v.push("a")
+        v.push("b")
+        var result := ""
+        for x in v {
+            result += x
+        }
+        test.expect(result).toBe("ab")
+    })
+
+    test.it("element survives v.clear() called inside the loop body", () -> {
+        var v := Vector<string>()
+        v.push("a")
+        var seen := "unset"
+        for x in v {
+            v.clear()
+            seen := x
+        }
+        test.expect(seen).toBe("a")
+    })
+
+    test.it("loop bound reloads each iteration, doesn't abort when 2+ elements shrink", () -> {
+        var v := Vector<string>()
+        v.push("a")
+        v.push("b")
+        var count := 0
+        var seen := "unset"
+        for x in v {
+            v.clear()
+            seen := x
+            count += 1
+        }
+        test.expect(count).toBe(1)
+        test.expect(seen).toBe("a")
+    })
+})

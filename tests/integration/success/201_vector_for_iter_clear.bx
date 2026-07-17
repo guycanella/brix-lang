@@ -1,0 +1,9 @@
+// Adversarial case: v.clear() inside the loop body must not invalidate the
+// current element `x` — the codegen retains each String element before the
+// body runs, so it survives the vector releasing its own reference.
+var v := Vector<string>()
+v.push("a")
+for x in v {
+    v.clear()
+    println(x)  // "a" — only correct if x was retained before clear()
+}

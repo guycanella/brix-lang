@@ -1,0 +1,16 @@
+// Vector<T> iteration (v1.8 Grupo C Phase 5): for x in v — basic case, int
+// and string.
+var vi := Vector<int>()
+vi.push(1)
+vi.push(2)
+vi.push(3)
+for x in vi {
+    println(x)
+}
+
+var vs := Vector<string>()
+vs.push("a")
+vs.push("b")
+for x in vs {
+    println(x)
+}

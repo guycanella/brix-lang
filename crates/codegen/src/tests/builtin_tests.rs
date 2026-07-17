@@ -2337,3 +2337,130 @@ fn test_vector_set_type_error() {
     };
     assert!(!vector_compiles(program));
 }
+
+fn vec_to_array_decl(arr_name: &str, recv: &str) -> Stmt {
+    Stmt::dummy(StmtKind::VariableDecl {
+        name: arr_name.to_string(),
+        type_hint: None,
+        value: Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                target: Box::new(Expr::dummy(ExprKind::Identifier(recv.to_string()))),
+                field: "to_array".to_string(),
+            })),
+            args: vec![],
+        }),
+        is_const: false,
+    })
+}
+
+#[test]
+fn test_vector_to_array_int() {
+    // Vector<int>().to_array() -> IntMatrix; compiles, and the result behaves
+    // like an IntMatrix (sort() is an IntMatrix/Matrix iterator method).
+    let program = Program {
+        statements: vec![
+            vec_decl("v", None, "int"),
+            vec_method_stmt(
+                "v",
+                "push",
+                vec![Expr::dummy(ExprKind::Literal(Literal::Int(1)))],
+            ),
+            vec_to_array_decl("arr", "v"),
+            vec_method_stmt("arr", "sort", vec![]),
+        ],
+    };
+    assert!(vector_compiles(program));
+}
+
+#[test]
+fn test_vector_to_array_float() {
+    // Vector<float>().to_array() -> Matrix; compiles.
+    let program = Program {
+        statements: vec![
+            vec_decl("v", None, "float"),
+            vec_method_stmt(
+                "v",
+                "push",
+                vec![Expr::dummy(ExprKind::Literal(Literal::Float(1.5)))],
+            ),
+            vec_to_array_decl("arr", "v"),
+            vec_method_stmt("arr", "sort", vec![]),
+        ],
+    };
+    assert!(vector_compiles(program));
+}
+
+#[test]
+fn test_vector_to_array_string() {
+    // Vector<string>().to_array() -> StringMatrix; compiles, and the result
+    // behaves like a StringMatrix (join() only accepts a StringMatrix).
+    let program = Program {
+        statements: vec![
+            vec_decl("v", None, "string"),
+            vec_method_stmt(
+                "v",
+                "push",
+                vec![Expr::dummy(ExprKind::Literal(Literal::String(
+                    "a".to_string(),
+                )))],
+            ),
+            vec_to_array_decl("arr", "v"),
+            Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+                func: Box::new(Expr::dummy(ExprKind::Identifier("join".to_string()))),
+                args: vec![
+                    Expr::dummy(ExprKind::Identifier("arr".to_string())),
+                    Expr::dummy(ExprKind::Literal(Literal::String(", ".to_string()))),
+                ],
+            }))),
+        ],
+    };
+    assert!(vector_compiles(program));
+}
+
+#[test]
+fn test_vector_for_iter_int() {
+    // for x in v — Vector<int> iteration compiles.
+    let program = Program {
+        statements: vec![
+            vec_decl("v", None, "int"),
+            vec_method_stmt(
+                "v",
+                "push",
+                vec![Expr::dummy(ExprKind::Literal(Literal::Int(1)))],
+            ),
+            Stmt::dummy(StmtKind::For {
+                var_names: vec!["x".to_string()],
+                iterable: Expr::dummy(ExprKind::Identifier("v".to_string())),
+                body: Box::new(Stmt::dummy(StmtKind::Expr(Expr::dummy(
+                    ExprKind::Identifier("x".to_string()),
+                )))),
+            }),
+        ],
+    };
+    assert!(vector_compiles(program));
+}
+
+#[test]
+fn test_vector_for_iter_string() {
+    // for x in v — Vector<string> iteration compiles (element ARC retain).
+    let program = Program {
+        statements: vec![
+            vec_decl("v", None, "string"),
+            vec_method_stmt(
+                "v",
+                "push",
+                vec![Expr::dummy(ExprKind::Literal(Literal::String(
+                    "a".to_string(),
+                )))],
+            ),
+            Stmt::dummy(StmtKind::For {
+                var_names: vec!["x".to_string()],
+                iterable: Expr::dummy(ExprKind::Identifier("v".to_string())),
+                body: Box::new(Stmt::dummy(StmtKind::Expr(Expr::dummy(
+                    ExprKind::Identifier("x".to_string()),
+                )))),
+            }),
+        ],
+    };
+    assert!(vector_compiles(program));
+}

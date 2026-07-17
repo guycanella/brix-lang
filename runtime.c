@@ -2686,6 +2686,46 @@ void brix_vector_release(BrixVector *v) {
   }
 }
 
+// to_array(): convert a Vector<T> to its corresponding native 1D array type.
+// Vector<T> has no 2D shape concept, so the result is always a 1xlen row.
+// A NULL or empty vector produces a valid, empty (1x0 / len 0) result rather
+// than crashing.
+
+// Vector<int> -> IntMatrix (1 x len). Plain value copy, no ARC involved.
+IntMatrix *brix_vector_to_intmatrix(BrixVector *v) {
+  long len = v ? v->len : 0;
+  IntMatrix *result = intmatrix_new(1, len);
+  if (len > 0) {
+    memcpy(result->data, v->data, len * sizeof(long));
+  }
+  return result;
+}
+
+// Vector<float> -> Matrix (1 x len). Plain value copy, no ARC involved.
+Matrix *brix_vector_to_matrix(BrixVector *v) {
+  long len = v ? v->len : 0;
+  Matrix *result = matrix_new(1, len);
+  if (len > 0) {
+    memcpy(result->data, v->data, len * sizeof(double));
+  }
+  return result;
+}
+
+// Vector<string> -> BrixStringMatrix. Each BrixString* is retained, so the
+// resulting matrix co-owns the strings alongside the original vector: after
+// the original vector is cleared/released, the matrix's own reference keeps
+// the strings alive.
+BrixStringMatrix *brix_vector_to_string_matrix(BrixVector *v) {
+  long len = v ? v->len : 0;
+  BrixStringMatrix *result = string_matrix_new(len);
+  for (long i = 0; i < len; i++) {
+    BrixString *s = *(BrixString **)((char *)v->data + i * v->elem_size);
+    string_retain(s);
+    result->data[i] = s;
+  }
+  return result;
+}
+
 // ==========================================
 // SECTION 3: STATISTICS (v0.7)
 // ==========================================
