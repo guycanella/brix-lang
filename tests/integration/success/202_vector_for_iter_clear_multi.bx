@@ -1,0 +1,12 @@
+// Regression: with 2+ elements, a stale pre-loop length would compare the
+// advanced index against the OLD length after v.clear() shrinks the vector,
+// causing brix_vector_get_ptr to abort on an out-of-range access on the next
+// iteration. The length must be reloaded on every cond check so the loop
+// simply ends early instead of aborting.
+var v := Vector<string>()
+v.push("a")
+v.push("b")
+for x in v {
+    v.clear()
+    println(x)
+}

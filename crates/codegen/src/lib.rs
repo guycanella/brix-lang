@@ -3351,6 +3351,248 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             }
                             Ok(())
                         }
+                        BrixType::Vector(inner) => {
+                            // Vector<T> iteration: for x in v → x is the element type T.
+                            // Length via brix_vector_len; each element via
+                            // brix_vector_get_ptr + load (there is no raw get()).
+                            if var_names.len() != 1 {
+                                return Err(CodegenError::InvalidOperation {
+                                    operation: "Vector iteration".to_string(),
+                                    reason: "Vector iteration supports only single variable"
+                                        .to_string(),
+                                    span: Some(stmt.span.clone()),
+                                });
+                            }
+                            let var_name = &var_names[0];
+                            let vec_ptr = iterable_val.into_pointer_value();
+                            let i64_type = self.context.i64_type();
+                            let ptr_type = self.context.ptr_type(AddressSpace::default());
+                            let elem_llvm = self.brix_type_to_llvm(inner.as_ref());
+
+                            // brix_vector_len(v) -> i64. Declared once here but
+                            // CALLED fresh on every cond_bb check below (not
+                            // hoisted to a single pre-loop value) — the body may
+                            // call v.clear()/v.pop(), shrinking the vector, and
+                            // brix_vector_get_ptr aborts on an out-of-range index,
+                            // so a stale cached length would abort the process
+                            // instead of just ending the loop early.
+                            let len_fn = self
+                                .module
+                                .get_function("brix_vector_len")
+                                .unwrap_or_else(|| {
+                                    let fn_type = i64_type.fn_type(&[ptr_type.into()], false);
+                                    self.module.add_function(
+                                        "brix_vector_len",
+                                        fn_type,
+                                        Some(Linkage::External),
+                                    )
+                                });
+
+                            // brix_vector_get_ptr(v, idx) -> ptr
+                            let get_fn = self
+                                .module
+                                .get_function("brix_vector_get_ptr")
+                                .unwrap_or_else(|| {
+                                    let fn_type = ptr_type
+                                        .fn_type(&[ptr_type.into(), i64_type.into()], false);
+                                    self.module.add_function(
+                                        "brix_vector_get_ptr",
+                                        fn_type,
+                                        Some(Linkage::External),
+                                    )
+                                });
+
+                            // Index alloca
+                            let idx_alloca =
+                                self.create_entry_block_alloca(i64_type.into(), "_vec_idx")?;
+                            self.builder
+                                .build_store(idx_alloca, i64_type.const_int(0, false))
+                                .map_err(|_| CodegenError::LLVMError {
+                                    operation: "build_store".to_string(),
+                                    details: "Failed to init Vector iter idx".to_string(),
+                                    span: None,
+                                })?;
+
+                            // Loop variable alloca (element type)
+                            let var_alloca = self.create_entry_block_alloca(elem_llvm, var_name)?;
+                            let old_var = self.variables.remove(var_name);
+                            self.variables
+                                .insert(var_name.clone(), (var_alloca, inner.as_ref().clone()));
+
+                            let cond_bb = self.context.append_basic_block(function, "vec_cond");
+                            let body_bb = self.context.append_basic_block(function, "vec_body");
+                            let inc_bb = self.context.append_basic_block(function, "vec_inc");
+                            let after_bb = self.context.append_basic_block(function, "vec_after");
+
+                            self.builder
+                                .build_unconditional_branch(cond_bb)
+                                .map_err(|_| CodegenError::LLVMError {
+                                    operation: "build_unconditional_branch".to_string(),
+                                    details: "Failed Vector iter init branch".to_string(),
+                                    span: None,
+                                })?;
+
+                            // --- COND ---
+                            self.builder.position_at_end(cond_bb);
+                            let cur_idx = self
+                                .builder
+                                .build_load(i64_type, idx_alloca, "vec_cur_idx")
+                                .map_err(|_| CodegenError::LLVMError {
+                                    operation: "build_load".to_string(),
+                                    details: "Failed to load Vector iter idx".to_string(),
+                                    span: None,
+                                })?
+                                .into_int_value();
+                            let vec_len = self
+                                .builder
+                                .build_call(len_fn, &[vec_ptr.into()], "vec_len")
+                                .map_err(|_| CodegenError::LLVMError {
+                                    operation: "build_call".to_string(),
+                                    details: "Failed to call brix_vector_len".to_string(),
+                                    span: None,
+                                })?
+                                .try_as_basic_value()
+                                .left()
+                                .ok_or_else(|| CodegenError::MissingValue {
+                                    what: "brix_vector_len result".to_string(),
+                                    context: "for-in Vector".to_string(),
+                                    span: Some(stmt.span.clone()),
+                                })?
+                                .into_int_value();
+                            let loop_cond = self
+                                .builder
+                                .build_int_compare(IntPredicate::SLT, cur_idx, vec_len, "vec_check")
+                                .map_err(|_| CodegenError::LLVMError {
+                                    operation: "build_int_compare".to_string(),
+                                    details: "Failed Vector iter cond".to_string(),
+                                    span: None,
+                                })?;
+                            self.builder
+                                .build_conditional_branch(loop_cond, body_bb, after_bb)
+                                .map_err(|_| CodegenError::LLVMError {
+                                    operation: "build_conditional_branch".to_string(),
+                                    details: "Failed Vector iter cond branch".to_string(),
+                                    span: None,
+                                })?;
+
+                            // --- BODY ---
+                            self.builder.position_at_end(body_bb);
+                            let cur_idx = self
+                                .builder
+                                .build_load(i64_type, idx_alloca, "vec_body_idx")
+                                .map_err(|_| CodegenError::LLVMError {
+                                    operation: "build_load".to_string(),
+                                    details: "Failed to load Vector iter body idx".to_string(),
+                                    span: None,
+                                })?
+                                .into_int_value();
+                            let slot_ptr = self
+                                .builder
+                                .build_call(get_fn, &[vec_ptr.into(), cur_idx.into()], "vec_slot")
+                                .map_err(|_| CodegenError::LLVMError {
+                                    operation: "build_call".to_string(),
+                                    details: "Failed brix_vector_get_ptr call".to_string(),
+                                    span: None,
+                                })?
+                                .try_as_basic_value()
+                                .left()
+                                .ok_or_else(|| CodegenError::MissingValue {
+                                    what: "brix_vector_get_ptr result".to_string(),
+                                    context: "for-in Vector".to_string(),
+                                    span: Some(stmt.span.clone()),
+                                })?
+                                .into_pointer_value();
+                            let loaded_val = self
+                                .builder
+                                .build_load(elem_llvm, slot_ptr, "vec_elem")
+                                .map_err(|_| CodegenError::LLVMError {
+                                    operation: "build_load".to_string(),
+                                    details: "Failed to load Vector element".to_string(),
+                                    span: None,
+                                })?;
+                            self.builder
+                                .build_store(var_alloca, loaded_val)
+                                .map_err(|_| CodegenError::LLVMError {
+                                    operation: "build_store".to_string(),
+                                    details: "Failed to store Vector element".to_string(),
+                                    span: None,
+                                })?;
+                            // ARC: a ref-counted element (string) is borrowed from
+                            // the vector. Retain it so the loop variable survives a
+                            // v.clear()/v.pop() called inside the body. int/float
+                            // elements are plain values (no ARC). No per-iteration
+                            // release (matches `for ch in string` — known leak).
+                            if Self::is_ref_counted(inner.as_ref()) {
+                                self.insert_retain(loaded_val, inner.as_ref())?;
+                            }
+
+                            let old_break_vec = self.current_break_block.replace(after_bb);
+                            let old_continue_vec = self.current_continue_block.replace(inc_bb);
+                            self.compile_stmt(body, function)?;
+                            self.current_break_block = old_break_vec;
+                            self.current_continue_block = old_continue_vec;
+                            if self
+                                .builder
+                                .get_insert_block()
+                                .and_then(|b| b.get_terminator())
+                                .is_none()
+                            {
+                                self.builder
+                                    .build_unconditional_branch(inc_bb)
+                                    .map_err(|_| CodegenError::LLVMError {
+                                        operation: "build_unconditional_branch".to_string(),
+                                        details: "Failed Vector iter body branch".to_string(),
+                                        span: None,
+                                    })?;
+                            }
+
+                            // --- INC ---
+                            self.builder.position_at_end(inc_bb);
+                            let tmp_idx = self
+                                .builder
+                                .build_load(i64_type, idx_alloca, "vec_inc_idx")
+                                .map_err(|_| CodegenError::LLVMError {
+                                    operation: "build_load".to_string(),
+                                    details: "Failed Vector iter inc load".to_string(),
+                                    span: None,
+                                })?
+                                .into_int_value();
+                            let next_idx = self
+                                .builder
+                                .build_int_add(
+                                    tmp_idx,
+                                    i64_type.const_int(1, false),
+                                    "vec_next_idx",
+                                )
+                                .map_err(|_| CodegenError::LLVMError {
+                                    operation: "build_int_add".to_string(),
+                                    details: "Failed Vector iter inc add".to_string(),
+                                    span: None,
+                                })?;
+                            self.builder
+                                .build_store(idx_alloca, next_idx)
+                                .map_err(|_| CodegenError::LLVMError {
+                                    operation: "build_store".to_string(),
+                                    details: "Failed Vector iter inc store".to_string(),
+                                    span: None,
+                                })?;
+                            self.builder
+                                .build_unconditional_branch(cond_bb)
+                                .map_err(|_| CodegenError::LLVMError {
+                                    operation: "build_unconditional_branch".to_string(),
+                                    details: "Failed Vector iter inc branch".to_string(),
+                                    span: None,
+                                })?;
+
+                            // --- AFTER ---
+                            self.builder.position_at_end(after_bb);
+                            if let Some(old) = old_var {
+                                self.variables.insert(var_name.clone(), old);
+                            } else {
+                                self.variables.remove(var_name);
+                            }
+                            Ok(())
+                        }
                         BrixType::String => {
                             // String iteration: for ch in "hello" → ch is a 1-char string
                             if var_names.len() != 1 {
@@ -13190,6 +13432,51 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         span: Some(expr.span.clone()),
                     })?;
                 Ok((result, ret_union_type))
+            }
+            "to_array" => {
+                if !args.is_empty() {
+                    return Err(CodegenError::InvalidOperation {
+                        operation: "Vector.to_array".to_string(),
+                        reason: format!("expects 0 arguments, got {}", args.len()),
+                        span: Some(expr.span.clone()),
+                    });
+                }
+                // Pick the runtime converter + result type by element type.
+                // Vector<T> only permits int/float/string (validated at creation),
+                // so the wildcard is genuinely unreachable.
+                let (fn_name, result_type) = match elem_type {
+                    BrixType::Int => ("brix_vector_to_intmatrix", BrixType::IntMatrix),
+                    BrixType::Float => ("brix_vector_to_matrix", BrixType::Matrix),
+                    BrixType::String => ("brix_vector_to_string_matrix", BrixType::StringMatrix),
+                    _ => unreachable!(
+                        "Vector<T> só permite int/float/string — já validado na criação"
+                    ),
+                };
+                let to_array_fn = self.module.get_function(fn_name).unwrap_or_else(|| {
+                    let fn_type = ptr_type.fn_type(&[ptr_type.into()], false);
+                    self.module
+                        .add_function(fn_name, fn_type, Some(Linkage::External))
+                });
+                let call = self
+                    .builder
+                    .build_call(to_array_fn, &[vec_ptr.into()], "vec_to_array")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: format!("Failed to call {}", fn_name),
+                        span: Some(expr.span.clone()),
+                    })?;
+                // The result is a freshly-allocated, OWNED array. The runtime
+                // already retained each string element (co-ownership with the
+                // source vector), so no extra retain is needed here.
+                let result =
+                    call.try_as_basic_value()
+                        .left()
+                        .ok_or_else(|| CodegenError::MissingValue {
+                            what: format!("{} result", fn_name),
+                            context: "Vector.to_array".to_string(),
+                            span: Some(expr.span.clone()),
+                        })?;
+                Ok((result, result_type))
             }
             other => Err(CodegenError::General(format!(
                 "Vector method '{}' not supported yet",

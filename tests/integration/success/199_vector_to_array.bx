@@ -1,0 +1,22 @@
+// Vector<T>.to_array() (v1.8 Grupo C Phase 5): int/float/string all convert
+// to their matching flat array type. Adversarial case: the array returned by
+// to_array() must survive a subsequent v.clear() untouched.
+var vi := Vector<int>()
+vi.push(10)
+vi.push(20)
+var arri := vi.to_array()
+println(arri[0])          // 10
+println(arri[1])          // 20
+
+var vf := Vector<float>()
+vf.push(1.5)
+vf.push(2.5)
+var arrf := vf.to_array()
+println(arrf[0])          // 1.5
+println(arrf[1])          // 2.5
+
+var vs := Vector<string>()
+vs.push("a")
+var arr := vs.to_array()
+vs.clear()
+println(arr[0])            // "a" (survives clear())
