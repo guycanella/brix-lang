@@ -97,3 +97,25 @@ test.describe("Intersection types (Point & Label)", () -> {
         test.expect(pl.tag).toBe(0)
     })
 })
+
+test.describe("string? ARC (v1.8 Grupo C Phase 4A)", () -> {
+    test.it("repeated elvis keeps the value alive", () -> {
+        var y: string? = "hello"
+        test.expect(y ?: "a").toBe("hello")
+        test.expect(y ?: "b").toBe("hello")
+    })
+
+    test.it("borrowed source is not dangled", () -> {
+        var s := "src"
+        var z: string? = s
+        test.expect(s).toBe("src")
+        test.expect(z ?: "d").toBe("src")
+    })
+
+    test.it("nil fallback does not consume the default variable", () -> {
+        var w: string = "fb"
+        var q: string? = nil
+        test.expect(q ?: w).toBe("fb")
+        test.expect(w).toBe("fb")
+    })
+})

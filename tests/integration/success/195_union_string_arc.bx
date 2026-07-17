@@ -1,0 +1,16 @@
+// Union(String, Nil) ARC (v1.8 Grupo C Phase 4A). Repeated Elvis on a string?
+// used to free the inner string on the first use (dangle -> "(null)"); it must
+// now stay valid. Borrowed sources and fallbacks must not dangle either.
+var y: string? = "hello"
+println(y ?: "a")     // hello
+println(y ?: "b")     // hello  (was "(null)" before the fix)
+
+var s := "src"
+var z: string? = s
+println(s)            // src   (z co-owns via retain; s still valid)
+println(z ?: "d")     // src
+
+var w: string = "fb"
+var q: string? = nil
+println(q ?: w)       // fb    (fallback retained; w not consumed)
+println(w)            // fb

@@ -1690,3 +1690,21 @@ fn test_194_vector_float_basic() {
         "1\n2\n1\n1\n1",
     );
 }
+
+#[test]
+fn test_195_union_string_arc() {
+    // Union(String, Nil) ARC: no dangle on repeated Elvis / borrowed sources.
+    assert_success(
+        "tests/integration/success/195_union_string_arc.bx",
+        "hello\nhello\nsrc\nsrc\nfb\nfb",
+    );
+}
+
+#[test]
+fn test_196_union_self_assign() {
+    // Old value released after the RHS is compiled: self-referencing RHS is safe.
+    assert_success(
+        "tests/integration/success/196_union_self_assign.bx",
+        "a\nrecovered\nkeep",
+    );
+}

@@ -681,6 +681,14 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
                         })?
                         .into_struct_value();
 
+                    // ARC: retain a borrowed ref-counted inner value so the union
+                    // co-owns it; a temporary is already owned (taken as-is).
+                    if Compiler::is_ref_counted(&val_type)
+                        && Compiler::is_borrowed_ref_expr(&value.kind)
+                    {
+                        final_val = self.insert_retain(final_val, &val_type)?;
+                    }
+
                     // Insert value
                     union_val = self
                         .builder
@@ -886,9 +894,13 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
         self.variables
             .insert(name.to_string(), (alloca, val_type.clone()));
 
-        // ARC: Track ref-counted variables for cleanup at function exit
-        // Avoid duplicates (e.g., same variable compiled inside a loop body)
-        if Compiler::is_ref_counted(&val_type) {
+        // ARC: Track ref-counted variables (and unions that carry a ref-counted
+        // variant, e.g. string?) for cleanup at function exit. Avoid duplicates
+        // (e.g., same variable compiled inside a loop body).
+        let needs_scope_release = Compiler::is_ref_counted(&val_type)
+            || matches!(&val_type, BrixType::Union(types)
+                if Compiler::union_has_ref_counted_variant(types));
+        if needs_scope_release {
             if !self.function_scope_vars.iter().any(|(n, _)| n == name) {
                 self.function_scope_vars.push((name.to_string(), val_type));
             }
@@ -1150,8 +1162,7 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
 
         let (target_ptr, target_type) = self.compile_lvalue_addr(target)?;
 
-        // ARC: Release old value if it's ref-counted or a closure
-        // Skip release for Union types (managed internally)
+        // ARC: Release old value if it's ref-counted or a closure.
         let is_closure = if let BrixType::Tuple(ref fields) = target_type {
             fields.len() == 3
                 && fields[0] == BrixType::Int
@@ -1161,27 +1172,11 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
             false
         };
 
-        if !matches!(target_type, BrixType::Union(_))
-            && (is_closure || Compiler::is_ref_counted(&target_type))
-        {
-            let ptr_type = self.context.ptr_type(AddressSpace::default());
-            let old_value = self
-                .builder
-                .build_load(ptr_type, target_ptr, "old_value")
-                .map_err(|_| CodegenError::LLVMError {
-                    operation: "build_load".to_string(),
-                    details: "Failed to load old value for release".to_string(),
-                    span: None,
-                })?
-                .into_pointer_value();
-
-            // Release the old value (closure or ref-counted type)
-            if is_closure {
-                self.closure_release(old_value)?;
-            } else {
-                self.insert_release(old_value, &target_type)?;
-            }
-        }
+        // NOTE: releasing the OLD target value is deferred to just before the
+        // store (see below). Releasing it here — before compiling the RHS —
+        // would free a value the RHS may still read, e.g. `x := x ?: "d"` reads
+        // x's old string in the Elvis. Compile the RHS and prepare final_val
+        // first, then release the old value immediately before overwriting.
 
         let (val, val_type) = self.compile_expr(value)?;
 
@@ -1256,6 +1251,15 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
                 })?
                 .into_struct_value();
 
+            // ARC: if the active variant is ref-counted and the source is a
+            // borrowed reference (variable/field/index), retain it so the union
+            // co-owns it. A temporary (literal/concat/call result) is already
+            // owned — take it as-is.
+            if Compiler::is_ref_counted(&final_type) && Compiler::is_borrowed_ref_expr(&value.kind)
+            {
+                final_val = self.insert_retain(final_val, &final_type)?;
+            }
+
             // Insert value
             union_val = self
                 .builder
@@ -1285,6 +1289,42 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
         // Skip retain for Union types (already wrapped)
         if !matches!(target_type, BrixType::Union(_)) {
             final_val = self.insert_retain(final_val, &final_type)?;
+        }
+
+        // ARC: release the OLD target value now — after the RHS was compiled and
+        // the new value prepared/retained, and immediately before the store.
+        // Doing it here (not before the RHS) means a self-/cyclic-referencing RHS
+        // (`x := x`, `x := x ?: "d"`) never reads a freed value; target_ptr still
+        // holds the old value until the store below.
+        if let BrixType::Union(types) = &target_type {
+            if Compiler::union_has_ref_counted_variant(types) {
+                let union_llvm = self.brix_type_to_llvm(&target_type);
+                let old_union = self
+                    .builder
+                    .build_load(union_llvm, target_ptr, "old_union")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_load".to_string(),
+                        details: "Failed to load old union for release".to_string(),
+                        span: None,
+                    })?;
+                self.insert_union_release(old_union, types)?;
+            }
+        } else if is_closure || Compiler::is_ref_counted(&target_type) {
+            let ptr_type = self.context.ptr_type(AddressSpace::default());
+            let old_value = self
+                .builder
+                .build_load(ptr_type, target_ptr, "old_value")
+                .map_err(|_| CodegenError::LLVMError {
+                    operation: "build_load".to_string(),
+                    details: "Failed to load old value for release".to_string(),
+                    span: None,
+                })?
+                .into_pointer_value();
+            if is_closure {
+                self.closure_release(old_value)?;
+            } else {
+                self.insert_release(old_value, &target_type)?;
+            }
         }
 
         self.builder
