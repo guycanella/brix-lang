@@ -61,7 +61,7 @@ The driver (`src/main.rs`, ~314 lines) orchestrates all stages: lexing, parsing,
 ```
 brix/
 ├── src/main.rs              # CLI + compilation pipeline driver
-├── runtime.c                # C runtime (~4,008 lines) — must be in project root
+├── runtime.c                # C runtime (~4,048 lines) — must be in project root
 ├── crates/
 │   ├── lexer/src/token.rs   # Token enum (logos)
 │   ├── parser/src/
@@ -70,9 +70,9 @@ brix/
 │   │   ├── closure_analysis.rs  # Capture analysis pass (runs after parse)
 │   │   └── error.rs         # Ariadne-based parse error reporting
 │   └── codegen/src/
-│       ├── lib.rs           # Main compiler (~14,577 lines — post-refactor 11,014, grew with v1.8 + rustfmt expansion)
-│       ├── stmt.rs          # Statement compilation (~1,114 lines)
-│       ├── expr.rs          # Expression compilation + list comprehension (~1,434 lines)
+│       ├── lib.rs           # Main compiler (~14,858 lines — post-refactor 11,014, grew with v1.8 + rustfmt expansion)
+│       ├── stmt.rs          # Statement compilation (~1,340 lines)
+│       ├── expr.rs          # Expression compilation + list comprehension (~2,021 lines)
 │       ├── helpers.rs       # LLVM helpers
 │       ├── error.rs         # CodegenError enum + CodegenResult<T>
 │       ├── error_report.rs  # Ariadne codegen error formatting
@@ -199,7 +199,7 @@ Jest-style framework. 17 matchers (all support `.not.`): `toBe`, `toEqual`, `toB
 
 **Test baseline (post v1.7):** 1,267 unit (312 lexer + 202 parser + 753 codegen) + 179 integration + 434 Test Library (26 `.test.bx` files)
 
-**Current test baseline (v1.8 in progress — through Grupo C Phase 4B):** 1,297 unit (317 lexer + 205 parser + 775 codegen) + 203 integration + 472 Test Library (28 `.test.bx` files). All green.
+**Current test baseline (v1.8 in progress — Grupo C COMPLETE, Grupos D/E/F not started):** 1,302 unit (317 lexer + 205 parser + 780 codegen) + 207 integration + 476 Test Library (28 `.test.bx` files). All green.
 
 **Completed in v1.7 (Grupos A–I, all complete):**
 - **Grupo A** `BrixType::StringMatrix` + `.split()` / `join()`: new type `{ ref_count, len, BrixString** data }` in `runtime.c` (`SECTION 2.3`), with `string_matrix_new/get/set/retain/release`, `brix_str_split`, `brix_str_join`. `split()` creates each `BrixString*` with `ref_count=1` and inserts it directly into `data[i]` (not via `string_matrix_set`, which retains — that helper exists for future use but is currently dead code in codegen). Wired into `lib.rs`: `brix_type_to_llvm`, `is_ref_counted`, `insert_retain`/`insert_release`, new `get_string_matrix_type()` helper, `.len` field access, indexing (`sm[i]` → `string_matrix_get`, borrowed pointer), `for part in string_matrix` iteration, `value_to_string` (formats as `["a", "b", "c"]`), `.split()` dispatch in `compile_string_method`, global `join(arr, sep)` dispatch. **ARC note:** indexing a `StringMatrix` returns a borrowed `BrixString*` still owned by the matrix — both `is_print_temp()` (lib.rs) and the bare-expression-statement release check (`compile_expr_stmt` in `stmt.rs`) special-case `ExprKind::Index` for `BrixType::String` to avoid releasing it. **Known limitations:** no type-annotation syntax for `StringMatrix` yet (`string[]` still maps to `IntMatrix` — only reachable via inference); `var x := "...".split(...)` leaks the matrix and its constituent strings, same pre-existing pattern as `var x := ones(...)` (see `should_retain` in `stmt.rs`, which excludes `Call` results from retain-adjustment) — not a regression, not yet fixed; no bounds checking on `sm[i]` (returns `NULL` silently out of range), consistent with `Matrix`/`IntMatrix` indexing (which also has zero bounds checking) — not a Grupo A regression. Integration tests 153–155; +2 codegen unit tests; +8 Test Library tests in `strings_v17.test.bx`. Post-review fixes: a CRITICAL use-after-free (`ExprKind::Index` missing from the "borrowed" check in `compile_expr_stmt` — a bare `parts[i]` statement released a string still owned by the matrix) and two Medium findings (`infer_expr_type_static()` didn't recognize `.split()`; `string_matrix_set()` had a self-assignment use-after-free), all fixed.
@@ -247,14 +247,14 @@ Order: Grupo A (physical constants) → B (LAPACK) → C (`Vector<T>`) → D (`S
 - Codegen: `compile_math_matrix_tuple` (shared helper for lu/qr/svd — opaque-pointer ABI, unpacks the heap `*Result` struct into a Brix `Tuple`, frees the container) + `compile_math_simple_builtin` (cholesky/solve/norm) + `compile_math_norm_mat`. All reject empty matrices. **matmul is not a Brix global** (`*` is element-wise) — reconstruction tests write out scalar dot products.
 - Also fixed **tuple-destructuring ARC** (`stmt.rs`): `var { L, U, P } := math.lu(A)` registers ref-counted fields for release; only whitelisted fresh-tuple builtins (lu/qr/svd) transfer ownership, others (aliased returns like `fn dup(m)->(m,m)`) retain-and-keep (no double-free); ignored `_` fields released only for owned temporaries.
 
-**Grupo C — `Vector<T>` — IN PROGRESS (Phases 1–4B done, Phase 5 remaining):**
+**Grupo C — `Vector<T>` — COMPLETE (Phases 1–5):**
 - Runtime `BrixVector { ref_count, len, cap, elem_size, elem_kind, data }` (`runtime.c` SECTION 2.4), 2× growth. `elem_kind` (1=int/2=float/3=string) written from Phase 1 so element ARC (string) worked without rework. Funcs: `brix_vector_new/get_ptr(bounds-checked)/push/len/set(bounds-checked)/pop(transfers ownership)/clear/retain/release` (release reuses clear).
 - `BrixType::Vector(Box<BrixType>)` (`types.rs`). `Vector<int>()` parses as `GenericCall` intercepted in `lib.rs` before monomorphization → `compile_vector_new` (gate: int/float/string only; rejects `Vector<Matrix>` etc.). Methods dispatched by receiver type in `compile_vector_method`: `push`/`pop`/`get`/`set`/`len`/`is_empty`/`clear`. `pop() → Union(T, Nil)` (the `T?`). Type-checked (`v.push("x")` on `Vector<int>` errors — strict, no int→float coercion).
 - **Element ARC (Phase 4B):** push/set release the temp element after the runtime retains it (only for a ref-counted elem, only when the source is an owned temporary — via the dedicated `is_borrowed_ref_expr` helper, NOT `is_print_temp`); `get` retains → returns owned; `pop` transfers ownership.
 - **Phase 4A (prerequisite, language-wide):** fixed `Union(ref-counted, Nil)` ARC — `string?` used to leak on decl/reassign and **dangle** on repeated Elvis. Now: `insert_union_release` (per-tag conditional release), Elvis returns a uniformly OWNED result (retains the borrowed not-nil branch and borrowed defaults, NOT owned temps like `pop()`), assignment releases the old union **after** compiling the RHS (so `x := x ?: "d"` is safe), scope-end releases union vars.
-- **Phase 5 (NEXT / remaining):** `to_array()` (`Vector<int>→IntMatrix`, `Vector<float>→Matrix`, `Vector<string>→StringMatrix`) and `for x in v` iteration.
+- **Phase 5 (final):** `to_array()` — 3 dedicated `runtime.c` wrappers (`brix_vector_to_intmatrix`/`_to_matrix`/`_to_string_matrix`, SECTION 2.4), dispatched by `elem_type` in the new `"to_array"` arm of `compile_vector_method`. The string variant retains (`string_retain`) each copied `BrixString*` so the Vector and the new `StringMatrix` co-own elements — `v.clear()` after `to_array()` doesn't invalidate the returned array. `for x in v { ... }` gets a new `BrixType::Vector(inner)` arm in the `for`-loop compiler (`lib.rs`), mirroring the existing `StringMatrix`/`String` iteration pattern: `brix_vector_len` for the bound, `brix_vector_get_ptr` + `build_load` per element (no bare `brix_vector_get` — that symbol doesn't exist). For a `String` element, the loaded value is retained (`insert_retain`) **before** the loop body compiles, so `v.clear()`/`v.pop()` called from inside the body can't invalidate the current `x` — the vector releases its own reference, but `x` holds a separate one. No release is emitted per iteration (consistent with the pre-existing `for ch in string` leak, not a new regression). **Post-review fix:** the loop bound was originally cached once before the loop (`vec_len`, a single `brix_vector_len` call) instead of reloaded per iteration; with 2+ elements, a body that shrinks the vector (`v.clear()`/`v.pop()`) left the cached bound stale, so the loop advanced its index past the vector's real (now smaller) length and `brix_vector_get_ptr` — which bounds-checks and aborts — crashed the process on the next iteration instead of ending the loop. Fixed by calling `brix_vector_len` fresh inside `cond_bb` on every check, same shape as the index reload already done there. Integration tests 199–202; +5 codegen unit tests; +7 Test Library tests in `collections_v18.test.bx` (including the 4 adversarial cases: `to_array()` + `clear()`, basic `for`, `clear()` mid-loop-body with 1 element, and the 2+-element regression that exercises the stale-bound bug).
 
-**Grupos D/E/F — NOT STARTED:** `Stack<T>`/`Queue<T>`, `MinHeap`/`MaxHeap`, `HashMap<K,V>` (all depend on `Vector<T>`).
+**Grupos D/E/F — NOT STARTED:** `Stack<T>`/`Queue<T>`, `MinHeap`/`MaxHeap`, `HashMap<K,V>` (all depend on `Vector<T>`, which is now complete).
 
 **Working conventions this session (memory):** run `rustfmt --edition 2021` on every touched file so `rustfmt --check` passes (the whole `codegen` crate was normalized in commit `rustfmt: format the codegen crate`); NEVER run two compile-producing suites concurrently (integration + Test Library clobber the shared `output.o`/`program` in repo root → bogus low counts + `ld: file is empty` — run each alone, sequentially); each phase is validated across all 3 test layers + a full integration run before commit.
 
