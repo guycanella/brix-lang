@@ -1,0 +1,13 @@
+// ARC ordering (v1.8 Grupo C Phase 4A fix): the old target value is released
+// only AFTER the RHS is compiled, so a self-/cyclic-referencing RHS cannot read
+// a freed value.
+var x: string? = "a"
+x = x ?: "d"            // Elvis reads x's old "a" — must not use-after-free
+println(x ?: "none")    // a
+x = nil
+x = x ?: "recovered"
+println(x ?: "none")    // recovered
+
+var s := "keep"
+s = s                   // self-assign of a ref-counted string — no double-free
+println(s)              // keep

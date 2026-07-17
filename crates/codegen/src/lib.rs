@@ -1271,6 +1271,116 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         Ok(())
     }
 
+    /// The ref-counted variants of a union, as (tag_index, type). Empty for a
+    /// union with no ref-counted variant (e.g. `int | float`).
+    fn union_ref_counted_variants(types: &[BrixType]) -> Vec<(usize, BrixType)> {
+        types
+            .iter()
+            .enumerate()
+            .filter(|(_, t)| Self::is_ref_counted(t))
+            .map(|(i, t)| (i, t.clone()))
+            .collect()
+    }
+
+    /// True if a union carries at least one ref-counted variant (so its values
+    /// need retain/release, e.g. `string?` = Union(String, Nil)).
+    fn union_has_ref_counted_variant(types: &[BrixType]) -> bool {
+        !Self::union_ref_counted_variants(types).is_empty()
+    }
+
+    /// Release the inner ref-counted value held by a union VALUE (the loaded
+    /// `{ i64 tag, value }` struct), if its active tag selects a ref-counted
+    /// variant. Emits a runtime tag check per ref-counted variant. No-op for a
+    /// union with no ref-counted variant or when the value field is not a
+    /// pointer (only `T?` with a heap `T` is ARC-managed in v1.8).
+    fn insert_union_release(
+        &self,
+        union_val: BasicValueEnum<'ctx>,
+        types: &[BrixType],
+    ) -> CodegenResult<()> {
+        let variants = Self::union_ref_counted_variants(types);
+        if variants.is_empty() {
+            return Ok(());
+        }
+        let sv = union_val.into_struct_value();
+        let tag = self
+            .builder
+            .build_extract_value(sv, 0, "union_rel_tag")
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_extract_value".to_string(),
+                details: "Failed to extract union tag for release".to_string(),
+                span: None,
+            })?
+            .into_int_value();
+        let value = self
+            .builder
+            .build_extract_value(sv, 1, "union_rel_val")
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_extract_value".to_string(),
+                details: "Failed to extract union value for release".to_string(),
+                span: None,
+            })?;
+        // Only pointer-valued unions (T? with heap T) are ARC-managed here.
+        if !value.is_pointer_value() {
+            return Ok(());
+        }
+        let value_ptr = value.into_pointer_value();
+        let i64_type = self.context.i64_type();
+        let parent_fn = self.current_function()?;
+        for (idx, rc_type) in variants {
+            let match_bb = self
+                .context
+                .append_basic_block(parent_fn, "union_rel_match");
+            let cont_bb = self.context.append_basic_block(parent_fn, "union_rel_cont");
+            let is_variant = self
+                .builder
+                .build_int_compare(
+                    IntPredicate::EQ,
+                    tag,
+                    i64_type.const_int(idx as u64, false),
+                    "union_rel_is",
+                )
+                .map_err(|_| CodegenError::LLVMError {
+                    operation: "build_int_compare".to_string(),
+                    details: "Failed union release tag compare".to_string(),
+                    span: None,
+                })?;
+            self.builder
+                .build_conditional_branch(is_variant, match_bb, cont_bb)
+                .map_err(|_| CodegenError::LLVMError {
+                    operation: "build_conditional_branch".to_string(),
+                    details: "Failed union release branch".to_string(),
+                    span: None,
+                })?;
+            self.builder.position_at_end(match_bb);
+            self.insert_release(value_ptr, &rc_type)?;
+            self.builder
+                .build_unconditional_branch(cont_bb)
+                .map_err(|_| CodegenError::LLVMError {
+                    operation: "build_unconditional_branch".to_string(),
+                    details: "Failed union release cont branch".to_string(),
+                    span: None,
+                })?;
+            self.builder.position_at_end(cont_bb);
+        }
+        Ok(())
+    }
+
+    /// An expression that yields a BORROWED reference to a ref-counted value it
+    /// does not own: a variable, a struct field, or an index into an owning
+    /// container (e.g. StringMatrix[i]). Everything else — literals, string
+    /// concatenation, f-strings, and function/method call results (including
+    /// Vector<string>.get(), which returns an owned/retained value) — produces
+    /// an OWNED temporary. Distinct from is_print_temp on purpose: ownership
+    /// decisions must not be coupled to print-release heuristics.
+    fn is_borrowed_ref_expr(expr_kind: &parser::ast::ExprKind) -> bool {
+        use parser::ast::ExprKind;
+        matches!(
+            expr_kind,
+            ExprKind::Identifier(_) | ExprKind::FieldAccess { .. } | ExprKind::Index { .. }
+        )
+    }
+
     /// Release all ref-counted variables in current function scope.
     /// Called at function exit (for void functions) or before return.
     ///
@@ -1286,10 +1396,25 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             if !released.insert(var_name.clone()) {
                 continue;
             }
-            if let Some((var_ptr, _)) = self.variables.get(var_name) {
+            if let Some((var_ptr, _)) = self.variables.get(var_name).cloned() {
+                // Union vars hold a { tag, value } struct by value: load the
+                // struct and tag-check-release its inner ref-counted variant.
+                if let BrixType::Union(types) = var_type {
+                    let union_llvm = self.brix_type_to_llvm(var_type);
+                    let union_val = self
+                        .builder
+                        .build_load(union_llvm, var_ptr, &format!("{}_release_load", var_name))
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_load".to_string(),
+                            details: format!("Failed to load union '{}' for release", var_name),
+                            span: None,
+                        })?;
+                    self.insert_union_release(union_val, types)?;
+                    continue;
+                }
                 let value = self
                     .builder
-                    .build_load(ptr_type, *var_ptr, &format!("{}_release_load", var_name))
+                    .build_load(ptr_type, var_ptr, &format!("{}_release_load", var_name))
                     .map_err(|_| CodegenError::LLVMError {
                         operation: "build_load".to_string(),
                         details: format!("Failed to load variable '{}' for release", var_name),
@@ -4046,6 +4171,26 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         (lhs_val, lhs_type.clone())
                     };
 
+                    // Normalize ownership so the Elvis result is uniformly OWNED
+                    // for a ref-counted result. When the LHS is a BORROWED source
+                    // (a variable/field/index, or a string? held in one), the
+                    // not-nil branch extracts a reference the source still owns —
+                    // retain it (the consumer's release balances this and the
+                    // source keeps its reference; fixes the `y ?: d; y ?: e`
+                    // use-after-free). When the LHS is an OWNED temporary
+                    // (literal/concat/call result, e.g. Vector<string>.pop()), the
+                    // inner value is already owned — do NOT retain (would leak).
+                    let lhs_result = if Self::is_ref_counted(&lhs_result.1)
+                        && Self::is_borrowed_ref_expr(&lhs.kind)
+                    {
+                        (
+                            self.insert_retain(lhs_result.0, &lhs_result.1)?,
+                            lhs_result.1,
+                        )
+                    } else {
+                        lhs_result
+                    };
+
                     self.builder
                         .build_unconditional_branch(merge_bb)
                         .map_err(|_| CodegenError::LLVMError {
@@ -4057,6 +4202,16 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     // RHS block: lhs is nil, evaluate and use rhs
                     self.builder.position_at_end(rhs_bb);
                     let (rhs_val, _rhs_type) = self.compile_expr(rhs)?;
+                    // Normalize the default branch too: a borrowed ref-counted
+                    // default (a variable/field) must be retained so both Elvis
+                    // branches yield an OWNED value. A temporary is already owned.
+                    let rhs_val = if Self::is_ref_counted(&lhs_result.1)
+                        && Self::is_borrowed_ref_expr(&rhs.kind)
+                    {
+                        self.insert_retain(rhs_val, &lhs_result.1)?
+                    } else {
+                        rhs_val
+                    };
                     self.builder
                         .build_unconditional_branch(merge_bb)
                         .map_err(|_| CodegenError::LLVMError {
