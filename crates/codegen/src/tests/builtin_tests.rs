@@ -2720,3 +2720,220 @@ fn test_maxheap_annotation_ok() {
     };
     assert!(vector_compiles(program));
 }
+
+// ==================== HASHMAP<K,V> (v1.8 Grupo F) ====================
+
+fn hashmap_new_expr(key: &str, val: &str) -> Expr {
+    Expr::dummy(ExprKind::GenericCall {
+        func: Box::new(Expr::dummy(ExprKind::Identifier("HashMap".to_string()))),
+        type_args: vec![key.to_string(), val.to_string()],
+        args: vec![],
+    })
+}
+
+fn hashmap_decl(name: &str, type_hint: Option<&str>, key: &str, val: &str) -> Stmt {
+    Stmt::dummy(StmtKind::VariableDecl {
+        name: name.to_string(),
+        type_hint: type_hint.map(|s| s.to_string()),
+        value: hashmap_new_expr(key, val),
+        is_const: false,
+    })
+}
+
+#[test]
+fn test_hashmap_set_get_has_delete_len_compile() {
+    // var m := HashMap<string, int>(); m.set(...); m.get(...); m.has(...); m.delete(...); m.len()
+    let program = Program {
+        statements: vec![
+            hashmap_decl("m", None, "string", "int"),
+            vec_method_stmt(
+                "m",
+                "set",
+                vec![
+                    Expr::dummy(ExprKind::Literal(Literal::String("a".to_string()))),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(1))),
+                ],
+            ),
+            vec_method_stmt(
+                "m",
+                "get",
+                vec![Expr::dummy(ExprKind::Literal(Literal::String(
+                    "a".to_string(),
+                )))],
+            ),
+            vec_method_stmt(
+                "m",
+                "has",
+                vec![Expr::dummy(ExprKind::Literal(Literal::String(
+                    "a".to_string(),
+                )))],
+            ),
+            vec_method_stmt(
+                "m",
+                "delete",
+                vec![Expr::dummy(ExprKind::Literal(Literal::String(
+                    "a".to_string(),
+                )))],
+            ),
+            vec_method_stmt("m", "len", vec![]),
+        ],
+    };
+    assert!(vector_compiles(program));
+}
+
+#[test]
+fn test_hashmap_int_keys_enabled() {
+    // HashMap<int, string>(): set/get/keys compile.
+    let program = Program {
+        statements: vec![
+            hashmap_decl("m", None, "int", "string"),
+            vec_method_stmt(
+                "m",
+                "set",
+                vec![
+                    Expr::dummy(ExprKind::Literal(Literal::Int(1))),
+                    Expr::dummy(ExprKind::Literal(Literal::String("a".to_string()))),
+                ],
+            ),
+            vec_method_stmt(
+                "m",
+                "get",
+                vec![Expr::dummy(ExprKind::Literal(Literal::Int(1)))],
+            ),
+            vec_method_stmt("m", "keys", vec![]),
+        ],
+    };
+    assert!(vector_compiles(program));
+}
+
+#[test]
+fn test_hashmap_float_value_enabled() {
+    // HashMap<string, float>(): set/get compile.
+    let program = Program {
+        statements: vec![
+            hashmap_decl("m", None, "string", "float"),
+            vec_method_stmt(
+                "m",
+                "set",
+                vec![
+                    Expr::dummy(ExprKind::Literal(Literal::String("a".to_string()))),
+                    Expr::dummy(ExprKind::Literal(Literal::Float(1.5))),
+                ],
+            ),
+            vec_method_stmt(
+                "m",
+                "get",
+                vec![Expr::dummy(ExprKind::Literal(Literal::String(
+                    "a".to_string(),
+                )))],
+            ),
+        ],
+    };
+    assert!(vector_compiles(program));
+}
+
+#[test]
+fn test_hashmap_string_keys_string_values() {
+    // HashMap<string, string>(): the fully-string case exercises key AND
+    // value ARC together.
+    let program = Program {
+        statements: vec![
+            hashmap_decl("m", None, "string", "string"),
+            vec_method_stmt(
+                "m",
+                "set",
+                vec![
+                    Expr::dummy(ExprKind::Literal(Literal::String("a".to_string()))),
+                    Expr::dummy(ExprKind::Literal(Literal::String("x".to_string()))),
+                ],
+            ),
+            vec_method_stmt(
+                "m",
+                "get",
+                vec![Expr::dummy(ExprKind::Literal(Literal::String(
+                    "a".to_string(),
+                )))],
+            ),
+            vec_method_stmt("m", "keys", vec![]),
+        ],
+    };
+    assert!(vector_compiles(program));
+}
+
+#[test]
+fn test_hashmap_set_key_type_error() {
+    // m.set(1, "x") on HashMap<string, string> must fail (key type mismatch).
+    let program = Program {
+        statements: vec![
+            hashmap_decl("m", None, "string", "string"),
+            vec_method_stmt(
+                "m",
+                "set",
+                vec![
+                    Expr::dummy(ExprKind::Literal(Literal::Int(1))),
+                    Expr::dummy(ExprKind::Literal(Literal::String("x".to_string()))),
+                ],
+            ),
+        ],
+    };
+    assert!(!vector_compiles(program));
+}
+
+#[test]
+fn test_hashmap_set_value_type_error() {
+    // m.set("a", 1) on HashMap<string, string> must fail (value type mismatch).
+    let program = Program {
+        statements: vec![
+            hashmap_decl("m", None, "string", "string"),
+            vec_method_stmt(
+                "m",
+                "set",
+                vec![
+                    Expr::dummy(ExprKind::Literal(Literal::String("a".to_string()))),
+                    Expr::dummy(ExprKind::Literal(Literal::Int(1))),
+                ],
+            ),
+        ],
+    };
+    assert!(!vector_compiles(program));
+}
+
+#[test]
+fn test_hashmap_annotation_ok() {
+    // var m: HashMap<string, int> = HashMap<string, int>() compiles.
+    let program = Program {
+        statements: vec![hashmap_decl(
+            "m",
+            Some("HashMap<string, int>"),
+            "string",
+            "int",
+        )],
+    };
+    assert!(vector_compiles(program));
+}
+
+#[test]
+fn test_hashmap_index_read_write() {
+    // m["a"] (read, desugars to get) and m["b"] = 2 (write, desugars to set) both compile.
+    let program = Program {
+        statements: vec![
+            hashmap_decl("m", None, "string", "int"),
+            Stmt::dummy(StmtKind::Assignment {
+                target: Expr::dummy(ExprKind::Index {
+                    array: Box::new(Expr::dummy(ExprKind::Identifier("m".to_string()))),
+                    indices: vec![Expr::dummy(ExprKind::Literal(Literal::String(
+                        "b".to_string(),
+                    )))],
+                }),
+                value: Expr::dummy(ExprKind::Literal(Literal::Int(2))),
+            }),
+            Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Index {
+                array: Box::new(Expr::dummy(ExprKind::Identifier("m".to_string()))),
+                indices: vec![Expr::dummy(ExprKind::Literal(Literal::String(
+                    "a".to_string(),
+                )))],
+            }))),
+        ],
+    };
+    assert!(vector_compiles(program));
+}

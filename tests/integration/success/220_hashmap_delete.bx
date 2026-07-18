@@ -1,0 +1,14 @@
+// delete() is idempotent (no-op on a missing key, not an error), and a key
+// can be reinserted after deletion (reusing the tombstone slot).
+var m := HashMap<string, int>()
+m.set("a", 1)
+m.set("b", 2)
+println(m.has("b"))
+m.delete("b")
+println(m.has("b"))
+m.delete("b")
+println(m.has("b"))
+println(m.len())
+m.set("b", 99)
+println(m.get("b") ?: -1)
+println(m.len())

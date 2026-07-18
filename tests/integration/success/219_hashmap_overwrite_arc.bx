@@ -1,0 +1,11 @@
+// Overwriting an existing key releases the old value (string) and stores the
+// new one — the stored key itself is untouched (same original reference).
+// Also: lookup by a DIFFERENT string instance with the same content must
+// match (content equality via strcmp, not pointer equality).
+var m := HashMap<string, string>()
+m.set("a", "x")
+m.set("a", "y")
+println(m.get("a") ?: "none")
+
+var k := "a"
+println(m.get(k) ?: "none")

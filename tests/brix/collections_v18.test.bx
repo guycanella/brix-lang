@@ -369,3 +369,88 @@ test.describe("MinHeap<T> / MaxHeap<T> (v1.8 Grupo E)", () -> {
         test.expect(sorted).toBe("0123456789")
     })
 })
+
+test.describe("HashMap<K,V> (v1.8 Grupo F)", () -> {
+    test.it("set/get/has/len over HashMap<string, int>", () -> {
+        var m := HashMap<string, int>()
+        m.set("Alice", 30)
+        m.set("Bob", 25)
+        test.expect(m.get("Alice") ?: -1).toBe(30)
+        test.expect(m.has("Bob")).toBe(1)
+        test.expect(m.len()).toBe(2)
+    })
+
+    test.it("get() on a missing key returns nil via ?:", () -> {
+        var m := HashMap<string, string>()
+        m.set("a", "x")
+        test.expect(m.get("a") ?: "none").toBe("x")
+        test.expect(m.get("b") ?: "none").toBe("none")
+    })
+
+    test.it("HashMap<int, V> supports the less common int-key direction", () -> {
+        var m := HashMap<int, string>()
+        m.set(1, "one")
+        m.set(2, "two")
+        test.expect(m.get(1) ?: "none").toBe("one")
+        test.expect(m.get(2) ?: "none").toBe("two")
+    })
+
+    test.it("overwriting a key updates the value; lookup by an equal-content string matches", () -> {
+        var m := HashMap<string, string>()
+        m.set("a", "x")
+        m.set("a", "y")
+        test.expect(m.get("a") ?: "none").toBe("y")
+        var k := "a"
+        test.expect(m.get(k) ?: "none").toBe("y")
+    })
+
+    test.it("delete() is idempotent; a key can be reinserted after deletion", () -> {
+        var m := HashMap<string, int>()
+        m.set("a", 1)
+        m.set("b", 2)
+        m.delete("b")
+        test.expect(m.has("b")).toBe(0)
+        m.delete("b")
+        test.expect(m.has("b")).toBe(0)
+        m.set("b", 99)
+        test.expect(m.get("b") ?: -1).toBe(99)
+        test.expect(m.len()).toBe(2)
+    })
+
+    test.it("for key in map.keys() iterates all stored keys", () -> {
+        var m := HashMap<string, int>()
+        m.set("a", 1)
+        m.set("b", 2)
+        var sum := 0
+        for key in m.keys() {
+            sum += m.get(key) ?: 0
+        }
+        test.expect(sum).toBe(3)
+    })
+
+    test.it("index syntax: map[key] = val and map[key] read", () -> {
+        var m := HashMap<string, int>()
+        m["Charlie"] = 22
+        test.expect(m["Charlie"] ?: -1).toBe(22)
+        test.expect(m["Nobody"] ?: -1).toBe(-1)
+    })
+
+    test.it("growth/rehash with string keys preserves all entries", () -> {
+        var m := HashMap<string, int>()
+        m.set("k0", 0)
+        m.set("k1", 1)
+        m.set("k2", 2)
+        m.set("k3", 3)
+        m.set("k4", 4)
+        m.set("k5", 5)
+        m.set("k6", 6)
+        m.set("k7", 7)
+        m.set("k8", 8)
+        m.set("k9", 9)
+        m.set("k10", 10)
+        m.set("k11", 11)
+        test.expect(m.len()).toBe(12)
+        test.expect(m.get("k0") ?: -1).toBe(0)
+        test.expect(m.get("k11") ?: -1).toBe(11)
+    })
+})

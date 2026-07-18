@@ -1,0 +1,7 @@
+// HashMap<int, string> (v1.8 Grupo F) — less common key direction.
+var m := HashMap<int, string>()
+m.set(1, "one")
+m.set(2, "two")
+println(m.get(1) ?: "none")
+println(m.get(2) ?: "none")
+println(m.get(3) ?: "none")

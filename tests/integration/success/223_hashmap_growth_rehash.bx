@@ -1,0 +1,22 @@
+// Growth/rehash with STRING keys (initial cap=8; used*10>=cap*7 triggers a
+// rehash around 6 entries, and again around 12 at the doubled capacity) —
+// rehash must preserve retained key references correctly (all keys and
+// values remain valid and retrievable after growing).
+var m := HashMap<string, int>()
+m.set("k0", 0)
+m.set("k1", 1)
+m.set("k2", 2)
+m.set("k3", 3)
+m.set("k4", 4)
+m.set("k5", 5)
+m.set("k6", 6)
+m.set("k7", 7)
+m.set("k8", 8)
+m.set("k9", 9)
+m.set("k10", 10)
+m.set("k11", 11)
+println(m.len())
+println(m.get("k0") ?: -1)
+println(m.get("k5") ?: -1)
+println(m.get("k11") ?: -1)
+println(m.get("k12") ?: -1)
