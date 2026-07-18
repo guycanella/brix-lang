@@ -1,0 +1,10 @@
+// for key in map.keys() — keys() returns a StringMatrix for string keys;
+// existing "for x in <matrix>" iteration applies directly.
+var m := HashMap<string, int>()
+m.set("a", 1)
+m.set("b", 2)
+var sum := 0
+for key in m.keys() {
+    sum += m.get(key) ?: 0
+}
+println(sum)

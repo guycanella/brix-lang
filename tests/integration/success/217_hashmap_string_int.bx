@@ -1,0 +1,8 @@
+// HashMap<string, int> (v1.8 Grupo F) — basic set/get/has/len.
+var m := HashMap<string, int>()
+m.set("Alice", 30)
+m.set("Bob", 25)
+println(m.get("Alice") ?: -1)
+println(m.has("Bob"))
+println(m.len())
+println(m.get("Charlie") ?: -1)

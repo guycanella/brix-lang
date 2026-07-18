@@ -596,6 +596,33 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             return BrixType::MaxHeap(Box::new(elem));
         }
 
+        // Step 4i: HashMap<K,V> (v1.8 Grupo F). Two type arguments — split on the
+        // first comma. K in {int, string}, V in {int, float, string}. An invalid
+        // component becomes BrixType::Error (rejected downstream, same convention
+        // as Vector/Stack/Queue/Heap).
+        if let Some(inner) = resolved_type_str
+            .strip_prefix("HashMap<")
+            .and_then(|s| s.strip_suffix('>'))
+        {
+            if let Some((key_str, val_str)) = inner.split_once(',') {
+                let key = match key_str.trim() {
+                    "int" => BrixType::Int,
+                    "string" => BrixType::String,
+                    _ => BrixType::Error,
+                };
+                let val = match val_str.trim() {
+                    "int" => BrixType::Int,
+                    "float" => BrixType::Float,
+                    "string" => BrixType::String,
+                    _ => BrixType::Error,
+                };
+                return BrixType::HashMap(Box::new(key), Box::new(val));
+            }
+            // Malformed (no comma): represent as HashMap(Error, Error) so the
+            // type-hint / construction paths reject it.
+            return BrixType::HashMap(Box::new(BrixType::Error), Box::new(BrixType::Error));
+        }
+
         // Step 5: Base types
         match resolved_type_str {
             "int" => BrixType::Int,
@@ -682,6 +709,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             BrixType::MinHeap(_) | BrixType::MaxHeap(_) => {
                 // MinHeap<T>/MaxHeap<T> are a thin wrapper over the heap
                 // BrixVector struct.
+                self.context.ptr_type(AddressSpace::default()).into()
+            }
+            BrixType::HashMap(_, _) => {
+                // HashMap<K,V> is a pointer to the heap BrixHashMap struct.
                 self.context.ptr_type(AddressSpace::default()).into()
             }
             BrixType::Void => self.context.i64_type().into(), // Placeholder (shouldn't be used)
@@ -1228,6 +1259,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 | BrixType::Queue(_)
                 | BrixType::MinHeap(_)
                 | BrixType::MaxHeap(_)
+                | BrixType::HashMap(_, _)
         )
     }
 
@@ -1286,6 +1318,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             // vector symbol (same as Stack).
             BrixType::MinHeap(_) => "brix_vector_retain",
             BrixType::MaxHeap(_) => "brix_vector_retain",
+            BrixType::HashMap(_, _) => "brix_hashmap_retain",
             _ => unreachable!("is_ref_counted should have filtered this"),
         };
 
@@ -1343,6 +1376,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             // vector symbol (same as Stack).
             BrixType::MinHeap(_) => "brix_vector_release",
             BrixType::MaxHeap(_) => "brix_vector_release",
+            BrixType::HashMap(_, _) => "brix_hashmap_release",
             _ => unreachable!("is_ref_counted should have filtered this"),
         };
 
@@ -4261,10 +4295,11 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         | BrixType::Stack(_)
                         | BrixType::Queue(_)
                         | BrixType::MinHeap(_)
-                        | BrixType::MaxHeap(_) => {
-                            // Vector<T>/Stack<T>/Queue<T>/MinHeap<T>/MaxHeap<T> are
-                            // stored as an opaque heap-struct pointer
-                            // (BrixVector*/BrixQueue*).
+                        | BrixType::MaxHeap(_)
+                        | BrixType::HashMap(_, _) => {
+                            // Vector<T>/Stack<T>/Queue<T>/MinHeap<T>/MaxHeap<T>/
+                            // HashMap<K,V> are stored as an opaque heap-struct
+                            // pointer (BrixVector*/BrixQueue*/BrixHashMap*).
                             let ptr_type = self.context.ptr_type(AddressSpace::default());
                             let val =
                                 self.builder.build_load(ptr_type, *ptr, name).map_err(|_| {
@@ -6139,12 +6174,18 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             field.as_str(),
                             "push" | "pop" | "peek" | "size" | "is_empty"
                         );
+                        // HashMap<K,V> methods (v1.8 Grupo F).
+                        let is_hashmap_method = matches!(
+                            field.as_str(),
+                            "set" | "get" | "has" | "delete" | "len" | "keys"
+                        );
                         if is_iter_method
                             || is_str_method
                             || is_vector_method
                             || is_stack_method
                             || is_queue_method
                             || is_heap_method
+                            || is_hashmap_method
                         {
                             let (receiver_val, receiver_type) = self.compile_expr(target)?;
                             if is_vector_method {
@@ -6201,6 +6242,20 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                         receiver_val,
                                         &elem,
                                         true,
+                                        field,
+                                        args,
+                                        expr,
+                                    );
+                                }
+                            }
+                            if is_hashmap_method {
+                                if let BrixType::HashMap(key_type, val_type) = &receiver_type {
+                                    let key_type = key_type.as_ref().clone();
+                                    let val_type = val_type.as_ref().clone();
+                                    return self.compile_hashmap_method(
+                                        receiver_val,
+                                        &key_type,
+                                        &val_type,
                                         field,
                                         args,
                                         expr,
@@ -6466,6 +6521,21 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                     _ => "unknown",
                                 };
                                 format!("MaxHeap<{}>", elem)
+                            }
+                            BrixType::HashMap(key, val) => {
+                                let key_str = match key.as_ref() {
+                                    BrixType::Int => "int",
+                                    BrixType::Float => "float",
+                                    BrixType::String => "string",
+                                    _ => "unknown",
+                                };
+                                let val_str = match val.as_ref() {
+                                    BrixType::Int => "int",
+                                    BrixType::Float => "float",
+                                    BrixType::String => "string",
+                                    _ => "unknown",
+                                };
+                                format!("HashMap<{}, {}>", key_str, val_str)
                             }
                             BrixType::Optional(_) => {
                                 // Optional is now Union(T, nil), should never be reached
@@ -8421,6 +8491,12 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     return self.compile_heap_new(type_args, args, expr, true);
                 }
 
+                // HashMap<K,V>() constructor (v1.8 Grupo F) — two type args
+                // (key, value), same interception point before monomorphization.
+                if func_name == "HashMap" {
+                    return self.compile_hashmap_new(type_args, args, expr);
+                }
+
                 // Get parent function for context
                 let parent_function = self.current_function.ok_or_else(|| {
                     CodegenError::General("Generic call outside function context".to_string())
@@ -8846,6 +8922,23 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         }
                     })?;
                     return Ok((val, BrixType::String));
+                }
+
+                // HashMap indexing sugar: map[key] -> map.get(key) (v1.8 Grupo F).
+                // Returns Union(V, Nil) (the `V?`), same as the explicit .get().
+                if let BrixType::HashMap(key_type, val_type) = &target_type {
+                    if indices.len() != 1 {
+                        return Err(CodegenError::InvalidOperation {
+                            operation: "HashMap index".to_string(),
+                            reason: "expects exactly one key".to_string(),
+                            span: Some(expr.span.clone()),
+                        });
+                    }
+                    let key_type = key_type.as_ref().clone();
+                    let val_type = val_type.as_ref().clone();
+                    return self.compile_hashmap_method(
+                        target_val, &key_type, &val_type, "get", indices, expr,
+                    );
                 }
 
                 // Support both Matrix (f64*) and IntMatrix (i64*)
@@ -14699,6 +14792,632 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             other => Err(CodegenError::General(format!(
                 "{} method '{}' not supported",
                 heap_name, other
+            ))),
+        }
+    }
+
+    /// Compile `HashMap<K,V>()` -> a fresh, empty BrixHashMap* (ref_count = 1).
+    /// K in {Int, String}, V in {Int, Float, String}. The runtime reuses the
+    /// same elem-kind codes as Vector (1=int, 2=float, 3=string) for both the
+    /// key and value kind; Float is a valid value kind but never a valid key.
+    fn compile_hashmap_new(
+        &mut self,
+        type_args: &[String],
+        args: &[Expr],
+        expr: &Expr,
+    ) -> CodegenResult<(BasicValueEnum<'ctx>, BrixType)> {
+        use inkwell::AddressSpace;
+
+        if type_args.len() != 2 {
+            return Err(CodegenError::InvalidOperation {
+                operation: "HashMap".to_string(),
+                reason: "expects exactly two type arguments, e.g. HashMap<string, int>()"
+                    .to_string(),
+                span: Some(expr.span.clone()),
+            });
+        }
+        if !args.is_empty() {
+            return Err(CodegenError::InvalidOperation {
+                operation: "HashMap".to_string(),
+                reason: "constructor takes no arguments".to_string(),
+                span: Some(expr.span.clone()),
+            });
+        }
+
+        let key_type = self.string_to_brix_type(&type_args[0]);
+        let val_type = self.string_to_brix_type(&type_args[1]);
+
+        // Key must be int or string (Float is explicitly rejected as a key).
+        if !matches!(key_type, BrixType::Int | BrixType::String) {
+            return Err(CodegenError::TypeError {
+                expected: "HashMap key of int or string".to_string(),
+                found: format!("HashMap<{}, {}>", type_args[0], type_args[1]),
+                context: "HashMap constructor (key type)".to_string(),
+                span: Some(expr.span.clone()),
+            });
+        }
+        // Value may be int, float or string.
+        if !matches!(val_type, BrixType::Int | BrixType::Float | BrixType::String) {
+            return Err(CodegenError::TypeError {
+                expected: "HashMap value of int, float or string".to_string(),
+                found: format!("HashMap<{}, {}>", type_args[0], type_args[1]),
+                context: "HashMap constructor (value type)".to_string(),
+                span: Some(expr.span.clone()),
+            });
+        }
+
+        let key_kind =
+            Self::vector_elem_kind(&key_type).ok_or_else(|| CodegenError::TypeError {
+                expected: "HashMap key of int or string".to_string(),
+                found: format!("HashMap<{}, {}>", type_args[0], type_args[1]),
+                context: "HashMap constructor (key type)".to_string(),
+                span: Some(expr.span.clone()),
+            })?;
+        let val_kind =
+            Self::vector_elem_kind(&val_type).ok_or_else(|| CodegenError::TypeError {
+                expected: "HashMap value of int, float or string".to_string(),
+                found: format!("HashMap<{}, {}>", type_args[0], type_args[1]),
+                context: "HashMap constructor (value type)".to_string(),
+                span: Some(expr.span.clone()),
+            })?;
+
+        let i64_type = self.context.i64_type();
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let new_fn = self
+            .module
+            .get_function("brix_hashmap_new")
+            .unwrap_or_else(|| {
+                let fn_type = ptr_type.fn_type(&[i64_type.into(), i64_type.into()], false);
+                self.module
+                    .add_function("brix_hashmap_new", fn_type, Some(Linkage::External))
+            });
+
+        let call = self
+            .builder
+            .build_call(
+                new_fn,
+                &[
+                    i64_type.const_int(key_kind, false).into(),
+                    i64_type.const_int(val_kind, false).into(),
+                ],
+                "hashmap_new",
+            )
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_call".to_string(),
+                details: "Failed to call brix_hashmap_new".to_string(),
+                span: Some(expr.span.clone()),
+            })?;
+        let result =
+            call.try_as_basic_value()
+                .left()
+                .ok_or_else(|| CodegenError::MissingValue {
+                    what: "brix_hashmap_new result".to_string(),
+                    context: "HashMap()".to_string(),
+                    span: Some(expr.span.clone()),
+                })?;
+
+        Ok((
+            result,
+            BrixType::HashMap(Box::new(key_type), Box::new(val_type)),
+        ))
+    }
+
+    /// Compile a method call on a HashMap receiver.
+    /// API: set / get / has / delete / len / keys.
+    fn compile_hashmap_method(
+        &mut self,
+        receiver: BasicValueEnum<'ctx>,
+        key_type: &BrixType,
+        val_type: &BrixType,
+        method: &str,
+        args: &[Expr],
+        expr: &Expr,
+    ) -> CodegenResult<(BasicValueEnum<'ctx>, BrixType)> {
+        use inkwell::AddressSpace;
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let i64_type = self.context.i64_type();
+        let void_type = self.context.void_type();
+        let m_ptr = receiver.into_pointer_value();
+
+        match method {
+            "set" => {
+                if args.len() != 2 {
+                    return Err(CodegenError::InvalidOperation {
+                        operation: "HashMap.set".to_string(),
+                        reason: format!("expects 2 arguments (key, value), got {}", args.len()),
+                        span: Some(expr.span.clone()),
+                    });
+                }
+                // Compile key — must match key_type exactly (no coercion).
+                let (key_val, key_val_type) = self.compile_expr(&args[0])?;
+                if &key_val_type != key_type {
+                    return Err(CodegenError::TypeError {
+                        expected: format!("{:?}", key_type),
+                        found: format!("{:?}", key_val_type),
+                        context: "HashMap.set key".to_string(),
+                        span: Some(expr.span.clone()),
+                    });
+                }
+                // Compile value — must match val_type exactly (no coercion).
+                let (value_val, value_val_type) = self.compile_expr(&args[1])?;
+                if &value_val_type != val_type {
+                    return Err(CodegenError::TypeError {
+                        expected: format!("{:?}", val_type),
+                        found: format!("{:?}", value_val_type),
+                        context: "HashMap.set value".to_string(),
+                        span: Some(expr.span.clone()),
+                    });
+                }
+
+                let key_llvm = self.brix_type_to_llvm(key_type);
+                let val_llvm = self.brix_type_to_llvm(val_type);
+                let key_slot = self
+                    .builder
+                    .build_alloca(key_llvm, "set_key")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_alloca".to_string(),
+                        details: "Failed to alloca set key slot".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                self.builder.build_store(key_slot, key_val).map_err(|_| {
+                    CodegenError::LLVMError {
+                        operation: "build_store".to_string(),
+                        details: "Failed to store set key".to_string(),
+                        span: Some(expr.span.clone()),
+                    }
+                })?;
+                let val_slot = self
+                    .builder
+                    .build_alloca(val_llvm, "set_val")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_alloca".to_string(),
+                        details: "Failed to alloca set value slot".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                self.builder.build_store(val_slot, value_val).map_err(|_| {
+                    CodegenError::LLVMError {
+                        operation: "build_store".to_string(),
+                        details: "Failed to store set value".to_string(),
+                        span: Some(expr.span.clone()),
+                    }
+                })?;
+
+                let set_fn = self
+                    .module
+                    .get_function("brix_hashmap_set")
+                    .unwrap_or_else(|| {
+                        let fn_type = void_type
+                            .fn_type(&[ptr_type.into(), ptr_type.into(), ptr_type.into()], false);
+                        self.module.add_function(
+                            "brix_hashmap_set",
+                            fn_type,
+                            Some(Linkage::External),
+                        )
+                    });
+                self.builder
+                    .build_call(
+                        set_fn,
+                        &[m_ptr.into(), key_slot.into(), val_slot.into()],
+                        "",
+                    )
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: "Failed to call brix_hashmap_set".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+
+                // ARC: brix_hashmap_set retains the key/value it stores (only when
+                // it actually keeps the reference — see the C contract). Release
+                // our temp reference for each arg independently, only for an owned
+                // temporary source (not a borrowed identifier/field/index).
+                if Self::is_ref_counted(key_type) && !Self::is_borrowed_ref_expr(&args[0].kind) {
+                    self.insert_release(key_val.into_pointer_value(), key_type)?;
+                }
+                if Self::is_ref_counted(val_type) && !Self::is_borrowed_ref_expr(&args[1].kind) {
+                    self.insert_release(value_val.into_pointer_value(), val_type)?;
+                }
+                Ok((i64_type.const_int(0, false).into(), BrixType::Void))
+            }
+            "get" => {
+                if args.len() != 1 {
+                    return Err(CodegenError::InvalidOperation {
+                        operation: "HashMap.get".to_string(),
+                        reason: format!("expects 1 argument (key), got {}", args.len()),
+                        span: Some(expr.span.clone()),
+                    });
+                }
+                let (key_val, key_val_type) = self.compile_expr(&args[0])?;
+                if &key_val_type != key_type {
+                    return Err(CodegenError::TypeError {
+                        expected: format!("{:?}", key_type),
+                        found: format!("{:?}", key_val_type),
+                        context: "HashMap.get key".to_string(),
+                        span: Some(expr.span.clone()),
+                    });
+                }
+                let key_llvm = self.brix_type_to_llvm(key_type);
+                let val_llvm = self.brix_type_to_llvm(val_type);
+                let key_slot = self
+                    .builder
+                    .build_alloca(key_llvm, "get_key")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_alloca".to_string(),
+                        details: "Failed to alloca get key slot".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                self.builder.build_store(key_slot, key_val).map_err(|_| {
+                    CodegenError::LLVMError {
+                        operation: "build_store".to_string(),
+                        details: "Failed to store get key".to_string(),
+                        span: Some(expr.span.clone()),
+                    }
+                })?;
+
+                // Returns Union(V, Nil): { i64 tag, V value }. tag 0 = value,
+                // tag 1 = nil (absent). Same shape as Stack.pop / heap pop.
+                // brix_hashmap_get already retains a ref-counted value on success
+                // (deliberate C contract) — do NOT retain again here.
+                let ret_union_type = BrixType::Union(vec![val_type.clone(), BrixType::Nil]);
+                let union_struct_type = self
+                    .context
+                    .struct_type(&[i64_type.into(), val_llvm], false);
+
+                let result_alloca =
+                    self.create_entry_block_alloca(union_struct_type.into(), "get_result")?;
+                let nil_struct = self
+                    .builder
+                    .build_insert_value(
+                        union_struct_type.get_undef(),
+                        i64_type.const_int(1, false),
+                        0,
+                        "get_nil_tag",
+                    )
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_insert_value".to_string(),
+                        details: "Failed get nil tag".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?
+                    .into_struct_value();
+                self.builder
+                    .build_store(result_alloca, nil_struct)
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_store".to_string(),
+                        details: "Failed store get nil default".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+
+                let out_slot = self.create_entry_block_alloca(val_llvm, "get_out")?;
+                let get_fn = self
+                    .module
+                    .get_function("brix_hashmap_get")
+                    .unwrap_or_else(|| {
+                        let fn_type = i64_type
+                            .fn_type(&[ptr_type.into(), ptr_type.into(), ptr_type.into()], false);
+                        self.module.add_function(
+                            "brix_hashmap_get",
+                            fn_type,
+                            Some(Linkage::External),
+                        )
+                    });
+                let flag = self
+                    .builder
+                    .build_call(
+                        get_fn,
+                        &[m_ptr.into(), key_slot.into(), out_slot.into()],
+                        "get_flag",
+                    )
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: "Failed to call brix_hashmap_get".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?
+                    .try_as_basic_value()
+                    .left()
+                    .ok_or_else(|| CodegenError::MissingValue {
+                        what: "brix_hashmap_get result".to_string(),
+                        context: "HashMap.get".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?
+                    .into_int_value();
+
+                // ARC: release our temp key reference now that the lookup is done —
+                // brix_hashmap_get never stores the key, it only reads it (unlike
+                // set(), which may retain it). Same independent-of-outcome rule as
+                // set()'s key release.
+                if Self::is_ref_counted(key_type) && !Self::is_borrowed_ref_expr(&args[0].kind) {
+                    self.insert_release(key_val.into_pointer_value(), key_type)?;
+                }
+
+                let parent_fn = self.current_function()?;
+                let ok_bb = self.context.append_basic_block(parent_fn, "get_ok");
+                let after_bb = self.context.append_basic_block(parent_fn, "get_after");
+                let cond = self
+                    .builder
+                    .build_int_compare(
+                        IntPredicate::NE,
+                        flag,
+                        i64_type.const_int(0, false),
+                        "get_cond",
+                    )
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_int_compare".to_string(),
+                        details: "Failed get cond".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                self.builder
+                    .build_conditional_branch(cond, ok_bb, after_bb)
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_conditional_branch".to_string(),
+                        details: "Failed get branch".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+
+                self.builder.position_at_end(ok_bb);
+                let got = self
+                    .builder
+                    .build_load(val_llvm, out_slot, "get_val")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_load".to_string(),
+                        details: "Failed load got value".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                let mut ok_struct = self
+                    .builder
+                    .build_insert_value(
+                        union_struct_type.get_undef(),
+                        i64_type.const_int(0, false),
+                        0,
+                        "get_ok_tag",
+                    )
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_insert_value".to_string(),
+                        details: "Failed get ok tag".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?
+                    .into_struct_value();
+                ok_struct = self
+                    .builder
+                    .build_insert_value(ok_struct, got, 1, "get_ok_val")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_insert_value".to_string(),
+                        details: "Failed get ok value".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?
+                    .into_struct_value();
+                self.builder
+                    .build_store(result_alloca, ok_struct)
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_store".to_string(),
+                        details: "Failed store get ok".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                self.builder
+                    .build_unconditional_branch(after_bb)
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_unconditional_branch".to_string(),
+                        details: "Failed get ok branch".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+
+                self.builder.position_at_end(after_bb);
+                let result = self
+                    .builder
+                    .build_load(union_struct_type, result_alloca, "get_union")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_load".to_string(),
+                        details: "Failed load get union".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                Ok((result, ret_union_type))
+            }
+            "has" => {
+                if args.len() != 1 {
+                    return Err(CodegenError::InvalidOperation {
+                        operation: "HashMap.has".to_string(),
+                        reason: format!("expects 1 argument (key), got {}", args.len()),
+                        span: Some(expr.span.clone()),
+                    });
+                }
+                let (key_val, key_val_type) = self.compile_expr(&args[0])?;
+                if &key_val_type != key_type {
+                    return Err(CodegenError::TypeError {
+                        expected: format!("{:?}", key_type),
+                        found: format!("{:?}", key_val_type),
+                        context: "HashMap.has key".to_string(),
+                        span: Some(expr.span.clone()),
+                    });
+                }
+                let key_llvm = self.brix_type_to_llvm(key_type);
+                let key_slot = self
+                    .builder
+                    .build_alloca(key_llvm, "has_key")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_alloca".to_string(),
+                        details: "Failed to alloca has key slot".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                self.builder.build_store(key_slot, key_val).map_err(|_| {
+                    CodegenError::LLVMError {
+                        operation: "build_store".to_string(),
+                        details: "Failed to store has key".to_string(),
+                        span: Some(expr.span.clone()),
+                    }
+                })?;
+                let has_fn = self
+                    .module
+                    .get_function("brix_hashmap_has")
+                    .unwrap_or_else(|| {
+                        let fn_type = i64_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+                        self.module.add_function(
+                            "brix_hashmap_has",
+                            fn_type,
+                            Some(Linkage::External),
+                        )
+                    });
+                let flag = self
+                    .builder
+                    .build_call(has_fn, &[m_ptr.into(), key_slot.into()], "has_flag")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: "Failed to call brix_hashmap_has".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?
+                    .try_as_basic_value()
+                    .left()
+                    .ok_or_else(|| CodegenError::MissingValue {
+                        what: "brix_hashmap_has result".to_string(),
+                        context: "HashMap.has".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                // ARC: brix_hashmap_has never stores the key, only reads it — release
+                // our temp key reference if it was an owned temporary.
+                if Self::is_ref_counted(key_type) && !Self::is_borrowed_ref_expr(&args[0].kind) {
+                    self.insert_release(key_val.into_pointer_value(), key_type)?;
+                }
+                Ok((flag, BrixType::Int))
+            }
+            "delete" => {
+                if args.len() != 1 {
+                    return Err(CodegenError::InvalidOperation {
+                        operation: "HashMap.delete".to_string(),
+                        reason: format!("expects 1 argument (key), got {}", args.len()),
+                        span: Some(expr.span.clone()),
+                    });
+                }
+                let (key_val, key_val_type) = self.compile_expr(&args[0])?;
+                if &key_val_type != key_type {
+                    return Err(CodegenError::TypeError {
+                        expected: format!("{:?}", key_type),
+                        found: format!("{:?}", key_val_type),
+                        context: "HashMap.delete key".to_string(),
+                        span: Some(expr.span.clone()),
+                    });
+                }
+                let key_llvm = self.brix_type_to_llvm(key_type);
+                let key_slot = self
+                    .builder
+                    .build_alloca(key_llvm, "del_key")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_alloca".to_string(),
+                        details: "Failed to alloca delete key slot".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                self.builder.build_store(key_slot, key_val).map_err(|_| {
+                    CodegenError::LLVMError {
+                        operation: "build_store".to_string(),
+                        details: "Failed to store delete key".to_string(),
+                        span: Some(expr.span.clone()),
+                    }
+                })?;
+                let del_fn = self
+                    .module
+                    .get_function("brix_hashmap_delete")
+                    .unwrap_or_else(|| {
+                        let fn_type = void_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+                        self.module.add_function(
+                            "brix_hashmap_delete",
+                            fn_type,
+                            Some(Linkage::External),
+                        )
+                    });
+                self.builder
+                    .build_call(del_fn, &[m_ptr.into(), key_slot.into()], "")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: "Failed to call brix_hashmap_delete".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                // ARC: brix_hashmap_delete releases the STORED key/value itself (if
+                // found), but never takes ownership of the key argument we passed in
+                // — release our temp key reference if it was an owned temporary.
+                if Self::is_ref_counted(key_type) && !Self::is_borrowed_ref_expr(&args[0].kind) {
+                    self.insert_release(key_val.into_pointer_value(), key_type)?;
+                }
+                Ok((i64_type.const_int(0, false).into(), BrixType::Void))
+            }
+            "len" => {
+                if !args.is_empty() {
+                    return Err(CodegenError::InvalidOperation {
+                        operation: "HashMap.len".to_string(),
+                        reason: "takes no arguments".to_string(),
+                        span: Some(expr.span.clone()),
+                    });
+                }
+                let len_fn = self
+                    .module
+                    .get_function("brix_hashmap_len")
+                    .unwrap_or_else(|| {
+                        let fn_type = i64_type.fn_type(&[ptr_type.into()], false);
+                        self.module.add_function(
+                            "brix_hashmap_len",
+                            fn_type,
+                            Some(Linkage::External),
+                        )
+                    });
+                let result = self
+                    .builder
+                    .build_call(len_fn, &[m_ptr.into()], "hashmap_len")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: "Failed to call brix_hashmap_len".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?
+                    .try_as_basic_value()
+                    .left()
+                    .ok_or_else(|| CodegenError::MissingValue {
+                        what: "brix_hashmap_len result".to_string(),
+                        context: "HashMap.len".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                Ok((result, BrixType::Int))
+            }
+            "keys" => {
+                if !args.is_empty() {
+                    return Err(CodegenError::InvalidOperation {
+                        operation: "HashMap.keys".to_string(),
+                        reason: "takes no arguments".to_string(),
+                        span: Some(expr.span.clone()),
+                    });
+                }
+                // Dispatch by key type: int keys -> IntMatrix, string keys ->
+                // StringMatrix (both freshly allocated, owned by the caller).
+                let (fn_name, ret_type) = match key_type {
+                    BrixType::Int => ("brix_hashmap_keys_int", BrixType::IntMatrix),
+                    BrixType::String => ("brix_hashmap_keys_str", BrixType::StringMatrix),
+                    _ => {
+                        return Err(CodegenError::TypeError {
+                            expected: "HashMap key of int or string".to_string(),
+                            found: format!("{:?}", key_type),
+                            context: "HashMap.keys".to_string(),
+                            span: Some(expr.span.clone()),
+                        })
+                    }
+                };
+                let keys_fn = self.module.get_function(fn_name).unwrap_or_else(|| {
+                    let fn_type = ptr_type.fn_type(&[ptr_type.into()], false);
+                    self.module
+                        .add_function(fn_name, fn_type, Some(Linkage::External))
+                });
+                let result = self
+                    .builder
+                    .build_call(keys_fn, &[m_ptr.into()], "hashmap_keys")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: format!("Failed to call {}", fn_name),
+                        span: Some(expr.span.clone()),
+                    })?
+                    .try_as_basic_value()
+                    .left()
+                    .ok_or_else(|| CodegenError::MissingValue {
+                        what: format!("{} result", fn_name),
+                        context: "HashMap.keys".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                Ok((result, ret_type))
+            }
+            other => Err(CodegenError::General(format!(
+                "HashMap method '{}' not supported",
+                other
             ))),
         }
     }

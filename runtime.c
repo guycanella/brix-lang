@@ -2849,6 +2849,431 @@ void brix_queue_release(BrixQueue *q) {
 }
 
 // ==========================================
+// SECTION 2.6: HEAP<T> (v1.8 Grupo E)
+// ==========================================
+//
+// MinHeap<T>/MaxHeap<T> are literally a BrixVector* underneath (same idea as
+// Stack<T> in Grupo D — reuses brix_vector_new/retain/release/len with no new
+// struct). The only difference between Min and Max is the DIRECTION of the
+// comparison, decided by an `int is_max` parameter passed on every call
+// (0=Min, 1=Max) — it is never stored on the struct itself; the Rust codegen
+// side knows statically whether it's compiling MinHeap or MaxHeap and passes
+// the right constant.
+//
+// Binary heap invariant is maintained over the vector's flat buffer using the
+// usual array-heap indexing: children of `idx` are at `2*idx+1`/`2*idx+2`,
+// parent of `idx` is at `(idx-1)/2`.
+
+// Compares elements at index i and j (natural ascending order, ignores
+// is_max). Returns <0 if element i is "smaller" than element j, 0 if equal,
+// >0 if larger.
+static int brix_heap_compare(BrixVector *h, long i, long j) {
+  char *a = (char *)h->data + i * h->elem_size;
+  char *b = (char *)h->data + j * h->elem_size;
+  if (h->elem_kind == BRIX_VEC_INT) {
+    long av = *(long *)a, bv = *(long *)b;
+    return (av > bv) - (av < bv);
+  } else if (h->elem_kind == BRIX_VEC_FLOAT) {
+    double av = *(double *)a, bv = *(double *)b;
+    return (av > bv) - (av < bv);
+  } else { // BRIX_VEC_STRING
+    BrixString *as = *(BrixString **)a;
+    BrixString *bs = *(BrixString **)b;
+    return strcmp(as->data, bs->data);
+  }
+}
+
+// "better(i, j)": true if element i should sit closer to the root than
+// element j, given is_max (0 = MinHeap: smallest first; 1 = MaxHeap: largest
+// first).
+static int brix_heap_better(BrixVector *h, long i, long j, int is_max) {
+  int cmp = brix_heap_compare(h, i, j);
+  return is_max ? (cmp > 0) : (cmp < 0);
+}
+
+// Raw swap of 2 slots (memcpy through an 8-byte scratch buffer — elem_size is
+// always 8). Does NOT touch ref counts: both slots keep holding the same
+// references, only their physical position changes, so the total number of
+// live references doesn't change — no string_retain/release needed (or
+// wanted) here.
+static void brix_heap_swap(BrixVector *h, long i, long j) {
+  char tmp[8];
+  char *a = (char *)h->data + i * h->elem_size;
+  char *b = (char *)h->data + j * h->elem_size;
+  memcpy(tmp, a, h->elem_size);
+  memcpy(a, b, h->elem_size);
+  memcpy(b, tmp, h->elem_size);
+}
+
+static void brix_heap_sift_up(BrixVector *h, long idx, int is_max) {
+  while (idx > 0) {
+    long parent = (idx - 1) / 2;
+    if (brix_heap_better(h, idx, parent, is_max)) {
+      brix_heap_swap(h, idx, parent);
+      idx = parent;
+    } else {
+      break;
+    }
+  }
+}
+
+static void brix_heap_sift_down(BrixVector *h, long idx, int is_max) {
+  while (1) {
+    long left = 2 * idx + 1;
+    long right = 2 * idx + 2;
+    long best = idx;
+    if (left < h->len && brix_heap_better(h, left, best, is_max))
+      best = left;
+    if (right < h->len && brix_heap_better(h, right, best, is_max))
+      best = right;
+    if (best == idx)
+      break;
+    brix_heap_swap(h, idx, best);
+    idx = best;
+  }
+}
+
+// push: reuses brix_vector_push (append + 2x grow + string_retain already
+// handled there — no duplicated ARC logic here), then restores the heap
+// property by sifting the freshly-appended element up.
+void brix_heap_push(BrixVector *h, void *elem, int is_max) {
+  brix_vector_push(h, elem);
+  brix_heap_sift_up(h, h->len - 1, is_max);
+}
+
+// pop: removes and returns the root (index 0). Ownership of the root
+// TRANSFERS to the caller — the root slot is not released (same contract as
+// brix_vector_pop). Moving the last element into the root is done with a raw
+// memcpy, not brix_vector_set (which would retain/release and break the
+// ownership transfer: the root we're returning still holds its original
+// reference intact, without being duplicated or lost). The vector remains
+// owner of exactly the elements left in the heap.
+long brix_heap_pop(BrixVector *h, void *out, int is_max) {
+  if (h->len == 0) {
+    return 0;
+  }
+  char *root = (char *)h->data;
+  memcpy(out, root, h->elem_size); // ownership transfers to caller, no release
+  h->len--;
+  if (h->len > 0) {
+    char *last = (char *)h->data + h->len * h->elem_size;
+    memcpy(root, last, h->elem_size); // raw move, no retain/release
+  }
+  brix_heap_sift_down(h, 0, is_max);
+  return 1;
+}
+
+// peek: pointer to the root slot (index 0), for the codegen side to load (and
+// retain, for a string element) — same division of labor as
+// brix_vector_get_ptr/brix_queue_front. Aborts with its OWN message if empty
+// (does not reuse brix_vector_get_ptr's generic message).
+void *brix_heap_peek(BrixVector *h) {
+  if (h->len == 0) {
+    fprintf(stderr, "Error: Heap.peek() called on empty heap\n");
+    exit(1);
+  }
+  return h->data;
+}
+
+// ==========================================
+// SECTION 2.7: HASHMAP<K,V> (v1.8 Grupo F)
+// ==========================================
+//
+// Open-addressing hash table (linear probing) with tombstone deletion. Keys:
+// int/string. Values: int/float/string — restricted to the same closed set
+// as the other containers (Vector/Stack/Queue/Heap), since "any Brix type"
+// would need runtime-dispatched ARC that the compiler doesn't have.
+//
+// Every slot's key/value is a raw 8-byte word: an i64 (int/float bits) or a
+// BrixString* reinterpreted through that word, exactly like BrixVector's
+// elem_size==8 slots. A HashEntry additionally tracks `occupied`/`deleted`
+// to distinguish 3 slot states: NEVER-USED (0,0) — probing stops here, key
+// doesn't exist; LIVE (1,0); TOMBSTONE (0,1) — probing continues past it
+// (the key may exist further along the probe chain), but it's available for
+// reuse on insert.
+
+typedef struct {
+  long key;      // slot de 8 bytes: i64 cru OU BrixString* (reinterpretado via cast)
+  long value;    // slot de 8 bytes: i64/f64 (bits) OU BrixString*
+  int occupied;  // 1 = entry viva
+  int deleted;   // 1 = tombstone (foi ocupada, removida)
+} HashEntry;
+
+typedef struct {
+  long ref_count;
+  long len;      // entries vivas (não-tombstone)
+  long cap;      // capacidade física de `entries`
+  long used;     // occupied + tombstone (usado só pra decidir rehash, não pra iteração)
+  long key_kind; // BRIX_VEC_INT ou BRIX_VEC_STRING
+  long val_kind; // BRIX_VEC_INT, BRIX_VEC_FLOAT ou BRIX_VEC_STRING
+  HashEntry *entries;
+} BrixHashMap;
+
+// Hash de `key` (interpretado conforme m->key_kind). Int: multiplicative
+// hash (Knuth). String: FNV-1a sobre o conteúdo (não o ponteiro) — necessário
+// pra que duas BrixString* diferentes com o mesmo texto colidam no mesmo
+// bucket.
+static long brix_hashmap_hash(BrixHashMap *m, void *key) {
+  if (m->key_kind == BRIX_VEC_INT) {
+    unsigned long uk = (unsigned long)(*(long *)key);
+    uk = uk * 2654435761UL; // Knuth multiplicative hash
+    return (long)uk;
+  } else { // BRIX_VEC_STRING
+    BrixString *s = *(BrixString **)key;
+    unsigned long h = 1469598103934665603UL; // FNV-1a offset basis
+    for (char *p = s->data; *p; p++) {
+      h ^= (unsigned char)*p;
+      h *= 1099511628211UL; // FNV prime
+    }
+    return (long)h;
+  }
+}
+
+// Igualdade de CONTEÚDO, não de ponteiro — crucial pra strings: duas
+// BrixString* diferentes com o mesmo texto devem contar como a mesma chave.
+static int brix_hashmap_key_eq(BrixHashMap *m, long a, long b) {
+  if (m->key_kind == BRIX_VEC_INT) {
+    return a == b;
+  } else {
+    BrixString *as = (BrixString *)a;
+    BrixString *bs = (BrixString *)b;
+    return strcmp(as->data, bs->data) == 0;
+  }
+}
+
+// Busca `key` (passado como ponteiro pro slot de 8 bytes do CALLER, não um
+// long cru — trate como *(long*)key pra obter o valor de 8 bytes, seja ele
+// um i64 ou um BrixString* reinterpretado).
+// Se encontrar entry VIVA com chave igual: retorna 1, *found_idx = índice.
+// Se não encontrar: retorna 0. *insert_idx (se não-NULL) recebe o primeiro
+// slot disponível (tombstone OU nunca-usado) encontrado no caminho da busca
+// — usado só por set() pra saber onde inserir.
+static int brix_hashmap_find(BrixHashMap *m, void *key_ptr, long *found_idx,
+                              long *insert_idx) {
+  long key = *(long *)key_ptr;
+  long hash = brix_hashmap_hash(m, key_ptr);
+  long idx = ((unsigned long)hash) % (unsigned long)m->cap;
+  long first_avail = -1;
+  for (long probes = 0; probes < m->cap; probes++) {
+    HashEntry *e = &m->entries[idx];
+    if (!e->occupied && !e->deleted) {
+      // nunca usado -> a busca termina aqui, chave não existe
+      if (insert_idx)
+        *insert_idx = (first_avail != -1) ? first_avail : idx;
+      return 0;
+    }
+    if (e->occupied && !e->deleted) {
+      if (brix_hashmap_key_eq(m, e->key, key)) {
+        if (found_idx)
+          *found_idx = idx;
+        return 1;
+      }
+    } else if (e->deleted && first_avail == -1) {
+      first_avail = idx;
+    }
+    idx = (idx + 1) % m->cap;
+  }
+  // não deveria alcançar isso dado a política de load factor, mas guarda:
+  if (insert_idx)
+    *insert_idx = first_avail;
+  return 0;
+}
+
+BrixHashMap *brix_hashmap_new(long key_kind, long val_kind) {
+  BrixHashMap *m = (BrixHashMap *)malloc(sizeof(BrixHashMap));
+  m->ref_count = 1;
+  m->len = 0;
+  m->cap = 8;
+  m->used = 0;
+  m->key_kind = key_kind;
+  m->val_kind = val_kind;
+  // calloc zera key/value/occupied/deleted -> todos os slots começam "nunca usados"
+  m->entries = (HashEntry *)calloc(m->cap, sizeof(HashEntry));
+  return m;
+}
+
+// Relinariza pra um array novo de capacidade `new_cap`, reinserindo só as
+// entries VIVAS (tombstones são descartados). NÃO chama string_retain/release
+// — é uma relocação pura, a posse não muda (mesma ideia do growth do Queue).
+static void brix_hashmap_rehash(BrixHashMap *m, long new_cap) {
+  HashEntry *old_entries = m->entries;
+  long old_cap = m->cap;
+  HashEntry *new_entries = (HashEntry *)calloc(new_cap, sizeof(HashEntry));
+  m->entries = new_entries;
+  m->cap = new_cap;
+  m->len = 0;
+  m->used = 0;
+  for (long i = 0; i < old_cap; i++) {
+    HashEntry *e = &old_entries[i];
+    if (e->occupied && !e->deleted) {
+      long hash = brix_hashmap_hash(m, &e->key);
+      long idx = ((unsigned long)hash) % (unsigned long)new_cap;
+      while (new_entries[idx].occupied) {
+        idx = (idx + 1) % new_cap;
+      }
+      new_entries[idx].key = e->key;
+      new_entries[idx].value = e->value;
+      new_entries[idx].occupied = 1;
+      new_entries[idx].deleted = 0;
+      m->len++;
+      m->used++;
+    }
+  }
+  free(old_entries);
+}
+
+// set: insere (chave nova) ou sobrescreve (chave existente).
+//
+// CONTRATO DE ARC (importante, não simplifique):
+// - Chave NOVA: retém a chave (se string) e o valor (se string). O codegen do
+//   lado Rust vai liberar o temp de origem depois, se for owned — a MESMA
+//   regra do Vector.push já aplicada independentemente pra key e value.
+// - Chave EXISTENTE (mesmo conteúdo, mesmo com um BrixString* diferente do
+//   armazenado): NÃO toca na chave armazenada (mantém a referência original,
+//   NÃO substitui, NÃO retém a chave recebida) — só libera o valor antigo (se
+//   string) e retém o valor novo (se string). O ponteiro de chave recebido,
+//   se era um temp owned do lado do codegen, será liberado por lá mesmo
+//   assim — como esta função não o retém nesse caso, o release do codegen o
+//   libera corretamente (sem leak, sem afetar a chave armazenada).
+void brix_hashmap_set(BrixHashMap *m, void *key_ptr, void *val_ptr) {
+  long found_idx, insert_idx;
+  if (brix_hashmap_find(m, key_ptr, &found_idx, &insert_idx)) {
+    HashEntry *e = &m->entries[found_idx];
+    if (m->val_kind == BRIX_VEC_STRING) {
+      string_release((BrixString *)e->value);
+    }
+    e->value = *(long *)val_ptr;
+    if (m->val_kind == BRIX_VEC_STRING) {
+      string_retain((BrixString *)e->value);
+    }
+    return;
+  }
+  HashEntry *e = &m->entries[insert_idx];
+  int was_never_used = !e->occupied && !e->deleted;
+  e->key = *(long *)key_ptr;
+  e->value = *(long *)val_ptr;
+  if (m->key_kind == BRIX_VEC_STRING) {
+    string_retain((BrixString *)e->key);
+  }
+  if (m->val_kind == BRIX_VEC_STRING) {
+    string_retain((BrixString *)e->value);
+  }
+  e->occupied = 1;
+  e->deleted = 0;
+  m->len++;
+  if (was_never_used) {
+    m->used++;
+  }
+  // Rehash: dispara quando used*10 >= cap*7. Cresce (cap*2) só se as entries
+  // vivas sozinhas já ocupariam metade da capacidade ANTIGA; senão, rehash na
+  // MESMA capacidade só pra descartar tombstones acumulados.
+  if (m->used * 10 >= m->cap * 7) {
+    long new_cap = (m->len * 2 >= m->cap) ? m->cap * 2 : m->cap;
+    brix_hashmap_rehash(m, new_cap);
+  }
+}
+
+// get: sucesso retorna 1 e escreve o valor em `out` (retido ANTES de
+// escrever, se for string — contrato deliberado: sucesso sempre retorna
+// OWNED, o codegen não precisa retentar de novo). Falha (chave ausente)
+// retorna 0 e não toca em `out`.
+int brix_hashmap_get(BrixHashMap *m, void *key_ptr, void *out) {
+  long found_idx;
+  if (!brix_hashmap_find(m, key_ptr, &found_idx, NULL)) {
+    return 0;
+  }
+  HashEntry *e = &m->entries[found_idx];
+  if (m->val_kind == BRIX_VEC_STRING) {
+    string_retain((BrixString *)e->value); // get() bem-sucedido retorna OWNED
+  }
+  *(long *)out = e->value;
+  return 1;
+}
+
+int brix_hashmap_has(BrixHashMap *m, void *key_ptr) {
+  long found_idx;
+  return brix_hashmap_find(m, key_ptr, &found_idx, NULL);
+}
+
+// delete: idempotente — no-op se a chave não existe (NÃO é erro, não aborta
+// nem imprime nada).
+void brix_hashmap_delete(BrixHashMap *m, void *key_ptr) {
+  long found_idx;
+  if (!brix_hashmap_find(m, key_ptr, &found_idx, NULL)) {
+    return; // no-op — comportamento intencional
+  }
+  HashEntry *e = &m->entries[found_idx];
+  if (m->key_kind == BRIX_VEC_STRING) {
+    string_release((BrixString *)e->key);
+  }
+  if (m->val_kind == BRIX_VEC_STRING) {
+    string_release((BrixString *)e->value);
+  }
+  e->occupied = 0;
+  e->deleted = 1;
+  m->len--;
+  // `used` NÃO diminui — o tombstone continua contando pra disparar rehash de
+  // compactação eventualmente.
+}
+
+long brix_hashmap_len(BrixHashMap *m) { return m->len; }
+
+// keys_str: só chamado quando key_kind==BRIX_VEC_STRING. Retém cada chave
+// (co-ownership com o mapa — mesma lógica de brix_vector_to_string_matrix).
+BrixStringMatrix *brix_hashmap_keys_str(BrixHashMap *m) {
+  BrixStringMatrix *result = string_matrix_new(m->len);
+  long out_i = 0;
+  for (long i = 0; i < m->cap; i++) {
+    HashEntry *e = &m->entries[i];
+    if (e->occupied && !e->deleted) {
+      BrixString *s = (BrixString *)e->key;
+      string_retain(s);
+      result->data[out_i++] = s;
+    }
+  }
+  return result;
+}
+
+// keys_int: só chamado quando key_kind==BRIX_VEC_INT.
+IntMatrix *brix_hashmap_keys_int(BrixHashMap *m) {
+  IntMatrix *result = intmatrix_new(1, m->len);
+  long out_i = 0;
+  for (long i = 0; i < m->cap; i++) {
+    HashEntry *e = &m->entries[i];
+    if (e->occupied && !e->deleted) {
+      result->data[out_i++] = e->key;
+    }
+  }
+  return result;
+}
+
+void *brix_hashmap_retain(BrixHashMap *m) {
+  if (!m)
+    return NULL;
+  m->ref_count++;
+  return m;
+}
+
+void brix_hashmap_release(BrixHashMap *m) {
+  if (!m)
+    return;
+  m->ref_count--;
+  if (m->ref_count == 0) {
+    for (long i = 0; i < m->cap; i++) {
+      HashEntry *e = &m->entries[i];
+      if (e->occupied && !e->deleted) {
+        if (m->key_kind == BRIX_VEC_STRING)
+          string_release((BrixString *)e->key);
+        if (m->val_kind == BRIX_VEC_STRING)
+          string_release((BrixString *)e->value);
+      }
+    }
+    free(m->entries);
+    free(m);
+  }
+}
+
+// ==========================================
 // SECTION 3: STATISTICS (v0.7)
 // ==========================================
 

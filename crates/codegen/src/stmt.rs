@@ -613,6 +613,40 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
                 }
                 // Valid, matching container type: no cast — fall through to store.
             }
+            // HashMap<K,V> annotation (v1.8 Grupo F): two type params, so it
+            // can't join the single-inner container or-pattern above. Same
+            // validation shape — reject invalid key/value components and require
+            // the value to be exactly this HashMap type (no implicit casts).
+            else if let BrixType::HashMap(key, val) = &hint_bt {
+                if !matches!(key.as_ref(), BrixType::Int | BrixType::String) {
+                    return Err(CodegenError::TypeError {
+                        expected: format!("{} with key int or string", hint),
+                        found: hint.clone(),
+                        context: format!("Variable declaration '{}'", name),
+                        span: None,
+                    });
+                }
+                if !matches!(
+                    val.as_ref(),
+                    BrixType::Int | BrixType::Float | BrixType::String
+                ) {
+                    return Err(CodegenError::TypeError {
+                        expected: format!("{} with value int, float or string", hint),
+                        found: hint.clone(),
+                        context: format!("Variable declaration '{}'", name),
+                        span: None,
+                    });
+                }
+                if val_type != hint_bt {
+                    return Err(CodegenError::TypeError {
+                        expected: hint.clone(),
+                        found: format!("{:?}", val_type),
+                        context: format!("Variable declaration '{}'", name),
+                        span: None,
+                    });
+                }
+                // Valid, matching HashMap type: no cast — fall through to store.
+            }
             // Check for Union type (contains " | ")
             // Check for Intersection type (contains " & ")
             // Check for Optional type (ends with "?")
@@ -808,6 +842,7 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
             | BrixType::Queue(_)
             | BrixType::MinHeap(_)
             | BrixType::MaxHeap(_)
+            | BrixType::HashMap(_, _)
             | BrixType::Error => self.context.ptr_type(AddressSpace::default()).into(),
             BrixType::Complex => {
                 // Allocate space for complex struct { f64, f64 }
@@ -1168,6 +1203,32 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
 
     fn compile_assignment_stmt(&mut self, target: &Expr, value: &Expr) -> CodegenResult<()> {
         use crate::BrixType;
+        use parser::ast::ExprKind;
+
+        // HashMap index assignment sugar (v1.8 Grupo F): map[key] = val desugars
+        // to map.set(key, val). Short-circuit BEFORE compile_lvalue_addr, whose
+        // generic "raw address + store + generic ARC" model doesn't fit the
+        // HashMap (its key/value ARC lives inside brix_hashmap_set / the "set"
+        // method path).
+        if let ExprKind::Index { array, indices } = &target.kind {
+            let (map_val, map_type) = self.compile_expr(array)?;
+            if let BrixType::HashMap(key_type, val_type) = &map_type {
+                if indices.len() != 1 {
+                    return Err(CodegenError::InvalidOperation {
+                        operation: "HashMap index assignment".to_string(),
+                        reason: "expects exactly one key".to_string(),
+                        span: Some(target.span.clone()),
+                    });
+                }
+                let key_type = key_type.as_ref().clone();
+                let val_type = val_type.as_ref().clone();
+                let set_args = vec![indices[0].clone(), value.clone()];
+                self.compile_hashmap_method(
+                    map_val, &key_type, &val_type, "set", &set_args, target,
+                )?;
+                return Ok(());
+            }
+        }
 
         let (target_ptr, target_type) = self.compile_lvalue_addr(target)?;
 

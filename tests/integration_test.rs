@@ -1907,3 +1907,67 @@ fn test_216_heap_duplicates() {
         "1\n1\n2\n2",
     );
 }
+
+#[test]
+fn test_217_hashmap_string_int() {
+    // HashMap<string, int> (v1.8 Grupo F) — basic set/get/has/len.
+    assert_success(
+        "tests/integration/success/217_hashmap_string_int.bx",
+        "30\n1\n2\n-1",
+    );
+}
+
+#[test]
+fn test_218_hashmap_int_keys() {
+    // HashMap<int, string> — less common key direction.
+    assert_success(
+        "tests/integration/success/218_hashmap_int_keys.bx",
+        "one\ntwo\nnone",
+    );
+}
+
+#[test]
+fn test_219_hashmap_overwrite_arc() {
+    // Overwriting a key releases the old value; lookup by a different string
+    // instance with the same content matches (strcmp equality, not pointer).
+    assert_success(
+        "tests/integration/success/219_hashmap_overwrite_arc.bx",
+        "y\ny",
+    );
+}
+
+#[test]
+fn test_220_hashmap_delete() {
+    // delete() is idempotent on a missing key; a key can be reinserted after
+    // deletion (tombstone reuse).
+    assert_success(
+        "tests/integration/success/220_hashmap_delete.bx",
+        "1\n0\n0\n1\n99\n2",
+    );
+}
+
+#[test]
+fn test_221_hashmap_iter() {
+    // for key in map.keys() — keys() returns a StringMatrix for string keys.
+    assert_success("tests/integration/success/221_hashmap_iter.bx", "3");
+}
+
+#[test]
+fn test_222_hashmap_index_syntax() {
+    // map[key] = val desugars to .set(); map[key] (read) desugars to .get(),
+    // returning V?.
+    assert_success(
+        "tests/integration/success/222_hashmap_index_syntax.bx",
+        "22\n-1",
+    );
+}
+
+#[test]
+fn test_223_hashmap_growth_rehash() {
+    // Growth/rehash with STRING keys (12 entries, cap starts at 8) — rehash
+    // must preserve retained key references correctly.
+    assert_success(
+        "tests/integration/success/223_hashmap_growth_rehash.bx",
+        "12\n0\n5\n11\n-1",
+    );
+}

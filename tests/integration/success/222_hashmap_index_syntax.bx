@@ -1,0 +1,6 @@
+// Index sugar: map[key] = val desugars to .set(key, val); map[key] (read)
+// desugars to .get(key), returning V? (same as .get() directly).
+var m := HashMap<string, int>()
+m["Charlie"] = 22
+println(m["Charlie"] ?: -1)
+println(m["Nobody"] ?: -1)
