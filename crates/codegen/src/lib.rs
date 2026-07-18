@@ -532,6 +532,38 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             return BrixType::Vector(Box::new(elem));
         }
 
+        // Step 4e: Stack<T> (v1.8 Grupo D). Only Stack<int|float|string> are
+        // supported; other element types are rejected explicitly (the
+        // GenericCall dispatch enforces this again with a CodegenError).
+        if let Some(inner) = resolved_type_str
+            .strip_prefix("Stack<")
+            .and_then(|s| s.strip_suffix('>'))
+        {
+            let elem = match inner.trim() {
+                "int" => BrixType::Int,
+                "float" => BrixType::Float,
+                "string" => BrixType::String,
+                _ => BrixType::Error,
+            };
+            return BrixType::Stack(Box::new(elem));
+        }
+
+        // Step 4f: Queue<T> (v1.8 Grupo D). Only Queue<int|float|string> are
+        // supported; other element types are rejected explicitly (the
+        // GenericCall dispatch enforces this again with a CodegenError).
+        if let Some(inner) = resolved_type_str
+            .strip_prefix("Queue<")
+            .and_then(|s| s.strip_suffix('>'))
+        {
+            let elem = match inner.trim() {
+                "int" => BrixType::Int,
+                "float" => BrixType::Float,
+                "string" => BrixType::String,
+                _ => BrixType::Error,
+            };
+            return BrixType::Queue(Box::new(elem));
+        }
+
         // Step 5: Base types
         match resolved_type_str {
             "int" => BrixType::Int,
@@ -605,6 +637,14 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             }
             BrixType::Vector(_) => {
                 // Vector<T> is a pointer to the heap BrixVector struct.
+                self.context.ptr_type(AddressSpace::default()).into()
+            }
+            BrixType::Stack(_) => {
+                // Stack<T> is a thin wrapper over the heap BrixVector struct.
+                self.context.ptr_type(AddressSpace::default()).into()
+            }
+            BrixType::Queue(_) => {
+                // Queue<T> is a pointer to the heap BrixQueue struct.
                 self.context.ptr_type(AddressSpace::default()).into()
             }
             BrixType::Void => self.context.i64_type().into(), // Placeholder (shouldn't be used)
@@ -1147,6 +1187,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 | BrixType::StringMatrix
                 | BrixType::ComplexMatrix
                 | BrixType::Vector(_)
+                | BrixType::Stack(_)
+                | BrixType::Queue(_)
         )
     }
 
@@ -1198,6 +1240,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             BrixType::StringMatrix => "string_matrix_retain",
             BrixType::ComplexMatrix => "complexmatrix_retain",
             BrixType::Vector(_) => "brix_vector_retain",
+            // Stack<T> IS a BrixVector* underneath — reuse the vector symbol.
+            BrixType::Stack(_) => "brix_vector_retain",
+            BrixType::Queue(_) => "brix_queue_retain",
             _ => unreachable!("is_ref_counted should have filtered this"),
         };
 
@@ -1248,6 +1293,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             BrixType::StringMatrix => "string_matrix_release",
             BrixType::ComplexMatrix => "complexmatrix_release",
             BrixType::Vector(_) => "brix_vector_release",
+            // Stack<T> IS a BrixVector* underneath — reuse the vector symbol.
+            BrixType::Stack(_) => "brix_vector_release",
+            BrixType::Queue(_) => "brix_queue_release",
             _ => unreachable!("is_ref_counted should have filtered this"),
         };
 
@@ -4162,15 +4210,16 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                     })?;
                             Ok((val, brix_type.clone()))
                         }
-                        BrixType::Vector(_) => {
-                            // Vector<T> is stored as a BrixVector* pointer.
+                        BrixType::Vector(_) | BrixType::Stack(_) | BrixType::Queue(_) => {
+                            // Vector<T>/Stack<T>/Queue<T> are stored as an opaque
+                            // heap-struct pointer (BrixVector*/BrixQueue*).
                             let ptr_type = self.context.ptr_type(AddressSpace::default());
                             let val =
                                 self.builder.build_load(ptr_type, *ptr, name).map_err(|_| {
                                     CodegenError::LLVMError {
                                         operation: "build_load".to_string(),
                                         details: format!(
-                                            "Failed to load Vector variable '{}'",
+                                            "Failed to load Vector/Stack/Queue variable '{}'",
                                             name
                                         ),
                                         span: Some(expr.span.clone()),
@@ -6020,12 +6069,53 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                 | "clear"
                                 | "to_array"
                         );
-                        if is_iter_method || is_str_method || is_vector_method {
+                        // Stack<T> methods (v1.8 Grupo D). Restricted API:
+                        // push / pop / peek / size / is_empty.
+                        let is_stack_method = matches!(
+                            field.as_str(),
+                            "push" | "pop" | "peek" | "size" | "is_empty"
+                        );
+                        // Queue<T> methods (v1.8 Grupo D). Restricted API:
+                        // enqueue / dequeue / front / size / is_empty.
+                        let is_queue_method = matches!(
+                            field.as_str(),
+                            "enqueue" | "dequeue" | "front" | "size" | "is_empty"
+                        );
+                        if is_iter_method
+                            || is_str_method
+                            || is_vector_method
+                            || is_stack_method
+                            || is_queue_method
+                        {
                             let (receiver_val, receiver_type) = self.compile_expr(target)?;
                             if is_vector_method {
                                 if let BrixType::Vector(elem) = &receiver_type {
                                     let elem = elem.as_ref().clone();
                                     return self.compile_vector_method(
+                                        receiver_val,
+                                        &elem,
+                                        field,
+                                        args,
+                                        expr,
+                                    );
+                                }
+                            }
+                            if is_stack_method {
+                                if let BrixType::Stack(elem) = &receiver_type {
+                                    let elem = elem.as_ref().clone();
+                                    return self.compile_stack_method(
+                                        receiver_val,
+                                        &elem,
+                                        field,
+                                        args,
+                                        expr,
+                                    );
+                                }
+                            }
+                            if is_queue_method {
+                                if let BrixType::Queue(elem) = &receiver_type {
+                                    let elem = elem.as_ref().clone();
+                                    return self.compile_queue_method(
                                         receiver_val,
                                         &elem,
                                         field,
@@ -6257,6 +6347,24 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                     _ => "unknown",
                                 };
                                 format!("Vector<{}>", elem)
+                            }
+                            BrixType::Stack(inner) => {
+                                let elem = match inner.as_ref() {
+                                    BrixType::Int => "int",
+                                    BrixType::Float => "float",
+                                    BrixType::String => "string",
+                                    _ => "unknown",
+                                };
+                                format!("Stack<{}>", elem)
+                            }
+                            BrixType::Queue(inner) => {
+                                let elem = match inner.as_ref() {
+                                    BrixType::Int => "int",
+                                    BrixType::Float => "float",
+                                    BrixType::String => "string",
+                                    _ => "unknown",
+                                };
+                                format!("Queue<{}>", elem)
                             }
                             BrixType::Optional(_) => {
                                 // Optional is now Union(T, nil), should never be reached
@@ -8192,6 +8300,15 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 // generic function monomorphization.
                 if func_name == "Vector" {
                     return self.compile_vector_new(type_args, args, expr);
+                }
+
+                // Stack<T>() / Queue<T>() constructors (v1.8 Grupo D) — same
+                // interception point as Vector<T>, before monomorphization.
+                if func_name == "Stack" {
+                    return self.compile_stack_new(type_args, args, expr);
+                }
+                if func_name == "Queue" {
+                    return self.compile_queue_new(type_args, args, expr);
                 }
 
                 // Get parent function for context
@@ -13480,6 +13597,967 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             }
             other => Err(CodegenError::General(format!(
                 "Vector method '{}' not supported yet",
+                other
+            ))),
+        }
+    }
+
+    /// Compile `Stack<T>()` -> a fresh BrixVector* (ref_count = 1).
+    /// A Stack IS a BrixVector under the hood — it just exposes a LIFO API.
+    fn compile_stack_new(
+        &mut self,
+        type_args: &[String],
+        args: &[Expr],
+        expr: &Expr,
+    ) -> CodegenResult<(BasicValueEnum<'ctx>, BrixType)> {
+        use inkwell::AddressSpace;
+
+        if type_args.len() != 1 {
+            return Err(CodegenError::InvalidOperation {
+                operation: "Stack".to_string(),
+                reason: "expects exactly one type argument, e.g. Stack<int>()".to_string(),
+                span: Some(expr.span.clone()),
+            });
+        }
+        if !args.is_empty() {
+            return Err(CodegenError::InvalidOperation {
+                operation: "Stack".to_string(),
+                reason: "constructor takes no arguments".to_string(),
+                span: Some(expr.span.clone()),
+            });
+        }
+
+        let elem = self.string_to_brix_type(&type_args[0]);
+        if !matches!(elem, BrixType::Int | BrixType::Float | BrixType::String) {
+            return Err(CodegenError::TypeError {
+                expected: "Stack<int>, Stack<float> or Stack<string>".to_string(),
+                found: format!("Stack<{}>", type_args[0]),
+                context: "Stack constructor".to_string(),
+                span: Some(expr.span.clone()),
+            });
+        }
+        let elem_kind = Self::vector_elem_kind(&elem).ok_or_else(|| CodegenError::TypeError {
+            expected: "Stack<int>, Stack<float> or Stack<string>".to_string(),
+            found: format!("Stack<{}>", type_args[0]),
+            context: "Stack constructor".to_string(),
+            span: Some(expr.span.clone()),
+        })?;
+
+        let i64_type = self.context.i64_type();
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let new_fn = self
+            .module
+            .get_function("brix_vector_new")
+            .unwrap_or_else(|| {
+                let fn_type = ptr_type.fn_type(&[i64_type.into(), i64_type.into()], false);
+                self.module
+                    .add_function("brix_vector_new", fn_type, Some(Linkage::External))
+            });
+
+        let call = self
+            .builder
+            .build_call(
+                new_fn,
+                &[
+                    i64_type.const_int(8, false).into(),
+                    i64_type.const_int(elem_kind, false).into(),
+                ],
+                "stack_new",
+            )
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_call".to_string(),
+                details: "Failed to call brix_vector_new".to_string(),
+                span: Some(expr.span.clone()),
+            })?;
+        let result =
+            call.try_as_basic_value()
+                .left()
+                .ok_or_else(|| CodegenError::MissingValue {
+                    what: "brix_vector_new result".to_string(),
+                    context: "Stack()".to_string(),
+                    span: Some(expr.span.clone()),
+                })?;
+
+        Ok((result, BrixType::Stack(Box::new(elem))))
+    }
+
+    /// Compile a method call on a Stack receiver.
+    /// API: push / pop / peek / size / is_empty (delegates to brix_vector_*).
+    fn compile_stack_method(
+        &mut self,
+        receiver: BasicValueEnum<'ctx>,
+        elem_type: &BrixType,
+        method: &str,
+        args: &[Expr],
+        expr: &Expr,
+    ) -> CodegenResult<(BasicValueEnum<'ctx>, BrixType)> {
+        use inkwell::AddressSpace;
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let i64_type = self.context.i64_type();
+        let vec_ptr = receiver.into_pointer_value();
+
+        match method {
+            "push" => {
+                if args.len() != 1 {
+                    return Err(CodegenError::InvalidOperation {
+                        operation: "Stack.push".to_string(),
+                        reason: format!("expects 1 argument, got {}", args.len()),
+                        span: Some(expr.span.clone()),
+                    });
+                }
+                let (val, val_type) = self.compile_expr(&args[0])?;
+                if &val_type != elem_type {
+                    return Err(CodegenError::TypeError {
+                        expected: format!("{:?}", elem_type),
+                        found: format!("{:?}", val_type),
+                        context: "Stack.push element".to_string(),
+                        span: Some(expr.span.clone()),
+                    });
+                }
+                let elem_llvm = self.brix_type_to_llvm(elem_type);
+                let slot = self
+                    .builder
+                    .build_alloca(elem_llvm, "push_slot")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_alloca".to_string(),
+                        details: "Failed to alloca push slot".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                self.builder
+                    .build_store(slot, val)
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_store".to_string(),
+                        details: "Failed to store push element".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                let push_fn = self
+                    .module
+                    .get_function("brix_vector_push")
+                    .unwrap_or_else(|| {
+                        let fn_type = self
+                            .context
+                            .void_type()
+                            .fn_type(&[ptr_type.into(), ptr_type.into()], false);
+                        self.module.add_function(
+                            "brix_vector_push",
+                            fn_type,
+                            Some(Linkage::External),
+                        )
+                    });
+                self.builder
+                    .build_call(push_fn, &[vec_ptr.into(), slot.into()], "")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: "Failed to call brix_vector_push".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                // ARC: the runtime retained the element for the stack. Release our
+                // temp reference only for an owned temporary source.
+                if Self::is_ref_counted(elem_type) && !Self::is_borrowed_ref_expr(&args[0].kind) {
+                    self.insert_release(val.into_pointer_value(), elem_type)?;
+                }
+                Ok((i64_type.const_int(0, false).into(), BrixType::Void))
+            }
+            "pop" => {
+                if !args.is_empty() {
+                    return Err(CodegenError::InvalidOperation {
+                        operation: "Stack.pop".to_string(),
+                        reason: "takes no arguments".to_string(),
+                        span: Some(expr.span.clone()),
+                    });
+                }
+                // Returns Union(T, Nil): { i64 tag, T value }. tag 0 = value,
+                // tag 1 = nil (empty). Same build as Vector.pop.
+                let elem_llvm = self.brix_type_to_llvm(elem_type);
+                let ret_union_type = BrixType::Union(vec![elem_type.clone(), BrixType::Nil]);
+                let union_struct_type = self
+                    .context
+                    .struct_type(&[i64_type.into(), elem_llvm], false);
+
+                let result_alloca =
+                    self.create_entry_block_alloca(union_struct_type.into(), "pop_result")?;
+                let nil_struct = self
+                    .builder
+                    .build_insert_value(
+                        union_struct_type.get_undef(),
+                        i64_type.const_int(1, false),
+                        0,
+                        "pop_nil_tag",
+                    )
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_insert_value".to_string(),
+                        details: "Failed pop nil tag".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?
+                    .into_struct_value();
+                self.builder
+                    .build_store(result_alloca, nil_struct)
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_store".to_string(),
+                        details: "Failed store pop nil default".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+
+                let out_slot = self.create_entry_block_alloca(elem_llvm, "pop_out")?;
+                let pop_fn = self
+                    .module
+                    .get_function("brix_vector_pop")
+                    .unwrap_or_else(|| {
+                        let fn_type = i64_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+                        self.module.add_function(
+                            "brix_vector_pop",
+                            fn_type,
+                            Some(Linkage::External),
+                        )
+                    });
+                let flag = self
+                    .builder
+                    .build_call(pop_fn, &[vec_ptr.into(), out_slot.into()], "pop_flag")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: "Failed to call brix_vector_pop".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?
+                    .try_as_basic_value()
+                    .left()
+                    .ok_or_else(|| CodegenError::MissingValue {
+                        what: "brix_vector_pop result".to_string(),
+                        context: "Stack.pop".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?
+                    .into_int_value();
+
+                let parent_fn = self.current_function()?;
+                let ok_bb = self.context.append_basic_block(parent_fn, "pop_ok");
+                let after_bb = self.context.append_basic_block(parent_fn, "pop_after");
+                let cond = self
+                    .builder
+                    .build_int_compare(
+                        IntPredicate::NE,
+                        flag,
+                        i64_type.const_int(0, false),
+                        "pop_cond",
+                    )
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_int_compare".to_string(),
+                        details: "Failed pop cond".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                self.builder
+                    .build_conditional_branch(cond, ok_bb, after_bb)
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_conditional_branch".to_string(),
+                        details: "Failed pop branch".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+
+                self.builder.position_at_end(ok_bb);
+                let popped = self
+                    .builder
+                    .build_load(elem_llvm, out_slot, "pop_val")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_load".to_string(),
+                        details: "Failed load popped value".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                let mut ok_struct = self
+                    .builder
+                    .build_insert_value(
+                        union_struct_type.get_undef(),
+                        i64_type.const_int(0, false),
+                        0,
+                        "pop_ok_tag",
+                    )
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_insert_value".to_string(),
+                        details: "Failed pop ok tag".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?
+                    .into_struct_value();
+                ok_struct = self
+                    .builder
+                    .build_insert_value(ok_struct, popped, 1, "pop_ok_val")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_insert_value".to_string(),
+                        details: "Failed pop ok value".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?
+                    .into_struct_value();
+                self.builder
+                    .build_store(result_alloca, ok_struct)
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_store".to_string(),
+                        details: "Failed store pop ok".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                self.builder
+                    .build_unconditional_branch(after_bb)
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_unconditional_branch".to_string(),
+                        details: "Failed pop ok branch".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+
+                self.builder.position_at_end(after_bb);
+                let result = self
+                    .builder
+                    .build_load(union_struct_type, result_alloca, "pop_union")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_load".to_string(),
+                        details: "Failed load pop union".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                Ok((result, ret_union_type))
+            }
+            "peek" => {
+                if !args.is_empty() {
+                    return Err(CodegenError::InvalidOperation {
+                        operation: "Stack.peek".to_string(),
+                        reason: "takes no arguments".to_string(),
+                        span: Some(expr.span.clone()),
+                    });
+                }
+                // len = brix_vector_len(v); slot = brix_vector_get_ptr(v, len-1).
+                // When len == 0, len-1 wraps to a negative index and
+                // brix_vector_get_ptr's bounds check aborts at runtime — no
+                // extra codegen guard required.
+                let len_fn = self
+                    .module
+                    .get_function("brix_vector_len")
+                    .unwrap_or_else(|| {
+                        let fn_type = i64_type.fn_type(&[ptr_type.into()], false);
+                        self.module.add_function(
+                            "brix_vector_len",
+                            fn_type,
+                            Some(Linkage::External),
+                        )
+                    });
+                let len = self
+                    .builder
+                    .build_call(len_fn, &[vec_ptr.into()], "stack_len")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: "Failed to call brix_vector_len".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?
+                    .try_as_basic_value()
+                    .left()
+                    .ok_or_else(|| CodegenError::MissingValue {
+                        what: "brix_vector_len result".to_string(),
+                        context: "Stack.peek".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?
+                    .into_int_value();
+                let top_idx = self
+                    .builder
+                    .build_int_sub(len, i64_type.const_int(1, false), "stack_top_idx")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_int_sub".to_string(),
+                        details: "Failed to compute stack top index".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                let get_fn = self
+                    .module
+                    .get_function("brix_vector_get_ptr")
+                    .unwrap_or_else(|| {
+                        let fn_type = ptr_type.fn_type(&[ptr_type.into(), i64_type.into()], false);
+                        self.module.add_function(
+                            "brix_vector_get_ptr",
+                            fn_type,
+                            Some(Linkage::External),
+                        )
+                    });
+                let slot_ptr = self
+                    .builder
+                    .build_call(get_fn, &[vec_ptr.into(), top_idx.into()], "stack_slot")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: "Failed to call brix_vector_get_ptr".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?
+                    .try_as_basic_value()
+                    .left()
+                    .ok_or_else(|| CodegenError::MissingValue {
+                        what: "brix_vector_get_ptr result".to_string(),
+                        context: "Stack.peek".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?
+                    .into_pointer_value();
+                let elem_llvm = self.brix_type_to_llvm(elem_type);
+                let loaded = self
+                    .builder
+                    .build_load(elem_llvm, slot_ptr, "stack_peek")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_load".to_string(),
+                        details: "Failed to load stack top element".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                // ARC: a ref-counted element (string) is borrowed from the stack.
+                // Retain so peek() returns an OWNED value (same semantics as get()).
+                if Self::is_ref_counted(elem_type) {
+                    self.insert_retain(loaded, elem_type)?;
+                }
+                Ok((loaded, elem_type.clone()))
+            }
+            "size" => {
+                if !args.is_empty() {
+                    return Err(CodegenError::InvalidOperation {
+                        operation: "Stack.size".to_string(),
+                        reason: "takes no arguments".to_string(),
+                        span: Some(expr.span.clone()),
+                    });
+                }
+                let len_fn = self
+                    .module
+                    .get_function("brix_vector_len")
+                    .unwrap_or_else(|| {
+                        let fn_type = i64_type.fn_type(&[ptr_type.into()], false);
+                        self.module.add_function(
+                            "brix_vector_len",
+                            fn_type,
+                            Some(Linkage::External),
+                        )
+                    });
+                let call = self
+                    .builder
+                    .build_call(len_fn, &[vec_ptr.into()], "stack_size")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: "Failed to call brix_vector_len".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                let result =
+                    call.try_as_basic_value()
+                        .left()
+                        .ok_or_else(|| CodegenError::MissingValue {
+                            what: "brix_vector_len result".to_string(),
+                            context: "Stack.size".to_string(),
+                            span: Some(expr.span.clone()),
+                        })?;
+                Ok((result, BrixType::Int))
+            }
+            "is_empty" => {
+                if !args.is_empty() {
+                    return Err(CodegenError::InvalidOperation {
+                        operation: "Stack.is_empty".to_string(),
+                        reason: "takes no arguments".to_string(),
+                        span: Some(expr.span.clone()),
+                    });
+                }
+                let len_fn = self
+                    .module
+                    .get_function("brix_vector_len")
+                    .unwrap_or_else(|| {
+                        let fn_type = i64_type.fn_type(&[ptr_type.into()], false);
+                        self.module.add_function(
+                            "brix_vector_len",
+                            fn_type,
+                            Some(Linkage::External),
+                        )
+                    });
+                let len = self
+                    .builder
+                    .build_call(len_fn, &[vec_ptr.into()], "stack_len")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: "Failed to call brix_vector_len".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?
+                    .try_as_basic_value()
+                    .left()
+                    .ok_or_else(|| CodegenError::MissingValue {
+                        what: "brix_vector_len result".to_string(),
+                        context: "Stack.is_empty".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?
+                    .into_int_value();
+                let is_empty = self
+                    .builder
+                    .build_int_compare(
+                        IntPredicate::EQ,
+                        len,
+                        i64_type.const_int(0, false),
+                        "stack_empty",
+                    )
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_int_compare".to_string(),
+                        details: "Failed is_empty compare".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                let as_i64 = self
+                    .builder
+                    .build_int_z_extend(is_empty, i64_type, "stack_empty_i64")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_int_z_extend".to_string(),
+                        details: "Failed is_empty zext".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                Ok((as_i64.into(), BrixType::Int))
+            }
+            other => Err(CodegenError::General(format!(
+                "Stack method '{}' not supported",
+                other
+            ))),
+        }
+    }
+
+    /// Compile `Queue<T>()` -> a fresh BrixQueue* (ref_count = 1).
+    fn compile_queue_new(
+        &mut self,
+        type_args: &[String],
+        args: &[Expr],
+        expr: &Expr,
+    ) -> CodegenResult<(BasicValueEnum<'ctx>, BrixType)> {
+        use inkwell::AddressSpace;
+
+        if type_args.len() != 1 {
+            return Err(CodegenError::InvalidOperation {
+                operation: "Queue".to_string(),
+                reason: "expects exactly one type argument, e.g. Queue<int>()".to_string(),
+                span: Some(expr.span.clone()),
+            });
+        }
+        if !args.is_empty() {
+            return Err(CodegenError::InvalidOperation {
+                operation: "Queue".to_string(),
+                reason: "constructor takes no arguments".to_string(),
+                span: Some(expr.span.clone()),
+            });
+        }
+
+        let elem = self.string_to_brix_type(&type_args[0]);
+        if !matches!(elem, BrixType::Int | BrixType::Float | BrixType::String) {
+            return Err(CodegenError::TypeError {
+                expected: "Queue<int>, Queue<float> or Queue<string>".to_string(),
+                found: format!("Queue<{}>", type_args[0]),
+                context: "Queue constructor".to_string(),
+                span: Some(expr.span.clone()),
+            });
+        }
+        let elem_kind = Self::vector_elem_kind(&elem).ok_or_else(|| CodegenError::TypeError {
+            expected: "Queue<int>, Queue<float> or Queue<string>".to_string(),
+            found: format!("Queue<{}>", type_args[0]),
+            context: "Queue constructor".to_string(),
+            span: Some(expr.span.clone()),
+        })?;
+
+        let i64_type = self.context.i64_type();
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let new_fn = self
+            .module
+            .get_function("brix_queue_new")
+            .unwrap_or_else(|| {
+                let fn_type = ptr_type.fn_type(&[i64_type.into(), i64_type.into()], false);
+                self.module
+                    .add_function("brix_queue_new", fn_type, Some(Linkage::External))
+            });
+
+        let call = self
+            .builder
+            .build_call(
+                new_fn,
+                &[
+                    i64_type.const_int(8, false).into(),
+                    i64_type.const_int(elem_kind, false).into(),
+                ],
+                "queue_new",
+            )
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_call".to_string(),
+                details: "Failed to call brix_queue_new".to_string(),
+                span: Some(expr.span.clone()),
+            })?;
+        let result =
+            call.try_as_basic_value()
+                .left()
+                .ok_or_else(|| CodegenError::MissingValue {
+                    what: "brix_queue_new result".to_string(),
+                    context: "Queue()".to_string(),
+                    span: Some(expr.span.clone()),
+                })?;
+
+        Ok((result, BrixType::Queue(Box::new(elem))))
+    }
+
+    /// Compile a method call on a Queue receiver.
+    /// API: enqueue / dequeue / front / size / is_empty.
+    fn compile_queue_method(
+        &mut self,
+        receiver: BasicValueEnum<'ctx>,
+        elem_type: &BrixType,
+        method: &str,
+        args: &[Expr],
+        expr: &Expr,
+    ) -> CodegenResult<(BasicValueEnum<'ctx>, BrixType)> {
+        use inkwell::AddressSpace;
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let i64_type = self.context.i64_type();
+        let q_ptr = receiver.into_pointer_value();
+
+        match method {
+            "enqueue" => {
+                if args.len() != 1 {
+                    return Err(CodegenError::InvalidOperation {
+                        operation: "Queue.enqueue".to_string(),
+                        reason: format!("expects 1 argument, got {}", args.len()),
+                        span: Some(expr.span.clone()),
+                    });
+                }
+                let (val, val_type) = self.compile_expr(&args[0])?;
+                if &val_type != elem_type {
+                    return Err(CodegenError::TypeError {
+                        expected: format!("{:?}", elem_type),
+                        found: format!("{:?}", val_type),
+                        context: "Queue.enqueue element".to_string(),
+                        span: Some(expr.span.clone()),
+                    });
+                }
+                let elem_llvm = self.brix_type_to_llvm(elem_type);
+                let slot = self
+                    .builder
+                    .build_alloca(elem_llvm, "enqueue_slot")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_alloca".to_string(),
+                        details: "Failed to alloca enqueue slot".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                self.builder
+                    .build_store(slot, val)
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_store".to_string(),
+                        details: "Failed to store enqueue element".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                let enqueue_fn = self
+                    .module
+                    .get_function("brix_queue_enqueue")
+                    .unwrap_or_else(|| {
+                        let fn_type = self
+                            .context
+                            .void_type()
+                            .fn_type(&[ptr_type.into(), ptr_type.into()], false);
+                        self.module.add_function(
+                            "brix_queue_enqueue",
+                            fn_type,
+                            Some(Linkage::External),
+                        )
+                    });
+                self.builder
+                    .build_call(enqueue_fn, &[q_ptr.into(), slot.into()], "")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: "Failed to call brix_queue_enqueue".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                // ARC: the runtime retained the element for the queue. Release our
+                // temp reference only for an owned temporary source.
+                if Self::is_ref_counted(elem_type) && !Self::is_borrowed_ref_expr(&args[0].kind) {
+                    self.insert_release(val.into_pointer_value(), elem_type)?;
+                }
+                Ok((i64_type.const_int(0, false).into(), BrixType::Void))
+            }
+            "dequeue" => {
+                if !args.is_empty() {
+                    return Err(CodegenError::InvalidOperation {
+                        operation: "Queue.dequeue".to_string(),
+                        reason: "takes no arguments".to_string(),
+                        span: Some(expr.span.clone()),
+                    });
+                }
+                // Returns Union(T, Nil): { i64 tag, T value }. tag 0 = value,
+                // tag 1 = nil (empty). Same build as Vector.pop, but calls
+                // brix_queue_dequeue (identical signature: (q, out) -> 1/0).
+                let elem_llvm = self.brix_type_to_llvm(elem_type);
+                let ret_union_type = BrixType::Union(vec![elem_type.clone(), BrixType::Nil]);
+                let union_struct_type = self
+                    .context
+                    .struct_type(&[i64_type.into(), elem_llvm], false);
+
+                let result_alloca =
+                    self.create_entry_block_alloca(union_struct_type.into(), "deq_result")?;
+                let nil_struct = self
+                    .builder
+                    .build_insert_value(
+                        union_struct_type.get_undef(),
+                        i64_type.const_int(1, false),
+                        0,
+                        "deq_nil_tag",
+                    )
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_insert_value".to_string(),
+                        details: "Failed dequeue nil tag".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?
+                    .into_struct_value();
+                self.builder
+                    .build_store(result_alloca, nil_struct)
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_store".to_string(),
+                        details: "Failed store dequeue nil default".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+
+                let out_slot = self.create_entry_block_alloca(elem_llvm, "deq_out")?;
+                let deq_fn = self
+                    .module
+                    .get_function("brix_queue_dequeue")
+                    .unwrap_or_else(|| {
+                        let fn_type = i64_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+                        self.module.add_function(
+                            "brix_queue_dequeue",
+                            fn_type,
+                            Some(Linkage::External),
+                        )
+                    });
+                let flag = self
+                    .builder
+                    .build_call(deq_fn, &[q_ptr.into(), out_slot.into()], "deq_flag")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: "Failed to call brix_queue_dequeue".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?
+                    .try_as_basic_value()
+                    .left()
+                    .ok_or_else(|| CodegenError::MissingValue {
+                        what: "brix_queue_dequeue result".to_string(),
+                        context: "Queue.dequeue".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?
+                    .into_int_value();
+
+                let parent_fn = self.current_function()?;
+                let ok_bb = self.context.append_basic_block(parent_fn, "deq_ok");
+                let after_bb = self.context.append_basic_block(parent_fn, "deq_after");
+                let cond = self
+                    .builder
+                    .build_int_compare(
+                        IntPredicate::NE,
+                        flag,
+                        i64_type.const_int(0, false),
+                        "deq_cond",
+                    )
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_int_compare".to_string(),
+                        details: "Failed dequeue cond".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                self.builder
+                    .build_conditional_branch(cond, ok_bb, after_bb)
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_conditional_branch".to_string(),
+                        details: "Failed dequeue branch".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+
+                self.builder.position_at_end(ok_bb);
+                let dequeued = self
+                    .builder
+                    .build_load(elem_llvm, out_slot, "deq_val")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_load".to_string(),
+                        details: "Failed load dequeued value".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                let mut ok_struct = self
+                    .builder
+                    .build_insert_value(
+                        union_struct_type.get_undef(),
+                        i64_type.const_int(0, false),
+                        0,
+                        "deq_ok_tag",
+                    )
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_insert_value".to_string(),
+                        details: "Failed dequeue ok tag".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?
+                    .into_struct_value();
+                ok_struct = self
+                    .builder
+                    .build_insert_value(ok_struct, dequeued, 1, "deq_ok_val")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_insert_value".to_string(),
+                        details: "Failed dequeue ok value".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?
+                    .into_struct_value();
+                self.builder
+                    .build_store(result_alloca, ok_struct)
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_store".to_string(),
+                        details: "Failed store dequeue ok".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                self.builder
+                    .build_unconditional_branch(after_bb)
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_unconditional_branch".to_string(),
+                        details: "Failed dequeue ok branch".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+
+                self.builder.position_at_end(after_bb);
+                let result = self
+                    .builder
+                    .build_load(union_struct_type, result_alloca, "deq_union")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_load".to_string(),
+                        details: "Failed load dequeue union".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                Ok((result, ret_union_type))
+            }
+            "front" => {
+                if !args.is_empty() {
+                    return Err(CodegenError::InvalidOperation {
+                        operation: "Queue.front".to_string(),
+                        reason: "takes no arguments".to_string(),
+                        span: Some(expr.span.clone()),
+                    });
+                }
+                // brix_queue_front returns a pointer to the front slot; it aborts
+                // at runtime if the queue is empty — no extra codegen guard.
+                let front_fn = self
+                    .module
+                    .get_function("brix_queue_front")
+                    .unwrap_or_else(|| {
+                        let fn_type = ptr_type.fn_type(&[ptr_type.into()], false);
+                        self.module.add_function(
+                            "brix_queue_front",
+                            fn_type,
+                            Some(Linkage::External),
+                        )
+                    });
+                let slot_ptr = self
+                    .builder
+                    .build_call(front_fn, &[q_ptr.into()], "queue_front_slot")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: "Failed to call brix_queue_front".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?
+                    .try_as_basic_value()
+                    .left()
+                    .ok_or_else(|| CodegenError::MissingValue {
+                        what: "brix_queue_front result".to_string(),
+                        context: "Queue.front".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?
+                    .into_pointer_value();
+                let elem_llvm = self.brix_type_to_llvm(elem_type);
+                let loaded = self
+                    .builder
+                    .build_load(elem_llvm, slot_ptr, "queue_front")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_load".to_string(),
+                        details: "Failed to load queue front element".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                // ARC: a ref-counted element (string) is borrowed from the queue.
+                // Retain so front() returns an OWNED value (same semantics as get()).
+                if Self::is_ref_counted(elem_type) {
+                    self.insert_retain(loaded, elem_type)?;
+                }
+                Ok((loaded, elem_type.clone()))
+            }
+            "size" => {
+                if !args.is_empty() {
+                    return Err(CodegenError::InvalidOperation {
+                        operation: "Queue.size".to_string(),
+                        reason: "takes no arguments".to_string(),
+                        span: Some(expr.span.clone()),
+                    });
+                }
+                let size_fn = self
+                    .module
+                    .get_function("brix_queue_size")
+                    .unwrap_or_else(|| {
+                        let fn_type = i64_type.fn_type(&[ptr_type.into()], false);
+                        self.module.add_function(
+                            "brix_queue_size",
+                            fn_type,
+                            Some(Linkage::External),
+                        )
+                    });
+                let call = self
+                    .builder
+                    .build_call(size_fn, &[q_ptr.into()], "queue_size")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: "Failed to call brix_queue_size".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                let result =
+                    call.try_as_basic_value()
+                        .left()
+                        .ok_or_else(|| CodegenError::MissingValue {
+                            what: "brix_queue_size result".to_string(),
+                            context: "Queue.size".to_string(),
+                            span: Some(expr.span.clone()),
+                        })?;
+                Ok((result, BrixType::Int))
+            }
+            "is_empty" => {
+                if !args.is_empty() {
+                    return Err(CodegenError::InvalidOperation {
+                        operation: "Queue.is_empty".to_string(),
+                        reason: "takes no arguments".to_string(),
+                        span: Some(expr.span.clone()),
+                    });
+                }
+                let size_fn = self
+                    .module
+                    .get_function("brix_queue_size")
+                    .unwrap_or_else(|| {
+                        let fn_type = i64_type.fn_type(&[ptr_type.into()], false);
+                        self.module.add_function(
+                            "brix_queue_size",
+                            fn_type,
+                            Some(Linkage::External),
+                        )
+                    });
+                let size = self
+                    .builder
+                    .build_call(size_fn, &[q_ptr.into()], "queue_size")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: "Failed to call brix_queue_size".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?
+                    .try_as_basic_value()
+                    .left()
+                    .ok_or_else(|| CodegenError::MissingValue {
+                        what: "brix_queue_size result".to_string(),
+                        context: "Queue.is_empty".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?
+                    .into_int_value();
+                let is_empty = self
+                    .builder
+                    .build_int_compare(
+                        IntPredicate::EQ,
+                        size,
+                        i64_type.const_int(0, false),
+                        "queue_empty",
+                    )
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_int_compare".to_string(),
+                        details: "Failed is_empty compare".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                let as_i64 = self
+                    .builder
+                    .build_int_z_extend(is_empty, i64_type, "queue_empty_i64")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_int_z_extend".to_string(),
+                        details: "Failed is_empty zext".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                Ok((as_i64.into(), BrixType::Int))
+            }
+            other => Err(CodegenError::General(format!(
+                "Queue method '{}' not supported",
                 other
             ))),
         }

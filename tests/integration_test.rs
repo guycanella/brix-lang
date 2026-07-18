@@ -1768,3 +1768,75 @@ fn test_202_vector_for_iter_clear_multi() {
         "a",
     );
 }
+
+#[test]
+fn test_203_stack_basic() {
+    // Stack<T> (v1.8 Grupo D) — LIFO: push/pop/size/is_empty.
+    assert_success(
+        "tests/integration/success/203_stack_basic.bx",
+        "3\n0\n3\n2\n1",
+    );
+}
+
+#[test]
+fn test_204_stack_string_arc() {
+    // Stack<string>: peek() returns an owned value that survives subsequent
+    // pop()s; pop() past empty falls back via ?:.
+    assert_success(
+        "tests/integration/success/204_stack_string_arc.bx",
+        "a\na\nnone",
+    );
+}
+
+#[test]
+fn test_205_stack_peek_empty_aborts() {
+    // Stack<T>.peek() on an empty stack aborts (reuses Vector.get_ptr's
+    // bounds check — no dedicated runtime.c for Stack, by design).
+    assert_output(
+        "tests/integration/success/205_stack_peek_empty_aborts.bx",
+        1,
+        Some("out of bounds"),
+    );
+}
+
+#[test]
+fn test_206_queue_basic() {
+    // Queue<T> (v1.8 Grupo D) — FIFO: enqueue/dequeue/size/is_empty.
+    assert_success(
+        "tests/integration/success/206_queue_basic.bx",
+        "3\n0\n1\n2\n1",
+    );
+}
+
+#[test]
+fn test_207_queue_dequeue_twice() {
+    // Queue<string>: dequeue() past exhaustion falls back via ?:, exercising
+    // Union(String, Nil) owned-return over the new BrixQueue runtime.
+    assert_success(
+        "tests/integration/success/207_queue_dequeue_twice.bx",
+        "a\nnone",
+    );
+}
+
+#[test]
+fn test_208_queue_front_empty_aborts() {
+    // Queue<T>.front() on an empty queue aborts with a dedicated runtime.c
+    // error message.
+    assert_output(
+        "tests/integration/success/208_queue_front_empty_aborts.bx",
+        1,
+        Some("empty queue"),
+    );
+}
+
+#[test]
+fn test_209_queue_wraparound_growth() {
+    // Ring buffer wraparound + growth (cap=4): fill, dequeue twice (head
+    // advances), enqueue past capacity while the buffer is wrapped, then
+    // drain — the grow must relinearize logical order, not just realloc
+    // the raw wrapped bytes.
+    assert_success(
+        "tests/integration/success/209_queue_wraparound_growth.bx",
+        "0\n1\n2\n3\n4\n5\n6",
+    );
+}

@@ -2464,3 +2464,161 @@ fn test_vector_for_iter_string() {
     };
     assert!(vector_compiles(program));
 }
+
+// ==================== STACK<T> / QUEUE<T> (v1.8 Grupo D) ====================
+
+fn container_new_expr(container: &str, elem: &str) -> Expr {
+    Expr::dummy(ExprKind::GenericCall {
+        func: Box::new(Expr::dummy(ExprKind::Identifier(container.to_string()))),
+        type_args: vec![elem.to_string()],
+        args: vec![],
+    })
+}
+
+fn container_decl(name: &str, type_hint: Option<&str>, container: &str, elem: &str) -> Stmt {
+    Stmt::dummy(StmtKind::VariableDecl {
+        name: name.to_string(),
+        type_hint: type_hint.map(|s| s.to_string()),
+        value: container_new_expr(container, elem),
+        is_const: false,
+    })
+}
+
+#[test]
+fn test_stack_push_pop_peek_compile() {
+    // var s := Stack<int>(); s.push(1); s.peek(); s.pop(); s.size(); s.is_empty()
+    let program = Program {
+        statements: vec![
+            container_decl("s", None, "Stack", "int"),
+            vec_method_stmt(
+                "s",
+                "push",
+                vec![Expr::dummy(ExprKind::Literal(Literal::Int(1)))],
+            ),
+            vec_method_stmt("s", "peek", vec![]),
+            vec_method_stmt("s", "pop", vec![]),
+            vec_method_stmt("s", "size", vec![]),
+            vec_method_stmt("s", "is_empty", vec![]),
+        ],
+    };
+    assert!(vector_compiles(program));
+}
+
+#[test]
+fn test_stack_string_enabled() {
+    // Stack<string>(): push/peek/pop compile with element ARC (same runtime as Vector<string>).
+    let program = Program {
+        statements: vec![
+            container_decl("s", None, "Stack", "string"),
+            vec_method_stmt(
+                "s",
+                "push",
+                vec![Expr::dummy(ExprKind::Literal(Literal::String(
+                    "a".to_string(),
+                )))],
+            ),
+            vec_method_stmt("s", "peek", vec![]),
+            vec_method_stmt("s", "pop", vec![]),
+        ],
+    };
+    assert!(vector_compiles(program));
+}
+
+#[test]
+fn test_stack_push_type_error() {
+    // s.push("x") on Stack<int> must fail to compile.
+    let program = Program {
+        statements: vec![
+            container_decl("s", None, "Stack", "int"),
+            vec_method_stmt(
+                "s",
+                "push",
+                vec![Expr::dummy(ExprKind::Literal(Literal::String(
+                    "x".to_string(),
+                )))],
+            ),
+        ],
+    };
+    assert!(!vector_compiles(program));
+}
+
+#[test]
+fn test_stack_annotation_ok() {
+    // var s: Stack<int> = Stack<int>() compiles.
+    let program = Program {
+        statements: vec![container_decl("s", Some("Stack<int>"), "Stack", "int")],
+    };
+    assert!(vector_compiles(program));
+}
+
+#[test]
+fn test_queue_enqueue_dequeue_front_compile() {
+    // var q := Queue<int>(); q.enqueue(1); q.front(); q.dequeue(); q.size(); q.is_empty()
+    let program = Program {
+        statements: vec![
+            container_decl("q", None, "Queue", "int"),
+            vec_method_stmt(
+                "q",
+                "enqueue",
+                vec![Expr::dummy(ExprKind::Literal(Literal::Int(1)))],
+            ),
+            vec_method_stmt("q", "front", vec![]),
+            vec_method_stmt("q", "dequeue", vec![]),
+            vec_method_stmt("q", "size", vec![]),
+            vec_method_stmt("q", "is_empty", vec![]),
+        ],
+    };
+    assert!(vector_compiles(program));
+}
+
+#[test]
+fn test_queue_string_enabled() {
+    // Queue<string>(): enqueue/front/dequeue compile with element ARC.
+    let program = Program {
+        statements: vec![
+            container_decl("q", None, "Queue", "string"),
+            vec_method_stmt(
+                "q",
+                "enqueue",
+                vec![Expr::dummy(ExprKind::Literal(Literal::String(
+                    "a".to_string(),
+                )))],
+            ),
+            vec_method_stmt("q", "front", vec![]),
+            vec_method_stmt("q", "dequeue", vec![]),
+        ],
+    };
+    assert!(vector_compiles(program));
+}
+
+#[test]
+fn test_queue_enqueue_type_error() {
+    // q.enqueue("x") on Queue<int> must fail to compile.
+    let program = Program {
+        statements: vec![
+            container_decl("q", None, "Queue", "int"),
+            vec_method_stmt(
+                "q",
+                "enqueue",
+                vec![Expr::dummy(ExprKind::Literal(Literal::String(
+                    "x".to_string(),
+                )))],
+            ),
+        ],
+    };
+    assert!(!vector_compiles(program));
+}
+
+#[test]
+fn test_queue_annotation_ok() {
+    // var q: Queue<string> = Queue<string>() compiles.
+    let program = Program {
+        statements: vec![container_decl(
+            "q",
+            Some("Queue<string>"),
+            "Queue",
+            "string",
+        )],
+    };
+    assert!(vector_compiles(program));
+}

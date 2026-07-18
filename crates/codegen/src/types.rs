@@ -33,6 +33,8 @@ pub enum BrixType {
     Intersection(Vec<BrixType>), // Intersection type: Point & Label (v1.4)
     AsyncFuture, // async { } block result: state_ptr (i8*) with embedded poll_fn at offset 0 (v1.6 Phase 3b)
     Vector(Box<BrixType>), // Dynamic array Vector<T> (BrixVector*), v1.8 Grupo C; T in {Int, Float, String}
+    Stack(Box<BrixType>), // Stack<T> (LIFO) — thin wrapper over BrixVector*, v1.8 Grupo D; T in {Int, Float, String}
+    Queue(Box<BrixType>), // Queue<T> (FIFO ring buffer, BrixQueue*), v1.8 Grupo D; T in {Int, Float, String}
 }
 
 // Type-related helper functions will be implemented as methods on Compiler

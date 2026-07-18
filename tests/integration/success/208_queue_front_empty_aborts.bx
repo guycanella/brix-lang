@@ -1,0 +1,5 @@
+// Queue<T>.front() on an empty queue aborts with a dedicated runtime.c
+// error message ("Queue.front() called on empty queue").
+var q := Queue<int>()
+var f := q.front()
+println(f)

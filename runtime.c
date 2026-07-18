@@ -2727,6 +2727,128 @@ BrixStringMatrix *brix_vector_to_string_matrix(BrixVector *v) {
 }
 
 // ==========================================
+// SECTION 2.5: QUEUE<T> (v1.8 Grupo D)
+// ==========================================
+//
+// Ring buffer FIFO. Every element occupies 8 bytes (i64 / f64 / BrixString*
+// pointer), same convention as BrixVector, and reuses BrixVectorElemKind for
+// `elem_kind` so string elements can be retained/released with the existing
+// string_retain/string_release helpers. Unlike BrixVector (which only grows
+// at the tail), a Queue's physical buffer can wrap around, so growth needs to
+// relinearize the logical order before the buffer is doubled (see
+// brix_queue_grow below).
+
+typedef struct {
+  long ref_count;
+  long head;      // index of the first logical element
+  long tail;      // index of the next free slot for enqueue
+  long len;       // number of elements currently in the queue
+  long cap;       // physical buffer capacity
+  long elem_size; // bytes per element (8 in v1.8)
+  long elem_kind; // BrixVectorElemKind
+  void *data;     // contiguous physical buffer of `cap` slots
+} BrixQueue;
+
+BrixQueue *brix_queue_new(long elem_size, long elem_kind) {
+  BrixQueue *q = (BrixQueue *)malloc(sizeof(BrixQueue));
+  q->ref_count = 1;
+  q->head = 0;
+  q->tail = 0;
+  q->len = 0;
+  q->cap = 4;
+  q->elem_size = elem_size;
+  q->elem_kind = elem_kind;
+  q->data = malloc(q->cap * elem_size);
+  return q;
+}
+
+// Relinearize the ring buffer into a new, doubled-capacity buffer: copy the
+// `len` elements in logical order (starting at `head`, wrapping around) into
+// physical slots [0, len) of the new buffer, then reset head=0, tail=len.
+// Called only when the buffer is full (len == cap) and another enqueue needs
+// room.
+static void brix_queue_grow(BrixQueue *q) {
+  long new_cap = q->cap * 2;
+  void *new_data = malloc(new_cap * q->elem_size);
+  for (long i = 0; i < q->len; i++) {
+    long src_idx = (q->head + i) % q->cap;
+    memcpy((char *)new_data + i * q->elem_size,
+           (char *)q->data + src_idx * q->elem_size, q->elem_size);
+  }
+  free(q->data);
+  q->data = new_data;
+  q->cap = new_cap;
+  q->head = 0;
+  q->tail = q->len;
+}
+
+// enqueue: write into the tail slot, advance tail with wraparound, grow the
+// buffer first if it's full. A string element is retained (the queue now
+// co-owns it).
+void brix_queue_enqueue(BrixQueue *q, void *elem) {
+  if (q->len == q->cap) {
+    brix_queue_grow(q);
+  }
+  char *slot = (char *)q->data + q->tail * q->elem_size;
+  memcpy(slot, elem, q->elem_size);
+  if (q->elem_kind == BRIX_VEC_STRING) {
+    string_retain(*(BrixString **)slot);
+  }
+  q->tail = (q->tail + 1) % q->cap;
+  q->len++;
+}
+
+// dequeue: remove and return the front element. Ownership TRANSFERS to the
+// caller — the removed slot is NOT released. Returns 1 and writes the
+// element to `out`, or 0 if the queue is empty.
+long brix_queue_dequeue(BrixQueue *q, void *out) {
+  if (q->len == 0) {
+    return 0;
+  }
+  char *slot = (char *)q->data + q->head * q->elem_size;
+  memcpy(out, slot, q->elem_size);
+  q->head = (q->head + 1) % q->cap;
+  q->len--;
+  return 1;
+}
+
+// front: pointer to the slot at `head`, for the codegen side to load (and
+// retain, for a string element) — same division of labor as
+// brix_vector_get_ptr. Aborts if the queue is empty.
+void *brix_queue_front(BrixQueue *q) {
+  if (q->len == 0) {
+    fprintf(stderr, "Error: Queue.front() called on empty queue\n");
+    exit(1);
+  }
+  return (char *)q->data + q->head * q->elem_size;
+}
+
+long brix_queue_size(BrixQueue *q) { return q->len; }
+
+void *brix_queue_retain(BrixQueue *q) {
+  if (!q)
+    return NULL;
+  q->ref_count++;
+  return q;
+}
+
+void brix_queue_release(BrixQueue *q) {
+  if (!q)
+    return;
+  q->ref_count--;
+  if (q->ref_count == 0) {
+    if (q->elem_kind == BRIX_VEC_STRING) {
+      for (long i = 0; i < q->len; i++) {
+        long idx = (q->head + i) % q->cap;
+        string_release(*(BrixString **)((char *)q->data + idx * q->elem_size));
+      }
+    }
+    free(q->data);
+    free(q);
+  }
+}
+
+// ==========================================
 // SECTION 3: STATISTICS (v0.7)
 // ==========================================
 
