@@ -1,0 +1,19 @@
+// Queue<T> ring buffer wraparound + growth (v1.8 Grupo D). Initial cap=4:
+// fill it, dequeue twice (head advances past 0), then enqueue enough to
+// force a grow while the physical buffer is "wrapped" (head != 0). The
+// growth must relinearize logical order, not just realloc the raw bytes.
+var q := Queue<int>()
+q.enqueue(0)
+q.enqueue(1)
+q.enqueue(2)
+q.enqueue(3)
+println(q.dequeue() ?: -1)
+println(q.dequeue() ?: -1)
+q.enqueue(4)
+q.enqueue(5)
+q.enqueue(6)
+println(q.dequeue() ?: -1)
+println(q.dequeue() ?: -1)
+println(q.dequeue() ?: -1)
+println(q.dequeue() ?: -1)
+println(q.dequeue() ?: -1)

@@ -1,0 +1,11 @@
+// Stack<T> (v1.8 Grupo D) — LIFO basics: push/pop/size/is_empty.
+// Stack delegates to the same runtime as Vector<T> (no new runtime.c).
+var s := Stack<int>()
+s.push(1)
+s.push(2)
+s.push(3)
+println(s.size())
+println(s.is_empty())
+println(s.pop() ?: -1)
+println(s.pop() ?: -1)
+println(s.size())

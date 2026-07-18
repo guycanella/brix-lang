@@ -225,3 +225,74 @@ test.describe("Vector<T> for-in iteration (v1.8 Grupo C, Phase 5)", () -> {
         test.expect(seen).toBe("a")
     })
 })
+
+test.describe("Stack<T> (v1.8 Grupo D)", () -> {
+    test.it("push/pop is LIFO, size and is_empty track state", () -> {
+        var s := Stack<int>()
+        s.push(1)
+        s.push(2)
+        s.push(3)
+        test.expect(s.size()).toBe(3)
+        test.expect(s.is_empty()).toBe(0)
+        test.expect(s.pop() ?: -1).toBe(3)
+        test.expect(s.pop() ?: -1).toBe(2)
+        test.expect(s.size()).toBe(1)
+    })
+
+    test.it("peek() returns an owned value that survives subsequent pop()s", () -> {
+        var s := Stack<string>()
+        s.push("a")
+        var top := s.peek()
+        test.expect(top).toBe("a")
+        test.expect(s.pop() ?: "none").toBe("a")
+        test.expect(s.pop() ?: "none").toBe("none")
+    })
+})
+
+test.describe("Queue<T> (v1.8 Grupo D)", () -> {
+    test.it("enqueue/dequeue is FIFO, size and is_empty track state", () -> {
+        var q := Queue<int>()
+        q.enqueue(1)
+        q.enqueue(2)
+        q.enqueue(3)
+        test.expect(q.size()).toBe(3)
+        test.expect(q.is_empty()).toBe(0)
+        test.expect(q.dequeue() ?: -1).toBe(1)
+        test.expect(q.dequeue() ?: -1).toBe(2)
+        test.expect(q.size()).toBe(1)
+    })
+
+    test.it("front() returns an owned value without removing it", () -> {
+        var q := Queue<string>()
+        q.enqueue("a")
+        q.enqueue("b")
+        test.expect(q.front()).toBe("a")
+        test.expect(q.size()).toBe(2)
+        test.expect(q.dequeue() ?: "none").toBe("a")
+    })
+
+    test.it("dequeue() past exhaustion falls back via ?:", () -> {
+        var q := Queue<string>()
+        q.enqueue("a")
+        test.expect(q.dequeue() ?: "none").toBe("a")
+        test.expect(q.dequeue() ?: "none").toBe("none")
+    })
+
+    test.it("ring buffer wraparound + growth relinearizes logical order", () -> {
+        var q := Queue<int>()
+        q.enqueue(0)
+        q.enqueue(1)
+        q.enqueue(2)
+        q.enqueue(3)
+        test.expect(q.dequeue() ?: -1).toBe(0)
+        test.expect(q.dequeue() ?: -1).toBe(1)
+        q.enqueue(4)
+        q.enqueue(5)
+        q.enqueue(6)
+        test.expect(q.dequeue() ?: -1).toBe(2)
+        test.expect(q.dequeue() ?: -1).toBe(3)
+        test.expect(q.dequeue() ?: -1).toBe(4)
+        test.expect(q.dequeue() ?: -1).toBe(5)
+        test.expect(q.dequeue() ?: -1).toBe(6)
+    })
+})

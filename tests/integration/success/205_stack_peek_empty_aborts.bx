@@ -1,0 +1,6 @@
+// Stack<T>.peek() on an empty stack aborts (reuses Vector.get_ptr's bounds
+// check — the resulting message says "Vector.get", not "Stack.peek", since
+// no new runtime.c was added for Stack; documented tradeoff).
+var s := Stack<int>()
+var p := s.peek()
+println(p)

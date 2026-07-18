@@ -1,0 +1,8 @@
+// Stack<string> (v1.8 Grupo D) — full ARC cycle: peek() returns an owned
+// value that survives subsequent pop()s; pop() past empty falls back via ?:.
+var s := Stack<string>()
+s.push("a")
+var top := s.peek()
+println(top)
+println(s.pop() ?: "none")
+println(s.pop() ?: "none")

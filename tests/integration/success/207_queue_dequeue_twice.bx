@@ -1,0 +1,6 @@
+// Queue<string> — dequeue() twice past exhaustion falls back via ?:,
+// exercising Union(String, Nil) owned-return over the new BrixQueue runtime.
+var q := Queue<string>()
+q.enqueue("a")
+println(q.dequeue() ?: "none")
+println(q.dequeue() ?: "none")

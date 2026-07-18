@@ -581,18 +581,20 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
             };
             let hint = &resolved_hint;
 
-            // Vector<T> annotation: validate the element and require the value
-            // to be exactly that Vector type (no implicit casts). An unsupported
-            // element (Vector(Error), e.g. Vector<Matrix>) is rejected outright —
-            // it must never silently fall back to a valid Vector type.
+            // Vector<T>/Stack<T>/Queue<T> annotation: validate the element and
+            // require the value to be exactly that container type (no implicit
+            // casts). An unsupported element (e.g. Vector<Matrix>) is rejected
+            // outright — it must never silently fall back to a valid type.
             let hint_bt = self.string_to_brix_type(hint);
-            if let BrixType::Vector(inner) = &hint_bt {
+            if let BrixType::Vector(inner) | BrixType::Stack(inner) | BrixType::Queue(inner) =
+                &hint_bt
+            {
                 if !matches!(
                     inner.as_ref(),
                     BrixType::Int | BrixType::Float | BrixType::String
                 ) {
                     return Err(CodegenError::TypeError {
-                        expected: "Vector<int>, Vector<float> or Vector<string>".to_string(),
+                        expected: format!("{} with element int, float or string", hint),
                         found: hint.clone(),
                         context: format!("Variable declaration '{}'", name),
                         span: None,
@@ -606,7 +608,7 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
                         span: None,
                     });
                 }
-                // Valid, matching Vector<T>: no cast — fall through to store.
+                // Valid, matching container type: no cast — fall through to store.
             }
             // Check for Union type (contains " | ")
             // Check for Intersection type (contains " & ")
@@ -799,6 +801,8 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
             | BrixType::FloatPtr
             | BrixType::Nil
             | BrixType::Vector(_)
+            | BrixType::Stack(_)
+            | BrixType::Queue(_)
             | BrixType::Error => self.context.ptr_type(AddressSpace::default()).into(),
             BrixType::Complex => {
                 // Allocate space for complex struct { f64, f64 }
