@@ -2622,3 +2622,101 @@ fn test_queue_annotation_ok() {
     };
     assert!(vector_compiles(program));
 }
+
+// ==================== MINHEAP<T> / MAXHEAP<T> (v1.8 Grupo E) ====================
+
+#[test]
+fn test_minheap_push_pop_peek_compile() {
+    // var h := MinHeap<int>(); h.push(1); h.peek(); h.pop(); h.size(); h.is_empty()
+    let program = Program {
+        statements: vec![
+            container_decl("h", None, "MinHeap", "int"),
+            vec_method_stmt(
+                "h",
+                "push",
+                vec![Expr::dummy(ExprKind::Literal(Literal::Int(1)))],
+            ),
+            vec_method_stmt("h", "peek", vec![]),
+            vec_method_stmt("h", "pop", vec![]),
+            vec_method_stmt("h", "size", vec![]),
+            vec_method_stmt("h", "is_empty", vec![]),
+        ],
+    };
+    assert!(vector_compiles(program));
+}
+
+#[test]
+fn test_maxheap_push_pop_peek_compile() {
+    // var h := MaxHeap<float>(); h.push(1.5); h.peek(); h.pop(); h.size(); h.is_empty()
+    let program = Program {
+        statements: vec![
+            container_decl("h", None, "MaxHeap", "float"),
+            vec_method_stmt(
+                "h",
+                "push",
+                vec![Expr::dummy(ExprKind::Literal(Literal::Float(1.5)))],
+            ),
+            vec_method_stmt("h", "peek", vec![]),
+            vec_method_stmt("h", "pop", vec![]),
+            vec_method_stmt("h", "size", vec![]),
+            vec_method_stmt("h", "is_empty", vec![]),
+        ],
+    };
+    assert!(vector_compiles(program));
+}
+
+#[test]
+fn test_minheap_string_enabled() {
+    // MinHeap<string>(): push/peek/pop compile with element ARC.
+    let program = Program {
+        statements: vec![
+            container_decl("h", None, "MinHeap", "string"),
+            vec_method_stmt(
+                "h",
+                "push",
+                vec![Expr::dummy(ExprKind::Literal(Literal::String(
+                    "a".to_string(),
+                )))],
+            ),
+            vec_method_stmt("h", "peek", vec![]),
+            vec_method_stmt("h", "pop", vec![]),
+        ],
+    };
+    assert!(vector_compiles(program));
+}
+
+#[test]
+fn test_minheap_push_type_error() {
+    // h.push("x") on MinHeap<int> must fail to compile.
+    let program = Program {
+        statements: vec![
+            container_decl("h", None, "MinHeap", "int"),
+            vec_method_stmt(
+                "h",
+                "push",
+                vec![Expr::dummy(ExprKind::Literal(Literal::String(
+                    "x".to_string(),
+                )))],
+            ),
+        ],
+    };
+    assert!(!vector_compiles(program));
+}
+
+#[test]
+fn test_minheap_annotation_ok() {
+    // var h: MinHeap<int> = MinHeap<int>() compiles.
+    let program = Program {
+        statements: vec![container_decl("h", Some("MinHeap<int>"), "MinHeap", "int")],
+    };
+    assert!(vector_compiles(program));
+}
+
+#[test]
+fn test_maxheap_annotation_ok() {
+    // var h: MaxHeap<int> = MaxHeap<int>() compiles.
+    let program = Program {
+        statements: vec![container_decl("h", Some("MaxHeap<int>"), "MaxHeap", "int")],
+    };
+    assert!(vector_compiles(program));
+}

@@ -1840,3 +1840,70 @@ fn test_209_queue_wraparound_growth() {
         "0\n1\n2\n3\n4\n5\n6",
     );
 }
+
+#[test]
+fn test_210_minheap_basic() {
+    // MinHeap<T> (v1.8 Grupo E) — pushed out of order, pops ascending.
+    assert_success(
+        "tests/integration/success/210_minheap_basic.bx",
+        "1\n2\n3\n4\n5",
+    );
+}
+
+#[test]
+fn test_211_maxheap_basic() {
+    // MaxHeap<T> — pushed out of order, pops descending.
+    assert_success(
+        "tests/integration/success/211_maxheap_basic.bx",
+        "3.7\n2.1\n1.5",
+    );
+}
+
+#[test]
+fn test_212_heap_peek_no_remove() {
+    // peek() doesn't remove — size unchanged, pop() still returns it.
+    assert_success(
+        "tests/integration/success/212_heap_peek_no_remove.bx",
+        "1\n2\n1\n1",
+    );
+}
+
+#[test]
+fn test_213_heap_sort() {
+    // 10 shuffled values (> Vector's initial cap of 8, exercising growth
+    // through brix_vector_push inside brix_heap_push) pop in ascending order.
+    assert_success(
+        "tests/integration/success/213_heap_sort.bx",
+        "0\n1\n2\n3\n4\n5\n6\n7\n8\n9",
+    );
+}
+
+#[test]
+fn test_214_heap_peek_empty_aborts() {
+    // Heap.peek() on empty aborts with a dedicated message (unlike
+    // Stack.peek(), which reuses Vector.get_ptr's generic bounds message).
+    assert_output(
+        "tests/integration/success/214_heap_peek_empty_aborts.bx",
+        1,
+        Some("Heap.peek() called on empty heap"),
+    );
+}
+
+#[test]
+fn test_215_minheap_string() {
+    // Lexicographic ordering via strcmp; triple pop past exhaustion falls
+    // back via ?:, exercising Union(String, Nil) over the heap runtime.
+    assert_success(
+        "tests/integration/success/215_minheap_string.bx",
+        "a\nb\nnone",
+    );
+}
+
+#[test]
+fn test_216_heap_duplicates() {
+    // Heap preserves multiplicity of duplicate values.
+    assert_success(
+        "tests/integration/success/216_heap_duplicates.bx",
+        "1\n1\n2\n2",
+    );
+}

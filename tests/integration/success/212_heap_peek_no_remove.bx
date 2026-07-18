@@ -1,0 +1,9 @@
+// Heap.peek() does not remove the element — size stays the same and a
+// subsequent pop() still returns the peeked value.
+var h := MinHeap<int>()
+h.push(5)
+h.push(1)
+println(h.peek())
+println(h.size())
+println(h.pop() ?: -1)
+println(h.size())

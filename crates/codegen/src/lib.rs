@@ -564,6 +564,38 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             return BrixType::Queue(Box::new(elem));
         }
 
+        // Step 4g: MinHeap<T> (v1.8 Grupo E). Only MinHeap<int|float|string> are
+        // supported; other element types are rejected explicitly (the
+        // GenericCall dispatch enforces this again with a CodegenError).
+        if let Some(inner) = resolved_type_str
+            .strip_prefix("MinHeap<")
+            .and_then(|s| s.strip_suffix('>'))
+        {
+            let elem = match inner.trim() {
+                "int" => BrixType::Int,
+                "float" => BrixType::Float,
+                "string" => BrixType::String,
+                _ => BrixType::Error,
+            };
+            return BrixType::MinHeap(Box::new(elem));
+        }
+
+        // Step 4h: MaxHeap<T> (v1.8 Grupo E). Only MaxHeap<int|float|string> are
+        // supported; other element types are rejected explicitly (the
+        // GenericCall dispatch enforces this again with a CodegenError).
+        if let Some(inner) = resolved_type_str
+            .strip_prefix("MaxHeap<")
+            .and_then(|s| s.strip_suffix('>'))
+        {
+            let elem = match inner.trim() {
+                "int" => BrixType::Int,
+                "float" => BrixType::Float,
+                "string" => BrixType::String,
+                _ => BrixType::Error,
+            };
+            return BrixType::MaxHeap(Box::new(elem));
+        }
+
         // Step 5: Base types
         match resolved_type_str {
             "int" => BrixType::Int,
@@ -645,6 +677,11 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             }
             BrixType::Queue(_) => {
                 // Queue<T> is a pointer to the heap BrixQueue struct.
+                self.context.ptr_type(AddressSpace::default()).into()
+            }
+            BrixType::MinHeap(_) | BrixType::MaxHeap(_) => {
+                // MinHeap<T>/MaxHeap<T> are a thin wrapper over the heap
+                // BrixVector struct.
                 self.context.ptr_type(AddressSpace::default()).into()
             }
             BrixType::Void => self.context.i64_type().into(), // Placeholder (shouldn't be used)
@@ -1189,6 +1226,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 | BrixType::Vector(_)
                 | BrixType::Stack(_)
                 | BrixType::Queue(_)
+                | BrixType::MinHeap(_)
+                | BrixType::MaxHeap(_)
         )
     }
 
@@ -1243,6 +1282,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             // Stack<T> IS a BrixVector* underneath — reuse the vector symbol.
             BrixType::Stack(_) => "brix_vector_retain",
             BrixType::Queue(_) => "brix_queue_retain",
+            // MinHeap<T>/MaxHeap<T> ARE a BrixVector* underneath — reuse the
+            // vector symbol (same as Stack).
+            BrixType::MinHeap(_) => "brix_vector_retain",
+            BrixType::MaxHeap(_) => "brix_vector_retain",
             _ => unreachable!("is_ref_counted should have filtered this"),
         };
 
@@ -1296,6 +1339,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             // Stack<T> IS a BrixVector* underneath — reuse the vector symbol.
             BrixType::Stack(_) => "brix_vector_release",
             BrixType::Queue(_) => "brix_queue_release",
+            // MinHeap<T>/MaxHeap<T> ARE a BrixVector* underneath — reuse the
+            // vector symbol (same as Stack).
+            BrixType::MinHeap(_) => "brix_vector_release",
+            BrixType::MaxHeap(_) => "brix_vector_release",
             _ => unreachable!("is_ref_counted should have filtered this"),
         };
 
@@ -4210,9 +4257,14 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                     })?;
                             Ok((val, brix_type.clone()))
                         }
-                        BrixType::Vector(_) | BrixType::Stack(_) | BrixType::Queue(_) => {
-                            // Vector<T>/Stack<T>/Queue<T> are stored as an opaque
-                            // heap-struct pointer (BrixVector*/BrixQueue*).
+                        BrixType::Vector(_)
+                        | BrixType::Stack(_)
+                        | BrixType::Queue(_)
+                        | BrixType::MinHeap(_)
+                        | BrixType::MaxHeap(_) => {
+                            // Vector<T>/Stack<T>/Queue<T>/MinHeap<T>/MaxHeap<T> are
+                            // stored as an opaque heap-struct pointer
+                            // (BrixVector*/BrixQueue*).
                             let ptr_type = self.context.ptr_type(AddressSpace::default());
                             let val =
                                 self.builder.build_load(ptr_type, *ptr, name).map_err(|_| {
@@ -6081,11 +6133,18 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             field.as_str(),
                             "enqueue" | "dequeue" | "front" | "size" | "is_empty"
                         );
+                        // MinHeap<T>/MaxHeap<T> methods (v1.8 Grupo E). Restricted
+                        // API: push / pop / peek / size / is_empty.
+                        let is_heap_method = matches!(
+                            field.as_str(),
+                            "push" | "pop" | "peek" | "size" | "is_empty"
+                        );
                         if is_iter_method
                             || is_str_method
                             || is_vector_method
                             || is_stack_method
                             || is_queue_method
+                            || is_heap_method
                         {
                             let (receiver_val, receiver_type) = self.compile_expr(target)?;
                             if is_vector_method {
@@ -6118,6 +6177,30 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                     return self.compile_queue_method(
                                         receiver_val,
                                         &elem,
+                                        field,
+                                        args,
+                                        expr,
+                                    );
+                                }
+                            }
+                            if is_heap_method {
+                                if let BrixType::MinHeap(elem) = &receiver_type {
+                                    let elem = elem.as_ref().clone();
+                                    return self.compile_heap_method(
+                                        receiver_val,
+                                        &elem,
+                                        false,
+                                        field,
+                                        args,
+                                        expr,
+                                    );
+                                }
+                                if let BrixType::MaxHeap(elem) = &receiver_type {
+                                    let elem = elem.as_ref().clone();
+                                    return self.compile_heap_method(
+                                        receiver_val,
+                                        &elem,
+                                        true,
                                         field,
                                         args,
                                         expr,
@@ -6365,6 +6448,24 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                     _ => "unknown",
                                 };
                                 format!("Queue<{}>", elem)
+                            }
+                            BrixType::MinHeap(inner) => {
+                                let elem = match inner.as_ref() {
+                                    BrixType::Int => "int",
+                                    BrixType::Float => "float",
+                                    BrixType::String => "string",
+                                    _ => "unknown",
+                                };
+                                format!("MinHeap<{}>", elem)
+                            }
+                            BrixType::MaxHeap(inner) => {
+                                let elem = match inner.as_ref() {
+                                    BrixType::Int => "int",
+                                    BrixType::Float => "float",
+                                    BrixType::String => "string",
+                                    _ => "unknown",
+                                };
+                                format!("MaxHeap<{}>", elem)
                             }
                             BrixType::Optional(_) => {
                                 // Optional is now Union(T, nil), should never be reached
@@ -8309,6 +8410,15 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 }
                 if func_name == "Queue" {
                     return self.compile_queue_new(type_args, args, expr);
+                }
+
+                // MinHeap<T>() / MaxHeap<T>() constructors (v1.8 Grupo E) — same
+                // interception point, before monomorphization.
+                if func_name == "MinHeap" {
+                    return self.compile_heap_new(type_args, args, expr, false);
+                }
+                if func_name == "MaxHeap" {
+                    return self.compile_heap_new(type_args, args, expr, true);
                 }
 
                 // Get parent function for context
@@ -14097,6 +14207,498 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             other => Err(CodegenError::General(format!(
                 "Stack method '{}' not supported",
                 other
+            ))),
+        }
+    }
+
+    /// Compile `MinHeap<T>()` / `MaxHeap<T>()` -> a fresh, empty BrixVector*
+    /// (ref_count = 1). A heap starts life as an ordinary empty BrixVector; the
+    /// min/max ordering only appears once `push`/`pop` call `brix_heap_*` with
+    /// the `is_max` flag. `is_max` is never stored — it is passed on every
+    /// mutating call, and the compile-time `BrixType::MinHeap`/`MaxHeap`
+    /// distinction is what supplies it.
+    fn compile_heap_new(
+        &mut self,
+        type_args: &[String],
+        args: &[Expr],
+        expr: &Expr,
+        is_max: bool,
+    ) -> CodegenResult<(BasicValueEnum<'ctx>, BrixType)> {
+        use inkwell::AddressSpace;
+
+        let heap_name = if is_max { "MaxHeap" } else { "MinHeap" };
+
+        if type_args.len() != 1 {
+            return Err(CodegenError::InvalidOperation {
+                operation: heap_name.to_string(),
+                reason: format!(
+                    "expects exactly one type argument, e.g. {}<int>()",
+                    heap_name
+                ),
+                span: Some(expr.span.clone()),
+            });
+        }
+        if !args.is_empty() {
+            return Err(CodegenError::InvalidOperation {
+                operation: heap_name.to_string(),
+                reason: "constructor takes no arguments".to_string(),
+                span: Some(expr.span.clone()),
+            });
+        }
+
+        let elem = self.string_to_brix_type(&type_args[0]);
+        if !matches!(elem, BrixType::Int | BrixType::Float | BrixType::String) {
+            return Err(CodegenError::TypeError {
+                expected: format!(
+                    "{name}<int>, {name}<float> or {name}<string>",
+                    name = heap_name
+                ),
+                found: format!("{}<{}>", heap_name, type_args[0]),
+                context: format!("{} constructor", heap_name),
+                span: Some(expr.span.clone()),
+            });
+        }
+        let elem_kind = Self::vector_elem_kind(&elem).ok_or_else(|| CodegenError::TypeError {
+            expected: format!(
+                "{name}<int>, {name}<float> or {name}<string>",
+                name = heap_name
+            ),
+            found: format!("{}<{}>", heap_name, type_args[0]),
+            context: format!("{} constructor", heap_name),
+            span: Some(expr.span.clone()),
+        })?;
+
+        let i64_type = self.context.i64_type();
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let new_fn = self
+            .module
+            .get_function("brix_vector_new")
+            .unwrap_or_else(|| {
+                let fn_type = ptr_type.fn_type(&[i64_type.into(), i64_type.into()], false);
+                self.module
+                    .add_function("brix_vector_new", fn_type, Some(Linkage::External))
+            });
+
+        let call = self
+            .builder
+            .build_call(
+                new_fn,
+                &[
+                    i64_type.const_int(8, false).into(),
+                    i64_type.const_int(elem_kind, false).into(),
+                ],
+                "heap_new",
+            )
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_call".to_string(),
+                details: "Failed to call brix_vector_new".to_string(),
+                span: Some(expr.span.clone()),
+            })?;
+        let result =
+            call.try_as_basic_value()
+                .left()
+                .ok_or_else(|| CodegenError::MissingValue {
+                    what: "brix_vector_new result".to_string(),
+                    context: format!("{}()", heap_name),
+                    span: Some(expr.span.clone()),
+                })?;
+
+        let ty = if is_max {
+            BrixType::MaxHeap(Box::new(elem))
+        } else {
+            BrixType::MinHeap(Box::new(elem))
+        };
+        Ok((result, ty))
+    }
+
+    /// Compile a method call on a MinHeap/MaxHeap receiver. The two containers
+    /// share this single implementation — only the `is_max` flag differs, which
+    /// is forwarded to `brix_heap_push` / `brix_heap_pop`.
+    /// API: push / pop / peek / size / is_empty.
+    fn compile_heap_method(
+        &mut self,
+        receiver: BasicValueEnum<'ctx>,
+        elem_type: &BrixType,
+        is_max: bool,
+        method: &str,
+        args: &[Expr],
+        expr: &Expr,
+    ) -> CodegenResult<(BasicValueEnum<'ctx>, BrixType)> {
+        use inkwell::AddressSpace;
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let i64_type = self.context.i64_type();
+        let i32_type = self.context.i32_type();
+        let heap_name = if is_max { "MaxHeap" } else { "MinHeap" };
+        let is_max_val = i32_type.const_int(is_max as u64, false);
+        let vec_ptr = receiver.into_pointer_value();
+
+        match method {
+            "push" => {
+                if args.len() != 1 {
+                    return Err(CodegenError::InvalidOperation {
+                        operation: format!("{}.push", heap_name),
+                        reason: format!("expects 1 argument, got {}", args.len()),
+                        span: Some(expr.span.clone()),
+                    });
+                }
+                let (val, val_type) = self.compile_expr(&args[0])?;
+                if &val_type != elem_type {
+                    return Err(CodegenError::TypeError {
+                        expected: format!("{:?}", elem_type),
+                        found: format!("{:?}", val_type),
+                        context: format!("{}.push element", heap_name),
+                        span: Some(expr.span.clone()),
+                    });
+                }
+                let elem_llvm = self.brix_type_to_llvm(elem_type);
+                let slot = self
+                    .builder
+                    .build_alloca(elem_llvm, "push_slot")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_alloca".to_string(),
+                        details: "Failed to alloca push slot".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                self.builder
+                    .build_store(slot, val)
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_store".to_string(),
+                        details: "Failed to store push element".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                let push_fn = self
+                    .module
+                    .get_function("brix_heap_push")
+                    .unwrap_or_else(|| {
+                        let fn_type = self
+                            .context
+                            .void_type()
+                            .fn_type(&[ptr_type.into(), ptr_type.into(), i32_type.into()], false);
+                        self.module
+                            .add_function("brix_heap_push", fn_type, Some(Linkage::External))
+                    });
+                self.builder
+                    .build_call(
+                        push_fn,
+                        &[vec_ptr.into(), slot.into(), is_max_val.into()],
+                        "",
+                    )
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: "Failed to call brix_heap_push".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                // ARC: brix_heap_push (via brix_vector_push) retained the element
+                // for the heap. Release our temp reference only for an owned
+                // temporary source.
+                if Self::is_ref_counted(elem_type) && !Self::is_borrowed_ref_expr(&args[0].kind) {
+                    self.insert_release(val.into_pointer_value(), elem_type)?;
+                }
+                Ok((i64_type.const_int(0, false).into(), BrixType::Void))
+            }
+            "pop" => {
+                if !args.is_empty() {
+                    return Err(CodegenError::InvalidOperation {
+                        operation: format!("{}.pop", heap_name),
+                        reason: "takes no arguments".to_string(),
+                        span: Some(expr.span.clone()),
+                    });
+                }
+                // Returns Union(T, Nil): { i64 tag, T value }. tag 0 = value,
+                // tag 1 = nil (empty). Same build as Stack.pop. brix_heap_pop
+                // returns 0 on an empty heap (does NOT abort).
+                let elem_llvm = self.brix_type_to_llvm(elem_type);
+                let ret_union_type = BrixType::Union(vec![elem_type.clone(), BrixType::Nil]);
+                let union_struct_type = self
+                    .context
+                    .struct_type(&[i64_type.into(), elem_llvm], false);
+
+                let result_alloca =
+                    self.create_entry_block_alloca(union_struct_type.into(), "pop_result")?;
+                let nil_struct = self
+                    .builder
+                    .build_insert_value(
+                        union_struct_type.get_undef(),
+                        i64_type.const_int(1, false),
+                        0,
+                        "pop_nil_tag",
+                    )
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_insert_value".to_string(),
+                        details: "Failed pop nil tag".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?
+                    .into_struct_value();
+                self.builder
+                    .build_store(result_alloca, nil_struct)
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_store".to_string(),
+                        details: "Failed store pop nil default".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+
+                let out_slot = self.create_entry_block_alloca(elem_llvm, "pop_out")?;
+                let pop_fn = self
+                    .module
+                    .get_function("brix_heap_pop")
+                    .unwrap_or_else(|| {
+                        let fn_type = i64_type
+                            .fn_type(&[ptr_type.into(), ptr_type.into(), i32_type.into()], false);
+                        self.module
+                            .add_function("brix_heap_pop", fn_type, Some(Linkage::External))
+                    });
+                let flag = self
+                    .builder
+                    .build_call(
+                        pop_fn,
+                        &[vec_ptr.into(), out_slot.into(), is_max_val.into()],
+                        "pop_flag",
+                    )
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: "Failed to call brix_heap_pop".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?
+                    .try_as_basic_value()
+                    .left()
+                    .ok_or_else(|| CodegenError::MissingValue {
+                        what: "brix_heap_pop result".to_string(),
+                        context: format!("{}.pop", heap_name),
+                        span: Some(expr.span.clone()),
+                    })?
+                    .into_int_value();
+
+                let parent_fn = self.current_function()?;
+                let ok_bb = self.context.append_basic_block(parent_fn, "pop_ok");
+                let after_bb = self.context.append_basic_block(parent_fn, "pop_after");
+                let cond = self
+                    .builder
+                    .build_int_compare(
+                        IntPredicate::NE,
+                        flag,
+                        i64_type.const_int(0, false),
+                        "pop_cond",
+                    )
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_int_compare".to_string(),
+                        details: "Failed pop cond".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                self.builder
+                    .build_conditional_branch(cond, ok_bb, after_bb)
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_conditional_branch".to_string(),
+                        details: "Failed pop branch".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+
+                self.builder.position_at_end(ok_bb);
+                let popped = self
+                    .builder
+                    .build_load(elem_llvm, out_slot, "pop_val")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_load".to_string(),
+                        details: "Failed load popped value".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                let mut ok_struct = self
+                    .builder
+                    .build_insert_value(
+                        union_struct_type.get_undef(),
+                        i64_type.const_int(0, false),
+                        0,
+                        "pop_ok_tag",
+                    )
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_insert_value".to_string(),
+                        details: "Failed pop ok tag".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?
+                    .into_struct_value();
+                ok_struct = self
+                    .builder
+                    .build_insert_value(ok_struct, popped, 1, "pop_ok_val")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_insert_value".to_string(),
+                        details: "Failed pop ok value".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?
+                    .into_struct_value();
+                self.builder
+                    .build_store(result_alloca, ok_struct)
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_store".to_string(),
+                        details: "Failed store pop ok".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                self.builder
+                    .build_unconditional_branch(after_bb)
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_unconditional_branch".to_string(),
+                        details: "Failed pop ok branch".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+
+                self.builder.position_at_end(after_bb);
+                let result = self
+                    .builder
+                    .build_load(union_struct_type, result_alloca, "pop_union")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_load".to_string(),
+                        details: "Failed load pop union".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                Ok((result, ret_union_type))
+            }
+            "peek" => {
+                if !args.is_empty() {
+                    return Err(CodegenError::InvalidOperation {
+                        operation: format!("{}.peek", heap_name),
+                        reason: "takes no arguments".to_string(),
+                        span: Some(expr.span.clone()),
+                    });
+                }
+                // brix_heap_peek returns a pointer to slot 0 and aborts internally
+                // (fprintf + exit) when the heap is empty — no extra codegen guard.
+                // No is_max argument: peek does not depend on ordering direction.
+                let peek_fn = self
+                    .module
+                    .get_function("brix_heap_peek")
+                    .unwrap_or_else(|| {
+                        let fn_type = ptr_type.fn_type(&[ptr_type.into()], false);
+                        self.module
+                            .add_function("brix_heap_peek", fn_type, Some(Linkage::External))
+                    });
+                let slot_ptr = self
+                    .builder
+                    .build_call(peek_fn, &[vec_ptr.into()], "heap_slot")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: "Failed to call brix_heap_peek".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?
+                    .try_as_basic_value()
+                    .left()
+                    .ok_or_else(|| CodegenError::MissingValue {
+                        what: "brix_heap_peek result".to_string(),
+                        context: format!("{}.peek", heap_name),
+                        span: Some(expr.span.clone()),
+                    })?
+                    .into_pointer_value();
+                let elem_llvm = self.brix_type_to_llvm(elem_type);
+                let loaded = self
+                    .builder
+                    .build_load(elem_llvm, slot_ptr, "heap_peek")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_load".to_string(),
+                        details: "Failed to load heap root element".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                // ARC: a ref-counted element (string) is borrowed from the heap.
+                // Retain so peek() returns an OWNED value (same semantics as get()).
+                if Self::is_ref_counted(elem_type) {
+                    self.insert_retain(loaded, elem_type)?;
+                }
+                Ok((loaded, elem_type.clone()))
+            }
+            "size" => {
+                if !args.is_empty() {
+                    return Err(CodegenError::InvalidOperation {
+                        operation: format!("{}.size", heap_name),
+                        reason: "takes no arguments".to_string(),
+                        span: Some(expr.span.clone()),
+                    });
+                }
+                let len_fn = self
+                    .module
+                    .get_function("brix_vector_len")
+                    .unwrap_or_else(|| {
+                        let fn_type = i64_type.fn_type(&[ptr_type.into()], false);
+                        self.module.add_function(
+                            "brix_vector_len",
+                            fn_type,
+                            Some(Linkage::External),
+                        )
+                    });
+                let call = self
+                    .builder
+                    .build_call(len_fn, &[vec_ptr.into()], "heap_size")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: "Failed to call brix_vector_len".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                let result =
+                    call.try_as_basic_value()
+                        .left()
+                        .ok_or_else(|| CodegenError::MissingValue {
+                            what: "brix_vector_len result".to_string(),
+                            context: format!("{}.size", heap_name),
+                            span: Some(expr.span.clone()),
+                        })?;
+                Ok((result, BrixType::Int))
+            }
+            "is_empty" => {
+                if !args.is_empty() {
+                    return Err(CodegenError::InvalidOperation {
+                        operation: format!("{}.is_empty", heap_name),
+                        reason: "takes no arguments".to_string(),
+                        span: Some(expr.span.clone()),
+                    });
+                }
+                let len_fn = self
+                    .module
+                    .get_function("brix_vector_len")
+                    .unwrap_or_else(|| {
+                        let fn_type = i64_type.fn_type(&[ptr_type.into()], false);
+                        self.module.add_function(
+                            "brix_vector_len",
+                            fn_type,
+                            Some(Linkage::External),
+                        )
+                    });
+                let len = self
+                    .builder
+                    .build_call(len_fn, &[vec_ptr.into()], "heap_len")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: "Failed to call brix_vector_len".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?
+                    .try_as_basic_value()
+                    .left()
+                    .ok_or_else(|| CodegenError::MissingValue {
+                        what: "brix_vector_len result".to_string(),
+                        context: format!("{}.is_empty", heap_name),
+                        span: Some(expr.span.clone()),
+                    })?
+                    .into_int_value();
+                let is_empty = self
+                    .builder
+                    .build_int_compare(
+                        IntPredicate::EQ,
+                        len,
+                        i64_type.const_int(0, false),
+                        "heap_empty",
+                    )
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_int_compare".to_string(),
+                        details: "Failed is_empty compare".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                let as_i64 = self
+                    .builder
+                    .build_int_z_extend(is_empty, i64_type, "heap_empty_i64")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_int_z_extend".to_string(),
+                        details: "Failed is_empty zext".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                Ok((as_i64.into(), BrixType::Int))
+            }
+            other => Err(CodegenError::General(format!(
+                "{} method '{}' not supported",
+                heap_name, other
             ))),
         }
     }

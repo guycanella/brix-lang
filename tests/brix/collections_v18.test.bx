@@ -296,3 +296,76 @@ test.describe("Queue<T> (v1.8 Grupo D)", () -> {
         test.expect(q.dequeue() ?: -1).toBe(6)
     })
 })
+
+test.describe("MinHeap<T> / MaxHeap<T> (v1.8 Grupo E)", () -> {
+    test.it("MinHeap pops in ascending order regardless of push order", () -> {
+        var h := MinHeap<int>()
+        h.push(5)
+        h.push(1)
+        h.push(3)
+        test.expect(h.pop() ?: -1).toBe(1)
+        test.expect(h.pop() ?: -1).toBe(3)
+        test.expect(h.pop() ?: -1).toBe(5)
+    })
+
+    test.it("MaxHeap pops in descending order regardless of push order", () -> {
+        var h := MaxHeap<float>()
+        h.push(1.5)
+        h.push(3.7)
+        h.push(2.1)
+        test.expect(h.pop() ?: -1.0).toBe(3.7)
+        test.expect(h.pop() ?: -1.0).toBe(2.1)
+        test.expect(h.pop() ?: -1.0).toBe(1.5)
+    })
+
+    test.it("peek() returns the root without removing it", () -> {
+        var h := MinHeap<int>()
+        h.push(5)
+        h.push(1)
+        test.expect(h.peek()).toBe(1)
+        test.expect(h.size()).toBe(2)
+        test.expect(h.pop() ?: -1).toBe(1)
+    })
+
+    test.it("preserves multiplicity of duplicate values", () -> {
+        var h := MinHeap<int>()
+        h.push(2)
+        h.push(1)
+        h.push(2)
+        h.push(1)
+        test.expect(h.pop() ?: -1).toBe(1)
+        test.expect(h.pop() ?: -1).toBe(1)
+        test.expect(h.pop() ?: -1).toBe(2)
+        test.expect(h.pop() ?: -1).toBe(2)
+    })
+
+    test.it("MinHeap<string> orders lexicographically, dequeue past exhaustion falls back", () -> {
+        var h := MinHeap<string>()
+        h.push("b")
+        h.push("a")
+        test.expect(h.pop() ?: "none").toBe("a")
+        test.expect(h.pop() ?: "none").toBe("b")
+        test.expect(h.pop() ?: "none").toBe("none")
+    })
+
+    test.it("heap sort over 10 shuffled values exceeding the initial buffer capacity", () -> {
+        var h := MinHeap<int>()
+        h.push(7)
+        h.push(2)
+        h.push(9)
+        h.push(1)
+        h.push(5)
+        h.push(8)
+        h.push(0)
+        h.push(6)
+        h.push(4)
+        h.push(3)
+        var sorted := ""
+        var i := 0
+        while i < 10 {
+            sorted += string(h.pop() ?: -1)
+            i += 1
+        }
+        test.expect(sorted).toBe("0123456789")
+    })
+})

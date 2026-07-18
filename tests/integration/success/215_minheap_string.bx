@@ -1,0 +1,8 @@
+// MinHeap<string> — lexicographic ordering via strcmp; triple pop past
+// exhaustion falls back via ?:, exercising Union(String, Nil) owned-return.
+var h := MinHeap<string>()
+h.push("b")
+h.push("a")
+println(h.pop() ?: "none")
+println(h.pop() ?: "none")
+println(h.pop() ?: "none")
