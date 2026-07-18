@@ -1,0 +1,11 @@
+// Heap preserves multiplicity of duplicate values (no stability guarantee
+// needed, but every pushed value must come back out).
+var h := MinHeap<int>()
+h.push(2)
+h.push(1)
+h.push(2)
+h.push(1)
+println(h.pop() ?: -1)
+println(h.pop() ?: -1)
+println(h.pop() ?: -1)
+println(h.pop() ?: -1)

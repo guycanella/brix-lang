@@ -1,0 +1,6 @@
+// Heap.peek() on an empty heap aborts with a dedicated runtime.c message
+// ("Heap.peek() called on empty heap") — unlike Stack.peek(), which reuses
+// Vector.get_ptr's generic bounds-check message.
+var h := MinHeap<int>()
+var p := h.peek()
+println(p)

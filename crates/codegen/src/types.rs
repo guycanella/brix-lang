@@ -35,6 +35,8 @@ pub enum BrixType {
     Vector(Box<BrixType>), // Dynamic array Vector<T> (BrixVector*), v1.8 Grupo C; T in {Int, Float, String}
     Stack(Box<BrixType>), // Stack<T> (LIFO) — thin wrapper over BrixVector*, v1.8 Grupo D; T in {Int, Float, String}
     Queue(Box<BrixType>), // Queue<T> (FIFO ring buffer, BrixQueue*), v1.8 Grupo D; T in {Int, Float, String}
+    MinHeap(Box<BrixType>), // MinHeap<T> — BrixVector* por baixo, ordem ascendente. v1.8 Grupo E; T in {Int, Float, String}
+    MaxHeap(Box<BrixType>), // MaxHeap<T> — BrixVector* por baixo, ordem descendente. v1.8 Grupo E; T in {Int, Float, String}
 }
 
 // Type-related helper functions will be implemented as methods on Compiler

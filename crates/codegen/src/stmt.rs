@@ -586,8 +586,11 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
             // casts). An unsupported element (e.g. Vector<Matrix>) is rejected
             // outright — it must never silently fall back to a valid type.
             let hint_bt = self.string_to_brix_type(hint);
-            if let BrixType::Vector(inner) | BrixType::Stack(inner) | BrixType::Queue(inner) =
-                &hint_bt
+            if let BrixType::Vector(inner)
+            | BrixType::Stack(inner)
+            | BrixType::Queue(inner)
+            | BrixType::MinHeap(inner)
+            | BrixType::MaxHeap(inner) = &hint_bt
             {
                 if !matches!(
                     inner.as_ref(),
@@ -803,6 +806,8 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
             | BrixType::Vector(_)
             | BrixType::Stack(_)
             | BrixType::Queue(_)
+            | BrixType::MinHeap(_)
+            | BrixType::MaxHeap(_)
             | BrixType::Error => self.context.ptr_type(AddressSpace::default()).into(),
             BrixType::Complex => {
                 // Allocate space for complex struct { f64, f64 }

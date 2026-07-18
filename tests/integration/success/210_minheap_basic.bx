@@ -1,0 +1,12 @@
+// MinHeap<T> (v1.8 Grupo E) — pushed out of order, pops in ascending order.
+var h := MinHeap<int>()
+h.push(5)
+h.push(1)
+h.push(3)
+h.push(2)
+h.push(4)
+println(h.pop() ?: -1)
+println(h.pop() ?: -1)
+println(h.pop() ?: -1)
+println(h.pop() ?: -1)
+println(h.pop() ?: -1)

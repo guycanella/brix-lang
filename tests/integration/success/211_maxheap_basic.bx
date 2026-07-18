@@ -1,0 +1,8 @@
+// MaxHeap<T> (v1.8 Grupo E) — pushed out of order, pops in descending order.
+var h := MaxHeap<float>()
+h.push(1.5)
+h.push(3.7)
+h.push(2.1)
+println(h.pop() ?: -1.0)
+println(h.pop() ?: -1.0)
+println(h.pop() ?: -1.0)
