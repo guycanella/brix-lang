@@ -38,6 +38,7 @@ pub enum BrixType {
     MinHeap(Box<BrixType>), // MinHeap<T> — BrixVector* por baixo, ordem ascendente. v1.8 Grupo E; T in {Int, Float, String}
     MaxHeap(Box<BrixType>), // MaxHeap<T> — BrixVector* por baixo, ordem descendente. v1.8 Grupo E; T in {Int, Float, String}
     HashMap(Box<BrixType>, Box<BrixType>), // HashMap<K,V> — K in {Int, String}, V in {Int, Float, String}. v1.8 Grupo F
+    DateTime,                              // DateTime struct pointer (BrixDateTime*), v1.9 Grupo A
 }
 
 // Type-related helper functions will be implemented as methods on Compiler

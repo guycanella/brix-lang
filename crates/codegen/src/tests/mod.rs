@@ -6,6 +6,7 @@ mod builtin_tests;
 mod closure_tests;
 mod complex_tests;
 mod control_flow_tests;
+mod datetime_tests;
 mod edge_cases;
 mod expr_tests;
 mod function_tests;

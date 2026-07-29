@@ -487,6 +487,12 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
             self.register_test_functions(&prefix);
         }
 
+        // Register datetime functions when importing datetime module
+        if module == "datetime" {
+            use crate::builtins::datetime::DateTimeFunctions;
+            self.declare_datetime_functions();
+        }
+
         self.imported_modules.push((module.to_string(), prefix));
 
         Ok(())
@@ -807,6 +813,16 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
                         // Accept both Error and Nil for error type
                         // val_type remains as-is (Error or Nil)
                     }
+                    "datetime" | "DateTime" => {
+                        if val_type != BrixType::DateTime && val_type != BrixType::Nil {
+                            return Err(CodegenError::TypeError {
+                                expected: "DateTime or Nil".to_string(),
+                                found: format!("{:?}", val_type),
+                                context: format!("Variable declaration '{}'", name),
+                                span: None,
+                            });
+                        }
+                    }
                     _ => {
                         // Allow matrix, intmatrix, complex, and struct types
                         if hint != "matrix" && hint != "intmatrix" && hint != "complex" {
@@ -843,6 +859,7 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
             | BrixType::MinHeap(_)
             | BrixType::MaxHeap(_)
             | BrixType::HashMap(_, _)
+            | BrixType::DateTime
             | BrixType::Error => self.context.ptr_type(AddressSpace::default()).into(),
             BrixType::Complex => {
                 // Allocate space for complex struct { f64, f64 }
@@ -887,18 +904,25 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
             }
         };
 
-        // ARC: Retain if value is ref-counted (except for literals which come with ref_count=1)
-        // We need to retain when copying from another variable
-        let should_retain = Compiler::is_ref_counted(&val_type)
-            && !matches!(
-                &value.kind,
-                parser::ast::ExprKind::Literal(_)
-                    | parser::ast::ExprKind::Array(_)
-                    | parser::ast::ExprKind::Binary { .. } // String concatenation returns new string
-            );
+        // ARC: Retain only when the source is a BORROWED reference (variable,
+        // field access, index into an owning container). Everything else —
+        // literals, array constructors, binary ops (string concat), and
+        // function/method call results — produces an OWNED value that already
+        // has ref_count = 1, so retaining it again would leak.
+        let has_rc = Self::is_ref_counted(&val_type)
+            || match &val_type {
+                BrixType::Union(types) => Self::union_has_ref_counted_variant(types),
+                _ => false,
+            };
+
+        let should_retain = has_rc && Compiler::is_borrowed_ref_expr(&value.kind);
 
         if should_retain {
-            final_val = self.insert_retain(final_val, &val_type)?;
+            if let BrixType::Union(types) = &val_type {
+                self.insert_union_retain(final_val, types)?;
+            } else {
+                final_val = self.insert_retain(final_val, &val_type)?;
+            }
         }
 
         let alloca = if Compiler::is_ref_counted(&val_type) {
@@ -1255,93 +1279,112 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
         let mut final_type = val_type.clone();
 
         if let BrixType::Union(types) = &target_type {
-            // Find which variant of the union matches the value type
-            let mut tag = None;
-
-            // Try exact match first
-            for (i, t) in types.iter().enumerate() {
-                if t == &val_type {
-                    tag = Some(i);
-                    break;
+            // Assigning one value of this exact union type to another must copy
+            // the tagged struct as-is. Re-wrapping it would try to use the
+            // entire `{ tag, value }` struct as the union's value field.
+            if val_type == target_type {
+                if Compiler::union_has_ref_counted_variant(types)
+                    && Compiler::is_borrowed_ref_expr(&value.kind)
+                {
+                    self.insert_union_retain(final_val, types)?;
                 }
-            }
+            } else {
+                // Find which variant of the union matches the value type
+                let mut tag = None;
 
-            // If no exact match, try with casting (int -> float)
-            if tag.is_none() {
+                // Try exact match first
                 for (i, t) in types.iter().enumerate() {
-                    if *t == BrixType::Float && val_type == BrixType::Int {
-                        // Cast int to float
-                        final_val = self
-                            .builder
-                            .build_signed_int_to_float(
-                                val.into_int_value(),
-                                self.context.f64_type(),
-                                "cast_i2f_union_assign",
-                            )
-                            .map_err(|_| CodegenError::LLVMError {
-                                operation: "build_signed_int_to_float".to_string(),
-                                details: "Failed to cast int to float for Union assignment"
-                                    .to_string(),
-                                span: None,
-                            })?
-                            .into();
-                        final_type = BrixType::Float;
+                    if t == &val_type {
                         tag = Some(i);
                         break;
                     }
                 }
+
+                // If no exact match, try with casting (int -> float)
+                if tag.is_none() {
+                    for (i, t) in types.iter().enumerate() {
+                        if *t == BrixType::Float && val_type == BrixType::Int {
+                            // Cast int to float
+                            final_val = self
+                                .builder
+                                .build_signed_int_to_float(
+                                    val.into_int_value(),
+                                    self.context.f64_type(),
+                                    "cast_i2f_union_assign",
+                                )
+                                .map_err(|_| CodegenError::LLVMError {
+                                    operation: "build_signed_int_to_float".to_string(),
+                                    details: "Failed to cast int to float for Union assignment"
+                                        .to_string(),
+                                    span: None,
+                                })?
+                                .into();
+                            final_type = BrixType::Float;
+                            tag = Some(i);
+                            break;
+                        }
+                    }
+                }
+
+                if tag.is_none() {
+                    return Err(CodegenError::TypeError {
+                        expected: format!("{:?}", target_type),
+                        found: format!("{:?}", val_type),
+                        context: "Union assignment".to_string(),
+                        span: None,
+                    });
+                }
+
+                // Create tagged union: { i64 tag, value }
+                let tag_val = self
+                    .context
+                    .i64_type()
+                    .const_int(tag.unwrap() as u64, false);
+                let union_llvm_type = self.brix_type_to_llvm(&target_type);
+                let struct_type = union_llvm_type.into_struct_type();
+                let mut union_val = struct_type.get_undef();
+
+                // Insert tag
+                union_val = self
+                    .builder
+                    .build_insert_value(union_val, tag_val, 0, "insert_tag")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_insert_value".to_string(),
+                        details: "Failed to insert tag in union assignment".to_string(),
+                        span: None,
+                    })?
+                    .into_struct_value();
+
+                // ARC: if the active variant is ref-counted and the source is a
+                // borrowed reference (variable/field/index), retain it so the union
+                // co-owns it. A temporary (literal/concat/call result) is already
+                // owned — take it as-is.
+                let active_has_rc = Compiler::is_ref_counted(&final_type)
+                    || match &final_type {
+                        BrixType::Union(types) => Self::union_has_ref_counted_variant(types),
+                        _ => false,
+                    };
+                if active_has_rc && Compiler::is_borrowed_ref_expr(&value.kind) {
+                    if let BrixType::Union(types) = &final_type {
+                        self.insert_union_retain(final_val, types)?;
+                    } else {
+                        final_val = self.insert_retain(final_val, &final_type)?;
+                    }
+                }
+
+                // Insert value
+                union_val = self
+                    .builder
+                    .build_insert_value(union_val, final_val, 1, "insert_value")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_insert_value".to_string(),
+                        details: "Failed to insert value in union assignment".to_string(),
+                        span: None,
+                    })?
+                    .into_struct_value();
+
+                final_val = union_val.into();
             }
-
-            if tag.is_none() {
-                return Err(CodegenError::TypeError {
-                    expected: format!("{:?}", target_type),
-                    found: format!("{:?}", val_type),
-                    context: "Union assignment".to_string(),
-                    span: None,
-                });
-            }
-
-            // Create tagged union: { i64 tag, value }
-            let tag_val = self
-                .context
-                .i64_type()
-                .const_int(tag.unwrap() as u64, false);
-            let union_llvm_type = self.brix_type_to_llvm(&target_type);
-            let struct_type = union_llvm_type.into_struct_type();
-            let mut union_val = struct_type.get_undef();
-
-            // Insert tag
-            union_val = self
-                .builder
-                .build_insert_value(union_val, tag_val, 0, "insert_tag")
-                .map_err(|_| CodegenError::LLVMError {
-                    operation: "build_insert_value".to_string(),
-                    details: "Failed to insert tag in union assignment".to_string(),
-                    span: None,
-                })?
-                .into_struct_value();
-
-            // ARC: if the active variant is ref-counted and the source is a
-            // borrowed reference (variable/field/index), retain it so the union
-            // co-owns it. A temporary (literal/concat/call result) is already
-            // owned — take it as-is.
-            if Compiler::is_ref_counted(&final_type) && Compiler::is_borrowed_ref_expr(&value.kind)
-            {
-                final_val = self.insert_retain(final_val, &final_type)?;
-            }
-
-            // Insert value
-            union_val = self
-                .builder
-                .build_insert_value(union_val, final_val, 1, "insert_value")
-                .map_err(|_| CodegenError::LLVMError {
-                    operation: "build_insert_value".to_string(),
-                    details: "Failed to insert value in union assignment".to_string(),
-                    span: None,
-                })?
-                .into_struct_value();
-
-            final_val = union_val.into();
         } else if target_type == BrixType::Float && val_type == BrixType::Int {
             // Only cast Int→Float if the target expects Float
             final_val = self

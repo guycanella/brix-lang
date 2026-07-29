@@ -17,6 +17,7 @@
 
 pub mod async_compiler;
 pub mod closure_compiler;
+pub mod datetime;
 pub mod io;
 pub mod iterator;
 pub mod linalg;

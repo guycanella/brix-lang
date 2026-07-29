@@ -1,0 +1,16 @@
+// 229_datetime_timestamp.bx
+import datetime
+
+var dt_opt := datetime.parse("2026-01-01 00:00:00", "YYYY-MM-DD HH:mm:ss")
+if dt_opt != nil {
+    var dt := dt_opt
+    var ts := datetime.timestamp(dt)
+    var dt_back := datetime.from_timestamp(ts)
+
+    println(dt.year == dt_back.year)
+    println(dt.month == dt_back.month)
+    println(dt.day == dt_back.day)
+    println(dt.hour == dt_back.hour)
+    println(dt.minute == dt_back.minute)
+    println(dt.second == dt_back.second)
+}

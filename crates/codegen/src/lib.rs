@@ -631,6 +631,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             "matrix" => BrixType::Matrix,
             "intmatrix" => BrixType::IntMatrix,
             "complex" => BrixType::Complex,
+            "datetime" | "DateTime" => BrixType::DateTime,
             "nil" => BrixType::Nil,
             "error" => BrixType::Error,
             "atom" => BrixType::Atom,
@@ -713,6 +714,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             }
             BrixType::HashMap(_, _) => {
                 // HashMap<K,V> is a pointer to the heap BrixHashMap struct.
+                self.context.ptr_type(AddressSpace::default()).into()
+            }
+            BrixType::DateTime => {
+                // DateTime is a pointer to the heap BrixDateTime struct.
                 self.context.ptr_type(AddressSpace::default()).into()
             }
             BrixType::Void => self.context.i64_type().into(), // Placeholder (shouldn't be used)
@@ -1260,6 +1265,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 | BrixType::MinHeap(_)
                 | BrixType::MaxHeap(_)
                 | BrixType::HashMap(_, _)
+                | BrixType::DateTime
         )
     }
 
@@ -1319,6 +1325,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             BrixType::MinHeap(_) => "brix_vector_retain",
             BrixType::MaxHeap(_) => "brix_vector_retain",
             BrixType::HashMap(_, _) => "brix_hashmap_retain",
+            BrixType::DateTime => "datetime_retain",
             _ => unreachable!("is_ref_counted should have filtered this"),
         };
 
@@ -1377,6 +1384,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             BrixType::MinHeap(_) => "brix_vector_release",
             BrixType::MaxHeap(_) => "brix_vector_release",
             BrixType::HashMap(_, _) => "brix_hashmap_release",
+            BrixType::DateTime => "datetime_release",
             _ => unreachable!("is_ref_counted should have filtered this"),
         };
 
@@ -1413,8 +1421,80 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
     /// True if a union carries at least one ref-counted variant (so its values
     /// need retain/release, e.g. `string?` = Union(String, Nil)).
-    fn union_has_ref_counted_variant(types: &[BrixType]) -> bool {
+    pub(crate) fn union_has_ref_counted_variant(types: &[BrixType]) -> bool {
         !Self::union_ref_counted_variants(types).is_empty()
+    }
+
+    pub(crate) fn insert_union_retain(
+        &self,
+        union_val: BasicValueEnum<'ctx>,
+        types: &[BrixType],
+    ) -> CodegenResult<()> {
+        let variants = Self::union_ref_counted_variants(types);
+        if variants.is_empty() {
+            return Ok(());
+        }
+        let sv = union_val.into_struct_value();
+        let tag = self
+            .builder
+            .build_extract_value(sv, 0, "union_ret_tag")
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_extract_value".to_string(),
+                details: "Failed to extract union tag for retain".to_string(),
+                span: None,
+            })?
+            .into_int_value();
+        let value = self
+            .builder
+            .build_extract_value(sv, 1, "union_ret_val")
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_extract_value".to_string(),
+                details: "Failed to extract union value for retain".to_string(),
+                span: None,
+            })?;
+        if !value.is_pointer_value() {
+            return Ok(());
+        }
+        let value_ptr = value.into_pointer_value();
+        let i64_type = self.context.i64_type();
+        let parent_fn = self.current_function()?;
+        for (idx, rc_type) in variants {
+            let match_bb = self
+                .context
+                .append_basic_block(parent_fn, "union_ret_match");
+            let cont_bb = self.context.append_basic_block(parent_fn, "union_ret_cont");
+            let is_variant = self
+                .builder
+                .build_int_compare(
+                    IntPredicate::EQ,
+                    tag,
+                    i64_type.const_int(idx as u64, false),
+                    "union_ret_is",
+                )
+                .map_err(|_| CodegenError::LLVMError {
+                    operation: "build_int_compare".to_string(),
+                    details: "Failed union retain tag compare".to_string(),
+                    span: None,
+                })?;
+            self.builder
+                .build_conditional_branch(is_variant, match_bb, cont_bb)
+                .map_err(|_| CodegenError::LLVMError {
+                    operation: "build_conditional_branch".to_string(),
+                    details: "Failed union retain branch".to_string(),
+                    span: None,
+                })?;
+            self.builder.position_at_end(match_bb);
+            self.insert_retain(value_ptr.into(), &rc_type)?;
+            self.builder
+                .build_unconditional_branch(cont_bb)
+                .map_err(|_| CodegenError::LLVMError {
+                    operation: "build_unconditional_branch".to_string(),
+                    details: "Failed union retain cont branch".to_string(),
+                    span: None,
+                })?;
+            self.builder.position_at_end(cont_bb);
+        }
+        Ok(())
     }
 
     /// Release the inner ref-counted value held by a union VALUE (the loaded
@@ -1422,7 +1502,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     /// variant. Emits a runtime tag check per ref-counted variant. No-op for a
     /// union with no ref-counted variant or when the value field is not a
     /// pointer (only `T?` with a heap `T` is ARC-managed in v1.8).
-    fn insert_union_release(
+    pub(crate) fn insert_union_release(
         &self,
         union_val: BasicValueEnum<'ctx>,
         types: &[BrixType],
@@ -4296,10 +4376,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         | BrixType::Queue(_)
                         | BrixType::MinHeap(_)
                         | BrixType::MaxHeap(_)
-                        | BrixType::HashMap(_, _) => {
+                        | BrixType::HashMap(_, _)
+                        | BrixType::DateTime => {
                             // Vector<T>/Stack<T>/Queue<T>/MinHeap<T>/MaxHeap<T>/
-                            // HashMap<K,V> are stored as an opaque heap-struct
-                            // pointer (BrixVector*/BrixQueue*/BrixHashMap*).
+                            // HashMap<K,V>/DateTime are stored as an opaque heap-struct pointer.
                             let ptr_type = self.context.ptr_type(AddressSpace::default());
                             let val =
                                 self.builder.build_load(ptr_type, *ptr, name).map_err(|_| {
@@ -5159,26 +5239,22 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             | BrixType::Complex
                             | BrixType::ComplexMatrix
                             | BrixType::FloatPtr
+                            | BrixType::DateTime
                     )
                 };
 
                 // --- UNION NIL COMPARISON (v1.4) ---
                 // Handle: union_var == nil or union_var != nil
                 // Since Optional is now Union(T, nil), this handles Optional comparisons too
-                if (matches!(op, BinaryOp::Eq) || matches!(op, BinaryOp::NotEq)) {
+                if (matches!(op, BinaryOp::Eq) || matches!(op, BinaryOp::NotEq))
+                    && ((matches!(&lhs_type, BrixType::Union(_)) && rhs_type == BrixType::Nil)
+                        || (matches!(&rhs_type, BrixType::Union(_)) && lhs_type == BrixType::Nil))
+                {
                     let (union_val, union_type, is_eq) = if matches!(&lhs_type, BrixType::Union(_))
-                        && rhs_type == BrixType::Nil
                     {
                         (lhs_val, &lhs_type, matches!(op, BinaryOp::Eq))
-                    } else if matches!(&rhs_type, BrixType::Union(_)) && lhs_type == BrixType::Nil {
-                        (rhs_val, &rhs_type, matches!(op, BinaryOp::Eq))
                     } else {
-                        // Not a Union-nil comparison, continue to regular logic
-                        (
-                            BasicValueEnum::IntValue(self.context.i64_type().const_zero()),
-                            &lhs_type,
-                            false,
-                        )
+                        (rhs_val, &rhs_type, matches!(op, BinaryOp::Eq))
                     };
 
                     if let BrixType::Union(types) = union_type {
@@ -5767,6 +5843,85 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     return Ok((extended.into(), BrixType::Int));
                 }
 
+                // --- DateTime comparisons ---
+                let is_dt_type = |t: &BrixType| match t {
+                    BrixType::DateTime => true,
+                    BrixType::Union(ts) => ts.contains(&BrixType::DateTime),
+                    _ => false,
+                };
+
+                if is_dt_type(&lhs_type) && is_dt_type(&rhs_type) {
+                    if matches!(
+                        op,
+                        BinaryOp::Eq
+                            | BinaryOp::NotEq
+                            | BinaryOp::Lt
+                            | BinaryOp::LtEq
+                            | BinaryOp::Gt
+                            | BinaryOp::GtEq
+                    ) {
+                        use crate::builtins::datetime::DateTimeFunctions;
+                        self.declare_datetime_functions();
+
+                        let dt_lhs = self.extract_datetime_ptr(lhs_val, &lhs_type)?;
+                        let dt_rhs = self.extract_datetime_ptr(rhs_val, &rhs_type)?;
+
+                        let func = self.module.get_function("datetime_compare").unwrap();
+                        let call = self
+                            .builder
+                            .build_call(func, &[dt_lhs.into(), dt_rhs.into()], "dt_cmp_val")
+                            .map_err(|_| CodegenError::LLVMError {
+                                operation: "build_call".to_string(),
+                                details: "Failed to call datetime_compare".to_string(),
+                                span: Some(expr.span.clone()),
+                            })?;
+                        let cmp_val = call
+                            .try_as_basic_value()
+                            .left()
+                            .ok_or_else(|| CodegenError::MissingValue {
+                                what: "datetime_compare result".to_string(),
+                                context: "DateTime comparison".to_string(),
+                                span: Some(expr.span.clone()),
+                            })?
+                            .into_int_value();
+
+                        let zero = self.context.i32_type().const_zero();
+                        let pred = match op {
+                            BinaryOp::Eq => inkwell::IntPredicate::EQ,
+                            BinaryOp::NotEq => inkwell::IntPredicate::NE,
+                            BinaryOp::Lt => inkwell::IntPredicate::SLT,
+                            BinaryOp::LtEq => inkwell::IntPredicate::SLE,
+                            BinaryOp::Gt => inkwell::IntPredicate::SGT,
+                            BinaryOp::GtEq => inkwell::IntPredicate::SGE,
+                            _ => unreachable!(),
+                        };
+
+                        let bool_cmp = self
+                            .builder
+                            .build_int_compare(pred, cmp_val, zero, "dt_cmp_bool")
+                            .map_err(|_| CodegenError::LLVMError {
+                                operation: "build_int_compare".to_string(),
+                                details: "Failed in DateTime comparison".to_string(),
+                                span: Some(expr.span.clone()),
+                            })?;
+                        let res_i64 = self
+                            .builder
+                            .build_int_z_extend(bool_cmp, self.context.i64_type(), "dt_cmp_ext")
+                            .map_err(|_| CodegenError::LLVMError {
+                                operation: "build_int_z_extend".to_string(),
+                                details: "Failed in DateTime comparison extend".to_string(),
+                                span: Some(expr.span.clone()),
+                            })?;
+                        return Ok((res_i64.into(), BrixType::Int));
+                    } else {
+                        return Err(CodegenError::InvalidOperation {
+                            operation: format!("{:?}", op),
+                            reason: "Only comparison operators (<, <=, >, >=, ==, !=) are supported for DateTime".to_string(),
+                            span: Some(expr.span.clone()),
+                        });
+                    }
+                }
+
                 // --- Intersection construction (Struct & Struct) ---
                 if matches!(op, BinaryOp::BitAnd) {
                     if let (BrixType::Struct(lhs_name), BrixType::Struct(rhs_name)) =
@@ -6025,6 +6180,25 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                 }
                                 _ => {}
                             }
+                        }
+
+                        // Check if this is a datetime module function
+                        let is_datetime = self
+                            .imported_modules
+                            .iter()
+                            .any(|(m, p)| m == "datetime" && p == _module_name);
+                        if is_datetime {
+                            use crate::builtins::datetime::DateTimeFunctions;
+                            let mut compiled_args = Vec::new();
+                            let mut arg_types = Vec::new();
+                            for arg in args {
+                                let (arg_val, arg_type) = self.compile_expr(arg)?;
+                                compiled_args.push(arg_val);
+                                arg_types.push(arg_type);
+                            }
+                            let (res_val, res_type) =
+                                self.compile_datetime_call(fn_name, &compiled_args, &arg_types)?;
+                            return Ok((res_val, res_type));
                         }
 
                         // Check for brix_ prefixed functions (stats/linalg/utility wrappers)
@@ -6550,6 +6724,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                         BrixType::Float => "float",
                                         BrixType::String => "string",
                                         BrixType::Nil => "nil",
+                                        BrixType::DateTime => "datetime",
                                         BrixType::Struct(name) => name.as_str(),
                                         _ => "unknown",
                                     })
@@ -6568,6 +6743,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                     .join(" & ")
                             }
                             BrixType::AsyncFuture => "async_future".to_string(),
+                            BrixType::DateTime => "datetime".to_string(),
                         };
 
                         return self.compile_expr(&Expr::dummy(ExprKind::Literal(
@@ -8713,6 +8889,76 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 // For non-identifier targets (or non-struct identifiers), compile normally
                 let (target_val, target_type) = self.compile_expr(target)?;
 
+                let is_dt_type = match &target_type {
+                    BrixType::DateTime => true,
+                    BrixType::Union(ts) => ts.contains(&BrixType::DateTime),
+                    _ => false,
+                };
+
+                if is_dt_type {
+                    use crate::builtins::datetime::DateTimeFunctions;
+                    let target_ptr = self.extract_datetime_ptr(target_val, &target_type)?;
+
+                    let field_idx = match field.as_str() {
+                        "year" => 1,
+                        "month" => 2,
+                        "day" => 3,
+                        "hour" => 4,
+                        "minute" => 5,
+                        "second" => 6,
+                        "tz_offset" | "tz_offset_minutes" => 7,
+                        _ => {
+                            return Err(CodegenError::UndefinedSymbol {
+                                name: field.clone(),
+                                context: "DateTime field access".to_string(),
+                                span: Some(expr.span.clone()),
+                            });
+                        }
+                    };
+                    let dt_struct_type = self.context.struct_type(
+                        &[
+                            self.context.i64_type().into(),
+                            self.context.i32_type().into(),
+                            self.context.i32_type().into(),
+                            self.context.i32_type().into(),
+                            self.context.i32_type().into(),
+                            self.context.i32_type().into(),
+                            self.context.i32_type().into(),
+                            self.context.i32_type().into(),
+                        ],
+                        false,
+                    );
+                    let field_ptr = self
+                        .builder
+                        .build_struct_gep(dt_struct_type, target_ptr, field_idx, "dt_field_ptr")
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_struct_gep".to_string(),
+                            details: format!("Failed to get DateTime field '{}' pointer", field),
+                            span: Some(expr.span.clone()),
+                        })?;
+                    let i32_val = self
+                        .builder
+                        .build_load(self.context.i32_type(), field_ptr, "dt_field_i32")
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_load".to_string(),
+                            details: format!("Failed to load DateTime field '{}'", field),
+                            span: Some(expr.span.clone()),
+                        })?;
+                    let i64_val = self
+                        .builder
+                        .build_int_s_extend(
+                            i32_val.into_int_value(),
+                            self.context.i64_type(),
+                            "dt_field_i64",
+                        )
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_int_s_extend".to_string(),
+                            details: format!("Failed to extend DateTime field '{}' to i64", field),
+                            span: Some(expr.span.clone()),
+                        })?;
+                    return Ok((i64_val.into(), BrixType::Int));
+                }
+
                 // TODO: Handle struct field access for expressions that return structs
                 // (not just identifiers). Would need to alloca + store the struct value first.
                 if let BrixType::Struct(_) = &target_type {
@@ -9985,6 +10231,54 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     ) -> CodegenResult<BasicValueEnum<'ctx>> {
         match typ {
             BrixType::String => Ok(val), // Already a string
+            BrixType::DateTime => {
+                use crate::builtins::datetime::DateTimeFunctions;
+                self.declare_datetime_functions();
+
+                let default_fmt = self
+                    .builder
+                    .build_global_string_ptr("YYYY-MM-DD HH:mm:ss", "dt_default_fmt")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_global_string_ptr".to_string(),
+                        details: "Failed in value_to_string for DateTime".to_string(),
+                        span: None,
+                    })?;
+                let ptr_type = self.context.ptr_type(AddressSpace::default());
+                let str_new_fn_type = ptr_type.fn_type(&[ptr_type.into()], false);
+                let str_new_fn = self.module.get_function("str_new").unwrap_or_else(|| {
+                    self.module
+                        .add_function("str_new", str_new_fn_type, Some(Linkage::External))
+                });
+                let fmt_brix_str = self
+                    .builder
+                    .build_call(
+                        str_new_fn,
+                        &[default_fmt.as_pointer_value().into()],
+                        "dt_fmt_brix_str",
+                    )
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: "Failed to call str_new in value_to_string for DateTime"
+                            .to_string(),
+                        span: None,
+                    })?
+                    .try_as_basic_value()
+                    .left()
+                    .unwrap();
+
+                let dt_fmt_fn = self.module.get_function("datetime_format").unwrap();
+                let call = self
+                    .builder
+                    .build_call(dt_fmt_fn, &[val.into(), fmt_brix_str.into()], "dt_str_val")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: "Failed to call datetime_format in value_to_string".to_string(),
+                        span: None,
+                    })?;
+                let str_val = call.try_as_basic_value().left().unwrap();
+                self.insert_release(fmt_brix_str.into_pointer_value(), &BrixType::String)?;
+                Ok(str_val)
+            }
 
             BrixType::Int => {
                 // Use sprintf to convert int to string
@@ -16306,6 +16600,24 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 // Method calls: .split() on a String returns StringMatrix;
                 // v1.7 Group B array methods return based on the receiver's element type.
                 if let ExprKind::FieldAccess { target, field } = &func.kind {
+                    if let ExprKind::Identifier(module_name) = &target.kind {
+                        let is_dt = self
+                            .imported_modules
+                            .iter()
+                            .any(|(m, p)| m == "datetime" && p == module_name);
+                        if is_dt {
+                            return match field.as_str() {
+                                "now" | "today" | "from_timestamp" | "add_days" | "add_hours"
+                                | "add_minutes" | "add_seconds" => Some(BrixType::DateTime),
+                                "timestamp" | "diff_seconds" => Some(BrixType::Int),
+                                "format" => Some(BrixType::String),
+                                "parse" => {
+                                    Some(BrixType::Union(vec![BrixType::DateTime, BrixType::Nil]))
+                                }
+                                _ => None,
+                            };
+                        }
+                    }
                     if field == "split" {
                         if let Some(BrixType::String) = self.infer_expr_type_static(target, params)
                         {

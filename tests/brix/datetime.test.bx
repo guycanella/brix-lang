@@ -1,0 +1,111 @@
+import test
+import datetime
+
+test.describe("DateTime module (v1.9 Grupo A)", () -> {
+    test.it("now() returns valid DateTime", () -> {
+        var now := datetime.now()
+        test.expect(now.year > 2020).toBeTruthy()
+        test.expect(now.month >= 1).toBeTruthy()
+        test.expect(now.month <= 12).toBeTruthy()
+        test.expect(now.day >= 1).toBeTruthy()
+        test.expect(now.day <= 31).toBeTruthy()
+    })
+
+    test.it("today() has zeroed time components", () -> {
+        var today := datetime.today()
+        test.expect(today.hour).toBe(0)
+        test.expect(today.minute).toBe(0)
+        test.expect(today.second).toBe(0)
+        test.expect(today.year > 2020).toBeTruthy()
+    })
+
+    test.it("format() custom tokens", () -> {
+        var dt_opt := datetime.parse("2026-07-29 14:30:45", "YYYY-MM-DD HH:mm:ss")
+        test.expect(dt_opt != nil).toBeTruthy()
+        if dt_opt != nil {
+            var dt := dt_opt
+            test.expect(datetime.format(dt, "YYYY-MM-DD")).toBe("2026-07-29")
+            test.expect(datetime.format(dt, "DD/MM/YYYY")).toBe("29/07/2026")
+            test.expect(datetime.format(dt, "HH:mm")).toBe("14:30")
+        }
+    })
+
+    test.it("parse() valid date string", () -> {
+        var dt_opt := datetime.parse("2026-02-27", "YYYY-MM-DD")
+        test.expect(dt_opt != nil).toBeTruthy()
+        if dt_opt != nil {
+            var dt := dt_opt
+            test.expect(dt.year).toBe(2026)
+            test.expect(dt.month).toBe(2)
+            test.expect(dt.day).toBe(27)
+        }
+    })
+
+    test.it("parse() invalid string returns nil", () -> {
+        var invalid := datetime.parse("not-a-date", "YYYY-MM-DD")
+        test.expect(invalid == nil).toBeTruthy()
+    })
+
+    test.it("add_days() and add_hours() arithmetic", () -> {
+        var dt_opt := datetime.parse("2026-02-27 10:00:00", "YYYY-MM-DD HH:mm:ss")
+        if dt_opt != nil {
+            var dt := dt_opt
+            var t_plus_days := datetime.add_days(dt, 2)
+            var t_plus_hours := datetime.add_hours(dt, 5)
+            test.expect(datetime.format(t_plus_days, "YYYY-MM-DD")).toBe("2026-03-01")
+            test.expect(datetime.format(t_plus_hours, "HH:mm")).toBe("15:00")
+        }
+    })
+
+    test.it("diff_seconds() between instants", () -> {
+        var dt1_opt := datetime.parse("2026-02-27 10:00:00", "YYYY-MM-DD HH:mm:ss")
+        var dt2_opt := datetime.parse("2026-02-27 10:05:00", "YYYY-MM-DD HH:mm:ss")
+        if dt1_opt != nil && dt2_opt != nil {
+            var dt1 := dt1_opt
+            var dt2 := dt2_opt
+            test.expect(datetime.diff_seconds(dt1, dt2)).toBe(300)
+        }
+    })
+
+    test.it("chronological comparison operators", () -> {
+        var dt1_opt := datetime.parse("2026-02-27 10:00:00", "YYYY-MM-DD HH:mm:ss")
+        var dt2_opt := datetime.parse("2026-02-28 10:00:00", "YYYY-MM-DD HH:mm:ss")
+        if dt1_opt != nil && dt2_opt != nil {
+            var dt1 := dt1_opt
+            var dt2 := dt2_opt
+            test.expect(dt1 < dt2).toBeTruthy()
+            test.expect(dt1 <= dt2).toBeTruthy()
+            test.expect(dt2 > dt1).toBeTruthy()
+            test.expect(dt2 >= dt1).toBeTruthy()
+            test.expect(dt1 == dt1).toBeTruthy()
+            test.expect(dt1 != dt2).toBeTruthy()
+        }
+    })
+
+    test.it("parse() impossible calendar date returns nil", () -> {
+        var invalid_feb := datetime.parse("2026-02-31", "YYYY-MM-DD")
+        test.expect(invalid_feb == nil).toBeTruthy()
+        var invalid_month := datetime.parse("2026-13-10", "YYYY-MM-DD")
+        test.expect(invalid_month == nil).toBeTruthy()
+    })
+
+    test.it("format() long format string does not overflow buffer", () -> {
+        var dt_opt := datetime.parse("2026-07-29", "YYYY-MM-DD")
+        if dt_opt != nil {
+            var dt := dt_opt
+            var long_fmt := "YYYY-YYYY-YYYY-YYYY-YYYY-YYYY-YYYY-YYYY-YYYY-YYYY-YYYY-YYYY-YYYY-YYYY-YYYY-YYYY-YYYY-YYYY-YYYY-YYYY-YYYY-YYYY-YYYY-YYYY-YYYY-YYYY-YYYY-YYYY-YYYY-YYYY"
+            var res := datetime.format(dt, long_fmt)
+            test.expect(res != "").toBeTruthy()
+        }
+    })
+
+    test.it("Union copy retains DateTime pointer", () -> {
+        var dt_opt := datetime.parse("2026-07-29", "YYYY-MM-DD")
+        var copy_opt := dt_opt
+        test.expect(copy_opt != nil).toBeTruthy()
+        if copy_opt != nil {
+            var dt := copy_opt
+            test.expect(dt.year).toBe(2026)
+        }
+    })
+})
