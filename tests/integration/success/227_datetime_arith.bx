@@ -1,0 +1,18 @@
+// 227_datetime_arith.bx
+import datetime
+
+var dt_opt := datetime.parse("2026-02-27 10:00:00", "YYYY-MM-DD HH:mm:ss")
+if dt_opt != nil {
+    var dt := dt_opt
+    var t2 := datetime.add_days(dt, 2)
+    var t3 := datetime.add_hours(dt, 5)
+    var t4 := datetime.add_minutes(dt, 30)
+    var t5 := datetime.add_seconds(dt, 45)
+
+    println(datetime.format(t2, "YYYY-MM-DD"))
+    println(datetime.format(t3, "HH:mm"))
+    println(datetime.format(t4, "HH:mm"))
+    println(datetime.format(t5, "HH:mm:ss"))
+
+    println(datetime.diff_seconds(dt, t2))
+}

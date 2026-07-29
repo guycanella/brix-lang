@@ -1,0 +1,11 @@
+// 224_datetime_now.bx
+import datetime
+
+var now := datetime.now()
+var today := datetime.today()
+
+println(today.hour)
+println(today.minute)
+println(today.second)
+println(today.year > 2020)
+println(now.year > 2020)

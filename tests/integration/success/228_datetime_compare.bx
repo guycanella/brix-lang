@@ -1,0 +1,17 @@
+// 228_datetime_compare.bx
+import datetime
+
+var dt1_opt := datetime.parse("2026-02-27 10:00:00", "YYYY-MM-DD HH:mm:ss")
+var dt2_opt := datetime.parse("2026-02-28 10:00:00", "YYYY-MM-DD HH:mm:ss")
+
+if dt1_opt != nil && dt2_opt != nil {
+    var dt1 := dt1_opt
+    var dt2 := dt2_opt
+
+    println(dt1 < dt2)
+    println(dt1 <= dt2)
+    println(dt1 > dt2)
+    println(dt1 >= dt2)
+    println(dt1 == dt1)
+    println(dt1 != dt2)
+}

@@ -1971,3 +1971,55 @@ fn test_223_hashmap_growth_rehash() {
         "12\n0\n5\n11\n-1",
     );
 }
+
+// ==========================================
+// v1.9 Grupo A: import datetime
+// ==========================================
+
+#[test]
+fn test_224_datetime_now() {
+    assert_success(
+        "tests/integration/success/224_datetime_now.bx",
+        "0\n0\n0\n1\n1",
+    );
+}
+
+#[test]
+fn test_225_datetime_format() {
+    assert_success(
+        "tests/integration/success/225_datetime_format.bx",
+        "2026-07-29\n29/07/2026 14:30:45\n14:30",
+    );
+}
+
+#[test]
+fn test_226_datetime_parse() {
+    assert_success(
+        "tests/integration/success/226_datetime_parse.bx",
+        "1\n2026\n2\n27\n1",
+    );
+}
+
+#[test]
+fn test_227_datetime_arith() {
+    assert_success(
+        "tests/integration/success/227_datetime_arith.bx",
+        "2026-03-01\n15:00\n10:30\n10:00:45\n172800",
+    );
+}
+
+#[test]
+fn test_228_datetime_compare() {
+    assert_success(
+        "tests/integration/success/228_datetime_compare.bx",
+        "1\n1\n0\n0\n1\n1",
+    );
+}
+
+#[test]
+fn test_229_datetime_timestamp() {
+    assert_success(
+        "tests/integration/success/229_datetime_timestamp.bx",
+        "1\n1\n1\n1\n1\n1",
+    );
+}

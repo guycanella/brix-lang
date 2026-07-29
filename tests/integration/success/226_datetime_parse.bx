@@ -1,0 +1,15 @@
+// 226_datetime_parse.bx
+import datetime
+
+var valid := datetime.parse("2026-02-27", "YYYY-MM-DD")
+println(valid != nil)
+
+if valid != nil {
+    var dt := valid
+    println(dt.year)
+    println(dt.month)
+    println(dt.day)
+}
+
+var invalid := datetime.parse("invalid-date", "YYYY-MM-DD")
+println(invalid == nil)

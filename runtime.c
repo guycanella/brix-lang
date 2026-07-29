@@ -3274,6 +3274,317 @@ void brix_hashmap_release(BrixHashMap *m) {
 }
 
 // ==========================================
+// SECTION 2.8: DATETIME (v1.9 Grupo A)
+// ==========================================
+
+typedef struct {
+    long ref_count;
+    int year;
+    int month;
+    int day;
+    int hour;
+    int minute;
+    int second;
+    int tz_offset_minutes;
+} BrixDateTime;
+
+BrixDateTime* datetime_new(int year, int month, int day, int hour, int minute, int second, int tz_offset_minutes) {
+    BrixDateTime* dt = (BrixDateTime*)brix_malloc(sizeof(BrixDateTime));
+    dt->ref_count = 1;
+    dt->year = year;
+    dt->month = month;
+    dt->day = day;
+    dt->hour = hour;
+    dt->minute = minute;
+    dt->second = second;
+    dt->tz_offset_minutes = tz_offset_minutes;
+    return dt;
+}
+
+BrixDateTime* datetime_retain(BrixDateTime* dt) {
+    if (dt) {
+        dt->ref_count++;
+    }
+    return dt;
+}
+
+void datetime_release(BrixDateTime* dt) {
+    if (dt) {
+        dt->ref_count--;
+        if (dt->ref_count <= 0) {
+            brix_free(dt);
+        }
+    }
+}
+
+static int get_local_tz_offset_minutes(time_t rawtime, struct tm* ltime) {
+#if defined(__USE_MISC) || defined(_BSD_SOURCE) || defined(__APPLE__)
+    return (int)(ltime->tm_gmtoff / 60);
+#else
+    struct tm gtime;
+    gmtime_r(&rawtime, &gtime);
+    time_t g_epoch = mktime(&gtime);
+    time_t l_epoch = mktime(ltime);
+    return (int)(difftime(l_epoch, g_epoch) / 60);
+#endif
+}
+
+BrixDateTime* datetime_now(void) {
+    time_t rawtime = time(NULL);
+    struct tm ltime;
+    localtime_r(&rawtime, &ltime);
+    int tz_off = get_local_tz_offset_minutes(rawtime, &ltime);
+    return datetime_new(ltime.tm_year + 1900, ltime.tm_mon + 1, ltime.tm_mday,
+                        ltime.tm_hour, ltime.tm_min, ltime.tm_sec, tz_off);
+}
+
+BrixDateTime* datetime_today(void) {
+    time_t rawtime = time(NULL);
+    struct tm ltime;
+    localtime_r(&rawtime, &ltime);
+    int tz_off = get_local_tz_offset_minutes(rawtime, &ltime);
+    return datetime_new(ltime.tm_year + 1900, ltime.tm_mon + 1, ltime.tm_mday,
+                        0, 0, 0, tz_off);
+}
+
+long datetime_timestamp(BrixDateTime* dt) {
+    if (!dt) return 0;
+    struct tm t;
+    memset(&t, 0, sizeof(struct tm));
+    t.tm_year = dt->year - 1900;
+    t.tm_mon = dt->month - 1;
+    t.tm_mday = dt->day;
+    t.tm_hour = dt->hour;
+    t.tm_min = dt->minute;
+    t.tm_sec = dt->second;
+    t.tm_isdst = -1;
+    time_t ts = mktime(&t);
+    return (long)ts;
+}
+
+BrixDateTime* datetime_from_timestamp(long ts) {
+    time_t rawtime = (time_t)ts;
+    struct tm ltime;
+    localtime_r(&rawtime, &ltime);
+    int tz_off = get_local_tz_offset_minutes(rawtime, &ltime);
+    return datetime_new(ltime.tm_year + 1900, ltime.tm_mon + 1, ltime.tm_mday,
+                        ltime.tm_hour, ltime.tm_min, ltime.tm_sec, tz_off);
+}
+
+BrixString* datetime_format(BrixDateTime* dt, BrixString* fmt) {
+    if (!dt || !fmt || !fmt->data) {
+        return str_new("");
+    }
+    char buf[1024];
+    buf[0] = '\0';
+    size_t out_len = 0;
+    size_t fmt_len = fmt->len;
+    const char* pattern = fmt->data;
+
+    size_t i = 0;
+    while (i < fmt_len && out_len + 1 < sizeof(buf)) {
+        size_t rem = sizeof(buf) - out_len;
+        if (i + 4 <= fmt_len && memcmp(pattern + i, "YYYY", 4) == 0) {
+            int n = snprintf(buf + out_len, rem, "%04d", dt->year);
+            if (n > 0) {
+                out_len += ((size_t)n < rem ? (size_t)n : rem - 1);
+            }
+            i += 4;
+        } else if (i + 2 <= fmt_len && memcmp(pattern + i, "MM", 2) == 0) {
+            int n = snprintf(buf + out_len, rem, "%02d", dt->month);
+            if (n > 0) {
+                out_len += ((size_t)n < rem ? (size_t)n : rem - 1);
+            }
+            i += 2;
+        } else if (i + 2 <= fmt_len && memcmp(pattern + i, "DD", 2) == 0) {
+            int n = snprintf(buf + out_len, rem, "%02d", dt->day);
+            if (n > 0) {
+                out_len += ((size_t)n < rem ? (size_t)n : rem - 1);
+            }
+            i += 2;
+        } else if (i + 2 <= fmt_len && memcmp(pattern + i, "HH", 2) == 0) {
+            int n = snprintf(buf + out_len, rem, "%02d", dt->hour);
+            if (n > 0) {
+                out_len += ((size_t)n < rem ? (size_t)n : rem - 1);
+            }
+            i += 2;
+        } else if (i + 2 <= fmt_len && memcmp(pattern + i, "mm", 2) == 0) {
+            int n = snprintf(buf + out_len, rem, "%02d", dt->minute);
+            if (n > 0) {
+                out_len += ((size_t)n < rem ? (size_t)n : rem - 1);
+            }
+            i += 2;
+        } else if (i + 2 <= fmt_len && memcmp(pattern + i, "ss", 2) == 0) {
+            int n = snprintf(buf + out_len, rem, "%02d", dt->second);
+            if (n > 0) {
+                out_len += ((size_t)n < rem ? (size_t)n : rem - 1);
+            }
+            i += 2;
+        } else {
+            buf[out_len++] = pattern[i];
+            buf[out_len] = '\0';
+            i++;
+        }
+    }
+    return str_new(buf);
+}
+
+BrixDateTime* datetime_parse(BrixString* str, BrixString* fmt) {
+    if (!str || !fmt || !str->data || !fmt->data) {
+        return NULL;
+    }
+    int year = 1970, month = 1, day = 1, hour = 0, minute = 0, second = 0;
+    const char* s = str->data;
+    const char* f = fmt->data;
+    size_t s_len = str->len;
+    size_t f_len = fmt->len;
+    size_t si = 0, fi = 0;
+
+    while (fi < f_len && si < s_len) {
+        if (fi + 4 <= f_len && memcmp(f + fi, "YYYY", 4) == 0) {
+            if (si + 4 > s_len) return NULL;
+            int val = 0;
+            for (int k = 0; k < 4; k++) {
+                if (s[si + k] < '0' || s[si + k] > '9') return NULL;
+                val = val * 10 + (s[si + k] - '0');
+            }
+            year = val;
+            fi += 4;
+            si += 4;
+        } else if (fi + 2 <= f_len && memcmp(f + fi, "MM", 2) == 0) {
+            if (si + 2 > s_len) return NULL;
+            int val = 0;
+            for (int k = 0; k < 2; k++) {
+                if (s[si + k] < '0' || s[si + k] > '9') return NULL;
+                val = val * 10 + (s[si + k] - '0');
+            }
+            month = val;
+            fi += 2;
+            si += 2;
+        } else if (fi + 2 <= f_len && memcmp(f + fi, "DD", 2) == 0) {
+            if (si + 2 > s_len) return NULL;
+            int val = 0;
+            for (int k = 0; k < 2; k++) {
+                if (s[si + k] < '0' || s[si + k] > '9') return NULL;
+                val = val * 10 + (s[si + k] - '0');
+            }
+            day = val;
+            fi += 2;
+            si += 2;
+        } else if (fi + 2 <= f_len && memcmp(f + fi, "HH", 2) == 0) {
+            if (si + 2 > s_len) return NULL;
+            int val = 0;
+            for (int k = 0; k < 2; k++) {
+                if (s[si + k] < '0' || s[si + k] > '9') return NULL;
+                val = val * 10 + (s[si + k] - '0');
+            }
+            hour = val;
+            fi += 2;
+            si += 2;
+        } else if (fi + 2 <= f_len && memcmp(f + fi, "mm", 2) == 0) {
+            if (si + 2 > s_len) return NULL;
+            int val = 0;
+            for (int k = 0; k < 2; k++) {
+                if (s[si + k] < '0' || s[si + k] > '9') return NULL;
+                val = val * 10 + (s[si + k] - '0');
+            }
+            minute = val;
+            fi += 2;
+            si += 2;
+        } else if (fi + 2 <= f_len && memcmp(f + fi, "ss", 2) == 0) {
+            if (si + 2 > s_len) return NULL;
+            int val = 0;
+            for (int k = 0; k < 2; k++) {
+                if (s[si + k] < '0' || s[si + k] > '9') return NULL;
+                val = val * 10 + (s[si + k] - '0');
+            }
+            second = val;
+            fi += 2;
+            si += 2;
+        } else {
+            if (s[si] != f[fi]) return NULL;
+            si++;
+            fi++;
+        }
+    }
+    if (fi < f_len || si < s_len) return NULL;
+    if (month < 1 || month > 12 || day < 1 || day > 31 || hour < 0 || hour > 23 || minute < 0 || minute > 59 || second < 0 || second > 59) {
+        return NULL;
+    }
+
+    struct tm t;
+    memset(&t, 0, sizeof(struct tm));
+    t.tm_year = year - 1900;
+    t.tm_mon = month - 1;
+    t.tm_mday = day;
+    t.tm_hour = hour;
+    t.tm_min = minute;
+    t.tm_sec = second;
+    t.tm_isdst = -1;
+
+    time_t ts = mktime(&t);
+    if (ts == (time_t)-1 && (year != 1969 && year != 1970)) {
+        return NULL;
+    }
+    if (t.tm_year + 1900 != year || t.tm_mon + 1 != month || t.tm_mday != day ||
+        t.tm_hour != hour || t.tm_min != minute || t.tm_sec != second) {
+        return NULL;
+    }
+
+    struct tm ltime;
+    localtime_r(&ts, &ltime);
+    int tz_off = get_local_tz_offset_minutes(ts, &ltime);
+    return datetime_new(year, month, day, hour, minute, second, tz_off);
+}
+
+BrixDateTime* datetime_add_days(BrixDateTime* dt, long n) {
+    if (!dt) return NULL;
+    time_t ts = (time_t)datetime_timestamp(dt);
+    ts += (n * 86400);
+    return datetime_from_timestamp((long)ts);
+}
+
+BrixDateTime* datetime_add_hours(BrixDateTime* dt, long n) {
+    if (!dt) return NULL;
+    time_t ts = (time_t)datetime_timestamp(dt);
+    ts += (n * 3600);
+    return datetime_from_timestamp((long)ts);
+}
+
+BrixDateTime* datetime_add_minutes(BrixDateTime* dt, long n) {
+    if (!dt) return NULL;
+    time_t ts = (time_t)datetime_timestamp(dt);
+    ts += (n * 60);
+    return datetime_from_timestamp((long)ts);
+}
+
+BrixDateTime* datetime_add_seconds(BrixDateTime* dt, long n) {
+    if (!dt) return NULL;
+    time_t ts = (time_t)datetime_timestamp(dt);
+    ts += n;
+    return datetime_from_timestamp((long)ts);
+}
+
+long datetime_diff_seconds(BrixDateTime* a, BrixDateTime* b) {
+    if (!a || !b) return 0;
+    long ts_a = datetime_timestamp(a);
+    long ts_b = datetime_timestamp(b);
+    return ts_b - ts_a;
+}
+
+int datetime_compare(BrixDateTime* a, BrixDateTime* b) {
+    if (a == b) return 0;
+    if (!a) return -1;
+    if (!b) return 1;
+    long ts_a = datetime_timestamp(a);
+    long ts_b = datetime_timestamp(b);
+    if (ts_a < ts_b) return -1;
+    if (ts_a > ts_b) return 1;
+    return 0;
+}
+
+
+// ==========================================
 // SECTION 3: STATISTICS (v0.7)
 // ==========================================
 

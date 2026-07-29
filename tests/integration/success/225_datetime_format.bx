@@ -1,0 +1,10 @@
+// 225_datetime_format.bx
+import datetime
+
+var dt_opt := datetime.parse("2026-07-29 14:30:45", "YYYY-MM-DD HH:mm:ss")
+if dt_opt != nil {
+    var dt := dt_opt
+    println(datetime.format(dt, "YYYY-MM-DD"))
+    println(datetime.format(dt, "DD/MM/YYYY HH:mm:ss"))
+    println(datetime.format(dt, "HH:mm"))
+}
