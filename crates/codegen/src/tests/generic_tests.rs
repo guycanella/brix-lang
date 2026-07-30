@@ -74,7 +74,7 @@ fn test_generic_function_definition() {
             type_params: vec![TypeParam {
                 name: "T".to_string(),
             }],
-            params: vec![("x".to_string(), "T".to_string(), None)],
+            params: vec![parser::ast::FunctionParam::new("x", "T")],
             return_type: Some(vec!["T".to_string()]),
             body: Box::new(Stmt::dummy(StmtKind::Return {
                 values: vec![ident!("x")],
@@ -107,7 +107,7 @@ fn test_generic_call_explicit_single_type() {
                 type_params: vec![TypeParam {
                     name: "T".to_string(),
                 }],
-                params: vec![("x".to_string(), "T".to_string(), None)],
+                params: vec![parser::ast::FunctionParam::new("x", "T")],
                 return_type: Some(vec!["T".to_string()]),
                 body: Box::new(Stmt::dummy(StmtKind::Return {
                     values: vec![ident!("x")],
@@ -159,8 +159,8 @@ fn test_generic_call_explicit_multiple_types() {
                     },
                 ],
                 params: vec![
-                    ("a".to_string(), "T".to_string(), None),
-                    ("b".to_string(), "U".to_string(), None),
+                    parser::ast::FunctionParam::new("a", "T"),
+                    parser::ast::FunctionParam::new("b", "U"),
                 ],
                 return_type: Some(vec!["U".to_string(), "T".to_string()]),
                 body: Box::new(Stmt::dummy(StmtKind::Return {
@@ -200,7 +200,7 @@ fn test_generic_call_inferred_int() {
                 type_params: vec![TypeParam {
                     name: "T".to_string(),
                 }],
-                params: vec![("x".to_string(), "T".to_string(), None)],
+                params: vec![parser::ast::FunctionParam::new("x", "T")],
                 return_type: Some(vec!["T".to_string()]),
                 body: Box::new(Stmt::dummy(StmtKind::Return {
                     values: vec![ident!("x")],
@@ -238,7 +238,7 @@ fn test_generic_call_inferred_float() {
                 type_params: vec![TypeParam {
                     name: "T".to_string(),
                 }],
-                params: vec![("x".to_string(), "T".to_string(), None)],
+                params: vec![parser::ast::FunctionParam::new("x", "T")],
                 return_type: Some(vec!["T".to_string()]),
                 body: Box::new(Stmt::dummy(StmtKind::Return {
                     values: vec![ident!("x")],
@@ -276,7 +276,7 @@ fn test_generic_call_inferred_string() {
                 type_params: vec![TypeParam {
                     name: "T".to_string(),
                 }],
-                params: vec![("x".to_string(), "T".to_string(), None)],
+                params: vec![parser::ast::FunctionParam::new("x", "T")],
                 return_type: Some(vec!["T".to_string()]),
                 body: Box::new(Stmt::dummy(StmtKind::Return {
                     values: vec![ident!("x")],
@@ -315,8 +315,8 @@ fn test_generic_type_promotion() {
                     name: "T".to_string(),
                 }],
                 params: vec![
-                    ("a".to_string(), "T".to_string(), None),
-                    ("b".to_string(), "T".to_string(), None),
+                    parser::ast::FunctionParam::new("a", "T"),
+                    parser::ast::FunctionParam::new("b", "T"),
                 ],
                 return_type: Some(vec!["T".to_string()]),
                 body: Box::new(Stmt::dummy(StmtKind::Return {
@@ -372,7 +372,7 @@ fn test_monomorphization_cache() {
                 type_params: vec![TypeParam {
                     name: "T".to_string(),
                 }],
-                params: vec![("x".to_string(), "T".to_string(), None)],
+                params: vec![parser::ast::FunctionParam::new("x", "T")],
                 return_type: Some(vec!["T".to_string()]),
                 body: Box::new(Stmt::dummy(StmtKind::Return {
                     values: vec![ident!("x")],
@@ -425,7 +425,7 @@ fn test_multiple_specializations() {
                 type_params: vec![TypeParam {
                     name: "T".to_string(),
                 }],
-                params: vec![("x".to_string(), "T".to_string(), None)],
+                params: vec![parser::ast::FunctionParam::new("x", "T")],
                 return_type: Some(vec!["T".to_string()]),
                 body: Box::new(Stmt::dummy(StmtKind::Return {
                     values: vec![ident!("x")],
@@ -480,8 +480,8 @@ fn test_generic_add_operation() {
                     name: "T".to_string(),
                 }],
                 params: vec![
-                    ("a".to_string(), "T".to_string(), None),
-                    ("b".to_string(), "T".to_string(), None),
+                    parser::ast::FunctionParam::new("a", "T"),
+                    parser::ast::FunctionParam::new("b", "T"),
                 ],
                 return_type: Some(vec!["T".to_string()]),
                 body: Box::new(Stmt::dummy(StmtKind::Return {
@@ -538,7 +538,7 @@ fn test_explicit_and_inferred_same_result() {
                 type_params: vec![TypeParam {
                     name: "T".to_string(),
                 }],
-                params: vec![("x".to_string(), "T".to_string(), None)],
+                params: vec![parser::ast::FunctionParam::new("x", "T")],
                 return_type: Some(vec!["T".to_string()]),
                 body: Box::new(Stmt::dummy(StmtKind::Return {
                     values: vec![ident!("x")],

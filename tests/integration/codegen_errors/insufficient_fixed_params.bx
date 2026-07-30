@@ -1,0 +1,12 @@
+// Test: Insufficient fixed arguments before variadic parameter
+// Expected: codegen type error when passing fewer arguments than fixed parameters
+
+fn greet(prefix: string, count: int, names: ...string) -> string {
+    return prefix
+}
+
+fn main() {
+    greet("Hello")
+}
+
+main()

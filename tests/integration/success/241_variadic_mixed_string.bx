@@ -1,0 +1,16 @@
+fn join_words(prefix: string, words: ...string) -> string {
+    var res := prefix
+    for w in words {
+        res := res + "_" + w
+    }
+    return res
+}
+
+fn count_strings(words: ...string) -> int {
+    return words.len
+}
+
+println(join_words("root", "a", "b", "c"))
+println(join_words("solo"))
+println(count_strings("hello", "world"))
+println(count_strings())

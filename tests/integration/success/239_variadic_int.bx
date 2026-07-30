@@ -1,0 +1,20 @@
+fn sum(nums: ...int) -> int {
+    var s := 0
+    for x in nums {
+        s := s + x
+    }
+    return s
+}
+
+fn add_base(base: int, nums: ...int) -> int {
+    var s := base
+    for x in nums {
+        s := s + x
+    }
+    return s
+}
+
+println(sum(1, 2, 3, 4, 5))
+println(sum())
+println(add_base(100, 10, 20))
+println(add_base(50))

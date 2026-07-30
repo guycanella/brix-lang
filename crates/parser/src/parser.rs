@@ -1,6 +1,6 @@
 use crate::ast::{
-    BinaryOp, Closure, Expr, ExprKind, FStringPart, Literal, MatchArm, MethodDef, Pattern, Program,
-    Stmt, StmtKind, StructDef, TypeParam, UnaryOp,
+    BinaryOp, Closure, Expr, ExprKind, FStringPart, FunctionParam, Literal, MatchArm, MethodDef,
+    Pattern, Program, Stmt, StmtKind, StructDef, TypeParam, UnaryOp,
 };
 use chumsky::prelude::*;
 use lexer::token::Token;
@@ -602,15 +602,41 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
                             .map(|opt| opt.unwrap_or_default()),
                     )
                     .then(
-                        // Parameters (optional): (name: type, name: type = default)
+                        // Parameters (optional): (name: type, name: type = default, name: ...type)
                         select! { Token::Identifier(param_name) => param_name }
                             .then_ignore(just(Token::Colon))
+                            .then(just(Token::DotDotDot).or_not())
                             .then(type_annotation_parser())
                             .then(just(Token::Eq).ignore_then(expr_p.clone()).or_not())
-                            .map(|((name, ty), default)| (name, ty, default))
+                            .map(|(((name, maybe_dots), ty), default)| FunctionParam {
+                                name,
+                                type_name: ty,
+                                default,
+                                is_variadic: maybe_dots.is_some(),
+                            })
                             .separated_by(just(Token::Comma))
                             .allow_trailing()
-                            .delimited_by(just(Token::LParen), just(Token::RParen)),
+                            .delimited_by(just(Token::LParen), just(Token::RParen))
+                            .validate(|params, span, emitter| {
+                                let len = params.len();
+                                for (i, param) in params.iter().enumerate() {
+                                    if param.is_variadic {
+                                        if i + 1 < len {
+                                            emitter(Simple::custom(
+                                                span.clone(),
+                                                "variadic parameter (`...type`) must be the last parameter",
+                                            ));
+                                        }
+                                        if param.default.is_some() {
+                                            emitter(Simple::custom(
+                                                span.clone(),
+                                                "variadic parameter cannot have a default value",
+                                            ));
+                                        }
+                                    }
+                                }
+                                params
+                            }),
                     )
                     .then(
                         // Return type: -> type or -> (type1, type2) (supports Optional: -> int?)
@@ -657,15 +683,41 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
                                     .map(|opt| opt.unwrap_or_default()),
                             )
                             .then(
-                                // Parameters: (name: type, name: type = default) (supports Optional: x: int?)
+                                // Parameters: (name: type, name: type = default, name: ...type)
                                 select! { Token::Identifier(param_name) => param_name }
                                     .then_ignore(just(Token::Colon))
+                                    .then(just(Token::DotDotDot).or_not())
                                     .then(type_annotation_parser())
                                     .then(just(Token::Eq).ignore_then(expr_p.clone()).or_not())
-                                    .map(|((name, ty), default)| (name, ty, default))
+                                    .map(|(((name, maybe_dots), ty), default)| FunctionParam {
+                                        name,
+                                        type_name: ty,
+                                        default,
+                                        is_variadic: maybe_dots.is_some(),
+                                    })
                                     .separated_by(just(Token::Comma))
                                     .allow_trailing()
-                                    .delimited_by(just(Token::LParen), just(Token::RParen)),
+                                    .delimited_by(just(Token::LParen), just(Token::RParen))
+                                    .validate(|params, span, emitter| {
+                                        let len = params.len();
+                                        for (i, param) in params.iter().enumerate() {
+                                            if param.is_variadic {
+                                                if i + 1 < len {
+                                                    emitter(Simple::custom(
+                                                        span.clone(),
+                                                        "variadic parameter (`...type`) must be the last parameter",
+                                                    ));
+                                                }
+                                                if param.default.is_some() {
+                                                    emitter(Simple::custom(
+                                                        span.clone(),
+                                                        "variadic parameter cannot have a default value",
+                                                    ));
+                                                }
+                                            }
+                                        }
+                                        params
+                                    }),
                             )
                             .then(
                                 // Return type: -> type or -> (type1, type2) (supports Optional: -> int?)

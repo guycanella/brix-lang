@@ -102,8 +102,8 @@ fn analyze_stmt_closures(stmt: &mut Stmt, outer_scope: &HashSet<String>) {
         StmtKind::FunctionDef { params, body, .. } => {
             // Function parameters are in scope
             let mut func_scope = outer_scope.clone();
-            for (param_name, _, _) in params {
-                func_scope.insert(param_name.clone());
+            for param in params {
+                func_scope.insert(param.name.clone());
             }
             analyze_stmt_closures(body, &func_scope);
         }
@@ -112,8 +112,8 @@ fn analyze_stmt_closures(stmt: &mut Stmt, outer_scope: &HashSet<String>) {
             // Receiver and parameters are in scope
             let mut method_scope = outer_scope.clone();
             method_scope.insert(method_def.receiver_name.clone());
-            for (param_name, _, _) in &method_def.params {
-                method_scope.insert(param_name.clone());
+            for param in &method_def.params {
+                method_scope.insert(param.name.clone());
             }
             analyze_stmt_closures(&mut method_def.body, &method_scope);
         }

@@ -377,7 +377,7 @@ pub struct Compiler<'a, 'ctx> {
     pub module: &'a Module<'ctx>,
     pub variables: HashMap<String, (PointerValue<'ctx>, BrixType)>,
     pub functions: HashMap<String, (inkwell::values::FunctionValue<'ctx>, Option<Vec<BrixType>>)>, // (function, return_types)
-    pub function_params: HashMap<String, Vec<(String, BrixType, Option<Expr>)>>, // (param_name, type, default_value)
+    pub function_params: HashMap<String, Vec<(String, BrixType, Option<Expr>, bool)>>, // (param_name, type, default_value, is_variadic)
     pub struct_defs: HashMap<String, Vec<(String, BrixType, Option<Expr>)>>, // Struct definitions: name -> fields
     pub struct_types: HashMap<String, inkwell::types::StructType<'ctx>>,     // LLVM struct types
     pub current_function: Option<inkwell::values::FunctionValue<'ctx>>, // Track current function being compiled
@@ -812,7 +812,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         &mut self,
         name: &str,
         type_params: &[parser::ast::TypeParam],
-        params: &[(String, String, Option<Expr>)],
+        params: &[parser::ast::FunctionParam],
         return_type: &Option<Vec<String>>,
         body: &Stmt,
         stmt: &Stmt, // Full statement for storing generics
@@ -831,15 +831,35 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             Some(types) => types.iter().map(|t| self.string_to_brix_type(t)).collect(),
         };
 
-        // 2. Create LLVM function type
-        let param_types: Vec<BasicTypeEnum> = params
+        // 2. Parse BrixTypes for parameters (handling variadic lowering)
+        let param_brix_types: Vec<BrixType> = params
             .iter()
-            .map(|(_, t, _)| {
-                let brix_type = self.string_to_brix_type(t);
-                if Compiler::is_closure_type(&brix_type) {
+            .map(|param| {
+                if param.is_variadic {
+                    match param.type_name.as_str() {
+                        "int" => Ok(BrixType::IntMatrix),
+                        "float" => Ok(BrixType::Matrix),
+                        "string" => Ok(BrixType::StringMatrix),
+                        other => Err(CodegenError::TypeError {
+                            expected: "int, float, or string for variadic parameter".to_string(),
+                            found: other.to_string(),
+                            context: format!("function definition '{}'", name),
+                            span: Some(stmt.span.clone()),
+                        }),
+                    }
+                } else {
+                    Ok(self.string_to_brix_type(&param.type_name))
+                }
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let param_llvm_types: Vec<BasicTypeEnum> = param_brix_types
+            .iter()
+            .map(|brix_type| {
+                if Compiler::is_closure_type(brix_type) {
                     self.context.ptr_type(AddressSpace::default()).into()
                 } else {
-                    self.brix_type_to_llvm(&brix_type)
+                    self.brix_type_to_llvm(brix_type)
                 }
             })
             .collect();
@@ -847,14 +867,20 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         let fn_type = if ret_types.is_empty() {
             // Void function
             self.context.void_type().fn_type(
-                &param_types.iter().map(|t| (*t).into()).collect::<Vec<_>>(),
+                &param_llvm_types
+                    .iter()
+                    .map(|t| (*t).into())
+                    .collect::<Vec<_>>(),
                 false,
             )
         } else if ret_types.len() == 1 {
             // Single return
             let ret_llvm = self.brix_type_to_llvm(&ret_types[0]);
             ret_llvm.fn_type(
-                &param_types.iter().map(|t| (*t).into()).collect::<Vec<_>>(),
+                &param_llvm_types
+                    .iter()
+                    .map(|t| (*t).into())
+                    .collect::<Vec<_>>(),
                 false,
             )
         } else {
@@ -862,7 +888,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             let tuple_type = BrixType::Tuple(ret_types.clone());
             let ret_llvm = self.brix_type_to_llvm(&tuple_type);
             ret_llvm.fn_type(
-                &param_types.iter().map(|t| (*t).into()).collect::<Vec<_>>(),
+                &param_llvm_types
+                    .iter()
+                    .map(|t| (*t).into())
+                    .collect::<Vec<_>>(),
                 false,
             )
         };
@@ -874,11 +903,17 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         self.functions
             .insert(name.to_string(), (llvm_function, Some(ret_types.clone())));
 
-        // 4.5. Store parameter metadata (including default values)
-        let param_metadata: Vec<(String, BrixType, Option<Expr>)> = params
+        // 4.5. Store parameter metadata (including default values and variadic flag)
+        let param_metadata: Vec<(String, BrixType, Option<Expr>, bool)> = params
             .iter()
-            .map(|(name, ty, default)| {
-                (name.clone(), self.string_to_brix_type(ty), default.clone())
+            .zip(param_brix_types.iter())
+            .map(|(param, brix_type)| {
+                (
+                    param.name.clone(),
+                    brix_type.clone(),
+                    param.default.clone(),
+                    param.is_variadic,
+                )
             })
             .collect();
         self.function_params
@@ -897,7 +932,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         self.function_scope_vars.clear();
 
         // 7. Create allocas for parameters and store them
-        for (i, (param_name, param_type_str, _default)) in params.iter().enumerate() {
+        for (i, (param, param_type)) in params.iter().zip(param_brix_types.iter()).enumerate() {
             let param_value =
                 llvm_function
                     .get_nth_param(i as u32)
@@ -906,23 +941,22 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         details: format!("Failed to get parameter {} in function definition", i),
                         span: None,
                     })?;
-            let param_type = self.string_to_brix_type(param_type_str);
-            let llvm_type = if Compiler::is_closure_type(&param_type) {
+            let llvm_type = if Compiler::is_closure_type(param_type) {
                 self.context.ptr_type(AddressSpace::default()).into()
             } else {
-                self.brix_type_to_llvm(&param_type)
+                self.brix_type_to_llvm(param_type)
             };
 
-            let alloca = self.create_entry_block_alloca(llvm_type, param_name)?;
+            let alloca = self.create_entry_block_alloca(llvm_type, &param.name)?;
             self.builder
                 .build_store(alloca, param_value)
                 .map_err(|_| CodegenError::LLVMError {
                     operation: "build_store".to_string(),
-                    details: format!("Failed to store parameter '{}'", param_name),
+                    details: format!("Failed to store parameter '{}'", param.name),
                     span: None,
                 })?;
             self.variables
-                .insert(param_name.clone(), (alloca, param_type));
+                .insert(param.name.clone(), (alloca, param_type.clone()));
         }
 
         // 8. Compile function body
@@ -1011,7 +1045,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         receiver_name: &str,
         receiver_type: &str,
         method_name: &str,
-        params: &[(String, String, Option<Expr>)],
+        params: &[parser::ast::FunctionParam],
         return_type: &Option<Vec<String>>,
         body: &Stmt,
         _parent_function: inkwell::values::FunctionValue<'ctx>,
@@ -1069,24 +1103,47 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             }
         };
 
+        let param_brix_types: Vec<BrixType> = params
+            .iter()
+            .map(|param| {
+                if param.is_variadic {
+                    match param.type_name.as_str() {
+                        "int" => Ok(BrixType::IntMatrix),
+                        "float" => Ok(BrixType::Matrix),
+                        "string" => Ok(BrixType::StringMatrix),
+                        other => Err(CodegenError::TypeError {
+                            expected: "int, float, or string for variadic parameter".to_string(),
+                            found: other.to_string(),
+                            context: format!(
+                                "method definition '{}.{}'",
+                                receiver_type, method_name
+                            ),
+                            span: None,
+                        }),
+                    }
+                } else {
+                    Ok(self.string_to_brix_type(&param.type_name))
+                }
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
         // Build parameter types: receiver pointer + other params
-        let mut param_types: Vec<BasicMetadataTypeEnum> =
+        let mut param_llvm_types: Vec<BasicMetadataTypeEnum> =
             vec![self.context.ptr_type(AddressSpace::default()).into()];
-        for (_, param_type_str, _) in params {
-            let param_type = self.string_to_brix_type(param_type_str);
-            param_types.push(self.brix_type_to_llvm(&param_type).into());
+        for brix_type in &param_brix_types {
+            param_llvm_types.push(self.brix_type_to_llvm(brix_type).into());
         }
 
         // 3. Create function type
         let fn_type = if ret_types.is_empty() {
-            self.context.void_type().fn_type(&param_types, false)
+            self.context.void_type().fn_type(&param_llvm_types, false)
         } else if ret_types.len() == 1 {
             let ret_llvm = self.brix_type_to_llvm(&ret_types[0]);
-            ret_llvm.fn_type(&param_types, false)
+            ret_llvm.fn_type(&param_llvm_types, false)
         } else {
             let tuple_type = BrixType::Tuple(ret_types.clone());
             let ret_llvm = self.brix_type_to_llvm(&tuple_type);
-            ret_llvm.fn_type(&param_types, false)
+            ret_llvm.fn_type(&param_llvm_types, false)
         };
 
         // 4. Create the function
@@ -1097,6 +1154,22 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             mangled_name.clone(),
             (llvm_function, Some(ret_types.clone())),
         );
+
+        // Store parameter metadata for method calls (excluding receiver)
+        let param_metadata: Vec<(String, BrixType, Option<Expr>, bool)> = params
+            .iter()
+            .zip(param_brix_types.iter())
+            .map(|(param, brix_type)| {
+                (
+                    param.name.clone(),
+                    brix_type.clone(),
+                    param.default.clone(),
+                    param.is_variadic,
+                )
+            })
+            .collect();
+        self.function_params
+            .insert(mangled_name.clone(), param_metadata);
 
         // 6. Create entry block
         let entry_block = self.context.append_basic_block(llvm_function, "entry");
@@ -1125,7 +1198,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         );
 
         // 9. Store other parameters
-        for (i, (param_name, param_type_str, _)) in params.iter().enumerate() {
+        for (i, (param, param_type)) in params.iter().zip(param_brix_types.iter()).enumerate() {
             let param_value = llvm_function.get_nth_param((i + 1) as u32).ok_or_else(|| {
                 CodegenError::LLVMError {
                     operation: "get_nth_param".to_string(),
@@ -1133,19 +1206,18 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     span: None,
                 }
             })?;
-            let param_type = self.string_to_brix_type(param_type_str);
-            let llvm_type = self.brix_type_to_llvm(&param_type);
+            let llvm_type = self.brix_type_to_llvm(param_type);
 
-            let alloca = self.create_entry_block_alloca(llvm_type, param_name)?;
+            let alloca = self.create_entry_block_alloca(llvm_type, &param.name)?;
             self.builder
                 .build_store(alloca, param_value)
                 .map_err(|_| CodegenError::LLVMError {
                     operation: "build_store".to_string(),
-                    details: format!("Failed to store parameter '{}'", param_name),
+                    details: format!("Failed to store parameter '{}'", param.name),
                     span: None,
                 })?;
             self.variables
-                .insert(param_name.clone(), (alloca, param_type));
+                .insert(param.name.clone(), (alloca, param_type.clone()));
         }
 
         // 10. Compile body
@@ -1657,6 +1729,394 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         Ok(())
     }
 
+    /// Check if a found type is compatible with an expected parameter type
+    fn is_type_compatible(&self, found: &BrixType, expected: &BrixType) -> bool {
+        if found == expected {
+            return true;
+        }
+        match (found, expected) {
+            (BrixType::Int, BrixType::Float) => true,
+            (BrixType::Int, BrixType::IntMatrix) => true,
+            (BrixType::Float, BrixType::Matrix) => true,
+            (BrixType::String, BrixType::StringMatrix) => true,
+            _ => false,
+        }
+    }
+
+    /// Prepare LLVM arguments for a function or method call, resolving default values
+    /// and lowering variadic arguments into a temporary 1D matrix (1 x N).
+    fn prepare_call_arguments(
+        &mut self,
+        fn_name: &str,
+        prefix_args: &[BasicMetadataValueEnum<'ctx>],
+        args: &[Expr],
+        span: &Span,
+    ) -> CodegenResult<(
+        Vec<BasicMetadataValueEnum<'ctx>>,
+        Option<(PointerValue<'ctx>, BrixType)>,
+    )> {
+        let param_metadata = self.function_params.get(fn_name).cloned();
+        let mut llvm_args: Vec<BasicMetadataValueEnum<'ctx>> = prefix_args.to_vec();
+        let mut temp_matrix_to_release = None;
+
+        if let Some(params) = param_metadata {
+            let has_variadic = params.last().map(|p| p.3).unwrap_or(false);
+
+            if has_variadic {
+                let num_fixed = params.len() - 1;
+                let num_provided = args.len();
+
+                // 1. Compile fixed arguments (0..num_fixed), with default fallback for missing fixed arguments
+                for i in 0..num_fixed {
+                    let (_param_name, expected_type, default_opt, _) = &params[i];
+                    if i < num_provided {
+                        let (arg_val, arg_type) = self.compile_expr(&args[i])?;
+                        if !self.is_type_compatible(&arg_type, expected_type) {
+                            return Err(CodegenError::TypeError {
+                                expected: format!("{:?}", expected_type),
+                                found: format!("{:?}", arg_type),
+                                context: format!("argument {} of function '{}'", i + 1, fn_name),
+                                span: Some(args[i].span.clone()),
+                            });
+                        }
+                        llvm_args.push(arg_val.into());
+                    } else if let Some(default_expr) = default_opt {
+                        let (default_val, default_type) = self.compile_expr(default_expr)?;
+                        if !self.is_type_compatible(&default_type, expected_type) {
+                            return Err(CodegenError::TypeError {
+                                expected: format!("{:?}", expected_type),
+                                found: format!("{:?}", default_type),
+                                context: format!(
+                                    "default value for parameter {} of function '{}'",
+                                    i + 1,
+                                    fn_name
+                                ),
+                                span: Some(span.clone()),
+                            });
+                        }
+                        llvm_args.push(default_val.into());
+                    } else {
+                        return Err(CodegenError::InvalidOperation {
+                            operation: format!("function call '{}'", fn_name),
+                            reason: format!(
+                                "insufficient arguments: expected at least {} fixed argument(s), got {}",
+                                num_fixed, num_provided
+                            ),
+                            span: Some(span.clone()),
+                        });
+                    }
+                }
+
+                // 2. Compile variadic arguments (num_fixed..num_provided) into 1D matrix (1 x N)
+                let var_param = &params[num_fixed];
+                let matrix_type = var_param.1.clone(); // IntMatrix, Matrix, or StringMatrix
+                let num_var_args = if num_provided > num_fixed {
+                    num_provided - num_fixed
+                } else {
+                    0
+                };
+
+                let (matrix_ptr, release_type) = match &matrix_type {
+                    BrixType::IntMatrix => {
+                        let new_fn = self.get_brix_intmatrix_new();
+                        let rows = self.context.i64_type().const_int(1, false);
+                        let cols = self
+                            .context
+                            .i64_type()
+                            .const_int(num_var_args as u64, false);
+                        let call = self
+                            .builder
+                            .build_call(new_fn, &[rows.into(), cols.into()], "var_intmat")
+                            .map_err(|_| CodegenError::LLVMError {
+                                operation: "build_call brix_intmatrix_new".to_string(),
+                                details: "Failed to allocate variadic IntMatrix".to_string(),
+                                span: Some(span.clone()),
+                            })?;
+                        let mat_ptr = call
+                            .try_as_basic_value()
+                            .left()
+                            .unwrap()
+                            .into_pointer_value();
+
+                        for i in 0..num_var_args {
+                            let arg_idx = num_fixed + i;
+                            let (val, val_type) = self.compile_expr(&args[arg_idx])?;
+                            let val_int = match val_type {
+                                BrixType::Int => val.into_int_value(),
+                                _ => {
+                                    return Err(CodegenError::TypeError {
+                                        expected: "Int or Bool".to_string(),
+                                        found: format!("{:?}", val_type),
+                                        context: format!(
+                                            "variadic argument {} of function '{}'",
+                                            i + 1,
+                                            fn_name
+                                        ),
+                                        span: Some(args[arg_idx].span.clone()),
+                                    });
+                                }
+                            };
+                            let data_pp = self
+                                .builder
+                                .build_struct_gep(self.get_intmatrix_type(), mat_ptr, 3, "data_pp")
+                                .map_err(|_| CodegenError::LLVMError {
+                                    operation: "struct_gep".to_string(),
+                                    details: "intmatrix data field".to_string(),
+                                    span: Some(span.clone()),
+                                })?;
+                            let data_ptr = self
+                                .builder
+                                .build_load(
+                                    self.context.ptr_type(AddressSpace::default()),
+                                    data_pp,
+                                    "data_ptr",
+                                )
+                                .map_err(|_| CodegenError::LLVMError {
+                                    operation: "load".to_string(),
+                                    details: "intmatrix data ptr".to_string(),
+                                    span: Some(span.clone()),
+                                })?
+                                .into_pointer_value();
+                            let c = self.context.i64_type().const_int(i as u64, false);
+                            let elem_gep = unsafe {
+                                self.builder.build_gep(
+                                    self.context.i64_type(),
+                                    data_ptr,
+                                    &[c],
+                                    "elem_gep",
+                                )
+                            }
+                            .map_err(|_| CodegenError::LLVMError {
+                                operation: "gep".to_string(),
+                                details: "intmatrix element gep".to_string(),
+                                span: Some(span.clone()),
+                            })?;
+                            self.builder.build_store(elem_gep, val_int).map_err(|_| {
+                                CodegenError::LLVMError {
+                                    operation: "store".to_string(),
+                                    details: "intmatrix element store".to_string(),
+                                    span: Some(span.clone()),
+                                }
+                            })?;
+                        }
+                        (mat_ptr, BrixType::IntMatrix)
+                    }
+                    BrixType::Matrix => {
+                        let new_fn = self.get_brix_matrix_new();
+                        let rows = self.context.i64_type().const_int(1, false);
+                        let cols = self
+                            .context
+                            .i64_type()
+                            .const_int(num_var_args as u64, false);
+                        let call = self
+                            .builder
+                            .build_call(new_fn, &[rows.into(), cols.into()], "var_mat")
+                            .map_err(|_| CodegenError::LLVMError {
+                                operation: "build_call brix_matrix_new".to_string(),
+                                details: "Failed to allocate variadic Matrix".to_string(),
+                                span: Some(span.clone()),
+                            })?;
+                        let mat_ptr = call
+                            .try_as_basic_value()
+                            .left()
+                            .unwrap()
+                            .into_pointer_value();
+
+                        for i in 0..num_var_args {
+                            let arg_idx = num_fixed + i;
+                            let (val, val_type) = self.compile_expr(&args[arg_idx])?;
+                            let val_float = match val_type {
+                                BrixType::Float => val.into_float_value(),
+                                BrixType::Int => self
+                                    .builder
+                                    .build_signed_int_to_float(
+                                        val.into_int_value(),
+                                        self.context.f64_type(),
+                                        "int_to_float",
+                                    )
+                                    .map_err(|_| CodegenError::LLVMError {
+                                        operation: "build_signed_int_to_float".to_string(),
+                                        details:
+                                            "Failed to convert int to float in variadic Matrix"
+                                                .to_string(),
+                                        span: Some(args[arg_idx].span.clone()),
+                                    })?,
+                                _ => {
+                                    return Err(CodegenError::TypeError {
+                                        expected: "Float".to_string(),
+                                        found: format!("{:?}", val_type),
+                                        context: format!(
+                                            "variadic argument {} of function '{}'",
+                                            i + 1,
+                                            fn_name
+                                        ),
+                                        span: Some(args[arg_idx].span.clone()),
+                                    });
+                                }
+                            };
+                            let data_pp = self
+                                .builder
+                                .build_struct_gep(self.get_matrix_type(), mat_ptr, 3, "data_pp")
+                                .map_err(|_| CodegenError::LLVMError {
+                                    operation: "struct_gep".to_string(),
+                                    details: "matrix data field".to_string(),
+                                    span: Some(span.clone()),
+                                })?;
+                            let data_ptr = self
+                                .builder
+                                .build_load(
+                                    self.context.ptr_type(AddressSpace::default()),
+                                    data_pp,
+                                    "data_ptr",
+                                )
+                                .map_err(|_| CodegenError::LLVMError {
+                                    operation: "load".to_string(),
+                                    details: "matrix data ptr".to_string(),
+                                    span: Some(span.clone()),
+                                })?
+                                .into_pointer_value();
+                            let c = self.context.i64_type().const_int(i as u64, false);
+                            let elem_gep = unsafe {
+                                self.builder.build_gep(
+                                    self.context.f64_type(),
+                                    data_ptr,
+                                    &[c],
+                                    "elem_gep",
+                                )
+                            }
+                            .map_err(|_| CodegenError::LLVMError {
+                                operation: "gep".to_string(),
+                                details: "matrix element gep".to_string(),
+                                span: Some(span.clone()),
+                            })?;
+                            self.builder.build_store(elem_gep, val_float).map_err(|_| {
+                                CodegenError::LLVMError {
+                                    operation: "store".to_string(),
+                                    details: "matrix element store".to_string(),
+                                    span: Some(span.clone()),
+                                }
+                            })?;
+                        }
+                        (mat_ptr, BrixType::Matrix)
+                    }
+                    BrixType::StringMatrix => {
+                        let new_fn = self.get_brix_string_matrix_new();
+                        let len = self
+                            .context
+                            .i64_type()
+                            .const_int(num_var_args as u64, false);
+                        let call = self
+                            .builder
+                            .build_call(new_fn, &[len.into()], "var_strmat")
+                            .map_err(|_| CodegenError::LLVMError {
+                                operation: "build_call brix_string_matrix_new".to_string(),
+                                details: "Failed to allocate variadic StringMatrix".to_string(),
+                                span: Some(span.clone()),
+                            })?;
+                        let mat_ptr = call
+                            .try_as_basic_value()
+                            .left()
+                            .unwrap()
+                            .into_pointer_value();
+
+                        for i in 0..num_var_args {
+                            let arg_idx = num_fixed + i;
+                            let (val, val_type) = self.compile_expr(&args[arg_idx])?;
+                            if val_type != BrixType::String {
+                                return Err(CodegenError::TypeError {
+                                    expected: "String".to_string(),
+                                    found: format!("{:?}", val_type),
+                                    context: format!(
+                                        "variadic argument {} of function '{}'",
+                                        i + 1,
+                                        fn_name
+                                    ),
+                                    span: Some(args[arg_idx].span.clone()),
+                                });
+                            }
+                            let set_fn = self.get_brix_string_matrix_set();
+                            let c = self.context.i64_type().const_int(i as u64, false);
+                            self.builder
+                                .build_call(
+                                    set_fn,
+                                    &[mat_ptr.into(), c.into(), val.into_pointer_value().into()],
+                                    "",
+                                )
+                                .map_err(|_| CodegenError::LLVMError {
+                                    operation: "build_call brix_string_matrix_set".to_string(),
+                                    details: "Failed to set variadic StringMatrix element"
+                                        .to_string(),
+                                    span: Some(span.clone()),
+                                })?;
+                        }
+                        (mat_ptr, BrixType::StringMatrix)
+                    }
+                    _ => {
+                        return Err(CodegenError::TypeError {
+                            expected: "IntMatrix, Matrix, or StringMatrix".to_string(),
+                            found: format!("{:?}", matrix_type),
+                            context: format!("variadic parameter of function '{}'", fn_name),
+                            span: Some(span.clone()),
+                        });
+                    }
+                };
+
+                llvm_args.push(matrix_ptr.into());
+                temp_matrix_to_release = Some((matrix_ptr, release_type));
+            } else {
+                // Non-variadic call
+                let num_provided = args.len();
+                let num_required = params.len();
+
+                if num_provided < num_required {
+                    for i in 0..num_provided {
+                        let (arg_val, _) = self.compile_expr(&args[i])?;
+                        llvm_args.push(arg_val.into());
+                    }
+                    for i in num_provided..num_required {
+                        let (_param_name, _param_type, default_opt, _) = &params[i];
+                        if let Some(default_expr) = default_opt {
+                            let (default_val, _) = self.compile_expr(default_expr)?;
+                            llvm_args.push(default_val.into());
+                        } else {
+                            return Err(CodegenError::InvalidOperation {
+                                operation: format!("function call '{}'", fn_name),
+                                reason: format!(
+                                    "missing required parameter {} ({})",
+                                    i + 1,
+                                    params[i].0
+                                ),
+                                span: Some(span.clone()),
+                            });
+                        }
+                    }
+                } else if num_provided > num_required {
+                    return Err(CodegenError::InvalidOperation {
+                        operation: format!("function call '{}'", fn_name),
+                        reason: format!(
+                            "too many arguments: expected {}, got {}",
+                            num_required, num_provided
+                        ),
+                        span: Some(span.clone()),
+                    });
+                } else {
+                    for arg in args {
+                        let (arg_val, _) = self.compile_expr(arg)?;
+                        llvm_args.push(arg_val.into());
+                    }
+                }
+            }
+        } else {
+            // Fallback for functions without stored metadata
+            for arg in args {
+                let (arg_val, _) = self.compile_expr(arg)?;
+                llvm_args.push(arg_val.into());
+            }
+        }
+
+        Ok((llvm_args, temp_matrix_to_release))
+    }
+
     // --- GENERICS: MONOMORPHIZATION ---
 
     /// Generate mangled name for a specialized generic function
@@ -1689,15 +2149,20 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     /// Substitute type parameters in function parameters
     fn substitute_params(
         &self,
-        params: &[(String, String, Option<Expr>)],
+        params: &[parser::ast::FunctionParam],
         type_params: &[parser::ast::TypeParam],
         type_args: &[String],
-    ) -> Vec<(String, String, Option<Expr>)> {
+    ) -> Vec<parser::ast::FunctionParam> {
         params
             .iter()
-            .map(|(name, type_str, default)| {
-                let new_type = self.substitute_type(type_str, type_params, type_args);
-                (name.clone(), new_type, default.clone())
+            .map(|param| {
+                let new_type = self.substitute_type(&param.type_name, type_params, type_args);
+                parser::ast::FunctionParam {
+                    name: param.name.clone(),
+                    type_name: new_type,
+                    default: param.default.clone(),
+                    is_variadic: param.is_variadic,
+                }
             })
             .collect()
     }
@@ -1766,7 +2231,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 break; // More args than params - will error later
             }
 
-            let (_param_name, param_type_str, _default) = &params[i];
+            let param = &params[i];
+            let param_type_str = &param.type_name;
 
             // Convert BrixType to string for comparison
             let arg_type_str = match arg_type {
@@ -1994,12 +2460,14 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         method: &MethodDef,
     ) -> CodegenResult<()> {
         // Substitute type parameters in method signature
-        let specialized_params: Vec<(String, String, Option<Expr>)> = method
+        let specialized_params: Vec<parser::ast::FunctionParam> = method
             .params
             .iter()
-            .map(|(param_name, param_type, default)| {
-                let substituted_type = self.substitute_type(param_type, type_params, type_args);
-                (param_name.clone(), substituted_type, default.clone())
+            .map(|param| parser::ast::FunctionParam {
+                name: param.name.clone(),
+                type_name: self.substitute_type(&param.type_name, type_params, type_args),
+                default: param.default.clone(),
+                is_variadic: param.is_variadic,
             })
             .collect();
 
@@ -6508,17 +6976,13 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
                                     // Look up the method function
                                     if let Some(llvm_fn) = self.module.get_function(&mangled_name) {
-                                        // Compile method arguments
-                                        let mut llvm_args = Vec::new();
-
-                                        // First argument is the receiver (pointer to struct)
-                                        llvm_args.push(receiver_ptr.into());
-
-                                        // Add remaining arguments
-                                        for arg in args {
-                                            let (arg_val, _) = self.compile_expr(arg)?;
-                                            llvm_args.push(arg_val.into());
-                                        }
+                                        let (llvm_args, temp_matrix) = self
+                                            .prepare_call_arguments(
+                                                &mangled_name,
+                                                &[receiver_ptr.into()],
+                                                args,
+                                                &expr.span,
+                                            )?;
 
                                         // Call the method
                                         let call = self
@@ -6532,6 +6996,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                                 ),
                                                 span: Some(expr.span.clone()),
                                             })?;
+
+                                        if let Some((mat_ptr, mat_type)) = temp_matrix {
+                                            self.insert_release(mat_ptr, &mat_type)?;
+                                        }
 
                                         // Check if method returns void
                                         if llvm_fn.get_type().get_return_type().is_none() {
@@ -6550,19 +7018,23 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                                 }
                                             })?;
 
-                                        // TODO: Determine return type from method signature
-                                        // For now, we'll use a simple heuristic based on LLVM type
-                                        let return_type = if result.is_int_value() {
-                                            BrixType::Int
-                                        } else if result.is_float_value() {
-                                            BrixType::Float
-                                        } else if result.is_pointer_value() {
-                                            // Could be String, Matrix, Error, etc.
-                                            // For now default to Matrix
-                                            BrixType::Matrix
-                                        } else {
-                                            BrixType::Void
-                                        };
+                                        let registered_ret = self
+                                            .functions
+                                            .get(&mangled_name)
+                                            .and_then(|(_, ret_opt)| ret_opt.as_ref())
+                                            .and_then(|v| v.first())
+                                            .cloned();
+                                        let return_type = registered_ret.unwrap_or_else(|| {
+                                            if result.is_int_value() {
+                                                BrixType::Int
+                                            } else if result.is_float_value() {
+                                                BrixType::Float
+                                            } else if result.is_pointer_value() {
+                                                BrixType::String
+                                            } else {
+                                                BrixType::Void
+                                            }
+                                        });
 
                                         return Ok((result, return_type));
                                     } else {
@@ -6599,12 +7071,12 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                         }
                                     })?;
 
-                                    let mut llvm_args: Vec<BasicMetadataValueEnum> =
-                                        vec![tmp.into()];
-                                    for arg in args {
-                                        let (v, _) = self.compile_expr(arg)?;
-                                        llvm_args.push(v.into());
-                                    }
+                                    let (llvm_args, temp_matrix) = self.prepare_call_arguments(
+                                        &mangled_name,
+                                        &[tmp.into()],
+                                        args,
+                                        &expr.span,
+                                    )?;
 
                                     let call = self
                                         .builder
@@ -6617,6 +7089,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                             ),
                                             span: Some(expr.span.clone()),
                                         })?;
+
+                                    if let Some((mat_ptr, mat_type)) = temp_matrix {
+                                        self.insert_release(mat_ptr, &mat_type)?;
+                                    }
 
                                     if llvm_fn.get_type().get_return_type().is_none() {
                                         return Ok((
@@ -8368,9 +8844,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
                             // Get expected type for this parameter
                             if i < params.len() {
-                                let (_param_name, param_type_str, _default) = &params[i];
+                                let param = &params[i];
                                 let expected_type =
-                                    self.substitute_type(param_type_str, type_params, &type_args);
+                                    self.substitute_type(&param.type_name, type_params, &type_args);
 
                                 // Cast int to float if needed
                                 if arg_type == BrixType::Int && expected_type == "float" {
@@ -8564,58 +9040,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     let fn_data = self.functions.get(fn_name).map(|(f, r)| (*f, r.clone()));
 
                     if let Some((user_fn, ret_types_opt)) = fn_data {
-                        // Get parameter metadata to check for defaults
-                        let param_metadata = self.function_params.get(fn_name).cloned();
-
-                        // Compile provided arguments
-                        let mut llvm_args = Vec::new();
-                        for arg in args {
-                            if let Ok((arg_val, _)) = self.compile_expr(arg) {
-                                llvm_args.push(arg_val.into());
-                            }
-                        }
-
-                        // Check if we need to add default arguments
-                        if let Some(params) = param_metadata {
-                            let num_provided = args.len();
-                            let num_required = params.len();
-
-                            if num_provided < num_required {
-                                // Fill in default values for missing parameters
-                                for i in num_provided..num_required {
-                                    let (_param_name, _param_type, default_opt) = &params[i];
-
-                                    if let Some(default_expr) = default_opt {
-                                        // Compile the default value expression
-                                        if let Ok((default_val, _)) =
-                                            self.compile_expr(default_expr)
-                                        {
-                                            llvm_args.push(default_val.into());
-                                        } else {
-                                            return Err(CodegenError::MissingValue {
-                                                what: format!("default value for parameter {}", i),
-                                                context: "function call".to_string(),
-                                                span: Some(expr.span.clone()),
-                                            });
-                                        }
-                                    } else {
-                                        eprintln!(
-                                            "Error: Missing required parameter {} for function {}",
-                                            i, fn_name
-                                        );
-                                        return Err(CodegenError::General(
-                                            "compilation error".to_string(),
-                                        ));
-                                    }
-                                }
-                            } else if num_provided > num_required {
-                                eprintln!(
-                                    "Error: Too many arguments for function {} (expected {}, got {})",
-                                    fn_name, num_required, num_provided
-                                );
-                                return Err(CodegenError::General("compilation error".to_string()));
-                            }
-                        }
+                        let (llvm_args, temp_matrix_to_release) =
+                            self.prepare_call_arguments(fn_name, &[], args, &expr.span)?;
 
                         // Call the user function
                         let call_result = self
@@ -8627,11 +9053,17 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                 span: Some(expr.span.clone()),
                             })?;
 
+                        if let Some((mat_ptr, mat_type)) = temp_matrix_to_release {
+                            self.insert_release(mat_ptr.into(), &mat_type)?;
+                        }
+
                         // Determine return type
                         if let Some(ret_types) = ret_types_opt {
                             if ret_types.is_empty() {
-                                // Void function
-                                return Err(CodegenError::General("compilation error".to_string()));
+                                return Ok((
+                                    self.context.i64_type().const_int(0, false).into(),
+                                    BrixType::Void,
+                                ));
                             } else if ret_types.len() == 1 {
                                 // Single return
                                 let result =
@@ -8656,6 +9088,11 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                 let tuple_type = BrixType::Tuple(ret_types.clone());
                                 return Ok((result, tuple_type));
                             }
+                        } else {
+                            return Ok((
+                                self.context.i64_type().const_int(0, false).into(),
+                                BrixType::Void,
+                            ));
                         }
                     }
                 }
@@ -12854,6 +13291,54 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         // Struct { ref_count: i64, len: i64, data: BrixString** }
         self.context
             .struct_type(&[i64_type.into(), i64_type.into(), ptr_type.into()], false)
+    }
+
+    fn get_brix_intmatrix_new(&self) -> inkwell::values::FunctionValue<'ctx> {
+        self.module
+            .get_function("intmatrix_new")
+            .unwrap_or_else(|| {
+                let i64_type = self.context.i64_type();
+                let ptr_type = self.context.ptr_type(AddressSpace::default());
+                let fn_type = ptr_type.fn_type(&[i64_type.into(), i64_type.into()], false);
+                self.module
+                    .add_function("intmatrix_new", fn_type, Some(Linkage::External))
+            })
+    }
+
+    fn get_brix_matrix_new(&self) -> inkwell::values::FunctionValue<'ctx> {
+        self.module.get_function("matrix_new").unwrap_or_else(|| {
+            let i64_type = self.context.i64_type();
+            let ptr_type = self.context.ptr_type(AddressSpace::default());
+            let fn_type = ptr_type.fn_type(&[i64_type.into(), i64_type.into()], false);
+            self.module
+                .add_function("matrix_new", fn_type, Some(Linkage::External))
+        })
+    }
+
+    fn get_brix_string_matrix_new(&self) -> inkwell::values::FunctionValue<'ctx> {
+        self.module
+            .get_function("string_matrix_new")
+            .unwrap_or_else(|| {
+                let i64_type = self.context.i64_type();
+                let ptr_type = self.context.ptr_type(AddressSpace::default());
+                let fn_type = ptr_type.fn_type(&[i64_type.into()], false);
+                self.module
+                    .add_function("string_matrix_new", fn_type, Some(Linkage::External))
+            })
+    }
+
+    fn get_brix_string_matrix_set(&self) -> inkwell::values::FunctionValue<'ctx> {
+        self.module
+            .get_function("string_matrix_set")
+            .unwrap_or_else(|| {
+                let i64_type = self.context.i64_type();
+                let ptr_type = self.context.ptr_type(AddressSpace::default());
+                let void_type = self.context.void_type();
+                let fn_type =
+                    void_type.fn_type(&[ptr_type.into(), i64_type.into(), ptr_type.into()], false);
+                self.module
+                    .add_function("string_matrix_set", fn_type, Some(Linkage::External))
+            })
     }
 
     fn compile_matrix_constructor(&mut self, args: &[Expr]) -> Option<BasicValueEnum<'ctx>> {

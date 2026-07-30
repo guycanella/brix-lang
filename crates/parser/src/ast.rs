@@ -202,15 +202,57 @@ pub struct StructDef {
     pub fields: Vec<(String, String, Option<Expr>)>, // (field_name, type, default_value)
 }
 
+// Function/method parameter with optional default value and variadic flag
+#[derive(Debug, Clone, PartialEq)]
+pub struct FunctionParam {
+    pub name: String,
+    pub type_name: String,
+    pub default: Option<Expr>,
+    pub is_variadic: bool,
+}
+
+impl FunctionParam {
+    pub fn new(name: impl Into<String>, type_name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            type_name: type_name.into(),
+            default: None,
+            is_variadic: false,
+        }
+    }
+
+    pub fn with_default(
+        name: impl Into<String>,
+        type_name: impl Into<String>,
+        default: Expr,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            type_name: type_name.into(),
+            default: Some(default),
+            is_variadic: false,
+        }
+    }
+
+    pub fn variadic(name: impl Into<String>, type_name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            type_name: type_name.into(),
+            default: None,
+            is_variadic: true,
+        }
+    }
+}
+
 // Method definition (Go-style receivers)
 #[derive(Debug, Clone, PartialEq)]
 pub struct MethodDef {
-    pub is_async: bool,                              // true = async fn
-    pub receiver_name: String,                       // "p" in fn (p: Point) distance()
-    pub receiver_type: String,                       // "Point"
-    pub method_name: String,                         // "distance"
-    pub params: Vec<(String, String, Option<Expr>)>, // (param_name, type, default_value)
-    pub return_type: Option<Vec<String>>,            // None = void, Some(vec!["int"]) = single
+    pub is_async: bool,                   // true = async fn
+    pub receiver_name: String,            // "p" in fn (p: Point) distance()
+    pub receiver_type: String,            // "Point"
+    pub method_name: String,              // "distance"
+    pub params: Vec<FunctionParam>,       // (param_name, type, default_value, is_variadic)
+    pub return_type: Option<Vec<String>>, // None = void, Some(vec!["int"]) = single
     pub body: Box<Stmt>,
 }
 
@@ -296,9 +338,9 @@ pub enum StmtKind {
 
     FunctionDef {
         name: String,
-        is_async: bool,                              // true = async fn
-        type_params: Vec<TypeParam>,                 // Generic type parameters
-        params: Vec<(String, String, Option<Expr>)>, // (param_name, type, default_value)
+        is_async: bool,                   // true = async fn
+        type_params: Vec<TypeParam>,      // Generic type parameters
+        params: Vec<FunctionParam>,       // (param_name, type, default_value, is_variadic)
         return_type: Option<Vec<String>>, // None = void, Some(vec!["int"]) = single, Some(vec!["int", "float"]) = multiple
         body: Box<Stmt>,
     },

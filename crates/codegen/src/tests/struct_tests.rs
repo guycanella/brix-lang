@@ -353,7 +353,7 @@ fn test_method_with_parameters() {
                 receiver_name: "p".to_string(),
                 receiver_type: "Point".to_string(),
                 method_name: "add".to_string(),
-                params: vec![("dx".to_string(), "int".to_string(), None)],
+                params: vec![parser::ast::FunctionParam::new("dx", "int")],
                 return_type: Some(vec!["int".to_string()]),
                 body: Box::new(Stmt::dummy(StmtKind::Return {
                     values: vec![Expr::dummy(ExprKind::Binary {

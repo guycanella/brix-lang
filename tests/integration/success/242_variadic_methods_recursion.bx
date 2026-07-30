@@ -1,0 +1,27 @@
+struct Calculator {
+    base: int
+}
+
+fn (c: Calculator) sum_all(nums: ...int) -> int {
+    var total := c.base
+    for n in nums {
+        total := total + n
+    }
+    return total
+}
+
+fn recursive_variadic(depth: int, items: ...int) -> int {
+    if depth == 0 {
+        var s := 0
+        for i in items {
+            s := s + i
+        }
+        return s
+    }
+    return recursive_variadic(depth - 1, 10, 20)
+}
+
+var calc := Calculator { base: 10 }
+println(calc.sum_all(1, 2, 3))
+println(calc.sum_all())
+println(recursive_variadic(2, 1, 2, 3))

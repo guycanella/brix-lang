@@ -48,7 +48,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     pub(crate) fn compile_async_fn_def(
         &mut self,
         name: &str,
-        params: &[(String, String, Option<Expr>)],
+        params: &[parser::ast::FunctionParam],
         return_type: &Option<Vec<String>>,
         body: &Stmt,
         _parent_function: inkwell::values::FunctionValue<'ctx>,
@@ -74,7 +74,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         // ── 2b. Check for nested awaits (Phase 3a) ───────────────────────
         // Build the recursive AsyncStmt tree. If it contains IfAwait or WhileAwait,
         // delegate to the nested state machine compiler.
-        let param_names: Vec<String> = params.iter().map(|(n, _, _)| n.clone()).collect();
+        let param_names: Vec<String> = params.iter().map(|p| p.name.clone()).collect();
         let top_stmts = match &body.kind {
             parser::ast::StmtKind::Block(s) => s.as_slice(),
             _ => std::slice::from_ref(body),
@@ -102,7 +102,18 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         // Collect BrixTypes for parameters
         let param_brix_types: Vec<BrixType> = params
             .iter()
-            .map(|(_, ts, _)| self.string_to_brix_type(ts))
+            .map(|p| {
+                if p.is_variadic {
+                    match p.type_name.as_str() {
+                        "int" => BrixType::IntMatrix,
+                        "float" => BrixType::Matrix,
+                        "string" => BrixType::StringMatrix,
+                        _ => BrixType::IntMatrix,
+                    }
+                } else {
+                    self.string_to_brix_type(&p.type_name)
+                }
+            })
             .collect();
 
         let mut struct_fields: Vec<BasicTypeEnum<'ctx>> = vec![i64_type.into()]; // field 0: state
@@ -289,7 +300,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             // Pre-allocate all allocas in the entry block (LLVM requirement)
             let param_allocas: Vec<inkwell::values::PointerValue<'ctx>> = {
                 let mut v = Vec::new();
-                for (i, (pname, _, _)) in params.iter().enumerate() {
+                for (i, param) in params.iter().enumerate() {
+                    let pname = &param.name;
                     let lt: BasicTypeEnum<'ctx> = if Compiler::is_closure_type(&param_brix_types[i])
                     {
                         ptr_type.into()
@@ -328,7 +340,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             // (macro used to avoid borrowing issues with &mut self closures)
             macro_rules! load_params {
                 () => {
-                    for (i, (pname, _, _)) in params.iter().enumerate() {
+                    for (i, param) in params.iter().enumerate() {
+                        let pname = &param.name;
                         let lt: BasicTypeEnum<'ctx> =
                             if Compiler::is_closure_type(&param_brix_types[i]) {
                                 ptr_type.into()
@@ -1095,7 +1108,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     fn compile_async_fn_def_nested(
         &mut self,
         name: &str,
-        params: &[(String, String, Option<Expr>)],
+        params: &[parser::ast::FunctionParam],
         ret_brix_type: &BrixType,
         async_stmts: &[AsyncStmt],
         _parent_function: inkwell::values::FunctionValue<'ctx>,
@@ -1116,7 +1129,18 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         // ── 2. Parameter types ──────────────────────────────────────────
         let param_brix_types: Vec<BrixType> = params
             .iter()
-            .map(|(_, ts, _)| self.string_to_brix_type(ts))
+            .map(|p| {
+                if p.is_variadic {
+                    match p.type_name.as_str() {
+                        "int" => BrixType::IntMatrix,
+                        "float" => BrixType::Matrix,
+                        "string" => BrixType::StringMatrix,
+                        _ => BrixType::IntMatrix,
+                    }
+                } else {
+                    self.string_to_brix_type(&p.type_name)
+                }
+            })
             .collect();
 
         // ── 3. Build var_field_map: name → (field_index, BrixType) ──────
@@ -1124,8 +1148,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         let mut next_field: u32 = 1; // field 0 is state
 
         // Step 1: params
-        for (i, (pname, _, _)) in params.iter().enumerate() {
-            var_field_map.insert(pname.clone(), (next_field, param_brix_types[i].clone()));
+        for (i, p) in params.iter().enumerate() {
+            var_field_map.insert(p.name.clone(), (next_field, param_brix_types[i].clone()));
             next_field += 1;
         }
 
@@ -1290,7 +1314,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 })?;
 
             // store params
-            for (i, (pname, _, _)) in params.iter().enumerate() {
+            for (i, param) in params.iter().enumerate() {
+                let pname = &param.name;
                 let pv = create_fn.get_nth_param(i as u32).unwrap();
                 let fi = var_field_map.get(pname).unwrap().0;
                 let gep = self
@@ -1871,7 +1896,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             self.builder.position_at_end(state_bbs[0]);
 
             // Load params from struct
-            for (pname, _, _) in params.iter() {
+            for param in params.iter() {
+                let pname = &param.name;
                 let (field_idx, vtype) = var_field_map.get(pname).unwrap().clone();
                 let lt: BasicTypeEnum<'ctx> = if Compiler::is_closure_type(&vtype) {
                     ptr_type.into()
