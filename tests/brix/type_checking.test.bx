@@ -132,7 +132,9 @@ test.describe("is_list()", () -> {
 })
 
 test.describe("is_function()", () -> {
-    test.it("always returns 0 (functions not first-class yet)", () -> {
+    test.it("returns true for closures and false for non-functions", () -> {
+        var f := (x: int) -> int { return x + 1 }
+        test.expect(is_function(f)).toBeTruthy()
         test.expect(is_function(42)).toBeFalsy()
     })
 })

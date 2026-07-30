@@ -8018,7 +8018,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         return Ok((result.into(), BrixType::Int));
                     }
 
-                    // is_function(x) - Check if value is function (not implemented yet, always returns 0)
+                    // is_function(x) - Check if value is a closure/function (static evaluation, zero runtime overhead)
                     if fn_name == "is_function" {
                         if args.len() != 1 {
                             return Err(CodegenError::InvalidOperation {
@@ -8027,10 +8027,12 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                 span: Some(expr.span.clone()),
                             });
                         }
-                        let _ = self.compile_expr(&args[0])?;
-
-                        // Functions are not first-class yet, so always return false
-                        let result = self.context.i64_type().const_int(0, false);
+                        let arg_type = self.infer_expr_type_static(&args[0], &[]);
+                        let is_fn = match arg_type {
+                            Some(ref t) if Compiler::is_closure_type(t) => 1u64,
+                            _ => 0u64,
+                        };
+                        let result = self.context.i64_type().const_int(is_fn, false);
                         return Ok((result.into(), BrixType::Int));
                     }
 
@@ -17314,6 +17316,17 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 }
                 _ => None,
             },
+            ExprKind::Closure(closure) => {
+                if closure.is_async {
+                    Some(BrixType::AsyncFuture)
+                } else {
+                    Some(BrixType::Tuple(vec![
+                        BrixType::Int,
+                        BrixType::Int,
+                        BrixType::Int,
+                    ]))
+                }
+            }
             _ => None,
         }
     }

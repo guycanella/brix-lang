@@ -2139,3 +2139,11 @@ fn test_244_variadic_insufficient_fixed_params() {
         Some("insufficient arguments"),
     );
 }
+
+#[test]
+fn test_245_is_function_real() {
+    assert_success(
+        "tests/integration/success/245_is_function_real.bx",
+        "1\n1\n0\n0",
+    );
+}

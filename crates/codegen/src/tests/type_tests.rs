@@ -700,3 +700,120 @@ fn test_division_by_int_zero() {
     // Should compile (runtime error is OK)
     assert!(result.is_ok());
 }
+
+#[test]
+fn test_is_function_closure_true() {
+    use parser::ast::Closure;
+    // var res := is_function((x: int) -> int { return x * 2 })
+    let closure = Closure {
+        is_async: false,
+        captured_vars: vec![],
+        params: vec![("x".to_string(), "int".to_string())],
+        return_type: Some("int".to_string()),
+        body: Box::new(Stmt::dummy(StmtKind::Return {
+            values: vec![Expr::dummy(ExprKind::Literal(Literal::Int(0)))],
+        })),
+    };
+    let stmt = Stmt::dummy(StmtKind::VariableDecl {
+        name: "res".to_string(),
+        type_hint: None,
+        value: Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("is_function".to_string()))),
+            args: vec![Expr::dummy(ExprKind::Closure(closure))],
+        }),
+        is_const: false,
+    });
+    let program = make_program(stmt);
+    let result = compile_program(program);
+    assert!(result.is_ok());
+    let ir = result.unwrap();
+    // Static evaluation yields i64 1 and zero allocation/retain for is_function
+    assert!(ir.contains("i64 1"));
+    assert!(!ir.contains("__closure_"));
+}
+
+#[test]
+fn test_is_function_variable_true() {
+    use parser::ast::Closure;
+    // var f := (x: int) -> int { return x }; var res := is_function(f)
+    let closure = Closure {
+        is_async: false,
+        captured_vars: vec![],
+        params: vec![("x".to_string(), "int".to_string())],
+        return_type: Some("int".to_string()),
+        body: Box::new(Stmt::dummy(StmtKind::Return {
+            values: vec![Expr::dummy(ExprKind::Identifier("x".to_string()))],
+        })),
+    };
+    let program = Program {
+        statements: vec![
+            Stmt::dummy(StmtKind::VariableDecl {
+                name: "f".to_string(),
+                type_hint: None,
+                value: Expr::dummy(ExprKind::Closure(closure)),
+                is_const: false,
+            }),
+            Stmt::dummy(StmtKind::VariableDecl {
+                name: "res".to_string(),
+                type_hint: None,
+                value: Expr::dummy(ExprKind::Call {
+                    func: Box::new(Expr::dummy(ExprKind::Identifier("is_function".to_string()))),
+                    args: vec![Expr::dummy(ExprKind::Identifier("f".to_string()))],
+                }),
+                is_const: false,
+            }),
+        ],
+    };
+    let result = compile_program(program);
+    assert!(result.is_ok());
+    let ir = result.unwrap();
+    assert!(ir.contains("i64 1"));
+    // is_function(f) must not emit a spurious closure_retain.
+    assert!(!ir.contains("closure_retain"));
+}
+
+#[test]
+fn test_is_function_int_false() {
+    // var res := is_function(42)
+    let stmt = Stmt::dummy(StmtKind::VariableDecl {
+        name: "res".to_string(),
+        type_hint: None,
+        value: Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("is_function".to_string()))),
+            args: vec![Expr::dummy(ExprKind::Literal(Literal::Int(42)))],
+        }),
+        is_const: false,
+    });
+    let program = make_program(stmt);
+    let result = compile_program(program);
+    assert!(result.is_ok());
+    let ir = result.unwrap();
+    assert!(ir.contains("i64 0"));
+}
+
+#[test]
+fn test_is_function_async_closure_false() {
+    use parser::ast::Closure;
+
+    // Async closures compile to AsyncFuture, not to the synchronous closure tuple.
+    let stmt = Stmt::dummy(StmtKind::VariableDecl {
+        name: "res".to_string(),
+        type_hint: None,
+        value: Expr::dummy(ExprKind::Call {
+            func: Box::new(Expr::dummy(ExprKind::Identifier("is_function".to_string()))),
+            args: vec![Expr::dummy(ExprKind::Closure(Closure {
+                is_async: true,
+                captured_vars: vec![],
+                params: vec![],
+                return_type: None,
+                body: Box::new(Stmt::dummy(StmtKind::Block(vec![]))),
+            }))],
+        }),
+        is_const: false,
+    });
+    let program = make_program(stmt);
+    let result = compile_program(program);
+    assert!(result.is_ok());
+    let ir = result.unwrap();
+    assert!(ir.contains("i64 0"));
+}
