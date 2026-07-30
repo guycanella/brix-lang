@@ -415,6 +415,9 @@ pub struct Compiler<'a, 'ctx> {
     // O(1) lookup; avoids module.get_function() linear scan and unsafe unwrap().
     pub async_poll_fns: HashMap<String, inkwell::values::FunctionValue<'ctx>>,
     pub async_create_fns: HashMap<String, inkwell::values::FunctionValue<'ctx>>,
+
+    // Mutable variables tracking (v1.9 Grupo E)
+    pub mutable_variables: HashSet<String>,
 }
 
 impl<'a, 'ctx> Compiler<'a, 'ctx> {
@@ -450,6 +453,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             current_continue_block: None,
             async_poll_fns: HashMap::new(),
             async_create_fns: HashMap::new(),
+            mutable_variables: HashSet::new(),
         }
     }
 
@@ -466,6 +470,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     // The BrixType enum itself is defined in types.rs
 
     fn string_to_brix_type(&self, type_str: &str) -> BrixType {
+        // Step 0: Strip optional "mut " prefix
+        let type_str = type_str.strip_prefix("mut ").unwrap_or(type_str);
+
         // Step 1: Resolve type aliases
         let resolved_type_str = if let Some(definition) = self.type_aliases.get(type_str) {
             definition.as_str()
@@ -925,6 +932,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
         // 6. Save current state and set current function
         let saved_vars = self.variables.clone();
+        let saved_mutable_variables = self.mutable_variables.clone();
         let saved_scope_vars = self.function_scope_vars.clone();
         self.current_function = Some(llvm_function);
 
@@ -983,6 +991,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
         // 10. Restore state
         self.variables = saved_vars;
+        self.mutable_variables = saved_mutable_variables;
         self.function_scope_vars = saved_scope_vars;
         self.current_function = Some(_parent_function);
 
@@ -1177,6 +1186,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
         // 7. Save current state
         let saved_vars = self.variables.clone();
+        let saved_mutable_variables = self.mutable_variables.clone();
         self.current_function = Some(llvm_function);
 
         // 8. Store receiver parameter (as pointer - no alloca needed)
@@ -1240,6 +1250,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
         // 12. Restore state
         self.variables = saved_vars;
+        self.mutable_variables = saved_mutable_variables;
         self.current_function = Some(_parent_function);
 
         // 13. Position builder back
@@ -6786,6 +6797,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
                     // Check if this is a method call (e.g., obj.method(args))
                     if let ExprKind::FieldAccess { target, field } = &func.kind {
+                        if field.ends_with('!') {
+                            return self.compile_mut_array_method(target, field, args, expr);
+                        }
                         // Check for iterator/array methods on IntMatrix/Matrix and string
                         // methods. `reverse` overlaps both sets, so the target is compiled
                         // once here and dispatched by its actual type to avoid double-eval.
@@ -9508,7 +9522,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
                     let index = match field.as_str() {
                         "rows" => 1,
-                        "cols" => 2,
+                        "cols" | "len" => 2,
                         "data" => 3,
                         _ => {
                             return Err(CodegenError::General(format!(
@@ -14184,6 +14198,555 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 })?;
 
         Ok((result, BrixType::Vector(Box::new(elem))))
+    }
+
+    pub(crate) fn get_or_add_external_function(
+        &self,
+        name: &str,
+        fn_type: inkwell::types::FunctionType<'ctx>,
+    ) -> inkwell::values::FunctionValue<'ctx> {
+        self.module.get_function(name).unwrap_or_else(|| {
+            self.module
+                .add_function(name, fn_type, Some(Linkage::External))
+        })
+    }
+
+    /// Compile an in-place mutable method call on a 1D IntMatrix or Matrix receiver (v1.9 Grupo E).
+    fn compile_mut_array_method(
+        &mut self,
+        target: &Expr,
+        field: &str,
+        args: &[Expr],
+        expr: &Expr,
+    ) -> CodegenResult<(BasicValueEnum<'ctx>, BrixType)> {
+        use inkwell::AddressSpace;
+
+        // 1. Receiver scope restriction: must be a plain variable identifier
+        let var_name = match &target.kind {
+            ExprKind::Identifier(name) => name,
+            _ => {
+                return Err(CodegenError::InvalidOperation {
+                    operation: field.to_string(),
+                    reason:
+                        "in-place mutable methods ('!') are only supported on variable identifiers"
+                            .to_string(),
+                    span: Some(expr.span.clone()),
+                });
+            }
+        };
+
+        // 2. Check variable mutability
+        if !self.mutable_variables.contains(var_name) {
+            return Err(CodegenError::InvalidOperation {
+                operation: field.to_string(),
+                reason: format!(
+                    "cannot call in-place mutable method '{}' on immutable variable '{}'. Declare variable with 'mut' (e.g. 'var {}: mut ...')",
+                    field, var_name, var_name
+                ),
+                span: Some(expr.span.clone()),
+            });
+        }
+
+        // 3. Retrieve variable pointer alloca slot and BrixType
+        let (slot_ptr, var_type) = match self.variables.get(var_name) {
+            Some((ptr, t)) => (*ptr, t.clone()),
+            None => {
+                return Err(CodegenError::InvalidOperation {
+                    operation: field.to_string(),
+                    reason: format!("undefined variable '{}'", var_name),
+                    span: Some(expr.span.clone()),
+                });
+            }
+        };
+
+        let i64_0 = self.context.i64_type().const_int(0, false).into();
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let i64_type = self.context.i64_type();
+        let f64_type = self.context.f64_type();
+        let void_type = self.context.void_type();
+
+        if matches!(field, "sort!" | "reverse!" | "clear!") && !args.is_empty() {
+            return Err(CodegenError::InvalidOperation {
+                operation: field.to_string(),
+                reason: format!("{} expects 0 arguments, got {}", field, args.len()),
+                span: Some(expr.span.clone()),
+            });
+        }
+
+        match (&var_type, field) {
+            // --- IntMatrix (int[]) ---
+            (BrixType::IntMatrix, "push!") => {
+                if args.len() != 1 {
+                    return Err(CodegenError::InvalidOperation {
+                        operation: "push!".to_string(),
+                        reason: format!("push! expects 1 argument, got {}", args.len()),
+                        span: Some(expr.span.clone()),
+                    });
+                }
+                let (val, val_t) = self.compile_expr(&args[0])?;
+                if val_t != BrixType::Int {
+                    return Err(CodegenError::TypeError {
+                        expected: "int".to_string(),
+                        found: format!("{:?}", val_t),
+                        context: "push! argument".to_string(),
+                        span: Some(args[0].span.clone()),
+                    });
+                }
+                let fn_val = self.get_or_add_external_function(
+                    "intmatrix_push_inplace",
+                    void_type.fn_type(&[ptr_type.into(), i64_type.into()], false),
+                );
+                self.builder
+                    .build_call(fn_val, &[slot_ptr.into(), val.into()], "")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: "Failed call to intmatrix_push_inplace".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                Ok((i64_0, BrixType::Void))
+            }
+            (BrixType::IntMatrix, "pop!") => {
+                if !args.is_empty() {
+                    return Err(CodegenError::InvalidOperation {
+                        operation: "pop!".to_string(),
+                        reason: format!("pop! expects 0 arguments, got {}", args.len()),
+                        span: Some(expr.span.clone()),
+                    });
+                }
+                let mat_ptr = self
+                    .builder
+                    .build_load(ptr_type, slot_ptr, "load_mat_ptr")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_load".to_string(),
+                        details: "Failed loading matrix ptr for pop!".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                let fn_val = self.get_or_add_external_function(
+                    "intmatrix_pop_inplace",
+                    i64_type.fn_type(&[ptr_type.into()], false),
+                );
+                let res = self
+                    .builder
+                    .build_call(fn_val, &[mat_ptr.into()], "pop_res")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: "Failed call to intmatrix_pop_inplace".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?
+                    .try_as_basic_value()
+                    .left()
+                    .ok_or_else(|| CodegenError::LLVMError {
+                        operation: "try_as_basic_value".to_string(),
+                        details: "Failed getting pop! return value".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                Ok((res, BrixType::Int))
+            }
+            (BrixType::IntMatrix, "insert!") => {
+                if args.len() != 2 {
+                    return Err(CodegenError::InvalidOperation {
+                        operation: "insert!".to_string(),
+                        reason: format!(
+                            "insert! expects 2 arguments (index, value), got {}",
+                            args.len()
+                        ),
+                        span: Some(expr.span.clone()),
+                    });
+                }
+                let (idx_val, idx_t) = self.compile_expr(&args[0])?;
+                let (val, val_t) = self.compile_expr(&args[1])?;
+                if idx_t != BrixType::Int || val_t != BrixType::Int {
+                    return Err(CodegenError::TypeError {
+                        expected: "(int, int)".to_string(),
+                        found: format!("({:?}, {:?})", idx_t, val_t),
+                        context: "insert! arguments".to_string(),
+                        span: Some(expr.span.clone()),
+                    });
+                }
+                let fn_val = self.get_or_add_external_function(
+                    "intmatrix_insert_inplace",
+                    void_type.fn_type(&[ptr_type.into(), i64_type.into(), i64_type.into()], false),
+                );
+                self.builder
+                    .build_call(fn_val, &[slot_ptr.into(), idx_val.into(), val.into()], "")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: "Failed call to intmatrix_insert_inplace".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                Ok((i64_0, BrixType::Void))
+            }
+            (BrixType::IntMatrix, "remove!") => {
+                if args.len() != 1 {
+                    return Err(CodegenError::InvalidOperation {
+                        operation: "remove!".to_string(),
+                        reason: format!("remove! expects 1 argument (index), got {}", args.len()),
+                        span: Some(expr.span.clone()),
+                    });
+                }
+                let (idx_val, idx_t) = self.compile_expr(&args[0])?;
+                if idx_t != BrixType::Int {
+                    return Err(CodegenError::TypeError {
+                        expected: "int".to_string(),
+                        found: format!("{:?}", idx_t),
+                        context: "remove! argument".to_string(),
+                        span: Some(args[0].span.clone()),
+                    });
+                }
+                let mat_ptr = self
+                    .builder
+                    .build_load(ptr_type, slot_ptr, "load_mat_ptr")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_load".to_string(),
+                        details: "Failed loading matrix ptr for remove!".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                let fn_val = self.get_or_add_external_function(
+                    "intmatrix_remove_inplace",
+                    i64_type.fn_type(&[ptr_type.into(), i64_type.into()], false),
+                );
+                let res = self
+                    .builder
+                    .build_call(fn_val, &[mat_ptr.into(), idx_val.into()], "rem_res")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: "Failed call to intmatrix_remove_inplace".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?
+                    .try_as_basic_value()
+                    .left()
+                    .ok_or_else(|| CodegenError::LLVMError {
+                        operation: "try_as_basic_value".to_string(),
+                        details: "Failed getting remove! return value".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                Ok((res, BrixType::Int))
+            }
+            (BrixType::IntMatrix, "sort!") => {
+                let mat_ptr = self
+                    .builder
+                    .build_load(ptr_type, slot_ptr, "load_mat_ptr")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_load".to_string(),
+                        details: "Failed loading matrix ptr for sort!".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                let fn_val = self.get_or_add_external_function(
+                    "intmatrix_sort_inplace",
+                    void_type.fn_type(&[ptr_type.into()], false),
+                );
+                self.builder
+                    .build_call(fn_val, &[mat_ptr.into()], "")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: "Failed call to intmatrix_sort_inplace".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                Ok((i64_0, BrixType::Void))
+            }
+            (BrixType::IntMatrix, "reverse!") => {
+                let mat_ptr = self
+                    .builder
+                    .build_load(ptr_type, slot_ptr, "load_mat_ptr")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_load".to_string(),
+                        details: "Failed loading matrix ptr for reverse!".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                let fn_val = self.get_or_add_external_function(
+                    "intmatrix_reverse_inplace",
+                    void_type.fn_type(&[ptr_type.into()], false),
+                );
+                self.builder
+                    .build_call(fn_val, &[mat_ptr.into()], "")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: "Failed call to intmatrix_reverse_inplace".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                Ok((i64_0, BrixType::Void))
+            }
+            (BrixType::IntMatrix, "clear!") => {
+                let mat_ptr = self
+                    .builder
+                    .build_load(ptr_type, slot_ptr, "load_mat_ptr")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_load".to_string(),
+                        details: "Failed loading matrix ptr for clear!".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                let fn_val = self.get_or_add_external_function(
+                    "intmatrix_clear_inplace",
+                    void_type.fn_type(&[ptr_type.into()], false),
+                );
+                self.builder
+                    .build_call(fn_val, &[mat_ptr.into()], "")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: "Failed call to intmatrix_clear_inplace".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                Ok((i64_0, BrixType::Void))
+            }
+
+            // --- Matrix (float[]) ---
+            (BrixType::Matrix, "push!") => {
+                if args.len() != 1 {
+                    return Err(CodegenError::InvalidOperation {
+                        operation: "push!".to_string(),
+                        reason: format!("push! expects 1 argument, got {}", args.len()),
+                        span: Some(expr.span.clone()),
+                    });
+                }
+                let (val, val_t) = self.compile_expr(&args[0])?;
+                let val_f64 = if val_t == BrixType::Int {
+                    self.builder
+                        .build_signed_int_to_float(val.into_int_value(), f64_type, "cast_i2f")
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_signed_int_to_float".to_string(),
+                            details: "Failed int to float cast".to_string(),
+                            span: Some(expr.span.clone()),
+                        })?
+                        .into()
+                } else if val_t == BrixType::Float {
+                    val
+                } else {
+                    return Err(CodegenError::TypeError {
+                        expected: "float".to_string(),
+                        found: format!("{:?}", val_t),
+                        context: "push! argument".to_string(),
+                        span: Some(args[0].span.clone()),
+                    });
+                };
+                let fn_val = self.get_or_add_external_function(
+                    "matrix_push_inplace",
+                    void_type.fn_type(&[ptr_type.into(), f64_type.into()], false),
+                );
+                self.builder
+                    .build_call(fn_val, &[slot_ptr.into(), val_f64.into()], "")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: "Failed call to matrix_push_inplace".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                Ok((i64_0, BrixType::Void))
+            }
+            (BrixType::Matrix, "pop!") => {
+                if !args.is_empty() {
+                    return Err(CodegenError::InvalidOperation {
+                        operation: "pop!".to_string(),
+                        reason: format!("pop! expects 0 arguments, got {}", args.len()),
+                        span: Some(expr.span.clone()),
+                    });
+                }
+                let mat_ptr = self
+                    .builder
+                    .build_load(ptr_type, slot_ptr, "load_mat_ptr")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_load".to_string(),
+                        details: "Failed loading matrix ptr for pop!".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                let fn_val = self.get_or_add_external_function(
+                    "matrix_pop_inplace",
+                    f64_type.fn_type(&[ptr_type.into()], false),
+                );
+                let res = self
+                    .builder
+                    .build_call(fn_val, &[mat_ptr.into()], "pop_res")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: "Failed call to matrix_pop_inplace".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?
+                    .try_as_basic_value()
+                    .left()
+                    .ok_or_else(|| CodegenError::LLVMError {
+                        operation: "try_as_basic_value".to_string(),
+                        details: "Failed getting pop! return value".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                Ok((res, BrixType::Float))
+            }
+            (BrixType::Matrix, "insert!") => {
+                if args.len() != 2 {
+                    return Err(CodegenError::InvalidOperation {
+                        operation: "insert!".to_string(),
+                        reason: format!(
+                            "insert! expects 2 arguments (index, value), got {}",
+                            args.len()
+                        ),
+                        span: Some(expr.span.clone()),
+                    });
+                }
+                let (idx_val, idx_t) = self.compile_expr(&args[0])?;
+                let (val, val_t) = self.compile_expr(&args[1])?;
+                if idx_t != BrixType::Int {
+                    return Err(CodegenError::TypeError {
+                        expected: "int".to_string(),
+                        found: format!("{:?}", idx_t),
+                        context: "insert! index argument".to_string(),
+                        span: Some(args[0].span.clone()),
+                    });
+                }
+                let val_f64 = if val_t == BrixType::Int {
+                    self.builder
+                        .build_signed_int_to_float(val.into_int_value(), f64_type, "cast_i2f")
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_signed_int_to_float".to_string(),
+                            details: "Failed int to float cast".to_string(),
+                            span: Some(expr.span.clone()),
+                        })?
+                        .into()
+                } else if val_t == BrixType::Float {
+                    val
+                } else {
+                    return Err(CodegenError::TypeError {
+                        expected: "float".to_string(),
+                        found: format!("{:?}", val_t),
+                        context: "insert! value argument".to_string(),
+                        span: Some(args[1].span.clone()),
+                    });
+                };
+                let fn_val = self.get_or_add_external_function(
+                    "matrix_insert_inplace",
+                    void_type.fn_type(&[ptr_type.into(), i64_type.into(), f64_type.into()], false),
+                );
+                self.builder
+                    .build_call(
+                        fn_val,
+                        &[slot_ptr.into(), idx_val.into(), val_f64.into()],
+                        "",
+                    )
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: "Failed call to matrix_insert_inplace".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                Ok((i64_0, BrixType::Void))
+            }
+            (BrixType::Matrix, "remove!") => {
+                if args.len() != 1 {
+                    return Err(CodegenError::InvalidOperation {
+                        operation: "remove!".to_string(),
+                        reason: format!("remove! expects 1 argument (index), got {}", args.len()),
+                        span: Some(expr.span.clone()),
+                    });
+                }
+                let (idx_val, idx_t) = self.compile_expr(&args[0])?;
+                if idx_t != BrixType::Int {
+                    return Err(CodegenError::TypeError {
+                        expected: "int".to_string(),
+                        found: format!("{:?}", idx_t),
+                        context: "remove! argument".to_string(),
+                        span: Some(args[0].span.clone()),
+                    });
+                }
+                let mat_ptr = self
+                    .builder
+                    .build_load(ptr_type, slot_ptr, "load_mat_ptr")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_load".to_string(),
+                        details: "Failed loading matrix ptr for remove!".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                let fn_val = self.get_or_add_external_function(
+                    "matrix_remove_inplace",
+                    f64_type.fn_type(&[ptr_type.into(), i64_type.into()], false),
+                );
+                let res = self
+                    .builder
+                    .build_call(fn_val, &[mat_ptr.into(), idx_val.into()], "rem_res")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: "Failed call to matrix_remove_inplace".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?
+                    .try_as_basic_value()
+                    .left()
+                    .ok_or_else(|| CodegenError::LLVMError {
+                        operation: "try_as_basic_value".to_string(),
+                        details: "Failed getting remove! return value".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                Ok((res, BrixType::Float))
+            }
+            (BrixType::Matrix, "sort!") => {
+                let mat_ptr = self
+                    .builder
+                    .build_load(ptr_type, slot_ptr, "load_mat_ptr")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_load".to_string(),
+                        details: "Failed loading matrix ptr for sort!".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                let fn_val = self.get_or_add_external_function(
+                    "matrix_sort_inplace",
+                    void_type.fn_type(&[ptr_type.into()], false),
+                );
+                self.builder
+                    .build_call(fn_val, &[mat_ptr.into()], "")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: "Failed call to matrix_sort_inplace".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                Ok((i64_0, BrixType::Void))
+            }
+            (BrixType::Matrix, "reverse!") => {
+                let mat_ptr = self
+                    .builder
+                    .build_load(ptr_type, slot_ptr, "load_mat_ptr")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_load".to_string(),
+                        details: "Failed loading matrix ptr for reverse!".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                let fn_val = self.get_or_add_external_function(
+                    "matrix_reverse_inplace",
+                    void_type.fn_type(&[ptr_type.into()], false),
+                );
+                self.builder
+                    .build_call(fn_val, &[mat_ptr.into()], "")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: "Failed call to matrix_reverse_inplace".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                Ok((i64_0, BrixType::Void))
+            }
+            (BrixType::Matrix, "clear!") => {
+                let mat_ptr = self
+                    .builder
+                    .build_load(ptr_type, slot_ptr, "load_mat_ptr")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_load".to_string(),
+                        details: "Failed loading matrix ptr for clear!".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                let fn_val = self.get_or_add_external_function(
+                    "matrix_clear_inplace",
+                    void_type.fn_type(&[ptr_type.into()], false),
+                );
+                self.builder
+                    .build_call(fn_val, &[mat_ptr.into()], "")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: "Failed call to matrix_clear_inplace".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                Ok((i64_0, BrixType::Void))
+            }
+
+            _ => Err(CodegenError::InvalidOperation {
+                operation: field.to_string(),
+                reason: format!(
+                    "unsupported in-place method '{}' for type {:?}",
+                    field, var_type
+                ),
+                span: Some(expr.span.clone()),
+            }),
+        }
     }
 
     /// Compile a method call on a Vector receiver (Phase 1: push / get / len).

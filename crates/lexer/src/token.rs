@@ -16,6 +16,9 @@ pub enum Token {
     #[token("const")]
     Const,
 
+    #[token("mut")]
+    Mut,
+
     #[token("type")]
     Type,
 

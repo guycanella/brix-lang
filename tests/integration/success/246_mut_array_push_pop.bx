@@ -1,0 +1,25 @@
+// Test 246: mut array push!, pop!, insert!, remove! for int[] and float[]
+
+var a: mut int[] := [10, 20, 30]
+a.push!(40)
+println(a[3])
+println(a.len)
+
+var last: int := a.pop!()
+println(last)
+println(a.len)
+
+a.insert!(1, 15)
+println(a[1])
+println(a.len)
+
+var rem: int := a.remove!(1)
+println(rem)
+println(a[1])
+println(a.len)
+
+var f: mut float[] := [1.5, 2.5]
+f.push!(3.5)
+println(f[2])
+var f_last: float := f.pop!()
+println(f_last)

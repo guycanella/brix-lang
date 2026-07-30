@@ -583,6 +583,16 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
         let (init_val, mut val_type) = self.compile_expr(value)?;
         let mut final_val = init_val;
 
+        let is_mut_decl = type_hint.as_ref().map_or(false, |h| h.starts_with("mut "));
+        let stripped_hint = type_hint.as_ref().map(|h| {
+            if h.starts_with("mut ") {
+                h["mut ".len()..].to_string()
+            } else {
+                h.clone()
+            }
+        });
+        let type_hint = &stripped_hint;
+
         // --- AUTOMATIC CASTING ---
         if let Some(hint) = type_hint {
             // Resolve type aliases before processing
@@ -828,8 +838,12 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
                         }
                     }
                     _ => {
-                        // Allow matrix, intmatrix, complex, and struct types
-                        if hint != "matrix" && hint != "intmatrix" && hint != "complex" {
+                        // Allow matrix, intmatrix, complex, array, and matching types
+                        if hint != "matrix"
+                            && hint != "intmatrix"
+                            && hint != "complex"
+                            && self.string_to_brix_type(hint) != val_type
+                        {
                             // Check if it's a struct, intersection, or type alias
                             if !matches!(val_type, BrixType::Struct(_) | BrixType::Intersection(_))
                             {
@@ -966,6 +980,14 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
 
         self.variables
             .insert(name.to_string(), (alloca, val_type.clone()));
+
+        if is_mut_decl {
+            self.mutable_variables.insert(name.to_string());
+        } else {
+            // A later immutable declaration with the same name must not inherit
+            // mutability from an earlier binding in this compilation scope.
+            self.mutable_variables.remove(name);
+        }
 
         // ARC: Track ref-counted variables (and unions that carry a ref-counted
         // variant, e.g. string?) for cleanup at function exit. Avoid duplicates

@@ -5578,3 +5578,257 @@ void test_expect_not_to_throw(int threw, char* file, int line) {
         if (e) brix_test_fail(e, msg, file, line);
     }
 }
+
+// ==========================================
+// IN-PLACE MUTABLE ARRAY OPERATIONS (v1.9 Grupo E)
+// ==========================================
+
+// --- IntMatrix In-Place Methods ---
+
+void intmatrix_push_inplace(IntMatrix** m_ptr, long val) {
+    if (!m_ptr || !*m_ptr) {
+        fprintf(stderr, "Runtime Error: push! called on NULL IntMatrix\n");
+        exit(1);
+    }
+    IntMatrix* m = *m_ptr;
+    if (m->rows != 1) {
+        fprintf(stderr, "Runtime Error: push! is only supported on 1D arrays (rows == 1)\n");
+        exit(1);
+    }
+    long old_cols = m->cols;
+    long new_cols = old_cols + 1;
+    m->data = (long*)realloc(m->data, new_cols * sizeof(long));
+    m->data[old_cols] = val;
+    m->cols = new_cols;
+}
+
+long intmatrix_pop_inplace(IntMatrix* m) {
+    if (!m) {
+        fprintf(stderr, "Runtime Error: pop! called on NULL IntMatrix\n");
+        exit(1);
+    }
+    if (m->rows != 1) {
+        fprintf(stderr, "Runtime Error: pop! is only supported on 1D arrays (rows == 1)\n");
+        exit(1);
+    }
+    if (m->cols == 0) {
+        fprintf(stderr, "Runtime Error: pop! on empty array\n");
+        exit(1);
+    }
+    long val = m->data[m->cols - 1];
+    m->cols -= 1;
+    return val;
+}
+
+void intmatrix_insert_inplace(IntMatrix** m_ptr, long idx, long val) {
+    if (!m_ptr || !*m_ptr) {
+        fprintf(stderr, "Runtime Error: insert! called on NULL IntMatrix\n");
+        exit(1);
+    }
+    IntMatrix* m = *m_ptr;
+    if (m->rows != 1) {
+        fprintf(stderr, "Runtime Error: insert! is only supported on 1D arrays (rows == 1)\n");
+        exit(1);
+    }
+    if (idx < 0 || idx > m->cols) {
+        fprintf(stderr, "Runtime Error: insert! index out of bounds (index %ld, size %ld)\n", idx, m->cols);
+        exit(1);
+    }
+    long old_cols = m->cols;
+    long new_cols = old_cols + 1;
+    m->data = (long*)realloc(m->data, new_cols * sizeof(long));
+    for (long i = old_cols; i > idx; i--) {
+        m->data[i] = m->data[i - 1];
+    }
+    m->data[idx] = val;
+    m->cols = new_cols;
+}
+
+long intmatrix_remove_inplace(IntMatrix* m, long idx) {
+    if (!m) {
+        fprintf(stderr, "Runtime Error: remove! called on NULL IntMatrix\n");
+        exit(1);
+    }
+    if (m->rows != 1) {
+        fprintf(stderr, "Runtime Error: remove! is only supported on 1D arrays (rows == 1)\n");
+        exit(1);
+    }
+    if (idx < 0 || idx >= m->cols) {
+        fprintf(stderr, "Runtime Error: remove! index out of bounds (index %ld, size %ld)\n", idx, m->cols);
+        exit(1);
+    }
+    long removed = m->data[idx];
+    for (long i = idx; i < m->cols - 1; i++) {
+        m->data[i] = m->data[i + 1];
+    }
+    m->cols -= 1;
+    return removed;
+}
+
+void intmatrix_sort_inplace(IntMatrix* m) {
+    if (!m) {
+        fprintf(stderr, "Runtime Error: sort! called on NULL IntMatrix\n");
+        exit(1);
+    }
+    if (m->rows != 1) {
+        fprintf(stderr, "Runtime Error: sort! is only supported on 1D arrays (rows == 1)\n");
+        exit(1);
+    }
+    qsort(m->data, m->cols, sizeof(long), compare_longs);
+}
+
+void intmatrix_reverse_inplace(IntMatrix* m) {
+    if (!m) {
+        fprintf(stderr, "Runtime Error: reverse! called on NULL IntMatrix\n");
+        exit(1);
+    }
+    if (m->rows != 1) {
+        fprintf(stderr, "Runtime Error: reverse! is only supported on 1D arrays (rows == 1)\n");
+        exit(1);
+    }
+    long i = 0, j = m->cols - 1;
+    while (i < j) {
+        long tmp = m->data[i];
+        m->data[i] = m->data[j];
+        m->data[j] = tmp;
+        i++;
+        j--;
+    }
+}
+
+void intmatrix_clear_inplace(IntMatrix* m) {
+    if (!m) {
+        fprintf(stderr, "Runtime Error: clear! called on NULL IntMatrix\n");
+        exit(1);
+    }
+    if (m->rows != 1) {
+        fprintf(stderr, "Runtime Error: clear! is only supported on 1D arrays (rows == 1)\n");
+        exit(1);
+    }
+    m->cols = 0;
+}
+
+// --- Matrix (float) In-Place Methods ---
+
+void matrix_push_inplace(Matrix** m_ptr, double val) {
+    if (!m_ptr || !*m_ptr) {
+        fprintf(stderr, "Runtime Error: push! called on NULL Matrix\n");
+        exit(1);
+    }
+    Matrix* m = *m_ptr;
+    if (m->rows != 1) {
+        fprintf(stderr, "Runtime Error: push! is only supported on 1D arrays (rows == 1)\n");
+        exit(1);
+    }
+    long old_cols = m->cols;
+    long new_cols = old_cols + 1;
+    m->data = (double*)realloc(m->data, new_cols * sizeof(double));
+    m->data[old_cols] = val;
+    m->cols = new_cols;
+}
+
+double matrix_pop_inplace(Matrix* m) {
+    if (!m) {
+        fprintf(stderr, "Runtime Error: pop! called on NULL Matrix\n");
+        exit(1);
+    }
+    if (m->rows != 1) {
+        fprintf(stderr, "Runtime Error: pop! is only supported on 1D arrays (rows == 1)\n");
+        exit(1);
+    }
+    if (m->cols == 0) {
+        fprintf(stderr, "Runtime Error: pop! on empty array\n");
+        exit(1);
+    }
+    double val = m->data[m->cols - 1];
+    m->cols -= 1;
+    return val;
+}
+
+void matrix_insert_inplace(Matrix** m_ptr, long idx, double val) {
+    if (!m_ptr || !*m_ptr) {
+        fprintf(stderr, "Runtime Error: insert! called on NULL Matrix\n");
+        exit(1);
+    }
+    Matrix* m = *m_ptr;
+    if (m->rows != 1) {
+        fprintf(stderr, "Runtime Error: insert! is only supported on 1D arrays (rows == 1)\n");
+        exit(1);
+    }
+    if (idx < 0 || idx > m->cols) {
+        fprintf(stderr, "Runtime Error: insert! index out of bounds (index %ld, size %ld)\n", idx, m->cols);
+        exit(1);
+    }
+    long old_cols = m->cols;
+    long new_cols = old_cols + 1;
+    m->data = (double*)realloc(m->data, new_cols * sizeof(double));
+    for (long i = old_cols; i > idx; i--) {
+        m->data[i] = m->data[i - 1];
+    }
+    m->data[idx] = val;
+    m->cols = new_cols;
+}
+
+double matrix_remove_inplace(Matrix* m, long idx) {
+    if (!m) {
+        fprintf(stderr, "Runtime Error: remove! called on NULL Matrix\n");
+        exit(1);
+    }
+    if (m->rows != 1) {
+        fprintf(stderr, "Runtime Error: remove! is only supported on 1D arrays (rows == 1)\n");
+        exit(1);
+    }
+    if (idx < 0 || idx >= m->cols) {
+        fprintf(stderr, "Runtime Error: remove! index out of bounds (index %ld, size %ld)\n", idx, m->cols);
+        exit(1);
+    }
+    double removed = m->data[idx];
+    for (long i = idx; i < m->cols - 1; i++) {
+        m->data[i] = m->data[i + 1];
+    }
+    m->cols -= 1;
+    return removed;
+}
+
+void matrix_sort_inplace(Matrix* m) {
+    if (!m) {
+        fprintf(stderr, "Runtime Error: sort! called on NULL Matrix\n");
+        exit(1);
+    }
+    if (m->rows != 1) {
+        fprintf(stderr, "Runtime Error: sort! is only supported on 1D arrays (rows == 1)\n");
+        exit(1);
+    }
+    qsort(m->data, m->cols, sizeof(double), compare_doubles);
+}
+
+void matrix_reverse_inplace(Matrix* m) {
+    if (!m) {
+        fprintf(stderr, "Runtime Error: reverse! called on NULL Matrix\n");
+        exit(1);
+    }
+    if (m->rows != 1) {
+        fprintf(stderr, "Runtime Error: reverse! is only supported on 1D arrays (rows == 1)\n");
+        exit(1);
+    }
+    long i = 0, j = m->cols - 1;
+    while (i < j) {
+        double tmp = m->data[i];
+        m->data[i] = m->data[j];
+        m->data[j] = tmp;
+        i++;
+        j--;
+    }
+}
+
+void matrix_clear_inplace(Matrix* m) {
+    if (!m) {
+        fprintf(stderr, "Runtime Error: clear! called on NULL Matrix\n");
+        exit(1);
+    }
+    if (m->rows != 1) {
+        fprintf(stderr, "Runtime Error: clear! is only supported on 1D arrays (rows == 1)\n");
+        exit(1);
+    }
+    m->cols = 0;
+}

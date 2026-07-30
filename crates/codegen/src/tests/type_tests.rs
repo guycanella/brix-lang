@@ -817,3 +817,126 @@ fn test_is_function_async_closure_false() {
     let ir = result.unwrap();
     assert!(ir.contains("i64 0"));
 }
+
+fn int_array(values: &[i64]) -> Expr {
+    Expr::dummy(ExprKind::Array(
+        values
+            .iter()
+            .map(|value| Expr::dummy(ExprKind::Literal(Literal::Int(*value))))
+            .collect(),
+    ))
+}
+
+fn mut_array_method(name: &str, method: &str, args: Vec<Expr>) -> Stmt {
+    Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+        func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+            target: Box::new(Expr::dummy(ExprKind::Identifier(name.to_string()))),
+            field: method.to_string(),
+        })),
+        args,
+    })))
+}
+
+#[test]
+fn test_mut_array_push_codegen() {
+    let program = Program {
+        statements: vec![
+            Stmt::dummy(StmtKind::VariableDecl {
+                name: "items".to_string(),
+                type_hint: Some("mut int[]".to_string()),
+                value: int_array(&[1, 2]),
+                is_const: false,
+            }),
+            mut_array_method(
+                "items",
+                "push!",
+                vec![Expr::dummy(ExprKind::Literal(Literal::Int(3)))],
+            ),
+        ],
+    };
+
+    let ir = compile_program(program).expect("mutable push! should compile");
+    assert!(ir.contains("intmatrix_push_inplace"));
+}
+
+#[test]
+fn test_mut_array_immutable_receiver_rejected() {
+    let program = Program {
+        statements: vec![
+            Stmt::dummy(StmtKind::VariableDecl {
+                name: "items".to_string(),
+                type_hint: Some("int[]".to_string()),
+                value: int_array(&[1, 2]),
+                is_const: false,
+            }),
+            mut_array_method(
+                "items",
+                "push!",
+                vec![Expr::dummy(ExprKind::Literal(Literal::Int(3)))],
+            ),
+        ],
+    };
+
+    let err = compile_program(program).expect_err("immutable push! must fail");
+    assert!(err.contains("immutable variable"));
+}
+
+#[test]
+fn test_mut_array_mutability_does_not_leak_from_function_scope() {
+    let seed = Stmt::dummy(StmtKind::FunctionDef {
+        name: "seed".to_string(),
+        is_async: false,
+        type_params: vec![],
+        params: vec![],
+        return_type: None,
+        body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
+            StmtKind::VariableDecl {
+                name: "items".to_string(),
+                type_hint: Some("mut int[]".to_string()),
+                value: int_array(&[1]),
+                is_const: false,
+            },
+        )]))),
+    });
+    let program = Program {
+        statements: vec![
+            seed,
+            Stmt::dummy(StmtKind::VariableDecl {
+                name: "items".to_string(),
+                type_hint: Some("int[]".to_string()),
+                value: int_array(&[1]),
+                is_const: false,
+            }),
+            mut_array_method(
+                "items",
+                "push!",
+                vec![Expr::dummy(ExprKind::Literal(Literal::Int(2)))],
+            ),
+        ],
+    };
+
+    let err = compile_program(program).expect_err("function-local mutability must not leak");
+    assert!(err.contains("immutable variable"));
+}
+
+#[test]
+fn test_mut_array_zero_arg_methods_rejected_with_arguments() {
+    let program = Program {
+        statements: vec![
+            Stmt::dummy(StmtKind::VariableDecl {
+                name: "items".to_string(),
+                type_hint: Some("mut int[]".to_string()),
+                value: int_array(&[2, 1]),
+                is_const: false,
+            }),
+            mut_array_method(
+                "items",
+                "sort!",
+                vec![Expr::dummy(ExprKind::Literal(Literal::Int(1)))],
+            ),
+        ],
+    };
+
+    let err = compile_program(program).expect_err("sort! with arguments must fail");
+    assert!(err.contains("sort! expects 0 arguments"));
+}

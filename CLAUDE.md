@@ -197,7 +197,16 @@ Jest-style framework. 17 matchers (all support `.not.`): `toBe`, `toEqual`, `toB
 
 **Test baseline (post Phase 4, pre-v1.7):** 1,194 unit + 152 integration + 390 Test Library (23 `.test.bx` files)
 
-**Current test baseline (v1.9 Grupo A COMPLETE — import datetime):** 1,330 unit (317 lexer + 205 parser + 808 codegen) + 234 integration + 507 Test Library (29 `.test.bx` files). All green.
+**Current test baseline (v1.9 Grupo E COMPLETE — mut array operations):** 1,338 unit (312 lexer + 202 parser + 824 codegen) + 243 integration + 507 Test Library (29 `.test.bx` files). All green.
+
+**Completed in v1.9 (Grupo E):**
+- **Grupo E — Mutabilidade Controlada de Arrays (`mut`) — COMPLETE:**
+  - `mut` keyword token in lexer (`token.rs`).
+  - Parser support for `mut` in type annotations (`mut int[]`, `mut float[]`), allowing both `=` and `:=` after explicit type annotations (`stmt.rs`), and parsing method calls with optional trailing `!` (e.g. `push!`, `pop!`, `insert!`, `remove!`, `sort!`, `reverse!`, `clear!`).
+  - Aliasing & Variable Mutability Tracking: `Compiler::mutable_variables: HashSet<String>` tracks variables declared with `mut`. Calling in-place methods (`!`) on immutable variables returns a `CodegenError::InvalidOperation`.
+  - Receiver scope restriction: in-place methods (`!`) are strictly restricted to plain variable identifiers (`ExprKind::Identifier`).
+  - C Runtime (`runtime.c` `SECTION 1.9`): 14 in-place array functions (`intmatrix_push_inplace`, `intmatrix_pop_inplace`, `intmatrix_insert_inplace`, `intmatrix_remove_inplace`, `intmatrix_sort_inplace`, `intmatrix_reverse_inplace`, `intmatrix_clear_inplace`, and float `matrix_*_inplace` equivalents). All restricted to 1D arrays (`rows == 1`), raising runtime error on 2D matrices or empty `pop!` / OOB `insert!`/`remove!`.
+  - Integration tests 246–250 (`246_mut_array_push_pop.bx`, `247_mut_array_sort_inplace.bx`, `248_mut_immut_mix.bx`, `mut_array_on_immutable.bx`, `mut_array_non_identifier.bx`). All tests passing 100%.
 
 **Completed in v1.9 (Grupo A):**
 - **Grupo A — `import datetime` — COMPLETE:**

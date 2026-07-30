@@ -87,8 +87,17 @@ fn type_annotation_parser() -> impl Parser<Token, String, Error = Simple<Token>>
                 format!("({}) -> {}", params.join(", "), ret)
             });
 
+        // Optional mutability modifier: mut int[], mut float[]
+        let mut_prefix = just(Token::Mut).or_not();
+
         // Any single type: closure type or base identifier type
-        let single_type = fn_type.or(base_type);
+        let single_type = mut_prefix.then(fn_type.or(base_type)).map(|(opt_mut, t)| {
+            if opt_mut.is_some() {
+                format!("mut {}", t)
+            } else {
+                t
+            }
+        });
 
         // Array type suffix: int[], float[], etc.
         let array_type = single_type
@@ -271,10 +280,10 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
             .or(just(Token::Const).to(true))
             .then(select! { Token::Identifier(name) => name })
             .then(
-                // Path 1: Explicit (: int =) or (: int? =)
+                // Path 1: Explicit (: int =) or (: int? = / :=)
                 just(Token::Colon)
                     .ignore_then(type_annotation_parser())
-                    .then_ignore(just(Token::Eq))
+                    .then_ignore(just(Token::Eq).or(just(Token::ColonEq)))
                     .map(Some)
                     // Path 2: Inference (:=)
                     .or(just(Token::ColonEq).to(None)),
@@ -1343,7 +1352,13 @@ where
                         select! { Token::Identifier(name) => name }
                             .or(just(Token::Not).to("not".to_string())),
                     )
-                    .map(PostfixOp::Field)
+                    .then(just(Token::Not).or_not())
+                    .map(|(mut name, opt_bang)| {
+                        if opt_bang.is_some() {
+                            name.push('!');
+                        }
+                        PostfixOp::Field(name)
+                    })
                     // Index: [expr]
                     .or(expr
                         .clone()

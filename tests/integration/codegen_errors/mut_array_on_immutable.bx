@@ -1,0 +1,4 @@
+// Calling in-place mutable method on immutable variable must fail at codegen
+
+var a: int[] := [1, 2, 3]
+a.push!(4)
