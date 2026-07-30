@@ -2,7 +2,7 @@
 //
 // Tests for async fn, async { } blocks, and await expressions.
 
-use crate::ast::{ExprKind, Stmt, StmtKind, MethodDef};
+use crate::ast::{ExprKind, MethodDef, Stmt, StmtKind};
 use crate::parser::parser;
 use chumsky::Parser;
 use lexer::token::Token;
@@ -37,7 +37,13 @@ fn parse_expr(input: &str) -> Result<crate::ast::Expr, String> {
 fn test_async_fn_simple() {
     let stmt = parse_stmt("async fn fetch() { }").unwrap();
     match &stmt.kind {
-        StmtKind::FunctionDef { name, is_async, params, return_type, .. } => {
+        StmtKind::FunctionDef {
+            name,
+            is_async,
+            params,
+            return_type,
+            ..
+        } => {
             assert_eq!(name, "fetch");
             assert_eq!(*is_async, true);
             assert!(params.is_empty());
@@ -63,7 +69,13 @@ fn test_sync_fn_is_not_async() {
 fn test_async_fn_with_return_type() {
     let stmt = parse_stmt("async fn get_user(id: int) -> int { return id }").unwrap();
     match &stmt.kind {
-        StmtKind::FunctionDef { name, is_async, params, return_type, .. } => {
+        StmtKind::FunctionDef {
+            name,
+            is_async,
+            params,
+            return_type,
+            ..
+        } => {
             assert_eq!(name, "get_user");
             assert_eq!(*is_async, true);
             assert_eq!(params.len(), 1);
@@ -78,9 +90,15 @@ fn test_async_fn_with_return_type() {
 
 #[test]
 fn test_async_fn_multiple_params() {
-    let stmt = parse_stmt("async fn send(url: string, body: string) -> int { return 200 }").unwrap();
+    let stmt =
+        parse_stmt("async fn send(url: string, body: string) -> int { return 200 }").unwrap();
     match &stmt.kind {
-        StmtKind::FunctionDef { name, is_async, params, .. } => {
+        StmtKind::FunctionDef {
+            name,
+            is_async,
+            params,
+            ..
+        } => {
             assert_eq!(name, "send");
             assert_eq!(*is_async, true);
             assert_eq!(params.len(), 2);
@@ -95,7 +113,13 @@ fn test_async_fn_multiple_params() {
 fn test_async_fn_void_no_params() {
     let stmt = parse_stmt("async fn main() { }").unwrap();
     match &stmt.kind {
-        StmtKind::FunctionDef { name, is_async, params, return_type, .. } => {
+        StmtKind::FunctionDef {
+            name,
+            is_async,
+            params,
+            return_type,
+            ..
+        } => {
             assert_eq!(name, "main");
             assert_eq!(*is_async, true);
             assert!(params.is_empty());
@@ -111,7 +135,13 @@ fn test_async_fn_void_no_params() {
 fn test_async_method() {
     let stmt = parse_stmt("async fn (c: Client) fetch(url: string) -> int { return 200 }").unwrap();
     match &stmt.kind {
-        StmtKind::MethodDef(MethodDef { is_async, receiver_name, receiver_type, method_name, .. }) => {
+        StmtKind::MethodDef(MethodDef {
+            is_async,
+            receiver_name,
+            receiver_type,
+            method_name,
+            ..
+        }) => {
             assert_eq!(*is_async, true);
             assert_eq!(receiver_name, "c");
             assert_eq!(receiver_type, "Client");
@@ -177,7 +207,10 @@ fn test_async_closure_no_params_is_async() {
     let expr = parse_expr("async () -> { }").unwrap();
     match &expr.kind {
         ExprKind::Closure(closure) => {
-            assert_eq!(closure.is_async, true, "async closure should have is_async=true");
+            assert_eq!(
+                closure.is_async, true,
+                "async closure should have is_async=true"
+            );
             assert!(closure.params.is_empty());
             assert!(closure.return_type.is_none());
         }
@@ -218,7 +251,10 @@ fn test_sync_closure_is_not_async() {
     let expr = parse_expr("(x: int) -> int { return x }").unwrap();
     match &expr.kind {
         ExprKind::Closure(closure) => {
-            assert_eq!(closure.is_async, false, "Regular closure should have is_async=false");
+            assert_eq!(
+                closure.is_async, false,
+                "Regular closure should have is_async=false"
+            );
         }
         _ => panic!("Expected Closure, got {:?}", expr.kind),
     }

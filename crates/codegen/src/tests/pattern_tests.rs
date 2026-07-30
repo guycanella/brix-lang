@@ -2383,7 +2383,10 @@ fn test_match_non_exhaustive_is_rejected() {
         "".to_string(),
     );
     let result = compiler.compile_program(&program);
-    assert!(result.is_err(), "expected a match with only literal arms (no wildcard/binding) to be rejected as non-exhaustive");
+    assert!(
+        result.is_err(),
+        "expected a match with only literal arms (no wildcard/binding) to be rejected as non-exhaustive"
+    );
 }
 
 #[test]
@@ -2471,7 +2474,11 @@ fn test_match_with_root_binding_arm_is_exhaustive_without_wildcard() {
         "".to_string(),
     );
     let result = compiler.compile_program(&program);
-    assert!(result.is_ok(), "expected a match with a root-level Binding arm (no explicit wildcard) to be accepted as exhaustive, got: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "expected a match with a root-level Binding arm (no explicit wildcard) to be accepted as exhaustive, got: {:?}",
+        result
+    );
 }
 
 #[test]

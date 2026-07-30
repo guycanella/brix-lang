@@ -1,0 +1,83 @@
+import test
+import json
+
+test.describe("JSON module (v1.9 Grupo B)", () -> {
+    test.it("constructors and tags", () -> {
+        var n := json.null()
+        var b := json.bool(1)
+        var i := json.int(42)
+        var f := json.float(3.14)
+        var s := json.string("hello")
+        var a := json.array()
+        var o := json.object()
+
+        test.expect(json.tag(n)).toBe(0)
+        test.expect(json.tag(b)).toBe(1)
+        test.expect(json.tag(i)).toBe(2)
+        test.expect(json.tag(f)).toBe(3)
+        test.expect(json.tag(s)).toBe(4)
+        test.expect(json.tag(a)).toBe(5)
+        test.expect(json.tag(o)).toBe(6)
+    })
+
+    test.it("parse object and index access", () -> {
+        var parsed := json.parse("{\"name\": \"Alice\", \"age\": 30}")
+        test.expect(parsed != nil).toBeTruthy()
+        if parsed != nil {
+            var name := parsed["name"]
+            var age := parsed["age"]
+            test.expect(name != nil).toBeTruthy()
+            test.expect(age != nil).toBeTruthy()
+            test.expect(json.as_string(name)).toBe("Alice")
+            test.expect(json.as_int(age)).toBe(30)
+        }
+    })
+
+    test.it("missing key and OOB array index return nil", () -> {
+        var obj := json.object()
+        var missing_key := obj["nonexistent"]
+        test.expect(missing_key == nil).toBeTruthy()
+
+        var arr := json.array()
+        var oob_idx := arr[10]
+        test.expect(oob_idx == nil).toBeTruthy()
+    })
+
+    test.it("incompatible extractors return nil", () -> {
+        var i := json.int(100)
+        var str_res := json.as_string(i)
+        test.expect(str_res == nil).toBeTruthy()
+
+        var s := json.string("test")
+        var int_res := json.as_int(s)
+        test.expect(int_res == nil).toBeTruthy()
+    })
+
+    test.it("stringify compact and pretty deterministic", () -> {
+        var obj := json.object()
+        json.set(obj, "title", json.string("brix"))
+        json.set(obj, "ver", json.int(1))
+
+        test.expect(json.stringify(obj)).toBe("{\"title\":\"brix\",\"ver\":1}")
+        test.expect(json.stringify_pretty(obj, 2)).toBe("{\n  \"title\": \"brix\",\n  \"ver\": 1\n}")
+    })
+
+    test.it("escaped strings and unicode hex", () -> {
+        var parsed := json.parse("{\"line\": \"a\\nb\", \"letter\": \"\\u0042\"}")
+        test.expect(parsed != nil).toBeTruthy()
+        if parsed != nil {
+            test.expect(json.as_string(parsed["line"])).toBe("a\nb")
+            test.expect(json.as_string(parsed["letter"])).toBe("B")
+        }
+    })
+
+    test.it("cycle prevention on set and array_push", () -> {
+        var obj := json.object()
+        json.set(obj, "self", obj)
+        test.expect(json.stringify(obj)).toBe("{}")
+
+        var arr := json.array()
+        json.array_push(arr, arr)
+        test.expect(json.stringify(arr)).toBe("[]")
+    })
+})

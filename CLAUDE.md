@@ -21,24 +21,24 @@ cargo build --release
 
 **Run Rust unit tests:**
 ```bash
-cargo test -p lexer -p parser -p codegen  # All unit tests: 312 + 202 + 753 = 1,267 (all passing)
+cargo test -p lexer -p parser -p codegen  # All unit tests: 312 + 202 + 824 = 1,338 (all passing)
 cargo test -p lexer                       # Only lexer (312 tests)
 cargo test -p parser                      # Only parser (202 tests)
-cargo test -p codegen                     # Only codegen (753 tests)
-cargo test -p codegen arc_tests           # Specific test module in codegen
+cargo test -p codegen                     # Only codegen (824 tests)
+cargo test -p codegen json_tests          # Specific test module in codegen
 cargo test <pattern>                      # Tests matching pattern
 cargo test -- --nocapture                 # Show println! output
 ```
 
 **Run integration tests (must be sequential):**
 ```bash
-cargo test --test integration_test -- --test-threads=1
+cargo test --test integration_test -- --test-threads=1 # 238 tests passing
 ```
 
 **Run Brix language tests (Test Library):**
 ```bash
-cargo run -- test                   # All *.test.bx and *.spec.bx
-cargo run -- test math              # Files matching "math" in path
+cargo run -- test                   # All *.test.bx and *.spec.bx (30 suites passing)
+cargo run -- test json              # Files matching "json" in path
 ```
 
 **Clean build (fixes most linking errors):**

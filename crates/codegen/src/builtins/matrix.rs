@@ -4,8 +4,8 @@
 // functions operating on Matrix (f64) and IntMatrix (i64).
 
 use crate::Compiler;
-use inkwell::module::Linkage;
 use inkwell::AddressSpace;
+use inkwell::module::Linkage;
 
 /// Trait for array-method runtime function declarations (v1.7 Group B).
 pub trait MatrixFunctions<'ctx> {

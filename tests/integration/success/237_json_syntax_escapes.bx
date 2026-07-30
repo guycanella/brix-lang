@@ -1,0 +1,11 @@
+import json
+
+var parsed := json.parse("{\"escaped\": \"hello\\nworld\", \"hex\": \"\\u0041\", \"sci\": 1e3}")
+if parsed != nil {
+    println(json.as_string(parsed["escaped"]))
+    println(json.as_string(parsed["hex"]))
+    println(json.as_int(parsed["sci"]))
+}
+
+var invalid := json.parse("{invalid_json}")
+println(invalid == nil)

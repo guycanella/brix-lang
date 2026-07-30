@@ -1,0 +1,13 @@
+import json
+
+var data := json.parse("{\"user\": {\"id\": 101, \"tags\": [\"admin\", \"dev\"]}}")
+if data != nil {
+    var user := data["user"]
+    if user != nil {
+        var tags := user["tags"]
+        if tags != nil {
+            var first_tag := tags[0]
+            println(json.as_string(first_tag))
+        }
+    }
+}

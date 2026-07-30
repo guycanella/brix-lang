@@ -20,8 +20,8 @@
 
 use crate::helpers::HelperFunctions;
 use crate::{CodegenError, CodegenResult, Compiler};
-use inkwell::types::BasicType;
 use inkwell::AddressSpace;
+use inkwell::types::BasicType;
 use parser::ast::Expr;
 
 /// Trait for statement compilation helper methods
@@ -493,6 +493,12 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
             self.declare_datetime_functions();
         }
 
+        // Register json functions when importing json module
+        if module == "json" {
+            use crate::builtins::json::JsonFunctions;
+            self.declare_json_functions();
+        }
+
         self.imported_modules.push((module.to_string(), prefix));
 
         Ok(())
@@ -728,9 +734,7 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
 
                     // ARC: retain a borrowed ref-counted inner value so the union
                     // co-owns it; a temporary is already owned (taken as-is).
-                    if Compiler::is_ref_counted(&val_type)
-                        && Compiler::is_borrowed_ref_expr(&value.kind)
-                    {
+                    if Compiler::is_ref_counted(&val_type) && self.is_borrowed_ref_expr(value) {
                         final_val = self.insert_retain(final_val, &val_type)?;
                     }
 
@@ -860,6 +864,7 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
             | BrixType::MaxHeap(_)
             | BrixType::HashMap(_, _)
             | BrixType::DateTime
+            | BrixType::Json
             | BrixType::Error => self.context.ptr_type(AddressSpace::default()).into(),
             BrixType::Complex => {
                 // Allocate space for complex struct { f64, f64 }
@@ -915,7 +920,7 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
                 _ => false,
             };
 
-        let should_retain = has_rc && Compiler::is_borrowed_ref_expr(&value.kind);
+        let should_retain = has_rc && self.is_borrowed_ref_expr(value);
 
         if should_retain {
             if let BrixType::Union(types) = &val_type {
@@ -1284,7 +1289,7 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
             // entire `{ tag, value }` struct as the union's value field.
             if val_type == target_type {
                 if Compiler::union_has_ref_counted_variant(types)
-                    && Compiler::is_borrowed_ref_expr(&value.kind)
+                    && self.is_borrowed_ref_expr(value)
                 {
                     self.insert_union_retain(final_val, types)?;
                 }
@@ -1364,7 +1369,7 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
                         BrixType::Union(types) => Self::union_has_ref_counted_variant(types),
                         _ => false,
                     };
-                if active_has_rc && Compiler::is_borrowed_ref_expr(&value.kind) {
+                if active_has_rc && self.is_borrowed_ref_expr(value) {
                     if let BrixType::Union(types) = &final_type {
                         self.insert_union_retain(final_val, types)?;
                     } else {

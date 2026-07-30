@@ -12,6 +12,7 @@ mod expr_tests;
 mod function_tests;
 mod generic_tests;
 mod integration_tests;
+mod json_tests;
 mod matrix_tests;
 mod optional_tests;
 mod pattern_tests;

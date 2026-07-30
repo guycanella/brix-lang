@@ -2,8 +2,8 @@
 //
 // Tests for parser error handling and recovery.
 
-use crate::parser::parser;
 use crate::error;
+use crate::parser::parser;
 use chumsky::Parser;
 use lexer::token::Token;
 use logos::Logos;
@@ -21,10 +21,7 @@ fn parse(input: &str) -> bool {
     }
 
     // Extract tokens for parsing
-    let tokens: Vec<Token> = tokens_with_spans
-        .iter()
-        .map(|(t, _)| t.clone())
-        .collect();
+    let tokens: Vec<Token> = tokens_with_spans.iter().map(|(t, _)| t.clone()).collect();
 
     parser().parse(tokens).is_ok()
 }

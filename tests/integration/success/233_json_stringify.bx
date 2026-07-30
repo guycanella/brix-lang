@@ -1,0 +1,7 @@
+import json
+
+var obj := json.object()
+json.set(obj, "name", json.string("Bob"))
+json.set(obj, "age", json.int(25))
+json.set(obj, "active", json.bool(1))
+println(json.stringify(obj))

@@ -632,6 +632,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             "intmatrix" => BrixType::IntMatrix,
             "complex" => BrixType::Complex,
             "datetime" | "DateTime" => BrixType::DateTime,
+            "json" | "Json" => BrixType::Json,
             "nil" => BrixType::Nil,
             "error" => BrixType::Error,
             "atom" => BrixType::Atom,
@@ -718,6 +719,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             }
             BrixType::DateTime => {
                 // DateTime is a pointer to the heap BrixDateTime struct.
+                self.context.ptr_type(AddressSpace::default()).into()
+            }
+            BrixType::Json => {
+                // Json is a pointer to the heap JsonValue struct.
                 self.context.ptr_type(AddressSpace::default()).into()
             }
             BrixType::Void => self.context.i64_type().into(), // Placeholder (shouldn't be used)
@@ -1266,6 +1271,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 | BrixType::MaxHeap(_)
                 | BrixType::HashMap(_, _)
                 | BrixType::DateTime
+                | BrixType::Json
         )
     }
 
@@ -1326,6 +1332,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             BrixType::MaxHeap(_) => "brix_vector_retain",
             BrixType::HashMap(_, _) => "brix_hashmap_retain",
             BrixType::DateTime => "datetime_retain",
+            BrixType::Json => "json_retain",
             _ => unreachable!("is_ref_counted should have filtered this"),
         };
 
@@ -1385,6 +1392,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             BrixType::MaxHeap(_) => "brix_vector_release",
             BrixType::HashMap(_, _) => "brix_hashmap_release",
             BrixType::DateTime => "datetime_release",
+            BrixType::Json => "json_release",
             _ => unreachable!("is_ref_counted should have filtered this"),
         };
 
@@ -1582,12 +1590,23 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     /// Vector<string>.get(), which returns an owned/retained value) — produces
     /// an OWNED temporary. Distinct from is_print_temp on purpose: ownership
     /// decisions must not be coupled to print-release heuristics.
-    fn is_borrowed_ref_expr(expr_kind: &parser::ast::ExprKind) -> bool {
+    pub(crate) fn is_borrowed_ref_expr(&self, expr: &parser::ast::Expr) -> bool {
         use parser::ast::ExprKind;
-        matches!(
-            expr_kind,
-            ExprKind::Identifier(_) | ExprKind::FieldAccess { .. } | ExprKind::Index { .. }
-        )
+        match &expr.kind {
+            ExprKind::Identifier(_) | ExprKind::FieldAccess { .. } => true,
+            ExprKind::Index { array, .. } => {
+                if let Some(target_type) = self.infer_expr_type_static(array, &[]) {
+                    match target_type {
+                        BrixType::HashMap(_, _) | BrixType::Json => false,
+                        BrixType::Union(ref ts) if ts.contains(&BrixType::Json) => false,
+                        _ => true,
+                    }
+                } else {
+                    true
+                }
+            }
+            _ => false,
+        }
     }
 
     /// Release all ref-counted variables in current function scope.
@@ -1727,7 +1746,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 return Err(CodegenError::General(format!(
                     "Stored generic '{}' is not a function",
                     func_name
-                )))
+                )));
             }
         };
 
@@ -1832,7 +1851,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 return Err(CodegenError::General(format!(
                     "Stored generic '{}' is not a function",
                     func_name
-                )))
+                )));
             }
         };
 
@@ -4377,7 +4396,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         | BrixType::MinHeap(_)
                         | BrixType::MaxHeap(_)
                         | BrixType::HashMap(_, _)
-                        | BrixType::DateTime => {
+                        | BrixType::DateTime
+                        | BrixType::Json => {
                             // Vector<T>/Stack<T>/Queue<T>/MinHeap<T>/MaxHeap<T>/
                             // HashMap<K,V>/DateTime are stored as an opaque heap-struct pointer.
                             let ptr_type = self.context.ptr_type(AddressSpace::default());
@@ -4638,16 +4658,15 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     // use-after-free). When the LHS is an OWNED temporary
                     // (literal/concat/call result, e.g. Vector<string>.pop()), the
                     // inner value is already owned — do NOT retain (would leak).
-                    let lhs_result = if Self::is_ref_counted(&lhs_result.1)
-                        && Self::is_borrowed_ref_expr(&lhs.kind)
-                    {
-                        (
-                            self.insert_retain(lhs_result.0, &lhs_result.1)?,
-                            lhs_result.1,
-                        )
-                    } else {
-                        lhs_result
-                    };
+                    let lhs_result =
+                        if Self::is_ref_counted(&lhs_result.1) && self.is_borrowed_ref_expr(lhs) {
+                            (
+                                self.insert_retain(lhs_result.0, &lhs_result.1)?,
+                                lhs_result.1,
+                            )
+                        } else {
+                            lhs_result
+                        };
 
                     self.builder
                         .build_unconditional_branch(merge_bb)
@@ -4663,13 +4682,12 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     // Normalize the default branch too: a borrowed ref-counted
                     // default (a variable/field) must be retained so both Elvis
                     // branches yield an OWNED value. A temporary is already owned.
-                    let rhs_val = if Self::is_ref_counted(&lhs_result.1)
-                        && Self::is_borrowed_ref_expr(&rhs.kind)
-                    {
-                        self.insert_retain(rhs_val, &lhs_result.1)?
-                    } else {
-                        rhs_val
-                    };
+                    let rhs_val =
+                        if Self::is_ref_counted(&lhs_result.1) && self.is_borrowed_ref_expr(rhs) {
+                            self.insert_retain(rhs_val, &lhs_result.1)?
+                        } else {
+                            rhs_val
+                        };
                     self.builder
                         .build_unconditional_branch(merge_bb)
                         .map_err(|_| CodegenError::LLVMError {
@@ -5240,6 +5258,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             | BrixType::ComplexMatrix
                             | BrixType::FloatPtr
                             | BrixType::DateTime
+                            | BrixType::Json
                     )
                 };
 
@@ -5816,7 +5835,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                 operation: format!("{:?}", op),
                                 reason: "Only == and != are supported for atoms".to_string(),
                                 span: Some(expr.span.clone()),
-                            })
+                            });
                         }
                     };
                     let result = self
@@ -6198,6 +6217,25 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             }
                             let (res_val, res_type) =
                                 self.compile_datetime_call(fn_name, &compiled_args, &arg_types)?;
+                            return Ok((res_val, res_type));
+                        }
+
+                        // Check if this is a json module function
+                        let is_json = self
+                            .imported_modules
+                            .iter()
+                            .any(|(m, p)| m == "json" && p == _module_name);
+                        if is_json {
+                            use crate::builtins::json::JsonFunctions;
+                            let mut compiled_args = Vec::new();
+                            let mut arg_types = Vec::new();
+                            for arg in args {
+                                let (arg_val, arg_type) = self.compile_expr(arg)?;
+                                compiled_args.push(arg_val);
+                                arg_types.push(arg_type);
+                            }
+                            let (res_val, res_type) =
+                                self.compile_json_call(fn_name, &compiled_args, &arg_types)?;
                             return Ok((res_val, res_type));
                         }
 
@@ -6725,6 +6763,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                         BrixType::String => "string",
                                         BrixType::Nil => "nil",
                                         BrixType::DateTime => "datetime",
+                                        BrixType::Json => "json",
                                         BrixType::Struct(name) => name.as_str(),
                                         _ => "unknown",
                                     })
@@ -6744,6 +6783,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             }
                             BrixType::AsyncFuture => "async_future".to_string(),
                             BrixType::DateTime => "datetime".to_string(),
+                            BrixType::Json => "json".to_string(),
                         };
 
                         return self.compile_expr(&Expr::dummy(ExprKind::Literal(
@@ -9032,7 +9072,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         "cols" => 2,
                         "data" => 3,
                         _ => {
-                            return Err(CodegenError::General(format!("unknown field '{}'", field)))
+                            return Err(CodegenError::General(format!(
+                                "unknown field '{}'",
+                                field
+                            )));
                         }
                     };
 
@@ -9185,6 +9228,42 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     return self.compile_hashmap_method(
                         target_val, &key_type, &val_type, "get", indices, expr,
                     );
+                }
+
+                // Json indexing sugar: v[key] -> json.get(v, key), v[i] -> json.index(v, i).
+                // Returns Union(Json, Nil) (Json?), distinguishing valid JSON null from missing key/OOB.
+                let is_json_target = matches!(&target_type, BrixType::Json)
+                    || matches!(&target_type, BrixType::Union(ts) if ts.contains(&BrixType::Json));
+                if is_json_target {
+                    if indices.len() != 1 {
+                        return Err(CodegenError::InvalidOperation {
+                            operation: "Json index".to_string(),
+                            reason: "expects exactly one key or integer index".to_string(),
+                            span: Some(expr.span.clone()),
+                        });
+                    }
+                    let (idx_val, idx_type) = self.compile_expr(&indices[0])?;
+                    use crate::builtins::json::JsonFunctions;
+                    if idx_type == BrixType::String {
+                        return self.compile_json_call(
+                            "get",
+                            &[target_val, idx_val],
+                            &[target_type.clone(), idx_type],
+                        );
+                    } else if idx_type == BrixType::Int {
+                        return self.compile_json_call(
+                            "index",
+                            &[target_val, idx_val],
+                            &[target_type.clone(), idx_type],
+                        );
+                    } else {
+                        return Err(CodegenError::TypeError {
+                            expected: "String or Int index".to_string(),
+                            found: format!("{:?}", idx_type),
+                            context: "Json indexing".to_string(),
+                            span: Some(expr.span.clone()),
+                        });
+                    }
                 }
 
                 // Support both Matrix (f64*) and IntMatrix (i64*)
@@ -10280,6 +10359,22 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 Ok(str_val)
             }
 
+            BrixType::Json => {
+                use crate::builtins::json::JsonFunctions;
+                self.declare_json_functions();
+                let stringify_fn = self.module.get_function("json_stringify").unwrap();
+                let call = self
+                    .builder
+                    .build_call(stringify_fn, &[val.into()], "json_str_val")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: "Failed to call json_stringify in value_to_string".to_string(),
+                        span: None,
+                    })?;
+                let str_val = call.try_as_basic_value().left().unwrap();
+                Ok(str_val)
+            }
+
             BrixType::Int => {
                 // Use sprintf to convert int to string
                 let sprintf_fn = self.get_sprintf();
@@ -10318,11 +10413,31 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         span: None,
                     })?;
 
+                let int_val = if val.is_pointer_value() {
+                    self.builder
+                        .build_load(
+                            self.context.i64_type(),
+                            val.into_pointer_value(),
+                            "loaded_int",
+                        )
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_load".to_string(),
+                            details: "Failed to load int pointer in value_to_string".to_string(),
+                            span: None,
+                        })?
+                } else {
+                    val
+                };
+
                 // Call sprintf
                 self.builder
                     .build_call(
                         sprintf_fn,
-                        &[buffer.into(), fmt_str.as_pointer_value().into(), val.into()],
+                        &[
+                            buffer.into(),
+                            fmt_str.as_pointer_value().into(),
+                            int_val.into(),
+                        ],
                         "sprintf_int",
                     )
                     .map_err(|_| CodegenError::LLVMError {
@@ -10406,11 +10521,31 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         span: None,
                     })?;
 
+                let float_val = if val.is_pointer_value() {
+                    self.builder
+                        .build_load(
+                            self.context.f64_type(),
+                            val.into_pointer_value(),
+                            "loaded_float",
+                        )
+                        .map_err(|_| CodegenError::LLVMError {
+                            operation: "build_load".to_string(),
+                            details: "Failed to load float pointer in value_to_string".to_string(),
+                            span: None,
+                        })?
+                } else {
+                    val
+                };
+
                 // Call sprintf
                 self.builder
                     .build_call(
                         sprintf_fn,
-                        &[buffer.into(), fmt_str.as_pointer_value().into(), val.into()],
+                        &[
+                            buffer.into(),
+                            fmt_str.as_pointer_value().into(),
+                            float_val.into(),
+                        ],
                         "sprintf_float",
                     )
                     .map_err(|_| CodegenError::LLVMError {
@@ -13668,7 +13803,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 // source is an OWNED temporary (literal/concat/call result, e.g.
                 // v.get(0)), release our temp reference so the vector owns exactly
                 // one. A borrowed source (a variable/field) keeps its own ref.
-                if Self::is_ref_counted(elem_type) && !Self::is_borrowed_ref_expr(&args[0].kind) {
+                if Self::is_ref_counted(elem_type) && !self.is_borrowed_ref_expr(&args[0]) {
                     self.insert_release(val.into_pointer_value(), elem_type)?;
                 }
                 Ok((i64_type.const_int(0, false).into(), BrixType::Void))
@@ -13802,7 +13937,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 // ARC: same as push — the runtime released the old element and
                 // retained the new one. Release our temp reference to an owned
                 // temporary new value; keep a borrowed source's ref.
-                if Self::is_ref_counted(elem_type) && !Self::is_borrowed_ref_expr(&args[1].kind) {
+                if Self::is_ref_counted(elem_type) && !self.is_borrowed_ref_expr(&args[1]) {
                     self.insert_release(val.into_pointer_value(), elem_type)?;
                 }
                 Ok((i64_type.const_int(0, false).into(), BrixType::Void))
@@ -14250,7 +14385,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     })?;
                 // ARC: the runtime retained the element for the stack. Release our
                 // temp reference only for an owned temporary source.
-                if Self::is_ref_counted(elem_type) && !Self::is_borrowed_ref_expr(&args[0].kind) {
+                if Self::is_ref_counted(elem_type) && !self.is_borrowed_ref_expr(&args[0]) {
                     self.insert_release(val.into_pointer_value(), elem_type)?;
                 }
                 Ok((i64_type.const_int(0, false).into(), BrixType::Void))
@@ -14778,7 +14913,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 // ARC: brix_heap_push (via brix_vector_push) retained the element
                 // for the heap. Release our temp reference only for an owned
                 // temporary source.
-                if Self::is_ref_counted(elem_type) && !Self::is_borrowed_ref_expr(&args[0].kind) {
+                if Self::is_ref_counted(elem_type) && !self.is_borrowed_ref_expr(&args[0]) {
                     self.insert_release(val.into_pointer_value(), elem_type)?;
                 }
                 Ok((i64_type.const_int(0, false).into(), BrixType::Void))
@@ -15304,10 +15439,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 // it actually keeps the reference — see the C contract). Release
                 // our temp reference for each arg independently, only for an owned
                 // temporary source (not a borrowed identifier/field/index).
-                if Self::is_ref_counted(key_type) && !Self::is_borrowed_ref_expr(&args[0].kind) {
+                if Self::is_ref_counted(key_type) && !self.is_borrowed_ref_expr(&args[0]) {
                     self.insert_release(key_val.into_pointer_value(), key_type)?;
                 }
-                if Self::is_ref_counted(val_type) && !Self::is_borrowed_ref_expr(&args[1].kind) {
+                if Self::is_ref_counted(val_type) && !self.is_borrowed_ref_expr(&args[1]) {
                     self.insert_release(value_val.into_pointer_value(), val_type)?;
                 }
                 Ok((i64_type.const_int(0, false).into(), BrixType::Void))
@@ -15418,7 +15553,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 // brix_hashmap_get never stores the key, it only reads it (unlike
                 // set(), which may retain it). Same independent-of-outcome rule as
                 // set()'s key release.
-                if Self::is_ref_counted(key_type) && !Self::is_borrowed_ref_expr(&args[0].kind) {
+                if Self::is_ref_counted(key_type) && !self.is_borrowed_ref_expr(&args[0]) {
                     self.insert_release(key_val.into_pointer_value(), key_type)?;
                 }
 
@@ -15565,7 +15700,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     })?;
                 // ARC: brix_hashmap_has never stores the key, only reads it — release
                 // our temp key reference if it was an owned temporary.
-                if Self::is_ref_counted(key_type) && !Self::is_borrowed_ref_expr(&args[0].kind) {
+                if Self::is_ref_counted(key_type) && !self.is_borrowed_ref_expr(&args[0]) {
                     self.insert_release(key_val.into_pointer_value(), key_type)?;
                 }
                 Ok((flag, BrixType::Int))
@@ -15624,7 +15759,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 // ARC: brix_hashmap_delete releases the STORED key/value itself (if
                 // found), but never takes ownership of the key argument we passed in
                 // — release our temp key reference if it was an owned temporary.
-                if Self::is_ref_counted(key_type) && !Self::is_borrowed_ref_expr(&args[0].kind) {
+                if Self::is_ref_counted(key_type) && !self.is_borrowed_ref_expr(&args[0]) {
                     self.insert_release(key_val.into_pointer_value(), key_type)?;
                 }
                 Ok((i64_type.const_int(0, false).into(), BrixType::Void))
@@ -15684,7 +15819,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             found: format!("{:?}", key_type),
                             context: "HashMap.keys".to_string(),
                             span: Some(expr.span.clone()),
-                        })
+                        });
                     }
                 };
                 let keys_fn = self.module.get_function(fn_name).unwrap_or_else(|| {
@@ -15866,7 +16001,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     })?;
                 // ARC: the runtime retained the element for the queue. Release our
                 // temp reference only for an owned temporary source.
-                if Self::is_ref_counted(elem_type) && !Self::is_borrowed_ref_expr(&args[0].kind) {
+                if Self::is_ref_counted(elem_type) && !self.is_borrowed_ref_expr(&args[0]) {
                     self.insert_release(val.into_pointer_value(), elem_type)?;
                 }
                 Ok((i64_type.const_int(0, false).into(), BrixType::Void))
@@ -16668,6 +16803,32 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 })
             }
             ExprKind::FString { .. } => Some(BrixType::String),
+            ExprKind::FieldAccess { target, field } => {
+                if let Some(target_type) = self.infer_expr_type_static(target, params) {
+                    match target_type {
+                        BrixType::Struct(struct_name) => {
+                            if let Some(fields) = self.struct_defs.get(&struct_name) {
+                                if let Some((_, field_type, _)) =
+                                    fields.iter().find(|(f_name, _, _)| f_name == field)
+                                {
+                                    return Some(field_type.clone());
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                None
+            }
+            ExprKind::Index { array, .. } => match self.infer_expr_type_static(array, params) {
+                Some(BrixType::StringMatrix) => Some(BrixType::String),
+                Some(BrixType::Json) => Some(BrixType::Union(vec![BrixType::Json, BrixType::Nil])),
+                Some(BrixType::HashMap(_, v)) => Some(BrixType::Union(vec![*v, BrixType::Nil])),
+                Some(BrixType::Union(ref ts)) if ts.contains(&BrixType::Json) => {
+                    Some(BrixType::Union(vec![BrixType::Json, BrixType::Nil]))
+                }
+                _ => None,
+            },
             _ => None,
         }
     }

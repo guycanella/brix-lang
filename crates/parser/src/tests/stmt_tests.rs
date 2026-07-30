@@ -403,10 +403,7 @@ fn test_method_with_params() {
 fn test_method_void() {
     let stmt = parse_stmt("fn (p: Point) reset() { p = 0 }").unwrap();
     match &stmt.kind {
-        StmtKind::MethodDef(MethodDef {
-            return_type,
-            ..
-        }) => {
+        StmtKind::MethodDef(MethodDef { return_type, .. }) => {
             assert_eq!(*return_type, None);
         }
         _ => panic!("Expected method def"),
@@ -437,7 +434,9 @@ fn test_method_and_function_in_same_program() {
     // Critical test: both methods and functions in same program
     let input = "fn (p: Point) get_x() -> int { return 42 }\nfn foo() -> int { return 1 }";
     let tokens: Vec<Token> = lexer::lex(input);
-    let program = parser().parse(tokens).expect("Should parse both fn and method");
+    let program = parser()
+        .parse(tokens)
+        .expect("Should parse both fn and method");
     assert_eq!(program.statements.len(), 2);
 
     match &program.statements[0].kind {
@@ -460,7 +459,9 @@ fn test_function_then_method() {
     // Reverse order: function first, then method
     let input = "fn foo() -> int { return 1 }\nfn (p: Point) get_x() -> int { return 42 }";
     let tokens: Vec<Token> = lexer::lex(input);
-    let program = parser().parse(tokens).expect("Should parse both fn and method");
+    let program = parser()
+        .parse(tokens)
+        .expect("Should parse both fn and method");
     assert_eq!(program.statements.len(), 2);
 
     match &program.statements[0].kind {
@@ -504,11 +505,11 @@ fn test_generic_function_still_works() {
 fn test_method_multiple_returns() {
     let stmt = parse_stmt("fn (p: Point) coords() -> (int, int) { return (1, 2) }").unwrap();
     match &stmt.kind {
-        StmtKind::MethodDef(MethodDef {
-            return_type,
-            ..
-        }) => {
-            assert_eq!(*return_type, Some(vec!["int".to_string(), "int".to_string()]));
+        StmtKind::MethodDef(MethodDef { return_type, .. }) => {
+            assert_eq!(
+                *return_type,
+                Some(vec!["int".to_string(), "int".to_string()])
+            );
         }
         _ => panic!("Expected method def"),
     }
@@ -522,7 +523,9 @@ fn test_method_multiple_returns() {
 fn test_array_type_int_array() {
     let stmt = parse_stmt("var x: int[] = [1, 2, 3]").unwrap();
     match &stmt.kind {
-        StmtKind::VariableDecl { name, type_hint, .. } => {
+        StmtKind::VariableDecl {
+            name, type_hint, ..
+        } => {
             assert_eq!(name, "x");
             assert_eq!(*type_hint, Some("int[]".to_string()));
         }
@@ -546,7 +549,11 @@ fn test_array_type_fn_param() {
     // Function with int[] param and float[] return type
     let stmt = parse_stmt("fn process(nums: int[]) -> float[] { }").unwrap();
     match &stmt.kind {
-        StmtKind::FunctionDef { params, return_type, .. } => {
+        StmtKind::FunctionDef {
+            params,
+            return_type,
+            ..
+        } => {
             assert_eq!(params[0].1, "int[]");
             assert_eq!(*return_type, Some(vec!["float[]".to_string()]));
         }
@@ -608,15 +615,13 @@ fn test_break_inside_while_block() {
     let program = crate::parser::parser().parse(tokens).unwrap();
     let while_stmt = &program.statements[0];
     match &while_stmt.kind {
-        StmtKind::While { body, .. } => {
-            match &body.kind {
-                StmtKind::Block(stmts) => {
-                    assert_eq!(stmts.len(), 1);
-                    assert!(matches!(stmts[0].kind, StmtKind::Break));
-                }
-                _ => panic!("Expected block body"),
+        StmtKind::While { body, .. } => match &body.kind {
+            StmtKind::Block(stmts) => {
+                assert_eq!(stmts.len(), 1);
+                assert!(matches!(stmts[0].kind, StmtKind::Break));
             }
-        }
+            _ => panic!("Expected block body"),
+        },
         _ => panic!("Expected while stmt"),
     }
 }
@@ -627,15 +632,13 @@ fn test_continue_inside_while_block() {
     let program = crate::parser::parser().parse(tokens).unwrap();
     let while_stmt = &program.statements[0];
     match &while_stmt.kind {
-        StmtKind::While { body, .. } => {
-            match &body.kind {
-                StmtKind::Block(stmts) => {
-                    assert_eq!(stmts.len(), 1);
-                    assert!(matches!(stmts[0].kind, StmtKind::Continue));
-                }
-                _ => panic!("Expected block body"),
+        StmtKind::While { body, .. } => match &body.kind {
+            StmtKind::Block(stmts) => {
+                assert_eq!(stmts.len(), 1);
+                assert!(matches!(stmts[0].kind, StmtKind::Continue));
             }
-        }
+            _ => panic!("Expected block body"),
+        },
         _ => panic!("Expected while stmt"),
     }
 }
@@ -646,15 +649,13 @@ fn test_break_inside_for_block() {
     let program = crate::parser::parser().parse(tokens).unwrap();
     let for_stmt = &program.statements[0];
     match &for_stmt.kind {
-        StmtKind::For { body, .. } => {
-            match &body.kind {
-                StmtKind::Block(stmts) => {
-                    assert_eq!(stmts.len(), 1);
-                    assert!(matches!(stmts[0].kind, StmtKind::Break));
-                }
-                _ => panic!("Expected block body"),
+        StmtKind::For { body, .. } => match &body.kind {
+            StmtKind::Block(stmts) => {
+                assert_eq!(stmts.len(), 1);
+                assert!(matches!(stmts[0].kind, StmtKind::Break));
             }
-        }
+            _ => panic!("Expected block body"),
+        },
         _ => panic!("Expected for stmt"),
     }
 }
@@ -666,15 +667,13 @@ fn test_break_with_if_inside_while() {
     let program = crate::parser::parser().parse(tokens).unwrap();
     assert_eq!(program.statements.len(), 1);
     match &program.statements[0].kind {
-        StmtKind::While { body, .. } => {
-            match &body.kind {
-                StmtKind::Block(stmts) => {
-                    assert_eq!(stmts.len(), 1);
-                    assert!(matches!(stmts[0].kind, StmtKind::If { .. }));
-                }
-                _ => panic!("Expected block"),
+        StmtKind::While { body, .. } => match &body.kind {
+            StmtKind::Block(stmts) => {
+                assert_eq!(stmts.len(), 1);
+                assert!(matches!(stmts[0].kind, StmtKind::If { .. }));
             }
-        }
+            _ => panic!("Expected block"),
+        },
         _ => panic!("Expected while"),
     }
 }

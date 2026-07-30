@@ -14,10 +14,10 @@
 use crate::builtins::matrix::MatrixFunctions;
 use crate::helpers::HelperFunctions;
 use crate::{BrixType, CodegenError, CodegenResult, Compiler};
+use inkwell::AddressSpace;
 use inkwell::module::Linkage;
 use inkwell::types::BasicType;
 use inkwell::values::{BasicValueEnum, PointerValue};
-use inkwell::AddressSpace;
 use std::collections::{HashMap, HashSet};
 
 impl<'a, 'ctx> Compiler<'a, 'ctx> {

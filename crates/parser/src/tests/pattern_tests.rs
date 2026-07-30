@@ -309,10 +309,17 @@ fn test_struct_init_same_line_still_works() {
     use crate::ast::StmtKind;
     let input = "var p := Point { x: 3, y: 0 }";
     let tokens: Vec<Token> = lexer::lex(input);
-    let program = parser().parse(tokens).map_err(|e| format!("{:?}", e)).unwrap();
+    let program = parser()
+        .parse(tokens)
+        .map_err(|e| format!("{:?}", e))
+        .unwrap();
     match &program.statements[0].kind {
         StmtKind::VariableDecl { value, .. } => match &value.kind {
-            ExprKind::StructInit { struct_name, fields, type_args } => {
+            ExprKind::StructInit {
+                struct_name,
+                fields,
+                type_args,
+            } => {
                 assert_eq!(struct_name, "Point");
                 assert!(type_args.is_empty());
                 assert_eq!(fields.len(), 2);

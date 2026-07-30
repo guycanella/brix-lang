@@ -2,8 +2,7 @@
 ///
 /// Identifies which variables are captured by closures.
 /// This must run AFTER parsing to fill the `captured_vars` field in Closure nodes.
-
-use crate::ast::{Expr, ExprKind, Stmt, StmtKind, Closure, Program};
+use crate::ast::{Closure, Expr, ExprKind, Program, Stmt, StmtKind};
 use std::collections::HashSet;
 
 /// Analyze all closures in the program and fill their `captured_vars` fields
@@ -68,7 +67,11 @@ fn analyze_stmt_closures(stmt: &mut Stmt, outer_scope: &HashSet<String>) {
             }
         }
 
-        StmtKind::If { condition, then_block, else_block } => {
+        StmtKind::If {
+            condition,
+            then_block,
+            else_block,
+        } => {
             analyze_expr_closures(condition, outer_scope);
             analyze_stmt_closures(then_block, outer_scope);
             if let Some(else_b) = else_block {
@@ -81,7 +84,11 @@ fn analyze_stmt_closures(stmt: &mut Stmt, outer_scope: &HashSet<String>) {
             analyze_stmt_closures(body, outer_scope);
         }
 
-        StmtKind::For { var_names, iterable, body } => {
+        StmtKind::For {
+            var_names,
+            iterable,
+            body,
+        } => {
             analyze_expr_closures(iterable, outer_scope);
 
             // Loop variables are in scope inside the body
@@ -151,14 +158,17 @@ fn analyze_expr_closures(expr: &mut Expr, outer_scope: &HashSet<String>) {
             analyze_expr_closures(inner, outer_scope);
         }
 
-        ExprKind::Ternary { condition, then_expr, else_expr } => {
+        ExprKind::Ternary {
+            condition,
+            then_expr,
+            else_expr,
+        } => {
             analyze_expr_closures(condition, outer_scope);
             analyze_expr_closures(then_expr, outer_scope);
             analyze_expr_closures(else_expr, outer_scope);
         }
 
-        ExprKind::Increment { expr: inner, .. }
-        | ExprKind::Decrement { expr: inner, .. } => {
+        ExprKind::Increment { expr: inner, .. } | ExprKind::Decrement { expr: inner, .. } => {
             analyze_expr_closures(inner, outer_scope);
         }
 
@@ -212,7 +222,9 @@ fn analyze_expr_closures(expr: &mut Expr, outer_scope: &HashSet<String>) {
             }
         }
 
-        ExprKind::Range { start, end, step, .. } => {
+        ExprKind::Range {
+            start, end, step, ..
+        } => {
             analyze_expr_closures(start, outer_scope);
             analyze_expr_closures(end, outer_scope);
             if let Some(s) = step {
@@ -220,7 +232,10 @@ fn analyze_expr_closures(expr: &mut Expr, outer_scope: &HashSet<String>) {
             }
         }
 
-        ExprKind::ListComprehension { expr: comp_expr, generators } => {
+        ExprKind::ListComprehension {
+            expr: comp_expr,
+            generators,
+        } => {
             // List comprehensions introduce their own scope
             let mut comp_scope = outer_scope.clone();
 
@@ -320,7 +335,11 @@ fn collect_used_identifiers(stmt: &Stmt, used: &mut HashSet<String>) {
             }
         }
 
-        StmtKind::If { condition, then_block, else_block } => {
+        StmtKind::If {
+            condition,
+            then_block,
+            else_block,
+        } => {
             collect_used_identifiers_expr(condition, used);
             collect_used_identifiers(then_block, used);
             if let Some(else_b) = else_block {
@@ -378,7 +397,11 @@ fn collect_used_identifiers_expr(expr: &Expr, used: &mut HashSet<String>) {
             collect_used_identifiers_expr(inner, used);
         }
 
-        ExprKind::Ternary { condition, then_expr, else_expr } => {
+        ExprKind::Ternary {
+            condition,
+            then_expr,
+            else_expr,
+        } => {
             collect_used_identifiers_expr(condition, used);
             collect_used_identifiers_expr(then_expr, used);
             collect_used_identifiers_expr(else_expr, used);
@@ -414,7 +437,9 @@ fn collect_used_identifiers_expr(expr: &Expr, used: &mut HashSet<String>) {
             }
         }
 
-        ExprKind::Range { start, end, step, .. } => {
+        ExprKind::Range {
+            start, end, step, ..
+        } => {
             collect_used_identifiers_expr(start, used);
             collect_used_identifiers_expr(end, used);
             if let Some(s) = step {
@@ -422,7 +447,10 @@ fn collect_used_identifiers_expr(expr: &Expr, used: &mut HashSet<String>) {
             }
         }
 
-        ExprKind::ListComprehension { expr: comp_expr, generators } => {
+        ExprKind::ListComprehension {
+            expr: comp_expr,
+            generators,
+        } => {
             for generator in generators {
                 collect_used_identifiers_expr(&generator.iterable, used);
                 for cond in &generator.conditions {

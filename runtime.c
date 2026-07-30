@@ -3585,6 +3585,680 @@ int datetime_compare(BrixDateTime* a, BrixDateTime* b) {
 
 
 // ==========================================
+// SECTION 2.9: JSON (v1.9 Grupo B)
+// ==========================================
+
+typedef enum {
+    JSON_NULL   = 0,
+    JSON_BOOL   = 1,
+    JSON_INT    = 2,
+    JSON_FLOAT  = 3,
+    JSON_STRING = 4,
+    JSON_ARRAY  = 5,
+    JSON_OBJECT = 6,
+} JsonTag;
+
+struct JsonValue;
+
+typedef struct JsonObjectEntry {
+    BrixString* key;
+    struct JsonValue* val;
+    struct JsonObjectEntry* next;
+} JsonObjectEntry;
+
+typedef struct {
+    JsonObjectEntry* head;
+    JsonObjectEntry* tail;
+    size_t count;
+} JsonObject;
+
+typedef struct {
+    size_t len;
+    size_t cap;
+    struct JsonValue** items;
+} JsonArray;
+
+typedef struct JsonValue {
+    long ref_count;
+    JsonTag tag;
+    union {
+        long          as_bool;
+        long          as_int;
+        double        as_float;
+        BrixString*   as_string;
+        JsonArray*    as_array;
+        JsonObject*   as_object;
+    } data;
+} JsonValue;
+
+JsonValue* json_retain(JsonValue* v);
+void json_release(JsonValue* v);
+
+static JsonValue* json_new(JsonTag tag) {
+    JsonValue* v = (JsonValue*)malloc(sizeof(JsonValue));
+    if (!v) return NULL;
+    v->ref_count = 1;
+    v->tag = tag;
+    memset(&v->data, 0, sizeof(v->data));
+    return v;
+}
+
+JsonValue* json_retain(JsonValue* v) {
+    if (v) {
+        v->ref_count++;
+    }
+    return v;
+}
+
+void json_release(JsonValue* v) {
+    if (!v) return;
+    v->ref_count--;
+    if (v->ref_count <= 0) {
+        if (v->tag == JSON_STRING && v->data.as_string) {
+            string_release(v->data.as_string);
+        } else if (v->tag == JSON_ARRAY && v->data.as_array) {
+            JsonArray* arr = v->data.as_array;
+            for (size_t i = 0; i < arr->len; i++) {
+                if (arr->items[i]) {
+                    json_release(arr->items[i]);
+                }
+            }
+            free(arr->items);
+            free(arr);
+        } else if (v->tag == JSON_OBJECT && v->data.as_object) {
+            JsonObject* obj = v->data.as_object;
+            JsonObjectEntry* curr = obj->head;
+            while (curr) {
+                JsonObjectEntry* next = curr->next;
+                if (curr->key) string_release(curr->key);
+                if (curr->val) json_release(curr->val);
+                free(curr);
+                curr = next;
+            }
+            free(obj);
+        }
+        free(v);
+    }
+}
+
+JsonValue* json_null(void) {
+    return json_new(JSON_NULL);
+}
+
+JsonValue* json_bool(long v) {
+    JsonValue* val = json_new(JSON_BOOL);
+    if (val) val->data.as_bool = v ? 1 : 0;
+    return val;
+}
+
+JsonValue* json_int(long v) {
+    JsonValue* val = json_new(JSON_INT);
+    if (val) val->data.as_int = v;
+    return val;
+}
+
+JsonValue* json_float(double v) {
+    JsonValue* val = json_new(JSON_FLOAT);
+    if (val) val->data.as_float = v;
+    return val;
+}
+
+JsonValue* json_string(BrixString* s) {
+    JsonValue* val = json_new(JSON_STRING);
+    if (val) {
+        val->data.as_string = s ? string_retain(s) : str_new("");
+    }
+    return val;
+}
+
+JsonValue* json_array(void) {
+    JsonValue* val = json_new(JSON_ARRAY);
+    if (val) {
+        JsonArray* arr = (JsonArray*)malloc(sizeof(JsonArray));
+        arr->len = 0;
+        arr->cap = 4;
+        arr->items = (JsonValue**)malloc(sizeof(JsonValue*) * arr->cap);
+        val->data.as_array = arr;
+    }
+    return val;
+}
+
+JsonValue* json_object(void) {
+    JsonValue* val = json_new(JSON_OBJECT);
+    if (val) {
+        JsonObject* obj = (JsonObject*)malloc(sizeof(JsonObject));
+        obj->head = NULL;
+        obj->tail = NULL;
+        obj->count = 0;
+        val->data.as_object = obj;
+    }
+    return val;
+}
+
+static int json_contains_pointer(JsonValue* container, JsonValue* target, int depth) {
+    if (!container || !target || depth > 64) return 1;
+    if (container == target) return 1;
+    if (container->tag == JSON_ARRAY && container->data.as_array) {
+        JsonArray* arr = container->data.as_array;
+        for (size_t i = 0; i < arr->len; i++) {
+            if (json_contains_pointer(arr->items[i], target, depth + 1)) return 1;
+        }
+    } else if (container->tag == JSON_OBJECT && container->data.as_object) {
+        JsonObjectEntry* curr = container->data.as_object->head;
+        while (curr) {
+            if (json_contains_pointer(curr->val, target, depth + 1)) return 1;
+            curr = curr->next;
+        }
+    }
+    return 0;
+}
+
+JsonValue* json_get(JsonValue* obj, BrixString* key) {
+    if (!obj || obj->tag != JSON_OBJECT || !obj->data.as_object || !key || !key->data) {
+        return NULL;
+    }
+    JsonObjectEntry* curr = obj->data.as_object->head;
+    while (curr) {
+        if (curr->key && curr->key->data && strcmp(curr->key->data, key->data) == 0) {
+            return json_retain(curr->val);
+        }
+        curr = curr->next;
+    }
+    return NULL;
+}
+
+JsonValue* json_index(JsonValue* arr, long idx) {
+    if (!arr || arr->tag != JSON_ARRAY || !arr->data.as_array || idx < 0) {
+        return NULL;
+    }
+    JsonArray* a = arr->data.as_array;
+    if ((size_t)idx >= a->len) {
+        return NULL;
+    }
+    return json_retain(a->items[idx]);
+}
+
+void json_set(JsonValue* obj, BrixString* key, JsonValue* val) {
+    if (!obj || obj->tag != JSON_OBJECT || !obj->data.as_object || !key || !val) {
+        return;
+    }
+    if (json_contains_pointer(val, obj, 0)) {
+        return;
+    }
+    JsonObject* o = obj->data.as_object;
+    JsonObjectEntry* curr = o->head;
+    while (curr) {
+        if (curr->key && curr->key->data && strcmp(curr->key->data, key->data) == 0) {
+            JsonValue* old_val = curr->val;
+            curr->val = json_retain(val);
+            if (old_val) json_release(old_val);
+            return;
+        }
+        curr = curr->next;
+    }
+    JsonObjectEntry* entry = (JsonObjectEntry*)malloc(sizeof(JsonObjectEntry));
+    entry->key = string_retain(key);
+    entry->val = json_retain(val);
+    entry->next = NULL;
+    if (o->tail) {
+        o->tail->next = entry;
+        o->tail = entry;
+    } else {
+        o->head = entry;
+        o->tail = entry;
+    }
+    o->count++;
+}
+
+void json_array_push(JsonValue* arr, JsonValue* val) {
+    if (!arr || arr->tag != JSON_ARRAY || !arr->data.as_array || !val) {
+        return;
+    }
+    if (json_contains_pointer(val, arr, 0)) {
+        return;
+    }
+    JsonArray* a = arr->data.as_array;
+    if (a->len >= a->cap) {
+        size_t new_cap = a->cap * 2;
+        JsonValue** new_items = (JsonValue**)realloc(a->items, sizeof(JsonValue*) * new_cap);
+        if (!new_items) return;
+        a->items = new_items;
+        a->cap = new_cap;
+    }
+    a->items[a->len++] = json_retain(val);
+}
+
+long json_array_len(JsonValue* arr) {
+    if (!arr || arr->tag != JSON_ARRAY || !arr->data.as_array) {
+        return 0;
+    }
+    return (long)arr->data.as_array->len;
+}
+
+BrixString* json_as_string(JsonValue* v) {
+    if (!v) return NULL;
+    if (v->tag == JSON_STRING && v->data.as_string) {
+        return string_retain(v->data.as_string);
+    }
+    return NULL;
+}
+
+long json_as_int(JsonValue* v, int* ok) {
+    if (!v) { if (ok) *ok = 0; return 0; }
+    if (v->tag == JSON_INT) {
+        if (ok) *ok = 1;
+        return v->data.as_int;
+    }
+    if (v->tag == JSON_FLOAT) {
+        if (ok) *ok = 1;
+        return (long)v->data.as_float;
+    }
+    if (v->tag == JSON_BOOL) {
+        if (ok) *ok = 1;
+        return v->data.as_bool;
+    }
+    if (ok) *ok = 0;
+    return 0;
+}
+
+double json_as_float(JsonValue* v, int* ok) {
+    if (!v) { if (ok) *ok = 0; return 0.0; }
+    if (v->tag == JSON_FLOAT) {
+        if (ok) *ok = 1;
+        return v->data.as_float;
+    }
+    if (v->tag == JSON_INT) {
+        if (ok) *ok = 1;
+        return (double)v->data.as_int;
+    }
+    if (ok) *ok = 0;
+    return 0.0;
+}
+
+long json_as_bool(JsonValue* v, int* ok) {
+    if (!v) { if (ok) *ok = 0; return 0; }
+    if (v->tag == JSON_BOOL) {
+        if (ok) *ok = 1;
+        return v->data.as_bool;
+    }
+    if (ok) *ok = 0;
+    return 0;
+}
+
+long json_tag(JsonValue* v) {
+    if (!v) return (long)JSON_NULL;
+    return (long)v->tag;
+}
+
+static void json_parse_skip_whitespace(const char** p) {
+    while (**p == ' ' || **p == '\t' || **p == '\n' || **p == '\r') {
+        (*p)++;
+    }
+}
+
+static JsonValue* json_parse_value(const char** p, int depth);
+
+static JsonValue* json_parse_string_val(const char** p) {
+    if (**p != '"') return NULL;
+    (*p)++;
+    char buf[4096];
+    size_t out_len = 0;
+    while (**p && **p != '"') {
+        if (out_len + 4 >= sizeof(buf)) return NULL;
+        if (**p == '\\') {
+            (*p)++;
+            if (**p == '"') buf[out_len++] = '"';
+            else if (**p == '\\') buf[out_len++] = '\\';
+            else if (**p == '/') buf[out_len++] = '/';
+            else if (**p == 'b') buf[out_len++] = '\b';
+            else if (**p == 'f') buf[out_len++] = '\f';
+            else if (**p == 'n') buf[out_len++] = '\n';
+            else if (**p == 'r') buf[out_len++] = '\r';
+            else if (**p == 't') buf[out_len++] = '\t';
+            else if (**p == 'u') {
+                (*p)++;
+                unsigned int codepoint = 0;
+                for (int k = 0; k < 4; k++) {
+                    char c = **p;
+                    if (!c) return NULL;
+                    int hex = 0;
+                    if (c >= '0' && c <= '9') hex = c - '0';
+                    else if (c >= 'a' && c <= 'f') hex = c - 'a' + 10;
+                    else if (c >= 'A' && c <= 'F') hex = c - 'A' + 10;
+                    else return NULL;
+                    codepoint = (codepoint << 4) | hex;
+                    (*p)++;
+                }
+                (*p)--;
+                if (codepoint == 0) return NULL;
+                if (codepoint <= 0x7F) {
+                    buf[out_len++] = (char)codepoint;
+                } else if (codepoint <= 0x7FF) {
+                    buf[out_len++] = (char)(0xC0 | (codepoint >> 6));
+                    buf[out_len++] = (char)(0x80 | (codepoint & 0x3F));
+                } else {
+                    buf[out_len++] = (char)(0xE0 | (codepoint >> 12));
+                    buf[out_len++] = (char)(0x80 | ((codepoint >> 6) & 0x3F));
+                    buf[out_len++] = (char)(0x80 | (codepoint & 0x3F));
+                }
+            } else return NULL;
+        } else {
+            buf[out_len++] = **p;
+        }
+        (*p)++;
+    }
+    if (**p != '"') return NULL;
+    (*p)++;
+    buf[out_len] = '\0';
+    BrixString* s = str_new(buf);
+    JsonValue* v = json_string(s);
+    string_release(s);
+    return v;
+}
+
+static JsonValue* json_parse_number_val(const char** p) {
+    const char* start = *p;
+    if (**p == '-') (*p)++;
+    if (!isdigit((unsigned char)**p)) return NULL;
+    while (isdigit((unsigned char)**p)) (*p)++;
+    int is_float = 0;
+    if (**p == '.') {
+        is_float = 1;
+        (*p)++;
+        if (!isdigit((unsigned char)**p)) return NULL;
+        while (isdigit((unsigned char)**p)) (*p)++;
+    }
+    if (**p == 'e' || **p == 'E') {
+        is_float = 1;
+        (*p)++;
+        if (**p == '+' || **p == '-') (*p)++;
+        if (!isdigit((unsigned char)**p)) return NULL;
+        while (isdigit((unsigned char)**p)) (*p)++;
+    }
+    char num_buf[128];
+    size_t num_len = *p - start;
+    if (num_len >= sizeof(num_buf)) return NULL;
+    memcpy(num_buf, start, num_len);
+    num_buf[num_len] = '\0';
+
+    if (is_float) {
+        double d = strtod(num_buf, NULL);
+        return json_float(d);
+    } else {
+        long l = strtol(num_buf, NULL, 10);
+        return json_int(l);
+    }
+}
+
+static JsonValue* json_parse_array_val(const char** p, int depth) {
+    if (**p != '[') return NULL;
+    (*p)++;
+    JsonValue* arr = json_array();
+    json_parse_skip_whitespace(p);
+    if (**p == ']') {
+        (*p)++;
+        return arr;
+    }
+    while (**p) {
+        JsonValue* item = json_parse_value(p, depth + 1);
+        if (!item) {
+            json_release(arr);
+            return NULL;
+        }
+        json_array_push(arr, item);
+        json_release(item);
+        json_parse_skip_whitespace(p);
+        if (**p == ']') {
+            (*p)++;
+            return arr;
+        }
+        if (**p != ',') {
+            json_release(arr);
+            return NULL;
+        }
+        (*p)++;
+        json_parse_skip_whitespace(p);
+    }
+    json_release(arr);
+    return NULL;
+}
+
+static JsonValue* json_parse_object_val(const char** p, int depth) {
+    if (**p != '{') return NULL;
+    (*p)++;
+    JsonValue* obj = json_object();
+    json_parse_skip_whitespace(p);
+    if (**p == '}') {
+        (*p)++;
+        return obj;
+    }
+    while (**p) {
+        json_parse_skip_whitespace(p);
+        if (**p != '"') {
+            json_release(obj);
+            return NULL;
+        }
+        JsonValue* key_val = json_parse_string_val(p);
+        if (!key_val || key_val->tag != JSON_STRING) {
+            if (key_val) json_release(key_val);
+            json_release(obj);
+            return NULL;
+        }
+        BrixString* key_str = key_val->data.as_string;
+        json_parse_skip_whitespace(p);
+        if (**p != ':') {
+            json_release(key_val);
+            json_release(obj);
+            return NULL;
+        }
+        (*p)++;
+        json_parse_skip_whitespace(p);
+        JsonValue* val = json_parse_value(p, depth + 1);
+        if (!val) {
+            json_release(key_val);
+            json_release(obj);
+            return NULL;
+        }
+        json_set(obj, key_str, val);
+        json_release(key_val);
+        json_release(val);
+        json_parse_skip_whitespace(p);
+        if (**p == '}') {
+            (*p)++;
+            return obj;
+        }
+        if (**p != ',') {
+            json_release(obj);
+            return NULL;
+        }
+        (*p)++;
+        json_parse_skip_whitespace(p);
+    }
+    json_release(obj);
+    return NULL;
+}
+
+static JsonValue* json_parse_value(const char** p, int depth) {
+    if (depth > 64) return NULL;
+    json_parse_skip_whitespace(p);
+    if (!**p) return NULL;
+    if (strncmp(*p, "null", 4) == 0) {
+        *p += 4;
+        return json_null();
+    }
+    if (strncmp(*p, "true", 4) == 0) {
+        *p += 4;
+        return json_bool(1);
+    }
+    if (strncmp(*p, "false", 5) == 0) {
+        *p += 5;
+        return json_bool(0);
+    }
+    if (**p == '"') return json_parse_string_val(p);
+    if (**p == '[') return json_parse_array_val(p, depth);
+    if (**p == '{') return json_parse_object_val(p, depth);
+    if (**p == '-' || isdigit((unsigned char)**p)) return json_parse_number_val(p);
+    return NULL;
+}
+
+JsonValue* json_parse(BrixString* input) {
+    if (!input || !input->data) return NULL;
+    const char* p = input->data;
+    JsonValue* v = json_parse_value(&p, 0);
+    if (!v) return NULL;
+    json_parse_skip_whitespace(&p);
+    if (*p != '\0') {
+        json_release(v);
+        return NULL;
+    }
+    return v;
+}
+
+#define JSON_BUF_APPEND_STR(str) do { \
+    size_t slen = strlen(str); \
+    while (*len + slen + 1 >= *cap) { *cap *= 2; *buf = (char*)realloc(*buf, *cap); } \
+    memcpy(*buf + *len, str, slen); \
+    *len += slen; \
+    (*buf)[*len] = '\0'; \
+} while(0)
+
+#define JSON_BUF_APPEND_CHAR(c) do { \
+    while (*len + 2 >= *cap) { *cap *= 2; *buf = (char*)realloc(*buf, *cap); } \
+    (*buf)[(*len)++] = (c); \
+    (*buf)[*len] = '\0'; \
+} while(0)
+
+static void json_append_escaped_str(const char* s, char** buf, size_t* len, size_t* cap) {
+    if (!s) s = "";
+    while (*s) {
+        unsigned char uc = (unsigned char)*s;
+        if (uc == '"') JSON_BUF_APPEND_STR("\\\"");
+        else if (uc == '\\') JSON_BUF_APPEND_STR("\\\\");
+        else if (uc == '\b') JSON_BUF_APPEND_STR("\\b");
+        else if (uc == '\f') JSON_BUF_APPEND_STR("\\f");
+        else if (uc == '\n') JSON_BUF_APPEND_STR("\\n");
+        else if (uc == '\r') JSON_BUF_APPEND_STR("\\r");
+        else if (uc == '\t') JSON_BUF_APPEND_STR("\\t");
+        else if (uc < 0x20) {
+            char hex[8];
+            snprintf(hex, sizeof(hex), "\\u00%02x", (unsigned int)uc);
+            JSON_BUF_APPEND_STR(hex);
+        } else {
+            JSON_BUF_APPEND_CHAR(*s);
+        }
+        s++;
+    }
+}
+
+static void json_stringify_helper(JsonValue* v, char** buf, size_t* len, size_t* cap, int pretty, int indent_spaces, int indent_level) {
+    if (!v) {
+        JSON_BUF_APPEND_STR("null");
+        return;
+    }
+
+    switch (v->tag) {
+        case JSON_NULL:
+            JSON_BUF_APPEND_STR("null");
+            break;
+        case JSON_BOOL:
+            JSON_BUF_APPEND_STR(v->data.as_bool ? "true" : "false");
+            break;
+        case JSON_INT: {
+            char num[64];
+            snprintf(num, sizeof(num), "%ld", v->data.as_int);
+            JSON_BUF_APPEND_STR(num);
+            break;
+        }
+        case JSON_FLOAT: {
+            char num[64];
+            snprintf(num, sizeof(num), "%.15g", v->data.as_float);
+            JSON_BUF_APPEND_STR(num);
+            break;
+        }
+        case JSON_STRING: {
+            JSON_BUF_APPEND_CHAR('"');
+            const char* s = v->data.as_string ? v->data.as_string->data : "";
+            json_append_escaped_str(s, buf, len, cap);
+            JSON_BUF_APPEND_CHAR('"');
+            break;
+        }
+        case JSON_ARRAY: {
+            JSON_BUF_APPEND_CHAR('[');
+            JsonArray* arr = v->data.as_array;
+            if (arr && arr->len > 0) {
+                if (pretty) {
+                    JSON_BUF_APPEND_CHAR('\n');
+                }
+                for (size_t i = 0; i < arr->len; i++) {
+                    if (pretty) {
+                        for (int k = 0; k < (indent_level + 1) * indent_spaces; k++) JSON_BUF_APPEND_CHAR(' ');
+                    }
+                    json_stringify_helper(arr->items[i], buf, len, cap, pretty, indent_spaces, indent_level + 1);
+                    if (i + 1 < arr->len) JSON_BUF_APPEND_CHAR(',');
+                    if (pretty) JSON_BUF_APPEND_CHAR('\n');
+                }
+                if (pretty) {
+                    for (int k = 0; k < indent_level * indent_spaces; k++) JSON_BUF_APPEND_CHAR(' ');
+                }
+            }
+            JSON_BUF_APPEND_CHAR(']');
+            break;
+        }
+        case JSON_OBJECT: {
+            JSON_BUF_APPEND_CHAR('{');
+            JsonObject* obj = v->data.as_object;
+            if (obj && obj->head) {
+                if (pretty) JSON_BUF_APPEND_CHAR('\n');
+                JsonObjectEntry* curr = obj->head;
+                while (curr) {
+                    if (pretty) {
+                        for (int k = 0; k < (indent_level + 1) * indent_spaces; k++) JSON_BUF_APPEND_CHAR(' ');
+                    }
+                    JSON_BUF_APPEND_CHAR('"');
+                    const char* ks = curr->key ? curr->key->data : "";
+                    json_append_escaped_str(ks, buf, len, cap);
+                    JSON_BUF_APPEND_STR(pretty ? "\": " : "\":");
+                    json_stringify_helper(curr->val, buf, len, cap, pretty, indent_spaces, indent_level + 1);
+                    if (curr->next) JSON_BUF_APPEND_CHAR(',');
+                    if (pretty) JSON_BUF_APPEND_CHAR('\n');
+                    curr = curr->next;
+                }
+                if (pretty) {
+                    for (int k = 0; k < indent_level * indent_spaces; k++) JSON_BUF_APPEND_CHAR(' ');
+                }
+            }
+            JSON_BUF_APPEND_CHAR('}');
+            break;
+        }
+    }
+}
+
+BrixString* json_stringify(JsonValue* val) {
+    size_t cap = 256;
+    size_t len = 0;
+    char* buf = (char*)malloc(cap);
+    buf[0] = '\0';
+    json_stringify_helper(val, &buf, &len, &cap, 0, 2, 0);
+    BrixString* res = str_new(buf);
+    free(buf);
+    return res;
+}
+
+BrixString* json_stringify_pretty(JsonValue* val, long indent) {
+    int indent_spaces = (int)indent;
+    if (indent_spaces <= 0) indent_spaces = 2;
+    size_t cap = 256;
+    size_t len = 0;
+    char* buf = (char*)malloc(cap);
+    buf[0] = '\0';
+    json_stringify_helper(val, &buf, &len, &cap, 1, indent_spaces, 0);
+    BrixString* res = str_new(buf);
+    free(buf);
+    return res;
+}
+
+
+// ==========================================
 // SECTION 3: STATISTICS (v0.7)
 // ==========================================
 

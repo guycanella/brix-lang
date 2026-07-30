@@ -3,8 +3,8 @@
 // This module contains declarations and compilation logic for string functions.
 
 use crate::Compiler;
-use inkwell::module::Linkage;
 use inkwell::AddressSpace;
+use inkwell::module::Linkage;
 
 /// Trait for string function declarations
 pub trait StringFunctions<'ctx> {

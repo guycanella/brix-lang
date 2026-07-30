@@ -711,8 +711,8 @@ fn test_async_await_in_while_compiles() {
 
 #[test]
 fn test_extract_async_stmts_if_await() {
-    use crate::extract_async_stmts;
     use crate::AsyncStmt;
+    use crate::extract_async_stmts;
     let stmts = vec![Stmt::dummy(StmtKind::If {
         condition: Expr::dummy(ExprKind::Literal(Literal::Int(1))),
         then_block: Box::new(Stmt::dummy(StmtKind::Block(vec![make_await_call(
@@ -733,8 +733,8 @@ fn test_extract_async_stmts_if_await() {
 
 #[test]
 fn test_extract_async_stmts_while_await() {
-    use crate::extract_async_stmts;
     use crate::AsyncStmt;
+    use crate::extract_async_stmts;
     let stmts = vec![Stmt::dummy(StmtKind::While {
         condition: Expr::dummy(ExprKind::Literal(Literal::Int(1))),
         body: Box::new(Stmt::dummy(StmtKind::Block(vec![make_await_call(

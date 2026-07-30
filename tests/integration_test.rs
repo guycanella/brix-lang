@@ -2023,3 +2023,72 @@ fn test_229_datetime_timestamp() {
         "1\n1\n1\n1\n1\n1",
     );
 }
+
+#[test]
+fn test_230_json_parse_object() {
+    assert_success(
+        "tests/integration/success/230_json_parse_object.bx",
+        "Alice\n30",
+    );
+}
+
+#[test]
+fn test_231_json_parse_array() {
+    assert_success(
+        "tests/integration/success/231_json_parse_array.bx",
+        "3\n10\n30",
+    );
+}
+
+#[test]
+fn test_232_json_parse_nested() {
+    assert_success(
+        "tests/integration/success/232_json_parse_nested.bx",
+        "admin",
+    );
+}
+
+#[test]
+fn test_233_json_stringify() {
+    assert_success(
+        "tests/integration/success/233_json_stringify.bx",
+        "{\"name\":\"Bob\",\"age\":25,\"active\":true}",
+    );
+}
+
+#[test]
+fn test_234_json_pretty() {
+    assert_success(
+        "tests/integration/success/234_json_pretty.bx",
+        "{\n  \"name\": \"Bob\",\n  \"age\": 25\n}",
+    );
+}
+
+#[test]
+fn test_235_json_null() {
+    assert_success("tests/integration/success/235_json_null.bx", "1\n1\n1");
+}
+
+#[test]
+fn test_236_json_arc_lifecycle() {
+    assert_success(
+        "tests/integration/success/236_json_arc_lifecycle.bx",
+        "8080",
+    );
+}
+
+#[test]
+fn test_237_json_syntax_escapes() {
+    assert_success(
+        "tests/integration/success/237_json_syntax_escapes.bx",
+        "hello\nworld\nA\n1000\n1",
+    );
+}
+
+#[test]
+fn test_238_json_regressions() {
+    assert_success(
+        "tests/integration/success/238_json_regressions.bx",
+        "hello\nworld\n{\n    \"a\": 1\n}\n{\"k\\\"ey\\\\1\":\"val\\b1\\f2\"}\ncafé\nnul_rejected",
+    );
+}
