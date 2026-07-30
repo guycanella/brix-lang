@@ -20,6 +20,7 @@ pub mod closure_compiler;
 pub mod datetime;
 pub mod io;
 pub mod iterator;
+pub mod json;
 pub mod linalg;
 pub mod match_compiler;
 pub mod math;

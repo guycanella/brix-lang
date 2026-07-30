@@ -355,8 +355,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         negated: bool,
         span: &parser::ast::Span,
     ) -> CodegenResult<(inkwell::values::BasicValueEnum<'ctx>, BrixType)> {
-        use inkwell::types::BasicMetadataTypeEnum;
         use inkwell::AddressSpace;
+        use inkwell::types::BasicMetadataTypeEnum;
 
         let ptr_type = self.context.ptr_type(AddressSpace::default());
         let i64_type = self.context.i64_type();
@@ -492,6 +492,71 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                 f,
                                 &[
                                     actual_val.into(),
+                                    expected_val.into(),
+                                    file_ptr.into(),
+                                    line_val.into(),
+                                ],
+                                "tbm",
+                            )
+                            .map_err(|_| CodegenError::LLVMError {
+                                operation: "build_call".to_string(),
+                                details: fn_name.clone(),
+                                span: Some(span.clone()),
+                            })?;
+                    }
+                    BrixType::Union(types) if types.contains(&BrixType::Int) => {
+                        let fn_name = format!("test_expect_{}toBe_int", not_prefix);
+                        let f = self.declare_test_matcher_void(
+                            &fn_name,
+                            &[
+                                i64_type.into(),
+                                i64_type.into(),
+                                ptr_type.into(),
+                                i32_type.into(),
+                            ],
+                        );
+                        let extracted_val = self
+                            .builder
+                            .build_extract_value(actual_val.into_struct_value(), 1, "union_int_val")
+                            .unwrap();
+                        let act = extracted_val;
+                        let exp = if expected_val.is_int_value() {
+                            expected_val
+                        } else {
+                            i64_type.const_int(0, false).into()
+                        };
+                        self.builder
+                            .build_call(
+                                f,
+                                &[act.into(), exp.into(), file_ptr.into(), line_val.into()],
+                                "tbm",
+                            )
+                            .map_err(|_| CodegenError::LLVMError {
+                                operation: "build_call".to_string(),
+                                details: fn_name.clone(),
+                                span: Some(span.clone()),
+                            })?;
+                    }
+                    BrixType::Union(types) if types.contains(&BrixType::String) => {
+                        let fn_name = format!("test_expect_{}toBe_string", not_prefix);
+                        let f = self.declare_test_matcher_void(
+                            &fn_name,
+                            &[
+                                ptr_type.into(),
+                                ptr_type.into(),
+                                ptr_type.into(),
+                                i32_type.into(),
+                            ],
+                        );
+                        let extracted_val = self
+                            .builder
+                            .build_extract_value(actual_val.into_struct_value(), 1, "union_str_val")
+                            .unwrap();
+                        self.builder
+                            .build_call(
+                                f,
+                                &[
+                                    extracted_val.into(),
                                     expected_val.into(),
                                     file_ptr.into(),
                                     line_val.into(),

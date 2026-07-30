@@ -12,7 +12,7 @@ pub trait MathFunctions<'ctx> {
 
     /// Declare a math function with signature: f64 function(f64, f64)
     fn declare_math_function_f64_f64_f64(&self, name: &str)
-        -> inkwell::values::FunctionValue<'ctx>;
+    -> inkwell::values::FunctionValue<'ctx>;
 
     /// Declare a stats function with signature: f64 function(Matrix*)
     fn declare_math_function_stats(&self, name: &str) -> inkwell::values::FunctionValue<'ctx>;

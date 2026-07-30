@@ -1,0 +1,9 @@
+import json
+
+var data := json.parse("{\"name\": \"Alice\", \"age\": 30}")
+if data != nil {
+    var name := data["name"]
+    var age  := data["age"]
+    println(json.as_string(name))
+    println(json.as_int(age))
+}

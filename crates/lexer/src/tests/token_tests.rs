@@ -608,7 +608,10 @@ fn test_keyword_await() {
 #[test]
 fn test_keyword_async_vs_identifier_asynchronous() {
     assert_single_token("async", Token::Async);
-    assert_single_token("asynchronous", Token::Identifier("asynchronous".to_string()));
+    assert_single_token(
+        "asynchronous",
+        Token::Identifier("asynchronous".to_string()),
+    );
 }
 
 #[test]

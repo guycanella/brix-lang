@@ -11,8 +11,8 @@
 
 use crate::helpers::HelperFunctions;
 use crate::{
-    collect_all_await_points, count_awaits, extract_async_stmts, extract_await_segments, AsyncStmt,
-    AwaitPoint, BrixType, CodegenError, CodegenResult, Compiler,
+    AsyncStmt, AwaitPoint, BrixType, CodegenError, CodegenResult, Compiler,
+    collect_all_await_points, count_awaits, extract_async_stmts, extract_await_segments,
 };
 use inkwell::IntPredicate;
 use parser::ast::{Closure, Expr, Stmt, StmtKind};

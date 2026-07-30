@@ -11,11 +11,7 @@ use std::ops::Range;
 pub type ParseError = Simple<Token>;
 
 /// Converts Chumsky errors to beautiful Ariadne reports
-pub fn report_errors(
-    filename: &str,
-    source: &str,
-    errors: Vec<ParseError>,
-) {
+pub fn report_errors(filename: &str, source: &str, errors: Vec<ParseError>) {
     for error in errors {
         let span = error.span();
         let msg = format!("{}", error);
@@ -26,7 +22,7 @@ pub fn report_errors(
             .with_label(
                 Label::new((filename, span))
                     .with_message(msg)
-                    .with_color(Color::Red)
+                    .with_color(Color::Red),
             );
 
         // Add expected tokens if available (limit to 5 to avoid overwhelming output)
@@ -129,9 +125,8 @@ pub fn check_and_report_invalid_sequences(
         let (next_tok, next_span) = &window[2];
 
         // Helper: true if there is a newline in source between two byte offsets
-        let has_newline_between = |a: usize, b: usize| -> bool {
-            source.get(a..b).map_or(false, |s| s.contains('\n'))
-        };
+        let has_newline_between =
+            |a: usize, b: usize| -> bool { source.get(a..b).map_or(false, |s| s.contains('\n')) };
 
         // Check for: value ++ value on the same line (binary usage).
         // x++ at end of line is valid postfix — detected by newline between ++ and next token.

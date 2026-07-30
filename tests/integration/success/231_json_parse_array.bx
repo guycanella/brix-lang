@@ -1,0 +1,10 @@
+import json
+
+var data := json.parse("[10, 20, 30]")
+if data != nil {
+    println(json.array_len(data))
+    var elem0 := data[0]
+    var elem2 := data[2]
+    println(json.as_int(elem0))
+    println(json.as_int(elem2))
+}

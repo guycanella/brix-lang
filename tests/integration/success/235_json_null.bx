@@ -1,0 +1,11 @@
+import json
+
+var obj := json.object()
+json.set(obj, "value", json.null())
+
+var val := obj["value"]
+println(val != nil)
+println(json.tag(val) == 0)
+
+var missing := obj["nonexistent"]
+println(missing == nil)

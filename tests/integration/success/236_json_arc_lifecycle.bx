@@ -1,0 +1,11 @@
+import json
+
+fn get_config() -> Json {
+    var conf := json.object()
+    json.set(conf, "port", json.int(8080))
+    return conf
+}
+
+var c1 := get_config()
+var c2 := c1
+println(json.as_int(c2["port"]))

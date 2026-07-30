@@ -1,0 +1,37 @@
+import json
+
+// 1. StringMatrix index ARC retain regression test
+var s := "hello world brix"
+var parts := s.split(" ")
+var first := parts[0]
+var second := parts[1]
+println(first)
+println(second)
+
+// 2. stringify_pretty with custom indent 4
+var obj := json.object()
+json.set(obj, "a", json.int(1))
+var pretty := json.stringify_pretty(obj, 4)
+println(pretty)
+
+// 3. Escaping keys and values
+var obj2 := json.object()
+json.set(obj2, "k\"ey\\1", json.string("val\b1\f2"))
+var str := json.stringify(obj2)
+println(str)
+
+// 4. Unicode parse and \\u0000 rejection
+var parsed := json.parse("{\"u\": \"caf\\u00E9\"}")
+if parsed != nil {
+    var val := json.get(parsed, "u")
+    if val != nil {
+        println(json.as_string(val))
+    }
+}
+
+var nul_parsed := json.parse("{\"u\": \"a\\u0000b\"}")
+if nul_parsed == nil {
+    println("nul_rejected")
+} else {
+    println("nul_accepted")
+}

@@ -14,10 +14,10 @@
 // - get_atoi(), get_atof() - String conversion functions
 
 use crate::{CodegenError, CodegenResult, Compiler};
+use inkwell::AddressSpace;
 use inkwell::module::Linkage;
 use inkwell::types::BasicTypeEnum;
 use inkwell::values::PointerValue;
-use inkwell::AddressSpace;
 
 /// Trait for LLVM helper functions
 pub trait HelperFunctions<'ctx> {

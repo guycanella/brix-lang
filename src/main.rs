@@ -8,8 +8,8 @@ use inkwell::targets::{
 };
 use lexer::token::Token;
 use logos::Logos;
-use parser::parser::parser;
 use parser::error;
+use parser::parser::parser;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, exit};
@@ -70,7 +70,9 @@ fn compile_to_exe(file_path: &str, opt_level: u8, verbose: bool) -> String {
         }
     };
 
-    if verbose { println!("--- 1. Lexing & Parsing ---"); }
+    if verbose {
+        println!("--- 1. Lexing & Parsing ---");
+    }
 
     let tokens_with_spans: Vec<(Token, std::ops::Range<usize>)> = Token::lexer(&code)
         .spanned()
@@ -84,7 +86,9 @@ fn compile_to_exe(file_path: &str, opt_level: u8, verbose: bool) -> String {
     use chumsky::Stream;
     let token_stream = Stream::from_iter(
         code.len()..code.len() + 1,
-        tokens_with_spans.iter().map(|(tok, span)| (tok.clone(), span.clone())),
+        tokens_with_spans
+            .iter()
+            .map(|(tok, span)| (tok.clone(), span.clone())),
     );
 
     let mut ast = match parser().parse(token_stream) {
@@ -97,23 +101,34 @@ fn compile_to_exe(file_path: &str, opt_level: u8, verbose: bool) -> String {
 
     parser::closure_analysis::analyze_closures(&mut ast);
 
-    if verbose { println!("--- 2. Generating LLVM IR ---"); }
+    if verbose {
+        println!("--- 2. Generating LLVM IR ---");
+    }
 
     let context = Context::create();
     let module = context.create_module("brix_program");
     let builder = context.create_builder();
 
-    let mut compiler = Compiler::new(&context, &builder, &module, file_path.to_string(), code.clone());
+    let mut compiler = Compiler::new(
+        &context,
+        &builder,
+        &module,
+        file_path.to_string(),
+        code.clone(),
+    );
     if let Err(e) = compiler.compile_program(&ast) {
-        if verbose { eprintln!("\n❌ Codegen Error:\n"); }
+        if verbose {
+            eprintln!("\n❌ Codegen Error:\n");
+        }
         codegen::report_codegen_error(file_path, &code, &e);
         exit(e.exit_code());
     }
 
     let opt = get_optimization_level(opt_level);
 
-    if verbose { println!("--- 3. Compiling to Native Object Code (.o) ---"); }
-
+    if verbose {
+        println!("--- 3. Compiling to Native Object Code (.o) ---");
+    }
 
     let runtime_status = Command::new("cc")
         .arg("-c")
@@ -150,9 +165,16 @@ fn compile_to_exe(file_path: &str, opt_level: u8, verbose: bool) -> String {
         exit(1);
     }
 
-    if verbose { println!("--- 4. Linking ---"); }
+    if verbose {
+        println!("--- 4. Linking ---");
+    }
 
-    let exe_name = source_path.file_stem().unwrap().to_str().unwrap().to_string();
+    let exe_name = source_path
+        .file_stem()
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_string();
 
     let link_output = Command::new("cc")
         .arg("output.o")
@@ -254,7 +276,7 @@ fn run_tests(pattern: Option<&str>, opt_level: u8) {
     if files.is_empty() {
         match pattern {
             Some(p) => eprintln!("No *.test.bx or *.spec.bx files found matching '{}'.", p),
-            None    => eprintln!("No *.test.bx or *.spec.bx files found."),
+            None => eprintln!("No *.test.bx or *.spec.bx files found."),
         }
         exit(1);
     }
@@ -310,6 +332,6 @@ fn main() {
 
     match cli.file_or_command.as_str() {
         "test" => run_tests(cli.extra.as_deref(), cli.opt_level),
-        file   => run_file(file, cli.opt_level),
+        file => run_file(file, cli.opt_level),
     }
 }

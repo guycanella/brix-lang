@@ -1,4 +1,7 @@
-use crate::ast::{BinaryOp, Closure, Expr, ExprKind, FStringPart, Literal, MatchArm, Pattern, Program, Stmt, StmtKind, UnaryOp, StructDef, MethodDef, TypeParam};
+use crate::ast::{
+    BinaryOp, Closure, Expr, ExprKind, FStringPart, Literal, MatchArm, MethodDef, Pattern, Program,
+    Stmt, StmtKind, StructDef, TypeParam, UnaryOp,
+};
 use chumsky::prelude::*;
 use lexer::token::Token;
 
@@ -56,10 +59,10 @@ fn type_annotation_parser() -> impl Parser<Token, String, Error = Simple<Token>>
                     .ignore_then(
                         select! { Token::Identifier(t) => t }
                             .separated_by(just(Token::Comma))
-                            .at_least(1)
+                            .at_least(1),
                     )
                     .then_ignore(just(Token::Gt))
-                    .or_not()
+                    .or_not(),
             )
             .then(just(Token::Question).or_not())
             .map(|((base, generics), opt_question)| {
@@ -76,10 +79,7 @@ fn type_annotation_parser() -> impl Parser<Token, String, Error = Simple<Token>>
 
         // Closure/function type: (int) -> int, (int, float) -> string, () -> int
         let fn_type = just(Token::LParen)
-            .ignore_then(
-                type_expr.clone()
-                    .separated_by(just(Token::Comma))
-            )
+            .ignore_then(type_expr.clone().separated_by(just(Token::Comma)))
             .then_ignore(just(Token::RParen))
             .then_ignore(just(Token::Arrow))
             .then(type_expr.clone())
@@ -91,18 +91,28 @@ fn type_annotation_parser() -> impl Parser<Token, String, Error = Simple<Token>>
         let single_type = fn_type.or(base_type);
 
         // Array type suffix: int[], float[], etc.
-        let array_type = single_type.clone()
-            .then(just(Token::LBracket).then_ignore(just(Token::RBracket)).or_not())
+        let array_type = single_type
+            .clone()
+            .then(
+                just(Token::LBracket)
+                    .then_ignore(just(Token::RBracket))
+                    .or_not(),
+            )
             .map(|(t, bracket)| {
-                if bracket.is_some() { format!("{}[]", t) } else { t }
+                if bracket.is_some() {
+                    format!("{}[]", t)
+                } else {
+                    t
+                }
             });
 
         // Intersection types: Point & Label & Named
-        let intersection = array_type.clone()
+        let intersection = array_type
+            .clone()
             .then(
                 just(Token::Ampersand)
                     .ignore_then(array_type.clone())
-                    .repeated()
+                    .repeated(),
             )
             .map(|(first, rest)| {
                 if rest.is_empty() {
@@ -115,12 +125,9 @@ fn type_annotation_parser() -> impl Parser<Token, String, Error = Simple<Token>>
             });
 
         // Union types: int | float | string
-        intersection.clone()
-            .then(
-                just(Token::Pipe)
-                    .ignore_then(intersection)
-                    .repeated()
-            )
+        intersection
+            .clone()
+            .then(just(Token::Pipe).ignore_then(intersection).repeated())
             .map(|(first, rest)| {
                 if rest.is_empty() {
                     first
@@ -273,14 +280,17 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
                     .or(just(Token::ColonEq).to(None)),
             )
             .then(expr_p.clone())
-            .map_with_span(
-                |(((is_const, name), type_hint), value), span| Stmt::new(StmtKind::VariableDecl {
-                    name,
-                    type_hint,
-                    value,
-                    is_const,
-                }, span)
-            );
+            .map_with_span(|(((is_const, name), type_hint), value), span| {
+                Stmt::new(
+                    StmtKind::VariableDecl {
+                        name,
+                        type_hint,
+                        value,
+                        is_const,
+                    },
+                    span,
+                )
+            });
 
         // Destructuring declaration: var { a, b, c } := expr
         let destructuring_decl = just(Token::Var)
@@ -294,41 +304,63 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
             )
             .then_ignore(just(Token::ColonEq))
             .then(expr_p.clone())
-            .map_with_span(|((is_const, names), value), span| Stmt::new(StmtKind::DestructuringDecl {
-                names,
-                value,
-                is_const,
-            }, span));
+            .map_with_span(|((is_const, names), value), span| {
+                Stmt::new(
+                    StmtKind::DestructuringDecl {
+                        names,
+                        value,
+                        is_const,
+                    },
+                    span,
+                )
+            });
 
         let lvalue = select! { Token::Identifier(name) => name }
             .map_with_span(|name, span| Expr::new(ExprKind::Identifier(name), span))
             .then(
-                expr_p.clone()
+                expr_p
+                    .clone()
                     .delimited_by(just(Token::LBracket), just(Token::RBracket))
                     .map(|idx| (true, idx, String::new()))
                     .or(just(Token::Dot)
                         .ignore_then(select! { Token::Identifier(name) => name })
-                        .map(|name| (false, Expr::new(ExprKind::Identifier("dummy".to_string()), 0..0), name)))
+                        .map(|name| {
+                            (
+                                false,
+                                Expr::new(ExprKind::Identifier("dummy".to_string()), 0..0),
+                                name,
+                            )
+                        }))
                     .repeated(),
             )
             .foldl(|lhs, (is_index, index_expr, field_name)| {
-                let span = lhs.span.start..if is_index { index_expr.span.end } else { lhs.span.end };
+                let span = lhs.span.start..if is_index {
+                    index_expr.span.end
+                } else {
+                    lhs.span.end
+                };
                 if is_index {
                     match lhs.kind {
                         ExprKind::Index { array, mut indices } => {
                             indices.push(index_expr);
                             Expr::new(ExprKind::Index { array, indices }, span)
                         }
-                        _ => Expr::new(ExprKind::Index {
-                            array: Box::new(lhs),
-                            indices: vec![index_expr],
-                        }, span),
+                        _ => Expr::new(
+                            ExprKind::Index {
+                                array: Box::new(lhs),
+                                indices: vec![index_expr],
+                            },
+                            span,
+                        ),
                     }
                 } else {
-                    Expr::new(ExprKind::FieldAccess {
-                        target: Box::new(lhs),
-                        field: field_name,
-                    }, span)
+                    Expr::new(
+                        ExprKind::FieldAccess {
+                            target: Box::new(lhs),
+                            field: field_name,
+                        },
+                        span,
+                    )
                 }
             });
 
@@ -350,14 +382,20 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
                     let target_span = target.span.clone();
                     let value_span = value.span.clone();
                     let binary_span = target_span.start..value_span.end;
-                    Stmt::new(StmtKind::Assignment {
-                        target: target.clone(),
-                        value: Expr::new(ExprKind::Binary {
-                            op,
-                            lhs: Box::new(target),
-                            rhs: Box::new(value),
-                        }, binary_span),
-                    }, span)
+                    Stmt::new(
+                        StmtKind::Assignment {
+                            target: target.clone(),
+                            value: Expr::new(
+                                ExprKind::Binary {
+                                    op,
+                                    lhs: Box::new(target),
+                                    rhs: Box::new(value),
+                                },
+                                binary_span,
+                            ),
+                        },
+                        span,
+                    )
                 }
             });
 
@@ -372,24 +410,32 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
                 .then(block.clone())
                 .then(
                     just(Token::Else)
-                        .ignore_then(
-                            if_stmt.or(block.clone())
-                        )
-                        .or_not()
+                        .ignore_then(if_stmt.or(block.clone()))
+                        .or_not(),
                 )
-                .map_with_span(|((c, t), e), span| Stmt::new(StmtKind::If {
-                    condition: c,
-                    then_block: Box::new(t),
-                    else_block: e.map(Box::new),
-                }, span))
+                .map_with_span(|((c, t), e), span| {
+                    Stmt::new(
+                        StmtKind::If {
+                            condition: c,
+                            then_block: Box::new(t),
+                            else_block: e.map(Box::new),
+                        },
+                        span,
+                    )
+                })
         });
         let while_stmt = just(Token::While)
             .ignore_then(expr_p.clone())
             .then(block.clone())
-            .map_with_span(|(c, b), span| Stmt::new(StmtKind::While {
-                condition: c,
-                body: Box::new(b),
-            }, span));
+            .map_with_span(|(c, b), span| {
+                Stmt::new(
+                    StmtKind::While {
+                        condition: c,
+                        body: Box::new(b),
+                    },
+                    span,
+                )
+            });
         let for_stmt = just(Token::For)
             .ignore_then(
                 select! { Token::Identifier(n) => n }
@@ -399,11 +445,16 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
             .then_ignore(just(Token::In))
             .then(expr_p.clone())
             .then(block.clone())
-            .map_with_span(|((names, i), b), span| Stmt::new(StmtKind::For {
-                var_names: names,
-                iterable: i,
-                body: Box::new(b),
-            }, span));
+            .map_with_span(|((names, i), b), span| {
+                Stmt::new(
+                    StmtKind::For {
+                        var_names: names,
+                        iterable: i,
+                        body: Box::new(b),
+                    },
+                    span,
+                )
+            });
 
         let import_stmt = just(Token::Import)
             .ignore_then(select! { Token::Identifier(module) => module })
@@ -412,7 +463,9 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
                     .ignore_then(select! { Token::Identifier(alias) => alias })
                     .or_not(),
             )
-            .map_with_span(|(module, alias), span| Stmt::new(StmtKind::Import { module, alias }, span));
+            .map_with_span(|(module, alias), span| {
+                Stmt::new(StmtKind::Import { module, alias }, span)
+            });
 
         // Type expression parser (supports Union | and Intersection &)
         let type_expr = recursive(|_type_expr| {
@@ -424,10 +477,10 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
                         .ignore_then(
                             select! { Token::Identifier(t) => t }
                                 .separated_by(just(Token::Comma))
-                                .at_least(1)
+                                .at_least(1),
                         )
                         .then_ignore(just(Token::Gt))
-                        .or_not()
+                        .or_not(),
                 )
                 .then(just(Token::Question).or_not())
                 .map(|((base, generics), opt_question)| {
@@ -443,11 +496,12 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
                 });
 
             // Intersection types: Point & Label & Named
-            let intersection = base_type.clone()
+            let intersection = base_type
+                .clone()
                 .then(
                     just(Token::Ampersand)
                         .ignore_then(base_type.clone())
-                        .repeated()
+                        .repeated(),
                 )
                 .map(|(first, rest)| {
                     if rest.is_empty() {
@@ -460,12 +514,9 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
                 });
 
             // Union types: int | float | string
-            intersection.clone()
-                .then(
-                    just(Token::Pipe)
-                        .ignore_then(intersection)
-                        .repeated()
-                )
+            intersection
+                .clone()
+                .then(just(Token::Pipe).ignore_then(intersection).repeated())
                 .map(|(first, rest)| {
                     if rest.is_empty() {
                         first
@@ -500,18 +551,29 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
                 .delimited_by(just(Token::LParen), just(Token::RParen)),
             )
             .map_with_span(|(f, a), span| {
-                Stmt::new(StmtKind::Printf {
-                    format: f, // Already processed by process_escape_sequences
-                    args: a.unwrap_or_default(),
-                }, span)
+                Stmt::new(
+                    StmtKind::Printf {
+                        format: f, // Already processed by process_escape_sequences
+                        args: a.unwrap_or_default(),
+                    },
+                    span,
+                )
             });
 
         let print_stmt = just(Token::Print)
-            .ignore_then(expr_p.clone().delimited_by(just(Token::LParen), just(Token::RParen)))
+            .ignore_then(
+                expr_p
+                    .clone()
+                    .delimited_by(just(Token::LParen), just(Token::RParen)),
+            )
             .map_with_span(|expr, span| Stmt::new(StmtKind::Print { expr }, span));
 
         let println_stmt = just(Token::Println)
-            .ignore_then(expr_p.clone().delimited_by(just(Token::LParen), just(Token::RParen)))
+            .ignore_then(
+                expr_p
+                    .clone()
+                    .delimited_by(just(Token::LParen), just(Token::RParen)),
+            )
             .map_with_span(|expr, span| Stmt::new(StmtKind::Println { expr }, span));
 
         // Combined function/method parser
@@ -519,7 +581,8 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
         // then disambiguate by the next token:
         //   - Method: LParen follows (receiver syntax)  -> fn (p: Point) name() { }
         //   - Function: Identifier follows (func name)  -> fn name<T>() { }
-        let fn_or_method = just(Token::Async).or_not()
+        let fn_or_method = just(Token::Async)
+            .or_not()
             .then_ignore(just(Token::Function))
             .then(
                 // Path 1: Method definition - fn (receiver: Type) method_name(params) -> ret { body }
@@ -536,7 +599,7 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
                             .allow_trailing()
                             .delimited_by(just(Token::Lt), just(Token::Gt))
                             .or_not()
-                            .map(|opt| opt.unwrap_or_default())
+                            .map(|opt| opt.unwrap_or_default()),
                     )
                     .then(
                         // Parameters (optional): (name: type, name: type = default)
@@ -563,75 +626,95 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
                             .or_not(), // Optional for void methods
                     )
                     .then(block.clone())
-                    .map(|(((((receiver, method_name), _type_params), params), return_type), body)| {
-                        let (receiver_name, receiver_type) = receiver;
-                        StmtKind::MethodDef(MethodDef {
-                            is_async: false, // placeholder, set by outer map
-                            receiver_name,
-                            receiver_type,
-                            method_name,
-                            params,
-                            return_type,
-                            body: Box::new(body),
-                        })
-                    })
-                .or(
-                    // Path 2: Function definition - fn name<T>(params) -> ret { body }
-                    // Starts with Identifier (function name), completely distinct from LParen
-                    select! { Token::Identifier(name) => name }
-                        .then(
-                            // Parse type parameters <T, U> (optional)
-                            select! { Token::Identifier(name) => TypeParam { name } }
-                                .separated_by(just(Token::Comma))
-                                .allow_trailing()
-                                .delimited_by(just(Token::Lt), just(Token::Gt))
-                                .or_not()
-                                .map(|opt| opt.unwrap_or_default())
-                        )
-                        .then(
-                            // Parameters: (name: type, name: type = default) (supports Optional: x: int?)
-                            select! { Token::Identifier(param_name) => param_name }
-                                .then_ignore(just(Token::Colon))
-                                .then(type_annotation_parser())
-                                .then(just(Token::Eq).ignore_then(expr_p.clone()).or_not())
-                                .map(|((name, ty), default)| (name, ty, default))
-                                .separated_by(just(Token::Comma))
-                                .allow_trailing()
-                                .delimited_by(just(Token::LParen), just(Token::RParen)),
-                        )
-                        .then(
-                            // Return type: -> type or -> (type1, type2) (supports Optional: -> int?)
-                            just(Token::Arrow)
-                                .ignore_then(
-                                    type_annotation_parser().map(|t| vec![t]).or(
-                                        type_annotation_parser()
-                                            .separated_by(just(Token::Comma))
-                                            .at_least(1)
-                                            .delimited_by(just(Token::LParen), just(Token::RParen)),
-                                    ),
-                                )
-                                .or_not(), // Optional for void functions
-                        )
-                        .then(block.clone())
-                        .map(|((((name, type_params), params), return_type), body)| {
-                            StmtKind::FunctionDef {
-                                name,
+                    .map(
+                        |(
+                            ((((receiver, method_name), _type_params), params), return_type),
+                            body,
+                        )| {
+                            let (receiver_name, receiver_type) = receiver;
+                            StmtKind::MethodDef(MethodDef {
                                 is_async: false, // placeholder, set by outer map
-                                type_params,
+                                receiver_name,
+                                receiver_type,
+                                method_name,
                                 params,
                                 return_type,
                                 body: Box::new(body),
-                            }
-                        })
-                )
+                            })
+                        },
+                    )
+                    .or(
+                        // Path 2: Function definition - fn name<T>(params) -> ret { body }
+                        // Starts with Identifier (function name), completely distinct from LParen
+                        select! { Token::Identifier(name) => name }
+                            .then(
+                                // Parse type parameters <T, U> (optional)
+                                select! { Token::Identifier(name) => TypeParam { name } }
+                                    .separated_by(just(Token::Comma))
+                                    .allow_trailing()
+                                    .delimited_by(just(Token::Lt), just(Token::Gt))
+                                    .or_not()
+                                    .map(|opt| opt.unwrap_or_default()),
+                            )
+                            .then(
+                                // Parameters: (name: type, name: type = default) (supports Optional: x: int?)
+                                select! { Token::Identifier(param_name) => param_name }
+                                    .then_ignore(just(Token::Colon))
+                                    .then(type_annotation_parser())
+                                    .then(just(Token::Eq).ignore_then(expr_p.clone()).or_not())
+                                    .map(|((name, ty), default)| (name, ty, default))
+                                    .separated_by(just(Token::Comma))
+                                    .allow_trailing()
+                                    .delimited_by(just(Token::LParen), just(Token::RParen)),
+                            )
+                            .then(
+                                // Return type: -> type or -> (type1, type2) (supports Optional: -> int?)
+                                just(Token::Arrow)
+                                    .ignore_then(
+                                        type_annotation_parser().map(|t| vec![t]).or(
+                                            type_annotation_parser()
+                                                .separated_by(just(Token::Comma))
+                                                .at_least(1)
+                                                .delimited_by(
+                                                    just(Token::LParen),
+                                                    just(Token::RParen),
+                                                ),
+                                        ),
+                                    )
+                                    .or_not(), // Optional for void functions
+                            )
+                            .then(block.clone())
+                            .map(|((((name, type_params), params), return_type), body)| {
+                                StmtKind::FunctionDef {
+                                    name,
+                                    is_async: false, // placeholder, set by outer map
+                                    type_params,
+                                    params,
+                                    return_type,
+                                    body: Box::new(body),
+                                }
+                            }),
+                    ),
             )
             .map_with_span(|(maybe_async, kind), span| {
                 let is_async = maybe_async.is_some();
                 let kind = match kind {
-                    StmtKind::FunctionDef { name, is_async: _, type_params, params, return_type, body } =>
-                        StmtKind::FunctionDef { name, is_async, type_params, params, return_type, body },
-                    StmtKind::MethodDef(m) =>
-                        StmtKind::MethodDef(MethodDef { is_async, ..m }),
+                    StmtKind::FunctionDef {
+                        name,
+                        is_async: _,
+                        type_params,
+                        params,
+                        return_type,
+                        body,
+                    } => StmtKind::FunctionDef {
+                        name,
+                        is_async,
+                        type_params,
+                        params,
+                        return_type,
+                        body,
+                    },
+                    StmtKind::MethodDef(m) => StmtKind::MethodDef(MethodDef { is_async, ..m }),
                     _ => kind,
                 };
                 Stmt::new(kind, span)
@@ -642,25 +725,32 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
         let return_stmt = just(Token::Return)
             .ignore_then(
                 // Try parenthesized tuple first: (expr, expr, ...)
-                expr_p.clone()
+                expr_p
+                    .clone()
                     .separated_by(just(Token::Comma))
                     .allow_trailing()
                     .delimited_by(just(Token::LParen), just(Token::RParen))
                     // Or bare comma-separated expressions: expr, expr, ...
-                    .or(expr_p.clone()
+                    .or(expr_p
+                        .clone()
                         .separated_by(just(Token::Comma))
                         .allow_trailing())
                     .or_not(),
             )
-            .map_with_span(|values, span| Stmt::new(StmtKind::Return {
-                values: values.unwrap_or_default(),
-            }, span));
+            .map_with_span(|values, span| {
+                Stmt::new(
+                    StmtKind::Return {
+                        values: values.unwrap_or_default(),
+                    },
+                    span,
+                )
+            });
 
-        let break_stmt = just(Token::Break)
-            .map_with_span(|_, span| Stmt::new(StmtKind::Break, span));
+        let break_stmt =
+            just(Token::Break).map_with_span(|_, span| Stmt::new(StmtKind::Break, span));
 
-        let continue_stmt = just(Token::Continue)
-            .map_with_span(|_, span| Stmt::new(StmtKind::Continue, span));
+        let continue_stmt =
+            just(Token::Continue).map_with_span(|_, span| Stmt::new(StmtKind::Continue, span));
 
         // Struct definition: struct Box<T> { value: T }
         let struct_def = just(Token::Struct)
@@ -672,7 +762,7 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
                     .allow_trailing()
                     .delimited_by(just(Token::Lt), just(Token::Gt))
                     .or_not()
-                    .map(|opt| opt.unwrap_or_default())
+                    .map(|opt| opt.unwrap_or_default()),
             )
             .then(
                 // Fields: name: type = default (supports Optional: x: int?) (comma separated)
@@ -685,13 +775,20 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
                     .allow_trailing()
                     .delimited_by(lbrace(), just(Token::RBrace)),
             )
-            .map_with_span(|((name, type_params), fields), span| Stmt::new(StmtKind::StructDef(StructDef {
-                name,
-                type_params,
-                fields,
-            }), span));
+            .map_with_span(|((name, type_params), fields), span| {
+                Stmt::new(
+                    StmtKind::StructDef(StructDef {
+                        name,
+                        type_params,
+                        fields,
+                    }),
+                    span,
+                )
+            });
 
-        let expr_stmt = expr_p.clone().map_with_span(|expr, span| Stmt::new(StmtKind::Expr(expr), span));
+        let expr_stmt = expr_p
+            .clone()
+            .map_with_span(|expr, span| Stmt::new(StmtKind::Expr(expr), span));
 
         destructuring_decl
             .or(decl)
@@ -725,7 +822,8 @@ where
 {
     recursive(move |expr| {
         // Build block from the stmt parser — this is what closures will use
-        let block = stmt.clone()
+        let block = stmt
+            .clone()
             .repeated()
             .delimited_by(lbrace(), just(Token::RBrace))
             .map_with_span(|stmts, span| Stmt::new(StmtKind::Block(stmts), span));
@@ -813,16 +911,26 @@ where
             };
 
             let range_suffix = choice((
-                just(Token::DotDotLt).ignore_then(numeric_literal.clone()).map(|end| (false, end)),
-                just(Token::DotDot).ignore_then(numeric_literal.clone()).map(|end| (true, end)),
+                just(Token::DotDotLt)
+                    .ignore_then(numeric_literal.clone())
+                    .map(|end| (false, end)),
+                just(Token::DotDot)
+                    .ignore_then(numeric_literal.clone())
+                    .map(|end| (true, end)),
             ));
 
-            let numeric_pattern = numeric_literal.clone()
-                .then(range_suffix.or_not())
-                .map(|(start, range_part)| match range_part {
-                    Some((inclusive, end)) => Pattern::Range { start, end, inclusive },
-                    None => Pattern::Literal(start),
-                });
+            let numeric_pattern =
+                numeric_literal
+                    .clone()
+                    .then(range_suffix.or_not())
+                    .map(|(start, range_part)| match range_part {
+                        Some((inclusive, end)) => Pattern::Range {
+                            start,
+                            end,
+                            inclusive,
+                        },
+                        None => Pattern::Literal(start),
+                    });
 
             // Wildcard pattern: _
             let wildcard_pattern = select! {
@@ -909,7 +1017,7 @@ where
                         .then(atomic.clone())
                         .separated_by(just(Token::Comma))
                         .allow_trailing()
-                        .at_least(1)
+                        .at_least(1),
                 )
                 .then_ignore(just(Token::RBrace))
                 .map(Pattern::NamedField);
@@ -951,10 +1059,15 @@ where
                     .at_least(1)
                     .delimited_by(lbrace(), just(Token::RBrace)),
             )
-            .map_with_span(|(value, arms), span| Expr::new(ExprKind::Match {
-                value: Box::new(value),
-                arms,
-            }, span));
+            .map_with_span(|(value, arms), span| {
+                Expr::new(
+                    ExprKind::Match {
+                        value: Box::new(value),
+                        arms,
+                    },
+                    span,
+                )
+            });
 
         // List comprehension: [expr for var in iterable if cond]
         let list_comp = just(Token::LBracket)
@@ -982,10 +1095,15 @@ where
                     .at_least(1),
             )
             .then_ignore(just(Token::RBracket))
-            .map_with_span(|(expr, generators), span| Expr::new(ExprKind::ListComprehension {
-                expr: Box::new(expr),
-                generators,
-            }, span));
+            .map_with_span(|(expr, generators), span| {
+                Expr::new(
+                    ExprKind::ListComprehension {
+                        expr: Box::new(expr),
+                        generators,
+                    },
+                    span,
+                )
+            });
 
         // Async closure: async (x: int) -> int { ... } — same syntax as closure but is_async: true
         let async_closure = just(Token::Async)
@@ -1002,16 +1120,19 @@ where
                             .or_not()
                             .map(|opt| opt.flatten()),
                     )
-                    .then(block.clone())
+                    .then(block.clone()),
             )
             .map_with_span(|((params, return_type), body), span| {
-                Expr::new(ExprKind::Closure(Closure {
-                    params,
-                    return_type,
-                    body: Box::new(body),
-                    captured_vars: vec![],
-                    is_async: true,
-                }), span)
+                Expr::new(
+                    ExprKind::Closure(Closure {
+                        params,
+                        return_type,
+                        body: Box::new(body),
+                        captured_vars: vec![],
+                        is_async: true,
+                    }),
+                    span,
+                )
             });
 
         // Closure: (x: int, y: int) -> int { return x + y } (supports Optional: (x: int?) -> int?)
@@ -1032,13 +1153,16 @@ where
             )
             .then(block.clone())
             .map_with_span(|((params, return_type), body), span| {
-                Expr::new(ExprKind::Closure(Closure {
-                    params,
-                    return_type,
-                    body: Box::new(body),
-                    captured_vars: vec![],
-                    is_async: false,
-                }), span)
+                Expr::new(
+                    ExprKind::Closure(Closure {
+                        params,
+                        return_type,
+                        body: Box::new(body),
+                        captured_vars: vec![],
+                        is_async: false,
+                    }),
+                    span,
+                )
             });
 
         let array_literal = expr
@@ -1066,11 +1190,16 @@ where
                     .allow_trailing()
                     .delimited_by(lbrace(), just(Token::RBrace)),
             )
-            .map_with_span(|(struct_name, fields), span| Expr::new(ExprKind::StructInit {
-                struct_name,
-                type_args: vec![],  // No type args in non-generic struct init
-                fields,
-            }, span));
+            .map_with_span(|(struct_name, fields), span| {
+                Expr::new(
+                    ExprKind::StructInit {
+                        struct_name,
+                        type_args: vec![], // No type args in non-generic struct init
+                        fields,
+                    },
+                    span,
+                )
+            });
 
         // Parse expressions in parentheses, with optional 'im' suffix for implicit multiplication
         let paren_expr = expr
@@ -1080,28 +1209,39 @@ where
             .map_with_span(|(e, im_suffix), span| {
                 if im_suffix.is_some() {
                     // (expr)im → expr * im
-                    Expr::new(ExprKind::Binary {
-                        op: BinaryOp::Mul,
-                        lhs: Box::new(e),
-                        rhs: Box::new(Expr::new(ExprKind::Identifier("im".to_string()), 0..0)),
-                    }, span)
+                    Expr::new(
+                        ExprKind::Binary {
+                            op: BinaryOp::Mul,
+                            lhs: Box::new(e),
+                            rhs: Box::new(Expr::new(ExprKind::Identifier("im".to_string()), 0..0)),
+                        },
+                        span,
+                    )
                 } else {
                     e
                 }
             });
 
         // Async block: async { ... } creates a Future
-        let async_block = just(Token::Async)
-            .ignore_then(block.clone())
-            .map_with_span(|body, span| Expr::new(ExprKind::AsyncBlock { body: Box::new(body) }, span));
+        let async_block =
+            just(Token::Async)
+                .ignore_then(block.clone())
+                .map_with_span(|body, span| {
+                    Expr::new(
+                        ExprKind::AsyncBlock {
+                            body: Box::new(body),
+                        },
+                        span,
+                    )
+                });
 
         let atom = val
             .or(fstring)
             .or(match_expr)
             .or(list_comp)
-            .or(async_closure)  // async closures before async blocks
-            .or(async_block)  // async { } before closure to avoid conflict
-            .or(closure)  // Try closure BEFORE paren_expr
+            .or(async_closure) // async closures before async blocks
+            .or(async_block) // async { } before closure to avoid conflict
+            .or(closure) // Try closure BEFORE paren_expr
             .or(struct_init)
             .or(array_literal)
             .or(paren_expr);
@@ -1116,10 +1256,15 @@ where
                     .at_most(2)
                     .delimited_by(just(Token::LBracket), just(Token::RBracket)),
             )
-            .map_with_span(|(element_type, dimensions), span| Expr::new(ExprKind::StaticInit {
-                element_type,
-                dimensions,
-            }, span));
+            .map_with_span(|(element_type, dimensions), span| {
+                Expr::new(
+                    ExprKind::StaticInit {
+                        element_type,
+                        dimensions,
+                    },
+                    span,
+                )
+            });
 
         // Postfix operations: field access, indexing, function calls, and generic calls
         // Can be chained in any order: get_matrix().rows, arr[0].len, get_func()()
@@ -1129,7 +1274,7 @@ where
             Index(Expr),
             Call(Vec<Expr>),
             GenericCall(Vec<String>, Vec<Expr>),
-            StructInit(Vec<String>, Vec<(String, Expr)>),  // Generic struct init: <int>{ value: 42 }
+            StructInit(Vec<String>, Vec<(String, Expr)>), // Generic struct init: <int>{ value: 42 }
         }
 
         let postfix_chain = static_init
@@ -1144,29 +1289,28 @@ where
                 just(Token::Dot)
                     .ignore_then(
                         select! { Token::Identifier(name) => name }
-                            .or(just(Token::Not).to("not".to_string()))
+                            .or(just(Token::Not).to("not".to_string())),
                     )
                     .map(PostfixOp::Field)
                     // Index: [expr]
-                    .or(expr.clone()
+                    .or(expr
+                        .clone()
                         .delimited_by(just(Token::LBracket), just(Token::RBracket))
                         .map(PostfixOp::Index))
                     // Generic struct init: <int>{ value: 42 }
-                    .or(
-                        select! { Token::Identifier(name) => name }
-                            .separated_by(just(Token::Comma))
-                            .allow_trailing()
-                            .delimited_by(just(Token::Lt), just(Token::Gt))
-                            .then(
-                                select! { Token::Identifier(field_name) => field_name }
-                                    .then_ignore(just(Token::Colon))
-                                    .then(expr.clone())
-                                    .separated_by(just(Token::Comma))
-                                    .allow_trailing()
-                                    .delimited_by(lbrace(), just(Token::RBrace))
-                            )
-                            .map(|(type_args, fields)| PostfixOp::StructInit(type_args, fields))
-                    )
+                    .or(select! { Token::Identifier(name) => name }
+                        .separated_by(just(Token::Comma))
+                        .allow_trailing()
+                        .delimited_by(just(Token::Lt), just(Token::Gt))
+                        .then(
+                            select! { Token::Identifier(field_name) => field_name }
+                                .then_ignore(just(Token::Colon))
+                                .then(expr.clone())
+                                .separated_by(just(Token::Comma))
+                                .allow_trailing()
+                                .delimited_by(lbrace(), just(Token::RBrace)),
+                        )
+                        .map(|(type_args, fields)| PostfixOp::StructInit(type_args, fields)))
                     // Non-generic struct init: { field: value, ... }
                     // Handles Point { x: 3.0, y: 4.0 } when Point is already parsed as identifier
                     // Requires at least one field to avoid consuming empty blocks { }
@@ -1174,32 +1318,29 @@ where
                     // otherwise `px\n{ x: 0, y: py }` (the next match arm's named-field pattern,
                     // on its own line) would be greedily swallowed as a struct-init continuation
                     // of the previous arm's bare-identifier body `px`.
-                    .or(
-                        select! { Token::Identifier(field_name) => field_name }
-                            .then_ignore(just(Token::Colon))
-                            .then(expr.clone())
-                            .separated_by(just(Token::Comma))
-                            .allow_trailing()
-                            .at_least(1)
-                            .delimited_by(lbrace_same_line(), just(Token::RBrace))
-                            .map(|fields| PostfixOp::StructInit(vec![], fields))
-                    )
+                    .or(select! { Token::Identifier(field_name) => field_name }
+                        .then_ignore(just(Token::Colon))
+                        .then(expr.clone())
+                        .separated_by(just(Token::Comma))
+                        .allow_trailing()
+                        .at_least(1)
+                        .delimited_by(lbrace_same_line(), just(Token::RBrace))
+                        .map(|fields| PostfixOp::StructInit(vec![], fields)))
                     // Generic call: <int, float>(args)
-                    .or(
-                        select! { Token::Identifier(name) => name }
-                            .separated_by(just(Token::Comma))
-                            .allow_trailing()
-                            .delimited_by(just(Token::Lt), just(Token::Gt))
-                            .then(
-                                expr.clone()
-                                    .separated_by(just(Token::Comma))
-                                    .allow_trailing()
-                                    .delimited_by(just(Token::LParen), just(Token::RParen))
-                            )
-                            .map(|(type_args, args)| PostfixOp::GenericCall(type_args, args))
-                    )
+                    .or(select! { Token::Identifier(name) => name }
+                        .separated_by(just(Token::Comma))
+                        .allow_trailing()
+                        .delimited_by(just(Token::Lt), just(Token::Gt))
+                        .then(
+                            expr.clone()
+                                .separated_by(just(Token::Comma))
+                                .allow_trailing()
+                                .delimited_by(just(Token::LParen), just(Token::RParen)),
+                        )
+                        .map(|(type_args, args)| PostfixOp::GenericCall(type_args, args)))
                     // Regular function call: (args)
-                    .or(expr.clone()
+                    .or(expr
+                        .clone()
                         .separated_by(just(Token::Comma))
                         .allow_trailing()
                         .delimited_by(just(Token::LParen), just(Token::RParen))
@@ -1209,42 +1350,55 @@ where
             .foldl(|lhs, op| {
                 let span = lhs.span.clone();
                 match op {
-                    PostfixOp::Field(field_name) => Expr::new(ExprKind::FieldAccess {
-                        target: Box::new(lhs),
-                        field: field_name,
-                    }, span),
-                    PostfixOp::Index(index_expr) => {
-                        match lhs.kind {
-                            ExprKind::Index { array, mut indices } => {
-                                indices.push(index_expr);
-                                Expr::new(ExprKind::Index { array, indices }, span)
-                            }
-                            _ => Expr::new(ExprKind::Index {
+                    PostfixOp::Field(field_name) => Expr::new(
+                        ExprKind::FieldAccess {
+                            target: Box::new(lhs),
+                            field: field_name,
+                        },
+                        span,
+                    ),
+                    PostfixOp::Index(index_expr) => match lhs.kind {
+                        ExprKind::Index { array, mut indices } => {
+                            indices.push(index_expr);
+                            Expr::new(ExprKind::Index { array, indices }, span)
+                        }
+                        _ => Expr::new(
+                            ExprKind::Index {
                                 array: Box::new(lhs),
                                 indices: vec![index_expr],
-                            }, span),
-                        }
+                            },
+                            span,
+                        ),
                     },
-                    PostfixOp::Call(args) => Expr::new(ExprKind::Call {
-                        func: Box::new(lhs),
-                        args,
-                    }, span),
-                    PostfixOp::GenericCall(type_args, args) => Expr::new(ExprKind::GenericCall {
-                        func: Box::new(lhs),
-                        type_args,
-                        args,
-                    }, span),
+                    PostfixOp::Call(args) => Expr::new(
+                        ExprKind::Call {
+                            func: Box::new(lhs),
+                            args,
+                        },
+                        span,
+                    ),
+                    PostfixOp::GenericCall(type_args, args) => Expr::new(
+                        ExprKind::GenericCall {
+                            func: Box::new(lhs),
+                            type_args,
+                            args,
+                        },
+                        span,
+                    ),
                     PostfixOp::StructInit(type_args, fields) => {
                         // Extract struct name from lhs (should be an identifier)
                         match lhs.kind {
-                            ExprKind::Identifier(struct_name) => Expr::new(ExprKind::StructInit {
-                                struct_name,
-                                type_args,
-                                fields,
-                            }, span),
-                            _ => lhs,  // Should not happen, but keep lhs if it's not an identifier
+                            ExprKind::Identifier(struct_name) => Expr::new(
+                                ExprKind::StructInit {
+                                    struct_name,
+                                    type_args,
+                                    fields,
+                                },
+                                span,
+                            ),
+                            _ => lhs, // Should not happen, but keep lhs if it's not an identifier
                         }
-                    },
+                    }
                 }
             })
             .boxed();
@@ -1261,15 +1415,21 @@ where
             .map_with_span(|(expr, maybe_op), span| match maybe_op {
                 Some(is_increment) => {
                     if is_increment {
-                        Expr::new(ExprKind::Increment {
-                            expr: Box::new(expr),
-                            is_prefix: false,
-                        }, span)
+                        Expr::new(
+                            ExprKind::Increment {
+                                expr: Box::new(expr),
+                                is_prefix: false,
+                            },
+                            span,
+                        )
                     } else {
-                        Expr::new(ExprKind::Decrement {
-                            expr: Box::new(expr),
-                            is_prefix: false,
-                        }, span)
+                        Expr::new(
+                            ExprKind::Decrement {
+                                expr: Box::new(expr),
+                                is_prefix: false,
+                            },
+                            span,
+                        )
                     }
                 }
                 None => expr,
@@ -1294,22 +1454,34 @@ where
             .foldr(|op, expr| {
                 let span = expr.span.clone();
                 match op {
-                    PrefixOp::Inc => Expr::new(ExprKind::Increment {
-                        expr: Box::new(expr),
-                        is_prefix: true,
-                    }, span),
-                    PrefixOp::Dec => Expr::new(ExprKind::Decrement {
-                        expr: Box::new(expr),
-                        is_prefix: true,
-                    }, span),
-                    PrefixOp::Not => Expr::new(ExprKind::Unary {
-                        op: UnaryOp::Not,
-                        expr: Box::new(expr),
-                    }, span),
-                    PrefixOp::Neg => Expr::new(ExprKind::Unary {
-                        op: UnaryOp::Negate,
-                        expr: Box::new(expr),
-                    }, span),
+                    PrefixOp::Inc => Expr::new(
+                        ExprKind::Increment {
+                            expr: Box::new(expr),
+                            is_prefix: true,
+                        },
+                        span,
+                    ),
+                    PrefixOp::Dec => Expr::new(
+                        ExprKind::Decrement {
+                            expr: Box::new(expr),
+                            is_prefix: true,
+                        },
+                        span,
+                    ),
+                    PrefixOp::Not => Expr::new(
+                        ExprKind::Unary {
+                            op: UnaryOp::Not,
+                            expr: Box::new(expr),
+                        },
+                        span,
+                    ),
+                    PrefixOp::Neg => Expr::new(
+                        ExprKind::Unary {
+                            op: UnaryOp::Negate,
+                            expr: Box::new(expr),
+                        },
+                        span,
+                    ),
                 }
             });
 
@@ -1322,7 +1494,12 @@ where
 
         let power = await_level
             .clone()
-            .then(just(Token::Pow).to(BinaryOp::Pow).then(await_level).repeated())
+            .then(
+                just(Token::Pow)
+                    .to(BinaryOp::Pow)
+                    .then(await_level)
+                    .repeated(),
+            )
             .map_with_span(|(first, rest), _span| {
                 // Right-associative: build tree from right to left
                 // 2**3**4 should be 2**(3**4), not (2**3)**4
@@ -1343,11 +1520,14 @@ where
                         let op = operators.pop().unwrap();
                         let lhs_span = lhs.span.clone();
                         let rhs_span = result.span.clone();
-                        result = Expr::new(ExprKind::Binary {
-                            op,
-                            lhs: Box::new(lhs),
-                            rhs: Box::new(result),
-                        }, lhs_span.start..rhs_span.end);
+                        result = Expr::new(
+                            ExprKind::Binary {
+                                op,
+                                lhs: Box::new(lhs),
+                                rhs: Box::new(result),
+                            },
+                            lhs_span.start..rhs_span.end,
+                        );
                     }
                     result
                 }
@@ -1367,11 +1547,14 @@ where
             .foldl(|lhs, (op, rhs)| {
                 let lhs_span = lhs.span.clone();
                 let rhs_span = rhs.span.clone();
-                Expr::new(ExprKind::Binary {
-                    op,
-                    lhs: Box::new(lhs),
-                    rhs: Box::new(rhs),
-                }, lhs_span.start..rhs_span.end)
+                Expr::new(
+                    ExprKind::Binary {
+                        op,
+                        lhs: Box::new(lhs),
+                        rhs: Box::new(rhs),
+                    },
+                    lhs_span.start..rhs_span.end,
+                )
             })
             .boxed();
 
@@ -1387,11 +1570,14 @@ where
             .foldl(|lhs, (op, rhs)| {
                 let lhs_span = lhs.span.clone();
                 let rhs_span = rhs.span.clone();
-                Expr::new(ExprKind::Binary {
-                    op,
-                    lhs: Box::new(lhs),
-                    rhs: Box::new(rhs),
-                }, lhs_span.start..rhs_span.end)
+                Expr::new(
+                    ExprKind::Binary {
+                        op,
+                        lhs: Box::new(lhs),
+                        rhs: Box::new(rhs),
+                    },
+                    lhs_span.start..rhs_span.end,
+                )
             })
             .boxed();
 
@@ -1408,11 +1594,14 @@ where
             .foldl(|lhs, (op, rhs)| {
                 let lhs_span = lhs.span.clone();
                 let rhs_span = rhs.span.clone();
-                Expr::new(ExprKind::Binary {
-                    op,
-                    lhs: Box::new(lhs),
-                    rhs: Box::new(rhs),
-                }, lhs_span.start..rhs_span.end)
+                Expr::new(
+                    ExprKind::Binary {
+                        op,
+                        lhs: Box::new(lhs),
+                        rhs: Box::new(rhs),
+                    },
+                    lhs_span.start..rhs_span.end,
+                )
             })
             .boxed();
 
@@ -1439,11 +1628,14 @@ where
                     let (op, rhs) = pairs[0].clone();
                     let lhs_span = lhs.span.clone();
                     let rhs_span = rhs.span.clone();
-                    return Expr::new(ExprKind::Binary {
-                        op,
-                        lhs: Box::new(lhs),
-                        rhs: Box::new(rhs),
-                    }, lhs_span.start..rhs_span.end);
+                    return Expr::new(
+                        ExprKind::Binary {
+                            op,
+                            lhs: Box::new(lhs),
+                            rhs: Box::new(rhs),
+                        },
+                        lhs_span.start..rhs_span.end,
+                    );
                 }
 
                 // Chained Comparison: 1 <= n <= 10  ->  (1 <= n) && (n <= 10)
@@ -1451,30 +1643,39 @@ where
                 let lhs_span = lhs.span.clone();
                 let first_rhs_span = first_rhs.span.clone();
 
-                let mut final_expr = Expr::new(ExprKind::Binary {
-                    op: first_op,
-                    lhs: Box::new(lhs),
-                    rhs: Box::new(first_rhs.clone()),
-                }, lhs_span.start..first_rhs_span.end);
+                let mut final_expr = Expr::new(
+                    ExprKind::Binary {
+                        op: first_op,
+                        lhs: Box::new(lhs),
+                        rhs: Box::new(first_rhs.clone()),
+                    },
+                    lhs_span.start..first_rhs_span.end,
+                );
 
                 let mut prev_rhs = first_rhs;
 
                 for (op, rhs) in pairs.into_iter().skip(1) {
                     let prev_span = prev_rhs.span.clone();
                     let rhs_span = rhs.span.clone();
-                    let next_comparison = Expr::new(ExprKind::Binary {
-                        op,
-                        lhs: Box::new(prev_rhs.clone()),
-                        rhs: Box::new(rhs.clone()),
-                    }, prev_span.start..rhs_span.end);
+                    let next_comparison = Expr::new(
+                        ExprKind::Binary {
+                            op,
+                            lhs: Box::new(prev_rhs.clone()),
+                            rhs: Box::new(rhs.clone()),
+                        },
+                        prev_span.start..rhs_span.end,
+                    );
 
                     let final_span = final_expr.span.clone();
                     let next_span = next_comparison.span.clone();
-                    final_expr = Expr::new(ExprKind::Binary {
-                        op: BinaryOp::LogicalAnd,
-                        lhs: Box::new(final_expr),
-                        rhs: Box::new(next_comparison),
-                    }, final_span.start..next_span.end);
+                    final_expr = Expr::new(
+                        ExprKind::Binary {
+                            op: BinaryOp::LogicalAnd,
+                            lhs: Box::new(final_expr),
+                            rhs: Box::new(next_comparison),
+                        },
+                        final_span.start..next_span.end,
+                    );
 
                     prev_rhs = rhs;
                 }
@@ -1495,11 +1696,14 @@ where
             .foldl(|lhs, (op, rhs)| {
                 let lhs_span = lhs.span.clone();
                 let rhs_span = rhs.span.clone();
-                Expr::new(ExprKind::Binary {
-                    op,
-                    lhs: Box::new(lhs),
-                    rhs: Box::new(rhs),
-                }, lhs_span.start..rhs_span.end)
+                Expr::new(
+                    ExprKind::Binary {
+                        op,
+                        lhs: Box::new(lhs),
+                        rhs: Box::new(rhs),
+                    },
+                    lhs_span.start..rhs_span.end,
+                )
             })
             .boxed();
 
@@ -1515,11 +1719,14 @@ where
             .foldl(|lhs, (op, rhs)| {
                 let lhs_span = lhs.span.clone();
                 let rhs_span = rhs.span.clone();
-                Expr::new(ExprKind::Binary {
-                    op,
-                    lhs: Box::new(lhs),
-                    rhs: Box::new(rhs),
-                }, lhs_span.start..rhs_span.end)
+                Expr::new(
+                    ExprKind::Binary {
+                        op,
+                        lhs: Box::new(lhs),
+                        rhs: Box::new(rhs),
+                    },
+                    lhs_span.start..rhs_span.end,
+                )
             })
             .boxed();
 
@@ -1535,11 +1742,14 @@ where
             .foldl(|lhs, (op, rhs)| {
                 let lhs_span = lhs.span.clone();
                 let rhs_span = rhs.span.clone();
-                Expr::new(ExprKind::Binary {
-                    op,
-                    lhs: Box::new(lhs),
-                    rhs: Box::new(rhs),
-                }, lhs_span.start..rhs_span.end)
+                Expr::new(
+                    ExprKind::Binary {
+                        op,
+                        lhs: Box::new(lhs),
+                        rhs: Box::new(rhs),
+                    },
+                    lhs_span.start..rhs_span.end,
+                )
             })
             .boxed();
 
@@ -1548,24 +1758,28 @@ where
         let range = elvis
             .clone()
             .then(
-                just(Token::DotDotLt).to(false) // false = exclusive (..<)
+                just(Token::DotDotLt)
+                    .to(false) // false = exclusive (..<)
                     .or(just(Token::DotDot).to(true)) // true = inclusive (..)
                     .then(elvis.clone())
                     .then(
                         select! { Token::Identifier(s) if s == "step" => () }
                             .ignore_then(elvis.clone())
-                            .or_not()
+                            .or_not(),
                     )
                     .or_not(),
             )
             .map_with_span(|(start, rest), span| match rest {
                 None => start, // Not a range
-                Some(((inclusive, end), step)) => Expr::new(ExprKind::Range {
-                    start: Box::new(start),
-                    end: Box::new(end),
-                    step: step.map(Box::new),
-                    inclusive,
-                }, span),
+                Some(((inclusive, end), step)) => Expr::new(
+                    ExprKind::Range {
+                        start: Box::new(start),
+                        end: Box::new(end),
+                        step: step.map(Box::new),
+                        inclusive,
+                    },
+                    span,
+                ),
             });
 
         // 12. Pipeline operator (|>)
@@ -1581,7 +1795,7 @@ where
                             .separated_by(just(Token::Comma))
                             .allow_trailing()
                             .collect::<Vec<_>>()
-                            .delimited_by(just(Token::LParen), just(Token::RParen))
+                            .delimited_by(just(Token::LParen), just(Token::RParen)),
                     )
                     .repeated(),
             )
@@ -1594,7 +1808,13 @@ where
                     },
                     span.clone(),
                 );
-                Expr::new(ExprKind::Call { func: Box::new(field_access), args }, span)
+                Expr::new(
+                    ExprKind::Call {
+                        func: Box::new(field_access),
+                        args,
+                    },
+                    span,
+                )
             });
 
         // 13. Ternary (condition ? true_expr : false_expr)
@@ -1610,11 +1830,14 @@ where
             )
             .map_with_span(|(condition, maybe_branches), span| match maybe_branches {
                 None => condition,
-                Some((then_expr, else_expr)) => Expr::new(ExprKind::Ternary {
-                    condition: Box::new(condition),
-                    then_expr: Box::new(then_expr),
-                    else_expr: Box::new(else_expr),
-                }, span),
+                Some((then_expr, else_expr)) => Expr::new(
+                    ExprKind::Ternary {
+                        condition: Box::new(condition),
+                        then_expr: Box::new(then_expr),
+                        else_expr: Box::new(else_expr),
+                    },
+                    span,
+                ),
             });
 
         ternary.boxed()

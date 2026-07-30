@@ -52,14 +52,21 @@ pub enum UnaryOp {
 // Pattern Matching support
 #[derive(Debug, Clone, PartialEq)]
 pub enum Pattern {
-    Literal(Literal), // 42, 3.14, "text", true
-    Binding(String),  // x (captures value and binds to variable)
-    Wildcard,         // _ (matches anything, doesn't bind)
-    Or(Vec<Pattern>), // 1 | 2 | 3 (matches any of the patterns)
-    Destructure(Vec<Pattern>),   // { p1, p2, ... } — positional
-    NamedField(Vec<(String, Pattern)>),  // { field_name: sub_pattern, ... }
-    Range { start: Literal, end: Literal, inclusive: bool },  // 1..5 or 1..<5
-    ArrayRest { head: Vec<Pattern>, rest: String },  // { first, ...rest } — positional head + rest capture
+    Literal(Literal),                   // 42, 3.14, "text", true
+    Binding(String),                    // x (captures value and binds to variable)
+    Wildcard,                           // _ (matches anything, doesn't bind)
+    Or(Vec<Pattern>),                   // 1 | 2 | 3 (matches any of the patterns)
+    Destructure(Vec<Pattern>),          // { p1, p2, ... } — positional
+    NamedField(Vec<(String, Pattern)>), // { field_name: sub_pattern, ... }
+    Range {
+        start: Literal,
+        end: Literal,
+        inclusive: bool,
+    }, // 1..5 or 1..<5
+    ArrayRest {
+        head: Vec<Pattern>,
+        rest: String,
+    }, // { first, ...rest } — positional head + rest capture
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -142,7 +149,7 @@ pub enum ExprKind {
 
     StructInit {
         struct_name: String,
-        type_args: Vec<String>,      // Type arguments for generic structs: Box<int>
+        type_args: Vec<String>, // Type arguments for generic structs: Box<int>
         fields: Vec<(String, Expr)>, // (field_name, value)
     },
 
@@ -191,19 +198,19 @@ pub struct TypeParam {
 #[derive(Debug, Clone, PartialEq)]
 pub struct StructDef {
     pub name: String,
-    pub type_params: Vec<TypeParam>,                 // Generic type parameters
+    pub type_params: Vec<TypeParam>, // Generic type parameters
     pub fields: Vec<(String, String, Option<Expr>)>, // (field_name, type, default_value)
 }
 
 // Method definition (Go-style receivers)
 #[derive(Debug, Clone, PartialEq)]
 pub struct MethodDef {
-    pub is_async: bool,         // true = async fn
-    pub receiver_name: String,  // "p" in fn (p: Point) distance()
-    pub receiver_type: String,  // "Point"
-    pub method_name: String,    // "distance"
+    pub is_async: bool,                              // true = async fn
+    pub receiver_name: String,                       // "p" in fn (p: Point) distance()
+    pub receiver_type: String,                       // "Point"
+    pub method_name: String,                         // "distance"
     pub params: Vec<(String, String, Option<Expr>)>, // (param_name, type, default_value)
-    pub return_type: Option<Vec<String>>, // None = void, Some(vec!["int"]) = single
+    pub return_type: Option<Vec<String>>,            // None = void, Some(vec!["int"]) = single
     pub body: Box<Stmt>,
 }
 
@@ -212,11 +219,11 @@ pub struct MethodDef {
 // Async:  async (x: int) -> int { var y := await f(); return y }
 #[derive(Debug, Clone, PartialEq)]
 pub struct Closure {
-    pub params: Vec<(String, String)>,    // Type annotations required: (name, type)
-    pub return_type: Option<String>,      // Optional return type
-    pub body: Box<Stmt>,                  // Closure body is a block (Statement)
-    pub captured_vars: Vec<String>,       // Filled by analysis pass
-    pub is_async: bool,                   // true for async closures (v1.6 Phase 3c)
+    pub params: Vec<(String, String)>, // Type annotations required: (name, type)
+    pub return_type: Option<String>,   // Optional return type
+    pub body: Box<Stmt>,               // Closure body is a block (Statement)
+    pub captured_vars: Vec<String>,    // Filled by analysis pass
+    pub is_async: bool,                // true for async closures (v1.6 Phase 3c)
 }
 
 #[derive(Debug, Clone, PartialEq)]

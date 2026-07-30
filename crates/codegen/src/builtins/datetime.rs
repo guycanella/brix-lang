@@ -1,9 +1,9 @@
 // DateTime builtin module for Brix (v1.9 Grupo A)
 
 use crate::{BrixType, CodegenError, CodegenResult, Compiler};
+use inkwell::AddressSpace;
 use inkwell::module::Linkage;
 use inkwell::values::PointerValue;
-use inkwell::AddressSpace;
 
 pub trait DateTimeFunctions<'ctx> {
     fn declare_datetime_functions(&self);

@@ -3,8 +3,8 @@
 // This module contains declarations and compilation logic for statistics functions.
 
 use crate::Compiler;
-use inkwell::module::Linkage;
 use inkwell::AddressSpace;
+use inkwell::module::Linkage;
 
 /// Trait for statistics function declarations
 #[allow(dead_code)]

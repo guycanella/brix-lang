@@ -22,11 +22,11 @@
 
 use crate::helpers::HelperFunctions;
 use crate::{BrixType, CodegenError, CodegenResult, Compiler};
+use inkwell::AddressSpace;
+use inkwell::IntPredicate;
 use inkwell::module::Linkage;
 use inkwell::types::BasicTypeEnum;
 use inkwell::values::{BasicValueEnum, PointerValue};
-use inkwell::AddressSpace;
-use inkwell::IntPredicate;
 use parser::ast::{Expr, Literal};
 
 /// Trait for expression compilation helper methods

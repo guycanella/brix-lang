@@ -12,10 +12,10 @@
 
 use crate::helpers::HelperFunctions;
 use crate::{BrixType, CodegenError, CodegenResult, Compiler, Span};
+use inkwell::AddressSpace;
 use inkwell::module::Linkage;
 use inkwell::types::{BasicMetadataTypeEnum, BasicType};
 use inkwell::values::{BasicValueEnum, PointerValue};
-use inkwell::AddressSpace;
 use parser::ast::{Closure, Expr, ExprKind};
 
 impl<'a, 'ctx> Compiler<'a, 'ctx> {
