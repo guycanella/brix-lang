@@ -1,0 +1,10 @@
+// Test 245: is_function() real implementation for closures
+
+var add := (a: int, b: int) -> int {
+    return a + b
+}
+
+println(is_function(add))
+println(is_function((x: int) -> int { return x * 2 }))
+println(is_function(100))
+println(is_function("hello"))
