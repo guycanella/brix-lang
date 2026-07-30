@@ -1,0 +1,3 @@
+// Calling in-place mutable method on expression receiver must fail at codegen
+
+([10, 20]).push!(30)

@@ -2147,3 +2147,45 @@ fn test_245_is_function_real() {
         "1\n1\n0\n0",
     );
 }
+
+#[test]
+fn test_246_mut_array_push_pop() {
+    assert_success(
+        "tests/integration/success/246_mut_array_push_pop.bx",
+        "40\n4\n40\n3\n15\n4\n15\n20\n3\n3.5\n3.5",
+    );
+}
+
+#[test]
+fn test_247_mut_array_sort_inplace() {
+    assert_success(
+        "tests/integration/success/247_mut_array_sort_inplace.bx",
+        "1\n9\n9\n1\n0\n1.1\n4.4\n4.4\n1.1\n0",
+    );
+}
+
+#[test]
+fn test_248_mut_immut_mix() {
+    assert_success(
+        "tests/integration/success/248_mut_immut_mix.bx",
+        "4\n4\n4\n4\n4",
+    );
+}
+
+#[test]
+fn test_249_mut_array_on_immutable() {
+    assert_output(
+        "tests/integration/codegen_errors/mut_array_on_immutable.bx",
+        104, // InvalidOperation
+        Some("cannot call in-place mutable method"),
+    );
+}
+
+#[test]
+fn test_250_mut_array_non_identifier() {
+    assert_output(
+        "tests/integration/codegen_errors/mut_array_non_identifier.bx",
+        104, // InvalidOperation
+        Some("only supported on variable identifiers"),
+    );
+}

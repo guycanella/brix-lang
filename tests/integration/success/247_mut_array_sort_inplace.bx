@@ -1,0 +1,25 @@
+// Test 247: mut array sort!, reverse!, clear! for int[] and float[]
+
+var nums: mut int[] := [5, 2, 8, 1, 9]
+nums.sort!()
+println(nums[0])
+println(nums[4])
+
+nums.reverse!()
+println(nums[0])
+println(nums[4])
+
+nums.clear!()
+println(nums.len)
+
+var floats: mut float[] := [4.4, 1.1, 3.3, 2.2]
+floats.sort!()
+println(floats[0])
+println(floats[3])
+
+floats.reverse!()
+println(floats[0])
+println(floats[3])
+
+floats.clear!()
+println(floats.len)

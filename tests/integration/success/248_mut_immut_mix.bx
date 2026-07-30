@@ -1,0 +1,16 @@
+// Test 248: Mutable and immutable array aliasing semantics
+
+var original: mut int[] := [1, 2, 3]
+
+// Mutable alias
+var mut_alias: mut int[] := original
+mut_alias.push!(4)
+
+println(original.len)
+println(mut_alias.len)
+println(original[3])
+
+// Immutable alias
+var immut_alias: int[] := original
+println(immut_alias.len)
+println(immut_alias[3])
