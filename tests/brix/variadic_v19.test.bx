@@ -1,0 +1,74 @@
+// Brix v1.9 Grupo C Self-Hosted Test Suite: Variadic Functions & Methods
+
+fn assert(cond: bool, msg: string) {
+    if !cond {
+        println("FAIL: " + msg)
+    }
+}
+
+fn sum_int(nums: ...int) -> int {
+    var s := 0
+    for x in nums {
+        s := s + x
+    }
+    return s
+}
+
+fn sum_float(vals: ...float) -> float {
+    var s := 0.0
+    for v in vals {
+        s := s + v
+    }
+    return s
+}
+
+fn join_str(prefix: string, parts: ...string) -> string {
+    var res := prefix
+    for p in parts {
+        res := res + "_" + p
+    }
+    return res
+}
+
+struct Accumulator {
+    base: int
+}
+
+fn (acc: Accumulator) add_all(items: ...int) -> int {
+    var total := acc.base
+    for item in items {
+        total := total + item
+    }
+    return total
+}
+
+fn test_variadic_int() {
+    assert(sum_int(1, 2, 3, 4) == 10, "sum_int(1,2,3,4) == 10")
+    assert(sum_int() == 0, "sum_int() == 0")
+}
+
+fn test_variadic_float() {
+    assert(sum_float(1.5, 2.5, 3.0) == 7.0, "sum_float(1.5, 2.5, 3.0) == 7.0")
+    assert(sum_float() == 0.0, "sum_float() == 0.0")
+}
+
+fn test_variadic_string() {
+    assert(join_str("root", "a", "b", "c") == "root_a_b_c", "join_str multi")
+    assert(join_str("solo") == "solo", "join_str zero varargs")
+}
+
+fn test_variadic_methods() {
+    var acc := Accumulator { base: 10 }
+    assert(acc.add_all(1, 2, 3) == 16, "acc.add_all(1, 2, 3) == 16")
+    assert(acc.add_all() == 10, "acc.add_all() == 10")
+}
+
+fn main() {
+    test_variadic_int()
+    test_variadic_float()
+    test_variadic_string()
+    test_variadic_methods()
+    println("VARIADIC_V19_SUCCESS")
+}
+
+main()

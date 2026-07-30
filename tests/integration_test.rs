@@ -2092,3 +2092,50 @@ fn test_238_json_regressions() {
         "hello\nworld\n{\n    \"a\": 1\n}\n{\"k\\\"ey\\\\1\":\"val\\b1\\f2\"}\ncafé\nnul_rejected",
     );
 }
+
+#[test]
+fn test_239_variadic_int() {
+    assert_success(
+        "tests/integration/success/239_variadic_int.bx",
+        "15\n0\n130\n50",
+    );
+}
+
+#[test]
+fn test_240_variadic_float() {
+    assert_success("tests/integration/success/240_variadic_float.bx", "7\n0");
+}
+
+#[test]
+fn test_241_variadic_mixed_string() {
+    assert_success(
+        "tests/integration/success/241_variadic_mixed_string.bx",
+        "root_a_b_c\nsolo\n2\n0",
+    );
+}
+
+#[test]
+fn test_242_variadic_methods_recursion() {
+    assert_success(
+        "tests/integration/success/242_variadic_methods_recursion.bx",
+        "16\n10\n30",
+    );
+}
+
+#[test]
+fn test_243_variadic_invalid_arg_type() {
+    assert_output(
+        "tests/integration/codegen_errors/invalid_variadic_arg_type.bx",
+        102, // TypeError
+        Some("Type Error"),
+    );
+}
+
+#[test]
+fn test_244_variadic_insufficient_fixed_params() {
+    assert_output(
+        "tests/integration/codegen_errors/insufficient_fixed_params.bx",
+        104, // InvalidOperation
+        Some("insufficient arguments"),
+    );
+}

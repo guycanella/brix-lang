@@ -286,11 +286,55 @@ fn test_function_with_params() {
     match &stmt.kind {
         StmtKind::FunctionDef { params, .. } => {
             assert_eq!(params.len(), 2);
-            assert_eq!(params[0].0, "a");
-            assert_eq!(params[0].1, "int");
+            assert_eq!(params[0].name, "a");
+            assert_eq!(params[0].type_name, "int");
+            assert_eq!(params[0].is_variadic, false);
         }
         _ => panic!("Expected function def"),
     }
+}
+
+#[test]
+fn test_variadic_function_params() {
+    let stmt = parse_stmt("function sum(nums: ...int) -> int { return 42 }").unwrap();
+    match &stmt.kind {
+        StmtKind::FunctionDef { params, .. } => {
+            assert_eq!(params.len(), 1);
+            assert_eq!(params[0].name, "nums");
+            assert_eq!(params[0].type_name, "int");
+            assert_eq!(params[0].is_variadic, true);
+        }
+        _ => panic!("Expected function def"),
+    }
+}
+
+#[test]
+fn test_variadic_method_params() {
+    let stmt =
+        parse_stmt("fn (p: Printer) log(prefix: string, msgs: ...string) { return }").unwrap();
+    match &stmt.kind {
+        StmtKind::MethodDef(MethodDef { params, .. }) => {
+            assert_eq!(params.len(), 2);
+            assert_eq!(params[0].name, "prefix");
+            assert_eq!(params[0].is_variadic, false);
+            assert_eq!(params[1].name, "msgs");
+            assert_eq!(params[1].type_name, "string");
+            assert_eq!(params[1].is_variadic, true);
+        }
+        _ => panic!("Expected method def"),
+    }
+}
+
+#[test]
+fn test_variadic_param_not_last_error() {
+    let res = parse_stmt("function foo(a: ...int, b: int) { return }");
+    assert!(res.is_err());
+}
+
+#[test]
+fn test_variadic_param_default_error() {
+    let res = parse_stmt("function foo(a: ...int = 10) { return }");
+    assert!(res.is_err());
 }
 
 #[test]
@@ -390,10 +434,10 @@ fn test_method_with_params() {
         }) => {
             assert_eq!(method_name, "add");
             assert_eq!(params.len(), 2);
-            assert_eq!(params[0].0, "dx");
-            assert_eq!(params[0].1, "int");
-            assert_eq!(params[1].0, "dy");
-            assert_eq!(params[1].1, "int");
+            assert_eq!(params[0].name, "dx");
+            assert_eq!(params[0].type_name, "int");
+            assert_eq!(params[1].name, "dy");
+            assert_eq!(params[1].type_name, "int");
         }
         _ => panic!("Expected method def"),
     }
@@ -494,8 +538,8 @@ fn test_generic_function_still_works() {
             assert_eq!(type_params.len(), 1);
             assert_eq!(type_params[0].name, "T");
             assert_eq!(params.len(), 1);
-            assert_eq!(params[0].0, "x");
-            assert_eq!(params[0].1, "T");
+            assert_eq!(params[0].name, "x");
+            assert_eq!(params[0].type_name, "T");
         }
         _ => panic!("Expected function def"),
     }
@@ -554,7 +598,7 @@ fn test_array_type_fn_param() {
             return_type,
             ..
         } => {
-            assert_eq!(params[0].1, "int[]");
+            assert_eq!(params[0].type_name, "int[]");
             assert_eq!(*return_type, Some(vec!["float[]".to_string()]));
         }
         _ => panic!("Expected function def"),

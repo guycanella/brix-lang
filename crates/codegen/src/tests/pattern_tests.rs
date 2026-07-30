@@ -992,7 +992,7 @@ fn test_match_in_return() {
             is_async: false,
             type_params: vec![],
             name: "classify".to_string(),
-            params: vec![("x".to_string(), "int".to_string(), None)],
+            params: vec![parser::ast::FunctionParam::new("x", "int")],
             return_type: Some(vec!["string".to_string()]),
             body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
                 StmtKind::Return {
@@ -1040,7 +1040,7 @@ fn test_match_in_function_argument() {
                 is_async: false,
                 type_params: vec![],
                 name: "foo".to_string(),
-                params: vec![("x".to_string(), "int".to_string(), None)],
+                params: vec![parser::ast::FunctionParam::new("x", "int")],
                 return_type: Some(vec!["int".to_string()]),
                 body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
                     StmtKind::Return {

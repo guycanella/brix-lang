@@ -1,0 +1,12 @@
+// Test: Invalid variadic argument type
+// Expected: codegen type error when passing String to ...int
+
+fn process(nums: ...int) -> int {
+    return 0
+}
+
+fn main() {
+    process(1, "hello", 3)
+}
+
+main()

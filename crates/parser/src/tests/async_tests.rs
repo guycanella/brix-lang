@@ -79,8 +79,8 @@ fn test_async_fn_with_return_type() {
             assert_eq!(name, "get_user");
             assert_eq!(*is_async, true);
             assert_eq!(params.len(), 1);
-            assert_eq!(params[0].0, "id");
-            assert_eq!(params[0].1, "int");
+            assert_eq!(params[0].name, "id");
+            assert_eq!(params[0].type_name, "int");
             assert!(return_type.is_some());
             assert_eq!(return_type.as_ref().unwrap()[0], "int");
         }
@@ -102,8 +102,8 @@ fn test_async_fn_multiple_params() {
             assert_eq!(name, "send");
             assert_eq!(*is_async, true);
             assert_eq!(params.len(), 2);
-            assert_eq!(params[0].0, "url");
-            assert_eq!(params[1].0, "body");
+            assert_eq!(params[0].name, "url");
+            assert_eq!(params[1].name, "body");
         }
         _ => panic!("Expected FunctionDef"),
     }

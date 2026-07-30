@@ -219,8 +219,8 @@ fn test_function_definition() {
             type_params: vec![],
             name: "add".to_string(),
             params: vec![
-                ("a".to_string(), "int".to_string(), None),
-                ("b".to_string(), "int".to_string(), None),
+                parser::ast::FunctionParam::new("a", "int"),
+                parser::ast::FunctionParam::new("b", "int"),
             ],
             return_type: Some(vec!["int".to_string()]),
             body: Box::new(Stmt::dummy(StmtKind::Return {

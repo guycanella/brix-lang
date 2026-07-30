@@ -98,7 +98,7 @@ fn test_async_fn_with_int_param_compiles() {
             is_async: true,
             type_params: vec![],
             name: "double".to_string(),
-            params: vec![("x".to_string(), "int".to_string(), None)],
+            params: vec![parser::ast::FunctionParam::new("x", "int")],
             return_type: Some(vec!["int".to_string()]),
             body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
                 StmtKind::Return {
@@ -127,8 +127,8 @@ fn test_async_fn_with_multiple_params_compiles() {
             type_params: vec![],
             name: "add".to_string(),
             params: vec![
-                ("a".to_string(), "int".to_string(), None),
-                ("b".to_string(), "int".to_string(), None),
+                parser::ast::FunctionParam::new("a", "int"),
+                parser::ast::FunctionParam::new("b", "int"),
             ],
             return_type: Some(vec!["int".to_string()]),
             body: Box::new(return_ident_body("a")),
@@ -438,7 +438,7 @@ fn test_async_block_with_inner_await() {
         is_async: true,
         type_params: vec![],
         name: "double".to_string(),
-        params: vec![("x".to_string(), "int".to_string(), None)],
+        params: vec![parser::ast::FunctionParam::new("x", "int")],
         return_type: Some(vec!["int".to_string()]),
         body: Box::new(Stmt::dummy(StmtKind::Block(vec![Stmt::dummy(
             StmtKind::Return {
