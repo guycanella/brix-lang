@@ -6,7 +6,8 @@
 //
 // All tests compile to the same directory, causing conflicts in parallel execution.
 
-use std::process::Command;
+use std::io::Write;
+use std::process::{Command, Stdio};
 
 /// Extract program output from stdout (between separators)
 fn extract_program_output(stdout: &str) -> String {
@@ -36,6 +37,33 @@ fn run_brix_file(file_path: &str) -> (String, String, i32) {
     let exit_code = output.status.code().unwrap_or(-1);
 
     (stdout, stderr, exit_code)
+}
+
+/// Drive `brix repl` with `input` piped to stdin (EOF after, which the REPL
+/// treats the same as `:quit`). Returns (stdout, stderr, exit_code).
+fn run_brix_repl(input: &str) -> (String, String, i32) {
+    let mut child = Command::new("cargo")
+        .args(&["run", "--quiet", "--", "repl"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("Failed to spawn cargo run -- repl");
+
+    child
+        .stdin
+        .take()
+        .expect("Failed to open repl stdin")
+        .write_all(input.as_bytes())
+        .expect("Failed to write repl input");
+
+    let output = child.wait_with_output().expect("Failed to wait on repl");
+
+    (
+        String::from_utf8_lossy(&output.stdout).to_string(),
+        String::from_utf8_lossy(&output.stderr).to_string(),
+        output.status.code().unwrap_or(-1),
+    )
 }
 
 /// Test helper: assert exit code and check for expected output
@@ -2187,5 +2215,149 @@ fn test_250_mut_array_non_identifier() {
         "tests/integration/codegen_errors/mut_array_non_identifier.bx",
         104, // InvalidOperation
         Some("only supported on variable identifiers"),
+    );
+}
+
+// ---------------------------------------------------------------------------
+// v1.9 Grupo F — Replay REPL
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_251_repl_basic() {
+    let (stdout, stderr, code) = run_brix_repl("1 + 1\n");
+    assert_eq!(code, 0, "stdout: {}\nstderr: {}", stdout, stderr);
+    assert!(
+        stdout.contains('2'),
+        "Expected implicit-println of a bare expression to show 2. Stdout: {}",
+        stdout
+    );
+}
+
+#[test]
+fn test_252_repl_state_persist() {
+    let (stdout, stderr, code) = run_brix_repl("var x := 10\nx * 2\n");
+    assert_eq!(code, 0, "stdout: {}\nstderr: {}", stdout, stderr);
+    assert!(
+        stdout.contains("20"),
+        "Expected a variable declared in one entry to persist into the next. Stdout: {}",
+        stdout
+    );
+}
+
+#[test]
+fn test_253_repl_function_def() {
+    let (stdout, stderr, code) =
+        run_brix_repl("fn double(n: int) -> int { return n * 2 }\ndouble(21)\n");
+    assert_eq!(code, 0, "stdout: {}\nstderr: {}", stdout, stderr);
+    assert!(
+        stdout.contains("42"),
+        "Expected a function defined in one entry to be callable in the next. Stdout: {}",
+        stdout
+    );
+}
+
+#[test]
+fn test_254_repl_import() {
+    let (stdout, stderr, code) = run_brix_repl("import math\nmath.sqrt(16.0)\n");
+    assert_eq!(code, 0, "stdout: {}\nstderr: {}", stdout, stderr);
+    assert!(
+        stdout.contains('4'),
+        "Expected an import in one entry to be usable in the next. Stdout: {}",
+        stdout
+    );
+}
+
+#[test]
+fn test_255_repl_error_recovery() {
+    let (stdout, stderr, code) = run_brix_repl("var y := 5\ny +\nprintln(y)\n");
+    assert_eq!(code, 0, "stdout: {}\nstderr: {}", stdout, stderr);
+    assert!(
+        stderr.contains("Error"),
+        "Expected the malformed 'y +' entry to report an error. Stderr: {}",
+        stderr
+    );
+    assert!(
+        stdout.contains('5'),
+        "Expected state to survive a failed entry — println(y) should still show 5. Stdout: {}",
+        stdout
+    );
+}
+
+#[test]
+fn test_256_repl_history_hidden() {
+    // Every entry replays the whole history under the hood, so
+    // println("old")'s side effect genuinely re-executes when we evaluate
+    // the next entry — but only the *current* entry's output should reach
+    // the user. If boundary-marker isolation breaks (e.g. falls back to
+    // showing the whole replayed stdout), "old" would appear a second time
+    // alongside "new" in the second entry's visible output.
+    let (stdout, stderr, code) = run_brix_repl("println(\"old\")\nprintln(\"new\")\n");
+    assert_eq!(code, 0, "stdout: {}\nstderr: {}", stdout, stderr);
+
+    let old_count = stdout.matches("old").count();
+    assert_eq!(
+        old_count, 1,
+        "Expected 'old' to appear exactly once (only in its own entry's output), \
+         not replayed into the next entry's visible output. Stdout: {}",
+        stdout
+    );
+    assert!(
+        stdout.contains("new"),
+        "Expected the second entry's own output to be shown. Stdout: {}",
+        stdout
+    );
+
+    // "new" must appear strictly after "old" — otherwise interleaving would
+    // also be broken even with correct counts.
+    let old_pos = stdout.find("old").unwrap();
+    let new_pos = stdout.find("new").unwrap();
+    assert!(
+        old_pos < new_pos,
+        "Expected 'old' output before 'new' output. Stdout: {}",
+        stdout
+    );
+}
+
+#[test]
+fn test_257_repl_type_command() {
+    let (stdout, stderr, code) =
+        run_brix_repl("import math\nvar x := 5\n:type x\n:type math.sqrt(16.0)\n");
+    assert_eq!(code, 0, "stdout: {}\nstderr: {}", stdout, stderr);
+    assert!(
+        stdout.contains("int"),
+        ":type x should statically report 'int'. Stdout: {}",
+        stdout
+    );
+    assert!(
+        stdout.contains("float"),
+        ":type math.sqrt(16.0) should statically report 'float' without executing it. Stdout: {}",
+        stdout
+    );
+}
+
+#[test]
+fn test_258_repl_clear_command() {
+    let (stdout, stderr, code) = run_brix_repl("var a := 5\n:clear\nprintln(a)\n");
+    assert_eq!(code, 0, "stdout: {}\nstderr: {}", stdout, stderr);
+    assert!(
+        stdout.contains("Estado limpo."),
+        ":clear should confirm the state was reset. Stdout: {}",
+        stdout
+    );
+    assert!(
+        stderr.contains("UndefinedSymbol") || stderr.contains("Error"),
+        "Expected 'a' to be undefined after :clear wiped state. Stderr: {}",
+        stderr
+    );
+}
+
+#[test]
+fn test_259_repl_help_command() {
+    let (stdout, stderr, code) = run_brix_repl(":help\n");
+    assert_eq!(code, 0, "stdout: {}\nstderr: {}", stdout, stderr);
+    assert!(
+        stdout.contains(":quit") && stdout.contains(":clear") && stdout.contains(":type"),
+        "Expected :help to list the special commands. Stdout: {}",
+        stdout
     );
 }
