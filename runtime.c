@@ -4259,6 +4259,82 @@ BrixString* json_stringify_pretty(JsonValue* val, long indent) {
 
 
 // ==========================================
+// SECTION 2.10: EMBEDDING<DIM> (v2.0 Grupo A Fase 1)
+// ==========================================
+//
+// BrixEmbedding is a fixed-dimension f64 vector — double, not float, to match
+// Brix's `float` (f64) and Matrix's existing `double*` storage, so a
+// round-trip through .to_matrix()/Embedding<DIM>(matrix) never loses
+// precision. `dim` is kept on the struct and checked defensively even though
+// the type checker already enforces matching dimensions at compile time
+// (both Embedding<D> values carry D in their own BrixType) — this guards
+// only against an internal compiler bug reaching runtime, not a user-facing
+// error path.
+//
+// EmbeddingBatch is NOT implemented here — deferred to Grupo A Fase 3.
+
+typedef struct {
+  long ref_count;
+  long dim;
+  double *data;
+} BrixEmbedding;
+
+// Construct from an existing Matrix* (already double*-backed) — used both for
+// a float array literal (which already compiles to a Matrix) and for
+// `Embedding<DIM>(some_matrix_variable)`. Requires shape exactly 1×dim;
+// anything else is a runtime abort, never a compile-time error, since
+// Matrix's shape (rows/cols) lives on the struct, not in BrixType. Copies
+// `m`'s data — the caller is still responsible for releasing `m` itself
+// (this never takes ownership of `m`).
+BrixEmbedding *brix_embedding_from_matrix(Matrix *m, long dim) {
+  if (!m) {
+    fprintf(stderr, "Error: brix_embedding_from_matrix called with NULL\n");
+    exit(1);
+  }
+  if (m->rows != 1 || m->cols != dim) {
+    fprintf(stderr,
+            "Error: Embedding<%ld> construction requires a 1x%ld Matrix, got "
+            "%ldx%ld\n",
+            dim, dim, m->rows, m->cols);
+    exit(1);
+  }
+
+  BrixEmbedding *e = (BrixEmbedding *)malloc(sizeof(BrixEmbedding));
+  e->ref_count = 1;
+  e->dim = dim;
+  e->data = (double *)malloc(dim * sizeof(double));
+  memcpy(e->data, m->data, dim * sizeof(double));
+  return e;
+}
+
+// Copy out to a new, independent Matrix (1xdim) — releasing the Embedding
+// afterward never invalidates the returned Matrix, and vice versa.
+Matrix *brix_embedding_to_matrix(BrixEmbedding *e) {
+  if (!e) {
+    fprintf(stderr, "Error: brix_embedding_to_matrix called with NULL\n");
+    exit(1);
+  }
+  Matrix *m = matrix_new(1, e->dim);
+  memcpy(m->data, e->data, e->dim * sizeof(double));
+  return m;
+}
+
+void *brix_embedding_retain(BrixEmbedding *e) {
+  if (!e) return NULL;
+  e->ref_count++;
+  return e;
+}
+
+void brix_embedding_release(BrixEmbedding *e) {
+  if (!e) return;
+  e->ref_count--;
+  if (e->ref_count == 0) {
+    free(e->data);
+    free(e);
+  }
+}
+
+// ==========================================
 // SECTION 3: STATISTICS (v0.7)
 // ==========================================
 

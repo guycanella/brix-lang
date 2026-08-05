@@ -1,0 +1,15 @@
+// v2.0 Grupo A Fase 1: Embedding<DIM> construction from a float literal, an
+// int literal (promoted via intmatrix_to_matrix), and from a Matrix
+// variable — all via .to_matrix() + indexing (println(embedding) is
+// deliberately out of scope this phase, same gap Vector<T> already has).
+var e := Embedding<3>([1.0, 2.0, 3.0])
+println(e.to_matrix()[0])
+println(e.to_matrix()[1])
+println(e.to_matrix()[2])
+
+var e2 := Embedding<3>([1, 2, 3])
+println(e2.to_matrix()[0])
+
+var m := [4.0, 5.0, 6.0]
+var e3 := Embedding<3>(m)
+println(e3.to_matrix()[2])

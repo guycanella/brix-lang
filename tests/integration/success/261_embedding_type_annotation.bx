@@ -1,0 +1,10 @@
+// v2.0 Grupo A Fase 1: Embedding<DIM> as a type annotation, plus ARC across
+// aliasing and reassignment.
+var x: Embedding<3> := Embedding<3>([7.0, 8.0, 9.0])
+println(x.to_matrix()[1])
+
+var a := x
+var b := a
+a = Embedding<3>([1.0, 1.0, 1.0])
+println(b.to_matrix()[0])
+println(a.to_matrix()[0])

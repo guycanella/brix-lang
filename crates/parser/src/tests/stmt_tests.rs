@@ -53,6 +53,35 @@ fn test_var_decl_typed() {
 }
 
 #[test]
+fn test_var_decl_embedding_type_annotation() {
+    // v2.0 Grupo A Fase 1: Embedding<DIM> as a type annotation (not just a
+    // call-site const generic, which Fase 0 already covered).
+    let stmt = parse_stmt("var x: Embedding<1536> = Embedding<1536>([1.0])").unwrap();
+    match &stmt.kind {
+        StmtKind::VariableDecl {
+            name, type_hint, ..
+        } => {
+            assert_eq!(name, "x");
+            assert_eq!(*type_hint, Some("Embedding<1536>".to_string()));
+        }
+        _ => panic!("Expected var decl"),
+    }
+}
+
+#[test]
+fn test_var_decl_existing_generic_annotations_still_work() {
+    // Non-regression: Vector<int>/Box<int>-style annotations (identifier-only
+    // generics) must keep parsing exactly as before.
+    let stmt = parse_stmt("var v: Vector<int> = Vector<int>()").unwrap();
+    match &stmt.kind {
+        StmtKind::VariableDecl { type_hint, .. } => {
+            assert_eq!(*type_hint, Some("Vector<int>".to_string()));
+        }
+        _ => panic!("Expected var decl"),
+    }
+}
+
+#[test]
 fn test_const_decl() {
     let stmt = parse_stmt("const PI := 3.14").unwrap();
     match &stmt.kind {

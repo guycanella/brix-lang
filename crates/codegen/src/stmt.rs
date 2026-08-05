@@ -669,6 +669,23 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
                 }
                 // Valid, matching HashMap type: no cast — fall through to store.
             }
+            // Embedding<DIM> annotation (v2.0 Grupo A Fase 1): the dimension
+            // IS the whole "content" of the type (no separate element type to
+            // validate the way Vector<T>/HashMap<K,V> do — `string_to_brix_type`
+            // already rejects an invalid/zero dimension as `BrixType::Error`
+            // before this point is ever reached), so this only needs to
+            // require an exact match, no implicit casts.
+            else if let BrixType::Embedding(_) = &hint_bt {
+                if val_type != hint_bt {
+                    return Err(CodegenError::TypeError {
+                        expected: hint.clone(),
+                        found: format!("{:?}", val_type),
+                        context: format!("Variable declaration '{}'", name),
+                        span: None,
+                    });
+                }
+                // Valid, matching Embedding<DIM> type: no cast — fall through to store.
+            }
             // Check for Union type (contains " | ")
             // Check for Intersection type (contains " & ")
             // Check for Optional type (ends with "?")
@@ -879,6 +896,7 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
             | BrixType::HashMap(_, _)
             | BrixType::DateTime
             | BrixType::Json
+            | BrixType::Embedding(_)
             | BrixType::Error => self.context.ptr_type(AddressSpace::default()).into(),
             BrixType::Complex => {
                 // Allocate space for complex struct { f64, f64 }
