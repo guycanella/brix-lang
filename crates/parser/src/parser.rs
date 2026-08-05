@@ -909,9 +909,139 @@ where
             },
         }
         .map_with_span(|lit, span| Expr::new(ExprKind::Literal(lit), span))
-        // Plain identifier (struct init will be detected in postfix chain later if followed by {})
-        .or(select! { Token::Identifier(s) => s }
-            .map_with_span(|s, span| Expr::new(ExprKind::Identifier(s), span)));
+        // Identifier atom — plain identifier for everything, EXCEPT the two
+        // literal names "Embedding"/"EmbeddingBatch" (v2.0 Grupo A Fase 0,
+        // const generics) when a `<` immediately follows with NO whitespace
+        // between them (checked via real byte-offset span comparison, not
+        // token adjacency). That specific prefix is peeked (via `.rewind()`,
+        // consuming nothing) and, only if found, committed to as the ONLY
+        // valid continuation: `<dim(, dim)*>(args)` with non-negative
+        // integer dims. This is deliberately NOT built as
+        // `committed.or(plain_identifier)` — that would let chumsky
+        // backtrack past a malformed but recognized attempt (e.g.
+        // `Embedding<-1536>`) straight back to reinterpreting it as a
+        // chained comparison, silently swallowing the mistake instead of
+        // reporting it. Peeking first and branching in plain Rust (not via
+        // `.or()`) means: no adjacent `<` → ordinary identifier (covers both
+        // "no `<` at all" and "a `<` follows but with whitespace before it,
+        // e.g. `Embedding < 1 > (b)` — a variable named `Embedding` used in
+        // a real chained comparison, which must keep working); adjacent `<`
+        // present → the shape after it MUST parse as a valid dimension, or
+        // the whole expression fails to parse — no silent fallback either
+        // way. The whitespace requirement is the deliberate disambiguation
+        // rule (documented in ROADMAP_V2.0.md): it's what lets `Embedding`
+        // still be usable as a plain variable name in a spaced comparison,
+        // without reserving it as a keyword. Struct-init detection for a
+        // following `{` is still handled later in the postfix chain, same
+        // as before.
+        .or({
+            let expr_for_embedding = expr.clone();
+            select! { Token::Identifier(s) => s }
+            .map_with_span(|s, span: std::ops::Range<usize>| (s, span))
+            .then_with(move |(name, id_span)| {
+                if name != "Embedding" && name != "EmbeddingBatch" {
+                    let name = name.clone();
+                    return empty()
+                        .map(move |_| ExprKind::Identifier(name.clone()))
+                        .boxed();
+                }
+
+                let name_for_plain = name.clone();
+                let name_for_call = name.clone();
+                let id_span_for_call = id_span.clone();
+                let expr_for_embedding = expr_for_embedding.clone();
+
+                // Peek both whether `<` follows at all AND its span, so we
+                // can additionally require it to be immediately adjacent to
+                // the identifier (no whitespace/comment between them) before
+                // committing. Without the adjacency check, a variable
+                // legitimately named `Embedding`/`EmbeddingBatch` could never
+                // appear on the left of a spaced `<` comparison again (e.g.
+                // `Embedding < 1 > (b)`, a valid chained comparison, would be
+                // wrongly forced down the const-generic path and fail there).
+                // `Embedding<1536>(...)` (no space) still commits normally.
+                just(Token::Lt)
+                    .map_with_span(|_, span: std::ops::Range<usize>| span)
+                    .rewind()
+                    .or_not()
+                    .then_with(move |lt_span_ahead: Option<std::ops::Range<usize>>| {
+                        let is_adjacent = matches!(
+                            &lt_span_ahead,
+                            Some(lt_span) if lt_span.start == id_span_for_call.end
+                        );
+                        if !is_adjacent {
+                            let name = name_for_plain.clone();
+                            return empty()
+                                .map(move |_| ExprKind::Identifier(name.clone()))
+                                .boxed();
+                        }
+
+                        let name_for_call = name_for_call.clone();
+                        let id_span_for_call = id_span_for_call.clone();
+
+                        // Committed: `<` was confirmed present. Every
+                        // dimension is parsed as an optional `-` followed by
+                        // an integer literal (rather than just `Token::Int`)
+                        // specifically so a negative dimension is a real,
+                        // named diagnostic from `try_map` below instead of
+                        // an ordinary "expected Int, found Minus" token
+                        // mismatch that a plain grammar restriction would
+                        // produce — both are hard failures with no
+                        // fallback at this point, but this one reads better.
+                        just(Token::Lt)
+                            .ignore_then(
+                                just(Token::Minus)
+                                    .or_not()
+                                    .then(select! { Token::Int(n) => n })
+                                    .map_with_span(|(neg, n), span: std::ops::Range<usize>| (neg.is_some(), n, span))
+                                    .separated_by(just(Token::Comma))
+                                    .allow_trailing()
+                                    .at_least(1),
+                            )
+                            .then_ignore(just(Token::Gt))
+                            .then(
+                                expr_for_embedding
+                                    .clone()
+                                    .separated_by(just(Token::Comma))
+                                    .allow_trailing()
+                                    .delimited_by(just(Token::LParen), just(Token::RParen)),
+                            )
+                            .try_map(move |(dims, args), _span| {
+                                for (is_negative, n, dim_span) in &dims {
+                                    if *is_negative {
+                                        return Err(Simple::custom(
+                                            dim_span.clone(),
+                                            format!(
+                                                "invalid dimension for {}<...>: -{} (const-generic dimensions must be non-negative integers)",
+                                                name_for_call, n
+                                            ),
+                                        ));
+                                    }
+                                    if *n > u32::MAX as i64 {
+                                        return Err(Simple::custom(
+                                            dim_span.clone(),
+                                            format!(
+                                                "invalid dimension for {}<...>: {} (exceeds the maximum supported dimension, u32::MAX = {})",
+                                                name_for_call, n, u32::MAX
+                                            ),
+                                        ));
+                                    }
+                                }
+                                Ok(ExprKind::GenericCall {
+                                    func: Box::new(Expr::new(
+                                        ExprKind::Identifier(name_for_call.clone()),
+                                        id_span_for_call.clone(),
+                                    )),
+                                    type_args: dims.iter().map(|(_, n, _)| n.to_string()).collect(),
+                                    args,
+                                })
+                            })
+                            .boxed()
+                    })
+                    .boxed()
+            })
+            .map_with_span(|kind, span: std::ops::Range<usize>| Expr::new(kind, span))
+        });
 
         let expr_for_fstring = expr.clone();
         let fstring = select! {
@@ -1393,7 +1523,18 @@ where
                         .at_least(1)
                         .delimited_by(lbrace_same_line(), just(Token::RBrace))
                         .map(|fields| PostfixOp::StructInit(vec![], fields)))
-                    // Generic call: <int, float>(args)
+                    // Generic call: <int, float>(args) — identifier-only, as
+                    // before. A bare integer literal in `<...>` (needed for
+                    // `Embedding<1536>`) is deliberately NOT accepted here:
+                    // this combinator applies to *any* identifier used as a
+                    // call target, so widening it to accept `Token::Int`
+                    // would make `a<1>(b)` (a valid chained comparison,
+                    // `(a < 1) > (b)`, when `a`/`b` are plain variables)
+                    // ambiguously also parseable as a generic call — see the
+                    // whitelisted, atom-level `identifier_atom` construct
+                    // above (only for the literal names "Embedding" and
+                    // "EmbeddingBatch") for where const-generic dimensions
+                    // are actually handled instead.
                     .or(select! { Token::Identifier(name) => name }
                         .separated_by(just(Token::Comma))
                         .allow_trailing()
