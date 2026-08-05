@@ -23,6 +23,7 @@ mod types;
 
 // Re-export BrixType for public API
 pub use types::BrixType;
+pub use types::format_brix_type;
 
 // Re-export error types for public API
 pub use error::{CodegenError, CodegenResult, Span};
@@ -17802,7 +17803,139 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                 _ => None,
                             };
                         }
+
+                        let is_math = self
+                            .imported_modules
+                            .iter()
+                            .any(|(m, p)| m == "math" && p == module_name);
+                        if is_math {
+                            let fn_name = field.as_str();
+                            match fn_name {
+                                "lu" => {
+                                    return Some(BrixType::Tuple(vec![
+                                        BrixType::Matrix,
+                                        BrixType::Matrix,
+                                        BrixType::IntMatrix,
+                                    ]));
+                                }
+                                "qr" => {
+                                    return Some(BrixType::Tuple(vec![
+                                        BrixType::Matrix,
+                                        BrixType::Matrix,
+                                    ]));
+                                }
+                                "svd" => {
+                                    return Some(BrixType::Tuple(vec![
+                                        BrixType::Matrix,
+                                        BrixType::Matrix,
+                                        BrixType::Matrix,
+                                    ]));
+                                }
+                                "cholesky" | "solve" => return Some(BrixType::Matrix),
+                                "norm" | "norm_mat" => return Some(BrixType::Float),
+                                "tr" | "inv" | "eye" => return Some(BrixType::Matrix),
+                                "eigvals" | "eigvecs" => return Some(BrixType::ComplexMatrix),
+                                _ => {
+                                    // Every other math.* function (sin, cos, sqrt,
+                                    // log, pow, abs, ...) is a declared f64 wrapper
+                                    // returning Float — mirrors the real dispatch
+                                    // in compile_expr's Call handler.
+                                    let brix_fn_name = format!("brix_{}", fn_name);
+                                    if self.module.get_function(&brix_fn_name).is_some()
+                                        || self.module.get_function(fn_name).is_some()
+                                    {
+                                        return Some(BrixType::Float);
+                                    }
+                                }
+                            }
+                        }
+
+                        let is_json = self
+                            .imported_modules
+                            .iter()
+                            .any(|(m, p)| m == "json" && p == module_name);
+                        if is_json {
+                            return match field.as_str() {
+                                "null" | "bool" | "int" | "float" | "string" | "array"
+                                | "object" => Some(BrixType::Json),
+                                "get" | "index" => {
+                                    Some(BrixType::Union(vec![BrixType::Json, BrixType::Nil]))
+                                }
+                                "set" | "array_push" => Some(BrixType::Void),
+                                "array_len" | "tag" => Some(BrixType::Int),
+                                "as_string" => {
+                                    Some(BrixType::Union(vec![BrixType::String, BrixType::Nil]))
+                                }
+                                "as_int" | "as_bool" => {
+                                    Some(BrixType::Union(vec![BrixType::Int, BrixType::Nil]))
+                                }
+                                "as_float" => {
+                                    Some(BrixType::Union(vec![BrixType::Float, BrixType::Nil]))
+                                }
+                                "parse" => {
+                                    Some(BrixType::Union(vec![BrixType::Json, BrixType::Nil]))
+                                }
+                                "stringify" | "stringify_pretty" => Some(BrixType::String),
+                                _ => None,
+                            };
+                        }
                     }
+
+                    // Container methods (Vector/Stack/Queue/MinHeap/MaxHeap/HashMap) —
+                    // return type depends on the receiver's element type(s).
+                    if let Some(receiver_type) = self.infer_expr_type_static(target, params) {
+                        match &receiver_type {
+                            BrixType::Vector(elem)
+                            | BrixType::Stack(elem)
+                            | BrixType::MinHeap(elem)
+                            | BrixType::MaxHeap(elem) => match field.as_str() {
+                                "pop" | "peek" => {
+                                    return Some(BrixType::Union(vec![
+                                        (**elem).clone(),
+                                        BrixType::Nil,
+                                    ]));
+                                }
+                                "get" => return Some((**elem).clone()),
+                                "len" | "size" => return Some(BrixType::Int),
+                                "is_empty" => return Some(BrixType::Int),
+                                "to_array" => {
+                                    return Some(match **elem {
+                                        BrixType::Float => BrixType::Matrix,
+                                        BrixType::String => BrixType::StringMatrix,
+                                        _ => BrixType::IntMatrix,
+                                    });
+                                }
+                                "push" | "set" | "clear" => return Some(BrixType::Void),
+                                _ => {}
+                            },
+                            BrixType::Queue(elem) => match field.as_str() {
+                                "dequeue" | "front" => {
+                                    return Some(BrixType::Union(vec![
+                                        (**elem).clone(),
+                                        BrixType::Nil,
+                                    ]));
+                                }
+                                "len" | "size" => return Some(BrixType::Int),
+                                "is_empty" => return Some(BrixType::Int),
+                                "enqueue" => return Some(BrixType::Void),
+                                _ => {}
+                            },
+                            BrixType::HashMap(_, val) => match field.as_str() {
+                                "get" => {
+                                    return Some(BrixType::Union(vec![
+                                        (**val).clone(),
+                                        BrixType::Nil,
+                                    ]));
+                                }
+                                "has" | "delete" | "len" => return Some(BrixType::Int),
+                                "set" => return Some(BrixType::Void),
+                                "keys" => return None, // depends on the key type; not tracked here
+                                _ => {}
+                            },
+                            _ => {}
+                        }
+                    }
+
                     if field == "split" {
                         if let Some(BrixType::String) = self.infer_expr_type_static(target, params)
                         {
@@ -18794,4 +18927,69 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 })?;
         Ok(gv.as_pointer_value())
     }
+}
+
+/// Parse `src` as a full program (used both for REPL history replay and for
+/// wrapping a bare expression as a single-statement program).
+fn lex_and_parse_program(src: &str) -> Result<Program, String> {
+    use chumsky::{Parser as ChumskyParser, Stream};
+    use lexer::token::Token;
+    use logos::Logos;
+
+    let tokens_with_spans: Vec<(Token, std::ops::Range<usize>)> = Token::lexer(src)
+        .spanned()
+        .map(|(t, span)| (t.unwrap_or(Token::Error), span))
+        .collect();
+
+    let token_stream = Stream::from_iter(src.len()..src.len() + 1, tokens_with_spans.into_iter());
+
+    parser::parser::parser()
+        .parse(token_stream)
+        .map_err(|errs| format!("Parse error: {:?}", errs))
+}
+
+/// Reconstruct the compiler's symbol table (variables + function signatures)
+/// from previously-evaluated REPL history and statically infer the type of a
+/// single, unexecuted expression against it — used by the REPL's `:type`
+/// command. This never executes, links, or produces a native binary; it
+/// internally lowers `history_source` to in-memory LLVM IR only to rebuild
+/// the same symbol table `compile_program` would populate. Nothing is
+/// written to disk.
+pub fn infer_type_of_expr_in_context(
+    history_source: &str,
+    expr_src: &str,
+) -> Result<BrixType, String> {
+    let mut history_ast = lex_and_parse_program(history_source)?;
+    parser::closure_analysis::analyze_closures(&mut history_ast);
+
+    let expr_ast = lex_and_parse_program(expr_src)?;
+    let expr = match expr_ast.statements.as_slice() {
+        [
+            Stmt {
+                kind: StmtKind::Expr(e),
+                ..
+            },
+        ] => e.clone(),
+        _ => return Err("expected a single expression".to_string()),
+    };
+
+    let context = Context::create();
+    let module = context.create_module("brix_repl_type_probe");
+    let builder = context.create_builder();
+
+    let mut compiler = Compiler::new(
+        &context,
+        &builder,
+        &module,
+        "<repl>".to_string(),
+        history_source.to_string(),
+    );
+
+    if let Err(e) = compiler.compile_program(&history_ast) {
+        return Err(format!("{:?}", e));
+    }
+
+    compiler
+        .infer_expr_type_static(&expr, &[])
+        .ok_or_else(|| "could not infer type".to_string())
 }

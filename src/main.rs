@@ -14,6 +14,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, exit};
 
+mod repl;
+
 /// Maps optimization level number to inkwell OptimizationLevel
 fn get_optimization_level(level: u8) -> OptimizationLevel {
     match level {
@@ -52,9 +54,176 @@ struct Cli {
 // Compilation pipeline
 // ---------------------------------------------------------------------------
 
-/// Compile a .bx file to a native binary. Returns the executable path on
-/// success, or exits the process with an appropriate error code on failure.
-/// When `verbose` is false the compilation progress messages are suppressed.
+/// Error from a non-exiting compile-and-run cycle. Unlike the legacy
+/// `compile_to_exe` path, none of these ever call `exit()` — callers (the
+/// REPL, in particular) decide how to surface the failure and must be able
+/// to keep running afterwards.
+#[derive(Debug)]
+pub enum ReplError {
+    Read(String),
+    Lex(String),
+    Parse(String),
+    Codegen(String),
+    RuntimeCompile(String),
+    ObjectWrite(String),
+    Link(String),
+    Exec(String),
+}
+
+impl std::fmt::Display for ReplError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ReplError::Read(s)
+            | ReplError::Lex(s)
+            | ReplError::Parse(s)
+            | ReplError::Codegen(s)
+            | ReplError::RuntimeCompile(s)
+            | ReplError::ObjectWrite(s)
+            | ReplError::Link(s)
+            | ReplError::Exec(s) => write!(f, "{}", s),
+        }
+    }
+}
+
+/// Result of compiling in-memory source and running the resulting binary.
+pub struct EvalOutcome {
+    pub stdout: String,
+    pub stderr: String,
+    pub exit_code: i32,
+}
+
+/// Compile `source` (in-memory, not read from disk) and run the resulting
+/// binary, using `workdir` for all intermediate/output artifacts
+/// (`runtime.o`, `output.o`, the executable). Never calls `exit()` — every
+/// failure is returned as a `ReplError`. `label` is only used for error
+/// message prefixes (e.g. "<repl>").
+fn compile_and_run_isolated(
+    source: &str,
+    opt_level: u8,
+    workdir: &Path,
+    label: &str,
+) -> Result<EvalOutcome, ReplError> {
+    let tokens_with_spans: Vec<(Token, std::ops::Range<usize>)> = Token::lexer(source)
+        .spanned()
+        .map(|(t, span)| (t.unwrap_or(Token::Error), span))
+        .collect();
+
+    if error::check_and_report_invalid_sequences(label, source, &tokens_with_spans) {
+        return Err(ReplError::Lex(format!(
+            "Invalid token sequence in '{}'",
+            label
+        )));
+    }
+
+    use chumsky::Stream;
+    let token_stream = Stream::from_iter(
+        source.len()..source.len() + 1,
+        tokens_with_spans
+            .iter()
+            .map(|(tok, span)| (tok.clone(), span.clone())),
+    );
+
+    let mut ast = match parser().parse(token_stream) {
+        Ok(ast) => ast,
+        Err(errs) => {
+            return Err(ReplError::Parse(format!("{:?}", errs)));
+        }
+    };
+
+    parser::closure_analysis::analyze_closures(&mut ast);
+
+    let context = Context::create();
+    let module = context.create_module("brix_program");
+    let builder = context.create_builder();
+
+    let mut compiler = Compiler::new(
+        &context,
+        &builder,
+        &module,
+        label.to_string(),
+        source.to_string(),
+    );
+    if let Err(e) = compiler.compile_program(&ast) {
+        return Err(ReplError::Codegen(format!("{:?}", e)));
+    }
+
+    let opt = get_optimization_level(opt_level);
+
+    fs::create_dir_all(workdir)
+        .map_err(|e| ReplError::RuntimeCompile(format!("Failed to create workdir: {}", e)))?;
+
+    let runtime_c = Path::new(env!("CARGO_MANIFEST_DIR")).join("runtime.c");
+    let runtime_o = workdir.join("runtime.o");
+    let runtime_status = Command::new("cc")
+        .arg("-c")
+        .arg(&runtime_c)
+        .arg("-o")
+        .arg(&runtime_o)
+        .status()
+        .map_err(|e| ReplError::RuntimeCompile(format!("Failed to spawn cc: {}", e)))?;
+
+    if !runtime_status.success() {
+        return Err(ReplError::RuntimeCompile(
+            "Error compiling runtime.c (check that gcc/clang is installed)".to_string(),
+        ));
+    }
+
+    Target::initialize_all(&InitializationConfig::default());
+    let triple = TargetMachine::get_default_triple();
+    module.set_triple(&triple);
+
+    let target = Target::from_triple(&triple)
+        .map_err(|e| ReplError::ObjectWrite(format!("Failed to resolve target: {}", e)))?;
+    let target_machine = target
+        .create_target_machine(
+            &triple,
+            "generic",
+            "",
+            opt,
+            RelocMode::Default,
+            CodeModel::Default,
+        )
+        .ok_or_else(|| ReplError::ObjectWrite("Failed to create target machine".to_string()))?;
+
+    let object_path = workdir.join("output.o");
+    target_machine
+        .write_to_file(&module, FileType::Object, &object_path)
+        .map_err(|e| ReplError::ObjectWrite(format!("Erro ao escrever objeto: {}", e)))?;
+
+    let exe_path = workdir.join("program");
+
+    let link_output = Command::new("cc")
+        .arg(&object_path)
+        .arg(&runtime_o)
+        .arg("-lm")
+        .arg("-llapack")
+        .arg("-lblas")
+        .arg("-o")
+        .arg(&exe_path)
+        .output()
+        .map_err(|e| ReplError::Link(format!("Failed to spawn linker: {}", e)))?;
+
+    if !link_output.status.success() {
+        return Err(ReplError::Link(format!(
+            "Linking failed:\n{}",
+            String::from_utf8_lossy(&link_output.stderr)
+        )));
+    }
+
+    let run_output = Command::new(&exe_path)
+        .output()
+        .map_err(|e| ReplError::Exec(format!("Failed to run executable: {}", e)))?;
+
+    Ok(EvalOutcome {
+        stdout: String::from_utf8_lossy(&run_output.stdout).to_string(),
+        stderr: String::from_utf8_lossy(&run_output.stderr).to_string(),
+        exit_code: run_output.status.code().unwrap_or(1),
+    })
+}
+
+/// Compile a .bx file to a native binary in the project root (legacy,
+/// file-based path used by `run_file`/`run_tests`). Exits the process with
+/// an appropriate error code on failure.
 fn compile_to_exe(file_path: &str, opt_level: u8, verbose: bool) -> String {
     let source_path = Path::new(file_path);
 
@@ -332,6 +501,7 @@ fn main() {
 
     match cli.file_or_command.as_str() {
         "test" => run_tests(cli.extra.as_deref(), cli.opt_level),
+        "repl" => repl::run_repl(cli.opt_level),
         file => run_file(file, cli.opt_level),
     }
 }
