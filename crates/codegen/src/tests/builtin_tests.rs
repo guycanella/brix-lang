@@ -2952,3 +2952,219 @@ fn test_hashmap_index_read_write() {
     };
     assert!(vector_compiles(program));
 }
+
+// ==================== EMBEDDING<DIM> (v2.0 Grupo A Fase 1) ====================
+
+fn embedding_new_expr(dim: &str, arg: Expr) -> Expr {
+    Expr::dummy(ExprKind::GenericCall {
+        func: Box::new(Expr::dummy(ExprKind::Identifier("Embedding".to_string()))),
+        type_args: vec![dim.to_string()],
+        args: vec![arg],
+    })
+}
+
+fn float_array(vals: &[f64]) -> Expr {
+    Expr::dummy(ExprKind::Array(
+        vals.iter()
+            .map(|v| Expr::dummy(ExprKind::Literal(Literal::Float(*v))))
+            .collect(),
+    ))
+}
+
+fn int_array(vals: &[i64]) -> Expr {
+    Expr::dummy(ExprKind::Array(
+        vals.iter()
+            .map(|v| Expr::dummy(ExprKind::Literal(Literal::Int(*v))))
+            .collect(),
+    ))
+}
+
+#[test]
+fn test_embedding_float_literal_compiles() {
+    // Embedding<3>([1.0, 2.0, 3.0]) — direct Matrix argument, correct length.
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::VariableDecl {
+            name: "e".to_string(),
+            type_hint: None,
+            value: embedding_new_expr("3", float_array(&[1.0, 2.0, 3.0])),
+            is_const: false,
+        })],
+    };
+    assert!(vector_compiles(program));
+}
+
+#[test]
+fn test_embedding_intmatrix_literal_promotes_and_compiles() {
+    // Embedding<3>([1, 2, 3]) — IntMatrix argument, promoted via
+    // intmatrix_to_matrix() (confirmed decision: accept with promotion,
+    // consistent with Brix's existing Int->Float conventions).
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::VariableDecl {
+            name: "e".to_string(),
+            type_hint: None,
+            value: embedding_new_expr("3", int_array(&[1, 2, 3])),
+            is_const: false,
+        })],
+    };
+    assert!(vector_compiles(program));
+}
+
+#[test]
+fn test_embedding_literal_length_mismatch_fails_at_compile_time() {
+    // Embedding<3>([1.0, 2.0]) — literal array, wrong length: this must be
+    // caught at compile time (E104), never reaching a runtime call.
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::VariableDecl {
+            name: "e".to_string(),
+            type_hint: None,
+            value: embedding_new_expr("3", float_array(&[1.0, 2.0])),
+            is_const: false,
+        })],
+    };
+    assert!(!vector_compiles(program));
+}
+
+#[test]
+fn test_embedding_wrong_argument_type_fails() {
+    // Embedding<3>("x") — a String is not an array/Matrix/IntMatrix argument;
+    // always statically knowable, so this is a compile-time E102.
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::VariableDecl {
+            name: "e".to_string(),
+            type_hint: None,
+            value: embedding_new_expr(
+                "3",
+                Expr::dummy(ExprKind::Literal(Literal::String("x".to_string()))),
+            ),
+            is_const: false,
+        })],
+    };
+    assert!(!vector_compiles(program));
+}
+
+#[test]
+fn test_embedding_zero_dimension_rejected() {
+    // Embedding<0>(...) must be rejected outright (InvalidOperation) —
+    // dimension zero is never useful and avoids malloc(0)/degenerate cases.
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::VariableDecl {
+            name: "e".to_string(),
+            type_hint: None,
+            value: embedding_new_expr("0", float_array(&[1.0])),
+            is_const: false,
+        })],
+    };
+    assert!(!vector_compiles(program));
+}
+
+#[test]
+fn test_embedding_from_matrix_variable_type_checks() {
+    // Embedding<3>(m) where `m` is a Matrix-typed variable — this only
+    // type-checks here (the shape mismatch, if any, is a runtime abort that
+    // can't be exercised via catch_unwind in a unit test; see the
+    // integration test for that case). A correctly-shaped literal used to
+    // declare `m` should let this compile.
+    let program = Program {
+        statements: vec![
+            Stmt::dummy(StmtKind::VariableDecl {
+                name: "m".to_string(),
+                type_hint: None,
+                value: float_array(&[1.0, 2.0, 3.0]),
+                is_const: false,
+            }),
+            Stmt::dummy(StmtKind::VariableDecl {
+                name: "e".to_string(),
+                type_hint: None,
+                value: embedding_new_expr("3", Expr::dummy(ExprKind::Identifier("m".to_string()))),
+                is_const: false,
+            }),
+        ],
+    };
+    assert!(vector_compiles(program));
+}
+
+#[test]
+fn test_embedding_to_matrix_and_arc_across_reassignment() {
+    // e.to_matrix() compiles, and reassigning `e` to a fresh Embedding (ARC:
+    // must release the old one, retain/own the new one) doesn't panic.
+    let program = Program {
+        statements: vec![
+            Stmt::dummy(StmtKind::VariableDecl {
+                name: "e".to_string(),
+                type_hint: None,
+                value: embedding_new_expr("3", float_array(&[1.0, 2.0, 3.0])),
+                is_const: false,
+            }),
+            Stmt::dummy(StmtKind::Assignment {
+                target: Expr::dummy(ExprKind::Identifier("e".to_string())),
+                value: embedding_new_expr("3", float_array(&[4.0, 5.0, 6.0])),
+            }),
+            Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+                func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                    target: Box::new(Expr::dummy(ExprKind::Identifier("e".to_string()))),
+                    field: "to_matrix".to_string(),
+                })),
+                args: vec![],
+            }))),
+        ],
+    };
+    assert!(vector_compiles(program));
+}
+
+#[test]
+fn test_embedding_intmatrix_literal_releases_both_temporaries() {
+    // Post-review fix: Embedding<3>([1, 2, 3]) promotes the int literal's
+    // IntMatrix to a Matrix via intmatrix_to_matrix(), but the original
+    // IntMatrix was never released afterward — leaking one allocation per
+    // construction. Both the promoted Matrix AND the original IntMatrix
+    // must now be released; check both release calls are actually emitted.
+    let program = Program {
+        statements: vec![Stmt::dummy(StmtKind::VariableDecl {
+            name: "e".to_string(),
+            type_hint: None,
+            value: embedding_new_expr("3", int_array(&[1, 2, 3])),
+            is_const: false,
+        })],
+    };
+    let ir = compile_program(program).unwrap();
+    // "@matrix_release(" vs "@intmatrix_release(" are distinct symbol
+    // references in LLVM IR (the "@" immediately precedes "int" in one and
+    // "matrix" in the other), so checking both precisely distinguishes the
+    // two release calls rather than one substring-matching the other.
+    assert!(
+        ir.contains("@intmatrix_release("),
+        "Expected the original (promoted-from) IntMatrix to be released. IR:\n{}",
+        ir
+    );
+    assert!(
+        ir.contains("@matrix_release("),
+        "Expected the promoted Matrix to also be released. IR:\n{}",
+        ir
+    );
+}
+
+#[test]
+fn test_embedding_to_matrix_rejects_arguments() {
+    // Post-review fix: e.to_matrix(123) used to compile silently (the
+    // dispatch called compile_embedding_to_matrix without ever inspecting or
+    // compiling `args`), discarding the argument instead of rejecting it.
+    // Must now fail with InvalidOperation for any non-empty arg list.
+    let program = Program {
+        statements: vec![
+            Stmt::dummy(StmtKind::VariableDecl {
+                name: "e".to_string(),
+                type_hint: None,
+                value: embedding_new_expr("3", float_array(&[1.0, 2.0, 3.0])),
+                is_const: false,
+            }),
+            Stmt::dummy(StmtKind::Expr(Expr::dummy(ExprKind::Call {
+                func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+                    target: Box::new(Expr::dummy(ExprKind::Identifier("e".to_string()))),
+                    field: "to_matrix".to_string(),
+                })),
+                args: vec![Expr::dummy(ExprKind::Literal(Literal::Int(123)))],
+            }))),
+        ],
+    };
+    assert!(!vector_compiles(program));
+}

@@ -631,6 +631,26 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             return BrixType::HashMap(Box::new(BrixType::Error), Box::new(BrixType::Error));
         }
 
+        // Step 4j: Embedding<DIM> (v2.0 Grupo A Fase 1). Unlike Vector<T>/etc.,
+        // there's no separate element type to wrap in `BrixType::Error` on
+        // failure — the dimension itself must parse as a positive u32, or
+        // this returns plain `BrixType::Error` directly. This is the same
+        // fix Fase 0 made for the expression-level case (Vector<1536> could
+        // never silently become a valid type by falling through to the
+        // "unknown type, defaulting to Int" branch below) — an invalid or
+        // zero dimension here must never reach that fallback either.
+        // EmbeddingBatch<DIM> is deliberately NOT handled here — deferred to
+        // Grupo A Fase 3 (no BrixType::EmbeddingBatch variant exists yet).
+        if let Some(inner) = resolved_type_str
+            .strip_prefix("Embedding<")
+            .and_then(|s| s.strip_suffix('>'))
+        {
+            return match inner.trim().parse::<u32>() {
+                Ok(dim) if dim > 0 => BrixType::Embedding(dim),
+                _ => BrixType::Error,
+            };
+        }
+
         // Step 5: Base types
         match resolved_type_str {
             "int" => BrixType::Int,
@@ -731,6 +751,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             }
             BrixType::Json => {
                 // Json is a pointer to the heap JsonValue struct.
+                self.context.ptr_type(AddressSpace::default()).into()
+            }
+            BrixType::Embedding(_) => {
+                // Embedding<DIM> is a pointer to the heap BrixEmbedding struct.
                 self.context.ptr_type(AddressSpace::default()).into()
             }
             BrixType::Void => self.context.i64_type().into(), // Placeholder (shouldn't be used)
@@ -1356,6 +1380,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 | BrixType::HashMap(_, _)
                 | BrixType::DateTime
                 | BrixType::Json
+                | BrixType::Embedding(_)
         )
     }
 
@@ -1417,6 +1442,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             BrixType::HashMap(_, _) => "brix_hashmap_retain",
             BrixType::DateTime => "datetime_retain",
             BrixType::Json => "json_retain",
+            BrixType::Embedding(_) => "brix_embedding_retain",
             _ => unreachable!("is_ref_counted should have filtered this"),
         };
 
@@ -1477,6 +1503,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             BrixType::HashMap(_, _) => "brix_hashmap_release",
             BrixType::DateTime => "datetime_release",
             BrixType::Json => "json_release",
+            BrixType::Embedding(_) => "brix_embedding_release",
             _ => unreachable!("is_ref_counted should have filtered this"),
         };
 
@@ -4877,9 +4904,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         | BrixType::MaxHeap(_)
                         | BrixType::HashMap(_, _)
                         | BrixType::DateTime
-                        | BrixType::Json => {
+                        | BrixType::Json
+                        | BrixType::Embedding(_) => {
                             // Vector<T>/Stack<T>/Queue<T>/MinHeap<T>/MaxHeap<T>/
-                            // HashMap<K,V>/DateTime are stored as an opaque heap-struct pointer.
+                            // HashMap<K,V>/DateTime/Embedding<DIM> are stored as an opaque heap-struct pointer.
                             let ptr_type = self.context.ptr_type(AddressSpace::default());
                             let val =
                                 self.builder.build_load(ptr_type, *ptr, name).map_err(|_| {
@@ -6874,6 +6902,11 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             field.as_str(),
                             "set" | "get" | "has" | "delete" | "len" | "keys"
                         );
+                        // Embedding<DIM> methods (v2.0 Grupo A Fase 1). Only
+                        // `.to_matrix()` exists this phase — similarity
+                        // methods (Fase 2) and EmbeddingBatch (Fase 3) are
+                        // not implemented yet.
+                        let is_embedding_method = field == "to_matrix";
                         if is_iter_method
                             || is_str_method
                             || is_vector_method
@@ -6881,6 +6914,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             || is_queue_method
                             || is_heap_method
                             || is_hashmap_method
+                            || is_embedding_method
                         {
                             let (receiver_val, receiver_type) = self.compile_expr(target)?;
                             if is_vector_method {
@@ -6955,6 +6989,21 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                         args,
                                         expr,
                                     );
+                                }
+                            }
+                            if is_embedding_method {
+                                if let BrixType::Embedding(_) = &receiver_type {
+                                    if !args.is_empty() {
+                                        return Err(CodegenError::InvalidOperation {
+                                            operation: "Embedding.to_matrix".to_string(),
+                                            reason: format!(
+                                                "expects no arguments, got {}",
+                                                args.len()
+                                            ),
+                                            span: Some(expr.span.clone()),
+                                        });
+                                    }
+                                    return self.compile_embedding_to_matrix(receiver_val, expr);
                                 }
                             }
                             if is_iter_method
@@ -7275,6 +7324,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             BrixType::AsyncFuture => "async_future".to_string(),
                             BrixType::DateTime => "datetime".to_string(),
                             BrixType::Json => "json".to_string(),
+                            BrixType::Embedding(dim) => format!("Embedding<{}>", dim),
                         };
 
                         return self.compile_expr(&Expr::dummy(ExprKind::Literal(
@@ -9137,6 +9187,38 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         )),
                     };
 
+                // Embedding<DIM>() constructor (v2.0 Grupo A Fase 1) — the
+                // one explicit exception to the bare-integer-literal guard
+                // below, intercepted before it. EmbeddingBatch is NOT handled
+                // here (deferred to Fase 3) — `EmbeddingBatch<1536>(...)`
+                // still falls through to the guard and errors, which is
+                // correct until Fase 3 adds its own exception.
+                if func_name == "Embedding" {
+                    if type_args.len() != 1 {
+                        return Err(CodegenError::InvalidOperation {
+                            operation: "Embedding".to_string(),
+                            reason:
+                                "expects exactly one dimension argument, e.g. Embedding<1536>(...)"
+                                    .to_string(),
+                            span: Some(expr.span.clone()),
+                        });
+                    }
+                    let dim: u32 = type_args[0].parse().map_err(|_| CodegenError::TypeError {
+                        expected: "a non-negative integer dimension".to_string(),
+                        found: type_args[0].clone(),
+                        context: "Embedding<...> dimension".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                    if dim == 0 {
+                        return Err(CodegenError::InvalidOperation {
+                            operation: "Embedding".to_string(),
+                            reason: "dimension must be greater than zero".to_string(),
+                            span: Some(expr.span.clone()),
+                        });
+                    }
+                    return self.compile_embedding_constructor(args, dim, expr);
+                }
+
                 // v2.0 Grupo A Fase 0: the parser now accepts a bare integer
                 // literal inside `<...>` (needed for `Embedding<1536>`), but
                 // that widened grammar slot is shared with every existing
@@ -9145,12 +9227,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 // `string_to_brix_type("1536")` would hit its unknown-type
                 // fallback (a stderr warning + silently defaulting to
                 // `BrixType::Int`), making `Vector<1536>` behave exactly like
-                // `Vector<int>` instead of erroring. No construct accepts a
-                // numeric generic argument yet (`Embedding`/`EmbeddingBatch`
-                // land in Fase 1 with their own explicit exception here), so
-                // reject it unconditionally now — this is what keeps this
-                // grammar change from silently regressing every other
-                // generic type/function.
+                // `Vector<int>` instead of erroring. `Embedding` is handled
+                // above, before this guard runs; `EmbeddingBatch` and every
+                // other construct still hits it and rejects, correctly, until
+                // Fase 3.
                 if let Some(bad_arg) = type_args.iter().find(|a| is_bare_integer_literal(a)) {
                     return Err(CodegenError::TypeError {
                         expected: "a type name".to_string(),
@@ -16299,6 +16379,198 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         }
     }
 
+    /// Compile `Embedding<DIM>(arg)` — constructs a `BrixEmbedding*` (ref_count
+    /// = 1) from a single array-literal or `Matrix`/`IntMatrix` argument.
+    /// `dim` is already parsed, non-zero, and `u32`-valid by the time this is
+    /// called (checked at the `GenericCall` dispatch site). v2.0 Grupo A
+    /// Fase 1 — `EmbeddingBatch` is not implemented here (Fase 3).
+    fn compile_embedding_constructor(
+        &mut self,
+        args: &[Expr],
+        dim: u32,
+        expr: &Expr,
+    ) -> CodegenResult<(BasicValueEnum<'ctx>, BrixType)> {
+        if args.len() != 1 {
+            return Err(CodegenError::InvalidOperation {
+                operation: "Embedding".to_string(),
+                reason: "constructor takes exactly one argument (an array or Matrix)".to_string(),
+                span: Some(expr.span.clone()),
+            });
+        }
+
+        let (arg_val, arg_type) = self.compile_expr(&args[0])?;
+
+        // Compile-time length check — only possible when the argument is a
+        // literal array (element count visible in the AST). Never emits any
+        // runtime call for a mismatch caught here; a variable's length can
+        // only be checked at runtime, by `brix_embedding_from_matrix` itself.
+        if let ExprKind::Array(elems) = &args[0].kind {
+            if elems.len() != dim as usize {
+                return Err(CodegenError::InvalidOperation {
+                    operation: "Embedding".to_string(),
+                    reason: format!(
+                        "expected {} elements, found {} (array literal)",
+                        dim,
+                        elems.len()
+                    ),
+                    span: Some(expr.span.clone()),
+                });
+            }
+        }
+
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+
+        // IntMatrix is accepted with automatic promotion to Matrix (via the
+        // existing intmatrix_to_matrix()), consistent with Brix's existing
+        // Int→Float promotion convention elsewhere (e.g. IntMatrix op Float).
+        // intmatrix_to_matrix() always mallocs a brand-new Matrix*, so the
+        // promoted result is unconditionally a fresh temporary — regardless
+        // of whether the original IntMatrix argument was itself a literal or
+        // a variable — and must be released after brix_embedding_from_matrix
+        // copies out of it below.
+        let matrix_ptr = match arg_type {
+            BrixType::Matrix => arg_val,
+            BrixType::IntMatrix => {
+                let fn_type = ptr_type.fn_type(&[ptr_type.into()], false);
+                let promote_fn = self
+                    .module
+                    .get_function("intmatrix_to_matrix")
+                    .unwrap_or_else(|| {
+                        self.module.add_function(
+                            "intmatrix_to_matrix",
+                            fn_type,
+                            Some(Linkage::External),
+                        )
+                    });
+                let call = self
+                    .builder
+                    .build_call(promote_fn, &[arg_val.into()], "embedding_promote_intmatrix")
+                    .map_err(|_| CodegenError::LLVMError {
+                        operation: "build_call".to_string(),
+                        details: "Failed to call intmatrix_to_matrix for Embedding constructor"
+                            .to_string(),
+                        span: Some(expr.span.clone()),
+                    })?;
+                call.try_as_basic_value()
+                    .left()
+                    .ok_or_else(|| CodegenError::MissingValue {
+                        what: "promoted matrix value".to_string(),
+                        context: "Embedding<DIM> IntMatrix promotion".to_string(),
+                        span: Some(expr.span.clone()),
+                    })?
+            }
+            other => {
+                return Err(CodegenError::TypeError {
+                    expected: "an int or float array/Matrix".to_string(),
+                    found: format!("{:?}", other),
+                    context: format!("Embedding<{}> constructor argument", dim),
+                    span: Some(expr.span.clone()),
+                });
+            }
+        };
+
+        let dim_const = self.context.i64_type().const_int(dim as u64, false);
+        let ctor_fn_type =
+            ptr_type.fn_type(&[ptr_type.into(), self.context.i64_type().into()], false);
+        let ctor_fn = self
+            .module
+            .get_function("brix_embedding_from_matrix")
+            .unwrap_or_else(|| {
+                self.module.add_function(
+                    "brix_embedding_from_matrix",
+                    ctor_fn_type,
+                    Some(Linkage::External),
+                )
+            });
+        let call = self
+            .builder
+            .build_call(
+                ctor_fn,
+                &[matrix_ptr.into(), dim_const.into()],
+                "embedding_new",
+            )
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_call".to_string(),
+                details: "Failed to call brix_embedding_from_matrix".to_string(),
+                span: Some(expr.span.clone()),
+            })?;
+        let embedding_val =
+            call.try_as_basic_value()
+                .left()
+                .ok_or_else(|| CodegenError::MissingValue {
+                    what: "Embedding constructor result".to_string(),
+                    context: "Embedding<DIM> constructor".to_string(),
+                    span: Some(expr.span.clone()),
+                })?;
+
+        // brix_embedding_from_matrix() always copies the Matrix's data — the
+        // Matrix* we passed it must be released here if it was a genuinely
+        // owned temporary, never if it was a borrowed variable/field-access
+        // reference the caller still holds elsewhere. The IntMatrix-promoted
+        // Matrix is ALWAYS a fresh temp; a direct Matrix argument is a temp
+        // only when the argument expression itself isn't a borrowed
+        // reference.
+        let should_release_matrix = match arg_type {
+            BrixType::IntMatrix => true,
+            BrixType::Matrix => !self.is_borrowed_ref_expr(&args[0]),
+            _ => unreachable!("non-Matrix/IntMatrix already rejected above"),
+        };
+        if should_release_matrix {
+            self.insert_release(matrix_ptr.into_pointer_value(), &BrixType::Matrix)?;
+        }
+
+        // intmatrix_to_matrix() only READS from the original IntMatrix to
+        // build the promoted Matrix above — it never consumes/frees it. If
+        // the IntMatrix argument itself was a genuinely owned temporary
+        // (e.g. the int-literal array `[1, 2, 3]`), it must be released here
+        // too, or it leaks on every construction with an int literal; a
+        // borrowed IntMatrix variable is left untouched, same as any other
+        // borrowed reference.
+        if arg_type == BrixType::IntMatrix && !self.is_borrowed_ref_expr(&args[0]) {
+            self.insert_release(arg_val.into_pointer_value(), &BrixType::IntMatrix)?;
+        }
+
+        Ok((embedding_val, BrixType::Embedding(dim)))
+    }
+
+    /// Compile `embedding.to_matrix()` — returns a new, independent
+    /// `Matrix` (1×dim) copy; releasing one side never invalidates the other.
+    fn compile_embedding_to_matrix(
+        &self,
+        receiver_val: BasicValueEnum<'ctx>,
+        expr: &Expr,
+    ) -> CodegenResult<(BasicValueEnum<'ctx>, BrixType)> {
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let fn_type = ptr_type.fn_type(&[ptr_type.into()], false);
+        let func = self
+            .module
+            .get_function("brix_embedding_to_matrix")
+            .unwrap_or_else(|| {
+                self.module.add_function(
+                    "brix_embedding_to_matrix",
+                    fn_type,
+                    Some(Linkage::External),
+                )
+            });
+        let call = self
+            .builder
+            .build_call(func, &[receiver_val.into()], "embedding_to_matrix")
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_call".to_string(),
+                details: "Failed to call brix_embedding_to_matrix".to_string(),
+                span: Some(expr.span.clone()),
+            })?;
+        let result =
+            call.try_as_basic_value()
+                .left()
+                .ok_or_else(|| CodegenError::MissingValue {
+                    what: "Embedding.to_matrix() result".to_string(),
+                    context: "Embedding<DIM>.to_matrix()".to_string(),
+                    span: Some(expr.span.clone()),
+                })?;
+        Ok((result, BrixType::Matrix))
+    }
+
     /// Compile `HashMap<K,V>()` -> a fresh, empty BrixHashMap* (ref_count = 1).
     /// K in {Int, String}, V in {Int, Float, String}. The runtime reuses the
     /// same elem-kind codes as Vector (1=int, 2=float, 3=string) for both the
@@ -17799,6 +18071,27 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     (Some(t), _) => Some(t),
                     (None, t2) => t2,
                 }
+            }
+            ExprKind::GenericCall {
+                func, type_args, ..
+            } => {
+                // Embedding<DIM>(...) (v2.0 Grupo A Fase 1) — makes `:type
+                // Embedding<1536>(...)` work in the REPL. No other
+                // GenericCall is handled here; a bare `.parse::<u32>()`
+                // failure or `dim == 0` just yields None rather than a
+                // spurious type, since this is a best-effort static
+                // inference helper, not the compile-time error path (that
+                // lives in the GenericCall dispatch in compile_expr).
+                if let ExprKind::Identifier(name) = &func.kind {
+                    if name == "Embedding" {
+                        return type_args
+                            .first()
+                            .and_then(|s| s.parse::<u32>().ok())
+                            .filter(|&d| d > 0)
+                            .map(BrixType::Embedding);
+                    }
+                }
+                None
             }
             ExprKind::Call { func, .. } => {
                 if let ExprKind::Identifier(name) = &func.kind {

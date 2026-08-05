@@ -1,0 +1,52 @@
+import test
+
+// v2.0 Grupo A Fase 1: Embedding<DIM> construction + .to_matrix() conversions.
+// println(embedding) is out of scope this phase (same gap Vector<T> already
+// has), so values are always validated via .to_matrix() + indexing.
+// Compile-time error paths (E104 literal-length mismatch, E102 wrong
+// argument type, dimension zero) are pinned as integration/codegen unit
+// tests, not here — Test Library runs already-compiled programs.
+
+test.describe("Embedding<DIM> construction (v2.0 Grupo A Fase 1)", () -> {
+    test.it("constructs from a float array literal", () -> {
+        var e := Embedding<3>([1.0, 2.0, 3.0])
+        var m := e.to_matrix()
+        test.expect(m[0]).toBeCloseTo(1.0)
+        test.expect(m[1]).toBeCloseTo(2.0)
+        test.expect(m[2]).toBeCloseTo(3.0)
+    })
+
+    test.it("constructs from an int array literal via promotion", () -> {
+        var e := Embedding<4>([1, 2, 3, 4])
+        var m := e.to_matrix()
+        test.expect(m[0]).toBeCloseTo(1.0)
+        test.expect(m[3]).toBeCloseTo(4.0)
+    })
+
+    test.it("constructs from a correctly-shaped Matrix variable", () -> {
+        var src := [5.0, 6.0, 7.0]
+        var e := Embedding<3>(src)
+        var m := e.to_matrix()
+        test.expect(m[0]).toBeCloseTo(5.0)
+        test.expect(m[2]).toBeCloseTo(7.0)
+    })
+})
+
+test.describe("Embedding<DIM> ARC (v2.0 Grupo A Fase 1)", () -> {
+    test.it("keeps an alias's value independent after reassignment", () -> {
+        var a := Embedding<2>([1.0, 1.0])
+        var b := a
+        a = Embedding<2>([9.0, 9.0])
+        test.expect(b.to_matrix()[0]).toBeCloseTo(1.0)
+        test.expect(a.to_matrix()[0]).toBeCloseTo(9.0)
+    })
+
+    test.it("survives a block-scoped variable going out of scope", () -> {
+        var outer := Embedding<2>([2.0, 3.0])
+        if true {
+            var scoped := Embedding<2>([100.0, 200.0])
+            test.expect(scoped.to_matrix()[0]).toBeCloseTo(100.0)
+        }
+        test.expect(outer.to_matrix()[1]).toBeCloseTo(3.0)
+    })
+})

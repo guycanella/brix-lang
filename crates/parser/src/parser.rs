@@ -54,10 +54,21 @@ fn type_annotation_parser() -> impl Parser<Token, String, Error = Simple<Token>>
         // Base type: identifier with optional generic params
         let base_type = select! { Token::Identifier(t) => t }
             .then(
-                // Generic type params: Box<int>, Map<string, int>
+                // Generic type params: Box<int>, Map<string, int>, or a
+                // const-generic dimension: Embedding<1536> (v2.0 Grupo A
+                // Fase 1). Unlike the expression-level generic call (Fase 0
+                // of the same roadmap group), this position is unambiguous
+                // — a type annotation never admits a binary/comparison
+                // expression, so there's no risk of `<` being misread as a
+                // comparison operator here, and no whitelist-by-name gate is
+                // needed: accepting a bare integer for any base type is safe
+                // because `string_to_brix_type()` already rejects an
+                // unexpected numeric-looking element for every other
+                // generic type (Vector<1536> etc. resolve to
+                // `BrixType::Error`, never silently to something valid).
                 just(Token::Lt)
                     .ignore_then(
-                        select! { Token::Identifier(t) => t }
+                        select! { Token::Identifier(t) => t, Token::Int(n) => n.to_string() }
                             .separated_by(just(Token::Comma))
                             .at_least(1),
                     )

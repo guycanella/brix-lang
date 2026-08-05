@@ -1,0 +1,6 @@
+// v2.0 Grupo A Fase 1: Embedding<DIM>(matrix_variable) with the wrong shape
+// is a runtime abort, never a compile-time error — BrixType::Matrix carries
+// no shape, so this can only be checked once the program is running.
+var m := [1.0, 2.0]
+var e := Embedding<3>(m)
+println("unreachable")

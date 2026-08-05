@@ -2361,3 +2361,36 @@ fn test_259_repl_help_command() {
         stdout
     );
 }
+
+// ---------------------------------------------------------------------------
+// v2.0 Grupo A Fase 1 — Embedding<DIM>
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_260_embedding_basic() {
+    assert_success(
+        "tests/integration/success/260_embedding_basic.bx",
+        "1\n2\n3\n1\n6",
+    );
+}
+
+#[test]
+fn test_261_embedding_type_annotation() {
+    assert_success(
+        "tests/integration/success/261_embedding_type_annotation.bx",
+        "8\n7\n1",
+    );
+}
+
+#[test]
+fn test_262_embedding_matrix_shape_abort() {
+    // Embedding<DIM>(matrix_variable) with the wrong shape is a runtime
+    // abort (BrixType::Matrix carries no shape, so this can never be a
+    // compile-time error) — verified via subprocess exit code + stderr,
+    // not catch_unwind (a C abort()/exit() can't be caught that way).
+    assert_output(
+        "tests/integration/success/262_embedding_matrix_shape_abort.bx",
+        1,
+        Some("Embedding<3> construction requires a 1x3 Matrix"),
+    );
+}
