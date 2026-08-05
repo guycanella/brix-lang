@@ -2152,6 +2152,21 @@ fn test_vector_push_type_error() {
 }
 
 #[test]
+fn test_vector_numeric_generic_arg_rejected() {
+    // v2.0 Grupo A Fase 0 regression guard: the parser now accepts a bare
+    // integer literal inside `<...>` (for the future `Embedding<1536>`),
+    // sharing the same grammar slot as every other generic call. Without an
+    // explicit guard, `Vector<1536>()` would parse successfully and then
+    // `string_to_brix_type("1536")` would silently fall back to `Int` (with
+    // just a stderr warning) — making `Vector<1536>` behave exactly like
+    // `Vector<int>` instead of erroring. Must be rejected outright.
+    let program = Program {
+        statements: vec![vec_decl("v", None, "1536")],
+    };
+    assert!(!vector_compiles(program));
+}
+
+#[test]
 fn test_vector_float_enabled() {
     // Vector<float>() is enabled (Grupo C Phase 3): new + push/get/set/pop compile.
     let program = Program {

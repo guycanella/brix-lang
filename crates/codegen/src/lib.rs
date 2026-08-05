@@ -9137,6 +9137,29 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         )),
                     };
 
+                // v2.0 Grupo A Fase 0: the parser now accepts a bare integer
+                // literal inside `<...>` (needed for `Embedding<1536>`), but
+                // that widened grammar slot is shared with every existing
+                // generic call (`swap<int>`, `Vector<int>`, etc.) — without
+                // this guard, `Vector<1536>()` would newly *parse*, then
+                // `string_to_brix_type("1536")` would hit its unknown-type
+                // fallback (a stderr warning + silently defaulting to
+                // `BrixType::Int`), making `Vector<1536>` behave exactly like
+                // `Vector<int>` instead of erroring. No construct accepts a
+                // numeric generic argument yet (`Embedding`/`EmbeddingBatch`
+                // land in Fase 1 with their own explicit exception here), so
+                // reject it unconditionally now — this is what keeps this
+                // grammar change from silently regressing every other
+                // generic type/function.
+                if let Some(bad_arg) = type_args.iter().find(|a| is_bare_integer_literal(a)) {
+                    return Err(CodegenError::TypeError {
+                        expected: "a type name".to_string(),
+                        found: format!("numeric literal '{}'", bad_arg),
+                        context: format!("generic type argument of '{}'", func_name),
+                        span: Some(expr.span.clone()),
+                    });
+                }
+
                 // Vector<T>() constructor (v1.8 Grupo C) — intercepted before
                 // generic function monomorphization.
                 if func_name == "Vector" {
@@ -18931,6 +18954,13 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
 /// Parse `src` as a full program (used both for REPL history replay and for
 /// wrapping a bare expression as a single-statement program).
+/// True iff `s` is a non-empty run of ASCII digits — i.e. it came from the
+/// parser's `Token::Int` generic-arg alternative (see the "Generic call"
+/// combinator in `parser.rs`), not a `Token::Identifier` type name.
+fn is_bare_integer_literal(s: &str) -> bool {
+    !s.is_empty() && s.chars().all(|c| c.is_ascii_digit())
+}
+
 fn lex_and_parse_program(src: &str) -> Result<Program, String> {
     use chumsky::{Parser as ChumskyParser, Stream};
     use lexer::token::Token;

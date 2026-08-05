@@ -9,7 +9,14 @@ use crate::parser::parser;
 use chumsky::Parser;
 use lexer::token::Token;
 
-// Helper to parse expression from source and extract first statement's expression
+// Helper to parse expression from source and extract first statement's expression.
+// NOTE: `lexer::lex()` (used below) discards span information entirely — when
+// chumsky parses a bare `Vec<Token>` (no explicit `Stream`), it falls back to
+// token-INDEX pseudo-spans, not real source byte offsets. That's fine for
+// every test that only inspects the resulting AST shape, but it makes this
+// helper unusable for anything that depends on real whitespace adjacency
+// (e.g. the const-generic `<` vs. comparison `<` disambiguation) — use
+// `parse_expr_with_real_spans` below for those instead.
 fn parse_expr(input: &str) -> Result<Expr, String> {
     let tokens: Vec<Token> = lexer::lex(input);
 
@@ -18,6 +25,38 @@ fn parse_expr(input: &str) -> Result<Expr, String> {
         .map_err(|e| format!("Parse error: {:?}", e))?;
 
     // Extract expression from first statement
+    if let Some(stmt) = program.statements.first() {
+        if let StmtKind::Expr(expr) = &stmt.kind {
+            Ok(expr.clone())
+        } else {
+            Err("First statement is not an expression".to_string())
+        }
+    } else {
+        Err("No statements in program".to_string())
+    }
+}
+
+// Same as `parse_expr`, but lexes with real source byte-offset spans (via
+// `Token::lexer(...).spanned()` + `chumsky::Stream`), matching exactly how
+// the production pipeline (`src/main.rs`'s `compile_and_run_isolated`,
+// `codegen::lex_and_parse_program`) actually lexes. Required for tests that
+// depend on real whitespace adjacency between tokens — `parse_expr`'s
+// token-index pseudo-spans can't distinguish `Embedding<1536>` from
+// `Embedding <1536` at all.
+fn parse_expr_with_real_spans(input: &str) -> Result<Expr, String> {
+    use logos::Logos;
+    let tokens_with_spans: Vec<(Token, std::ops::Range<usize>)> = Token::lexer(input)
+        .spanned()
+        .map(|(t, span)| (t.unwrap_or(Token::Error), span))
+        .collect();
+
+    let token_stream =
+        chumsky::Stream::from_iter(input.len()..input.len() + 1, tokens_with_spans.into_iter());
+
+    let program = parser()
+        .parse(token_stream)
+        .map_err(|e| format!("Parse error: {:?}", e))?;
+
     if let Some(stmt) = program.statements.first() {
         if let StmtKind::Expr(expr) = &stmt.kind {
             Ok(expr.clone())
@@ -926,4 +965,237 @@ fn test_complex_with_parens() {
 fn test_deeply_nested() {
     let expr = parse_expr("((((1))))").unwrap();
     assert_eq!(expr.kind, ExprKind::Literal(Literal::Int(1)));
+}
+
+// ==================== CONST GENERICS (v2.0 Grupo A Fase 0) ====================
+//
+// `Embedding<1536>(...)` needs an integer literal accepted where a generic
+// call previously only accepted `Token::Identifier` type names. This is
+// handled at the identifier-*atom* level (not the shared postfix generic-call
+// combinator used by `Vector<int>`/`swap<int,float>`/etc.), gated to the
+// literal names "Embedding"/"EmbeddingBatch" only — see `parser.rs`'s
+// `identifier_atom` construct. These tests pin: the numeric-literal
+// acceptance for those two names, that ordinary chained comparisons
+// (including ones that happen to look like a generic call, e.g. `a<1>(b)`)
+// are completely unaffected, and that a malformed dimension (negative,
+// overflow) is a real parse error, not a silent reinterpretation.
+
+#[test]
+fn test_generic_call_const_int_arg() {
+    let expr = parse_expr("Embedding<1536>([1, 2, 3])").unwrap();
+    match &expr.kind {
+        ExprKind::GenericCall {
+            func, type_args, ..
+        } => {
+            assert_eq!(func.kind, ExprKind::Identifier("Embedding".to_string()));
+            assert_eq!(type_args, &vec!["1536".to_string()]);
+        }
+        other => panic!("Expected GenericCall, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_generic_call_embedding_batch_const_int_arg() {
+    let expr = parse_expr("EmbeddingBatch<1536>(1000)").unwrap();
+    match &expr.kind {
+        ExprKind::GenericCall {
+            func, type_args, ..
+        } => {
+            assert_eq!(
+                func.kind,
+                ExprKind::Identifier("EmbeddingBatch".to_string())
+            );
+            assert_eq!(type_args, &vec!["1536".to_string()]);
+        }
+        other => panic!("Expected GenericCall, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_generic_call_identifier_arg_still_works() {
+    // Non-regression: existing identifier-only generic calls (Vector<int>,
+    // swap<int, float>) must keep parsing exactly as before — these go
+    // through the ordinary postfix generic-call combinator, untouched by
+    // the Embedding-specific atom-level rule.
+    let expr = parse_expr("Vector<int>()").unwrap();
+    match &expr.kind {
+        ExprKind::GenericCall { type_args, .. } => {
+            assert_eq!(type_args, &vec!["int".to_string()]);
+        }
+        other => panic!("Expected GenericCall, got {:?}", other),
+    }
+
+    let expr = parse_expr("swap<int, float>(a, b)").unwrap();
+    match &expr.kind {
+        ExprKind::GenericCall { type_args, .. } => {
+            assert_eq!(type_args, &vec!["int".to_string(), "float".to_string()]);
+        }
+        other => panic!("Expected GenericCall, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_chained_comparison_with_int_literal_and_parens_not_a_generic_call() {
+    // P1 regression (found in review): a naive "just accept Token::Int in
+    // the shared generic-call combinator" fix would make `a<1>(b)` — a
+    // valid chained comparison, `(a < 1) > (b)`, for plain variables `a`/`b`
+    // — ambiguously also parseable as a generic call on `a` with a numeric
+    // type argument. Since the const-generic grammar is gated to the two
+    // literal names "Embedding"/"EmbeddingBatch" (checked at the identifier
+    // atom itself, not by token shape), `a` never enters that path at all —
+    // this must still parse as the chained comparison it always did. Brix
+    // desugars a Python-style chain `a < 1 > b` into `(a < 1) && (1 > b)`
+    // (reusing the middle operand), NOT `(a < 1) > b` — the exact desugared
+    // shape isn't this test's concern, only that it's a LogicalAnd of two
+    // comparisons and definitely not a GenericCall.
+    let expr = parse_expr("a < 1 > (b)").unwrap();
+    match &expr.kind {
+        ExprKind::Binary {
+            op: BinaryOp::LogicalAnd,
+            lhs,
+            rhs,
+        } => {
+            assert!(
+                matches!(
+                    lhs.kind,
+                    ExprKind::Binary {
+                        op: BinaryOp::Lt,
+                        ..
+                    }
+                ),
+                "Expected (a < 1) as the left side, got {:?}",
+                lhs
+            );
+            assert!(
+                matches!(
+                    rhs.kind,
+                    ExprKind::Binary {
+                        op: BinaryOp::Gt,
+                        ..
+                    }
+                ),
+                "Expected (1 > b) as the right side, got {:?}",
+                rhs
+            );
+        }
+        other => panic!(
+            "Expected a chained comparison (not a GenericCall), got {:?}",
+            other
+        ),
+    }
+}
+
+#[test]
+fn test_generic_call_negative_int_arg_is_a_parse_error() {
+    // P1 fix (found in review): the previous version of this test accepted
+    // Embedding<-1536>(...) silently backtracking into a chained-comparison
+    // reading, or simply failing — both of which mean no clear diagnostic
+    // ever surfaces. The atom-level rule now peeks for `<` right after
+    // "Embedding"/"EmbeddingBatch" and, once found, commits: it must resolve
+    // as a valid dimension list or the whole expression fails to parse.
+    // There is no comparison-chain fallback available once that commit
+    // point is passed.
+    let err = parse_expr("Embedding<-1536>([1])").unwrap_err();
+    assert!(
+        err.contains("invalid dimension") || err.contains("non-negative"),
+        "Expected a clear invalid-dimension diagnostic, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_generic_call_dimension_overflow_is_a_parse_error() {
+    // A dimension that doesn't fit in u32 must also be a clear diagnostic,
+    // not a silently-truncated or wrapped value.
+    let err = parse_expr("Embedding<99999999999>([1])").unwrap_err();
+    assert!(
+        err.contains("invalid dimension") || err.contains("exceeds"),
+        "Expected a clear overflow diagnostic, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_plain_identifier_named_embedding_without_angle_bracket_still_works() {
+    // Non-regression: "Embedding"/"EmbeddingBatch" are only special-cased
+    // when immediately followed by `<` — used as an ordinary identifier
+    // (e.g. a variable, or compared without angle brackets), they behave
+    // exactly like any other name.
+    let expr = parse_expr("Embedding + 1").unwrap();
+    match &expr.kind {
+        ExprKind::Binary {
+            op: BinaryOp::Add,
+            lhs,
+            ..
+        } => {
+            assert_eq!(lhs.kind, ExprKind::Identifier("Embedding".to_string()));
+        }
+        other => panic!("Expected binary add, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_variable_named_embedding_in_spaced_chained_comparison() {
+    // P1 regression (found in review): a variable literally named
+    // `Embedding`/`EmbeddingBatch` could no longer participate in a `<`
+    // comparison at all — `Embedding < 1 > (b)` was forced down the
+    // const-generic commit path (since it only peeked *whether* `<`
+    // followed, not whether it was immediately adjacent) and failed there
+    // instead of parsing as the chained comparison it should be. Fixed by
+    // additionally requiring `<` to be adjacent (no whitespace) to the name
+    // before committing — `Embedding<1536>` (no space) still commits;
+    // `Embedding < 1` (spaced) is an ordinary comparison. This mirrors the
+    // exact reproduction from the review, with `Embedding` as a real
+    // variable name (not a real Embedding value, since Fase 1 doesn't exist
+    // yet — only the parse shape is under test here).
+    let expr = parse_expr_with_real_spans("Embedding < 1 > (b)").unwrap();
+    match &expr.kind {
+        ExprKind::Binary {
+            op: BinaryOp::LogicalAnd,
+            lhs,
+            rhs,
+        } => {
+            assert!(
+                matches!(
+                    lhs.kind,
+                    ExprKind::Binary {
+                        op: BinaryOp::Lt,
+                        ..
+                    }
+                ),
+                "Expected (Embedding < 1) as the left side, got {:?}",
+                lhs
+            );
+            assert!(
+                matches!(
+                    rhs.kind,
+                    ExprKind::Binary {
+                        op: BinaryOp::Gt,
+                        ..
+                    }
+                ),
+                "Expected (1 > b) as the right side, got {:?}",
+                rhs
+            );
+        }
+        other => panic!(
+            "Expected a chained comparison (not a GenericCall), got {:?}",
+            other
+        ),
+    }
+}
+
+#[test]
+fn test_embedding_const_generic_requires_no_whitespace_before_lt() {
+    // The flip side of the above: `Embedding <1536>(...)` (space before `<`,
+    // none after) must NOT commit to the const-generic path either — only
+    // truly adjacent `Embedding<1536>` does. This is a deliberate, narrow
+    // convention (documented in ROADMAP_V2.0.md): whitespace immediately
+    // before `<` always means "comparison", regardless of what follows it.
+    let expr = parse_expr_with_real_spans("Embedding <1536").unwrap();
+    assert!(
+        !matches!(expr.kind, ExprKind::GenericCall { .. }),
+        "Expected a spaced `<` to never commit to the const-generic path, got {:?}",
+        expr
+    );
 }
