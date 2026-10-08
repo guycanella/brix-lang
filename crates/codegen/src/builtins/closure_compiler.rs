@@ -229,13 +229,18 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             }
         }
 
-        // 6. Compile closure body
+        // 6. Compile closure body. The closure is its own LLVM function, so it
+        // gets its own ARC scope (same as compile_function_def): locals
+        // declared in the body are released on the closure's own returns,
+        // never mixed into — or released by — the enclosing function's list.
+        let saved_scope_vars = std::mem::take(&mut self.function_scope_vars);
         self.compile_stmt(&closure.body, closure_fn)?;
 
         // If no return was emitted and return type is void, add ret void
         if return_brix_type == BrixType::Void {
             let current_block = self.builder.get_insert_block().unwrap();
             if current_block.get_terminator().is_none() {
+                self.release_function_scope_vars()?;
                 self.builder
                     .build_return(None)
                     .map_err(|_| CodegenError::LLVMError {
@@ -247,6 +252,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         }
 
         // Restore previous function and variables
+        self.function_scope_vars = saved_scope_vars;
         self.current_function = prev_function;
         self.variables = prev_variables;
 

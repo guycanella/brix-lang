@@ -1,0 +1,21 @@
+// A ternary always yields an OWNED value: borrowed branches are retained in
+// their own block. Before this, consumers that release temporaries
+// (println, a discarded statement) freed a variable still in use.
+var a := "hello" + " world"
+var b := "foo" + "bar"
+var f := 1
+println(f > 0 ? a : b)
+var junk := "zzzzzzzzzzzz" + "yyyyyyy"
+println(a)
+
+var e1 := Embedding<2>([1.0, 0.0])
+var e2 := Embedding<2>([0.0, 1.0])
+f > 0 ? e1 : e2
+var junk2 := Embedding<2>([7.0, 7.0])
+println(e1.dot_product(e1))
+
+// Mixed branches and temporary receivers
+var c := f > 0 ? e1 : Embedding<2>([9.0, 9.0])
+println(c.dot_product(e1))
+println(Embedding<2>([3.0, 4.0]).euclidean_distance(Embedding<2>([0.0, 0.0])))
+println(e1.dot_product(e1))

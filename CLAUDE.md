@@ -331,7 +331,7 @@ Order: Grupo A (physical constants) → B (LAPACK) → C (`Vector<T>`) → D (`S
 
 v1.8 is now feature-complete across all 6 groups (A–F).
 
-**Working conventions this session (memory):** run `rustfmt --edition 2021` on every touched file so `rustfmt --check` passes (the whole `codegen` crate was normalized in commit `rustfmt: format the codegen crate`); NEVER run two compile-producing suites concurrently (integration + Test Library clobber the shared `output.o`/`program` in repo root → bogus low counts + `ld: file is empty` — run each alone, sequentially); each phase is validated across all 3 test layers + a full integration run before commit.
+**Working conventions this session (memory):** run `rustfmt` with the crate's own edition on every touched file so `rustfmt --check` passes (root/`codegen`/`parser` = `--edition 2024`, `lexer` = `--edition 2021`; rustfmt follows `mod` declarations, so formatting `lib.rs` touches every codegen module — confirm with `git diff --stat`) (the whole `codegen` crate was normalized in commit `rustfmt: format the codegen crate`); NEVER run two compile-producing suites concurrently (integration + Test Library clobber the shared `output.o`/`program` in repo root → bogus low counts + `ld: file is empty` — run each alone, sequentially); each phase is validated across all 3 test layers + a full integration run before commit.
 
 ## v2.0 Status (IN PROGRESS) — see `ROADMAP_V2.0.md` (untracked, local only)
 

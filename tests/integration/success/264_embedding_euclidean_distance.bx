@@ -1,0 +1,13 @@
+// v2.0 Grupo A Fase 2: Embedding.euclidean_distance() via BLAS dnrm2_.
+var a := Embedding<2>([0.0, 0.0])
+var b := Embedding<2>([3.0, 4.0])
+println(a.euclidean_distance(b))
+println(b.euclidean_distance(a))
+
+// Identical vectors -> 0
+println(b.euclidean_distance(b))
+
+// Double precision: a 1e-9 difference next to 1.0 is lost in float32
+var p := Embedding<1>([1.0])
+var q := Embedding<1>([1.000000001])
+println(p.euclidean_distance(q) > 0.0)

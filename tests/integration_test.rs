@@ -2394,3 +2394,55 @@ fn test_262_embedding_matrix_shape_abort() {
         Some("Embedding<3> construction requires a 1x3 Matrix"),
     );
 }
+
+// ---------------------------------------------------------------------------
+// v2.0 Grupo A Fase 2 — Embedding similarity methods (BLAS ddot_/dnrm2_)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_263_embedding_dot_product() {
+    assert_success(
+        "tests/integration/success/263_embedding_dot_product.bx",
+        "32\n32\n6\n0\n1",
+    );
+}
+
+#[test]
+fn test_264_embedding_euclidean_distance() {
+    assert_success(
+        "tests/integration/success/264_embedding_euclidean_distance.bx",
+        "5\n5\n0\n1",
+    );
+}
+
+#[test]
+fn test_265_embedding_cosine_similarity() {
+    // Includes the zero-vector contract: 0.0, never NaN.
+    assert_success(
+        "tests/integration/success/265_embedding_cosine_similarity.bx",
+        "1\n0\n-1\n0\n0",
+    );
+}
+
+#[test]
+fn test_266_return_and_ternary_arc() {
+    // Returning a parameter retains it; ternaries over pointer types build a
+    // ptr PHI and retain when aliasing; a struct method named dot_product
+    // still dispatches to the struct. Before the fix, line 1 printed the
+    // reused "zzz..." buffer and the id(a) receiver case aborted.
+    assert_success(
+        "tests/integration/success/266_return_and_ternary_arc.bx",
+        "hello world\n32\n32\n14\n77\n14\n14\n11",
+    );
+}
+
+#[test]
+fn test_267_ternary_ownership() {
+    // Ternary results are always owned: println / discarded-statement
+    // releases no longer free the chosen variable (lines 2 and 3 used to
+    // print reused memory / crash with SIGSEGV).
+    assert_success(
+        "tests/integration/success/267_ternary_ownership.bx",
+        "hello world\nhello world\n1\n1\n5\n1",
+    );
+}
