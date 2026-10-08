@@ -1,0 +1,5 @@
+// get() outside [0, len()) is a runtime abort, not a compile-time error.
+var b := EmbeddingBatch<2>(1)
+b.add(Embedding<2>([1.0, 0.0]))
+var e := b.get(1)
+println("unreachable")

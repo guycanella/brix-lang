@@ -1,0 +1,4 @@
+// A capacity whose byte size overflows size_t is a runtime abort.
+var b := EmbeddingBatch<2>(2305843009213693953)
+b.add(Embedding<2>([1.0, 0.0]))
+println("unreachable")

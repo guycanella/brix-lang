@@ -40,7 +40,8 @@ pub enum BrixType {
     HashMap(Box<BrixType>, Box<BrixType>), // HashMap<K,V> — K in {Int, String}, V in {Int, Float, String}. v1.8 Grupo F
     DateTime,                              // DateTime struct pointer (BrixDateTime*), v1.9 Grupo A
     Json,                                  // JsonValue opaque pointer (JsonValue*), v1.9 Grupo B
-    Embedding(u32), // Embedding<DIM> — fixed-dimension f64 vector (BrixEmbedding*), v2.0 Grupo A Fase 1. EmbeddingBatch is NOT this type — deferred to Grupo A Fase 3.
+    Embedding(u32), // Embedding<DIM> — fixed-dimension f64 vector (BrixEmbedding*), v2.0 Grupo A Fase 1.
+    EmbeddingBatch(u32), // EmbeddingBatch<DIM> — growable array of Embedding<DIM> (BrixEmbeddingBatch*), v2.0 Grupo A Fase 3.
 }
 
 // Type-related helper functions will be implemented as methods on Compiler
@@ -103,5 +104,6 @@ pub fn format_brix_type(ty: &BrixType) -> String {
         BrixType::DateTime => "datetime".to_string(),
         BrixType::Json => "json".to_string(),
         BrixType::Embedding(dim) => format!("Embedding<{}>", dim),
+        BrixType::EmbeddingBatch(dim) => format!("EmbeddingBatch<{}>", dim),
     }
 }
