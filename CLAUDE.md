@@ -27,10 +27,10 @@ Each entry recompiles and re-runs the whole accumulated session through the same
 
 **Run Rust unit tests:**
 ```bash
-cargo test -p lexer -p parser -p codegen  # All unit tests: 317 + 220 + 860 = 1,397 (all passing)
+cargo test -p lexer -p parser -p codegen  # All unit tests: 317 + 220 + 861 = 1,398 (all passing)
 cargo test -p lexer                       # Only lexer (317 tests)
 cargo test -p parser                      # Only parser (220 tests)
-cargo test -p codegen                     # Only codegen (860 tests)
+cargo test -p codegen                     # Only codegen (861 tests)
 cargo test -p codegen json_tests          # Specific test module in codegen
 cargo test <pattern>                      # Tests matching pattern
 cargo test -- --nocapture                 # Show println! output
@@ -76,8 +76,8 @@ brix/
 │   │   ├── closure_analysis.rs  # Capture analysis pass (runs after parse)
 │   │   └── error.rs         # Ariadne-based parse error reporting
 │   └── codegen/src/
-│       ├── lib.rs           # Main compiler (~19,458 lines — post-refactor 11,014, grew with v1.8–v2.0 + rustfmt expansion)
-│       ├── stmt.rs          # Statement compilation (~1,509 lines)
+│       ├── lib.rs           # Main compiler (~19,503 lines — post-refactor 11,014, grew with v1.8–v2.0 + rustfmt expansion)
+│       ├── stmt.rs          # Statement compilation (~1,513 lines)
 │       ├── expr.rs          # Expression compilation + list comprehension (~2,028 lines)
 │       ├── helpers.rs       # LLVM helpers
 │       ├── error.rs         # CodegenError enum + CodegenResult<T>
@@ -205,7 +205,7 @@ Jest-style framework. 17 matchers (all support `.not.`): `toBe`, `toEqual`, `toB
 
 **Test baseline at v1.9 completion:** 1,357 unit (317 lexer + 209 parser + 831 codegen) + 264 integration + 517 Test Library (31 `.test.bx` files).
 
-**Current test baseline (v2.0 Grupo A Fase 2 COMPLETE):** 1,397 unit (317 lexer + 220 parser + 860 codegen) + 272 integration + 529 Test Library (32 `.test.bx` files). All green.
+**Current test baseline (v2.0 Grupo A Fase 2 COMPLETE + CI):** 1,398 unit (317 lexer + 220 parser + 861 codegen) + 272 integration + 529 Test Library (32 `.test.bx` files). All green.
 
 **Completed in v1.9 (Grupo F):**
 - **Grupo F — `brix repl` — COMPLETE, as a "replay REPL", not the roadmap's original incremental-JIT design:**
@@ -355,7 +355,7 @@ Single group, **Grupo A — `Embedding<DIM>`**, in 5 phases. v2.0 ships **method
 - Static helper `brix_embedding_check_pair` aborts on `NULL` / dim mismatch / `dim > INT_MAX` — an internal-invariant defense only; user-facing dim mismatch is `E102` at compile time (`compile_embedding_similarity` in `lib.rs` requires the arg type to equal `Embedding(dim)` exactly). Arity ≠ 1 → `E104`.
 - Dispatch: `is_embedding_method` guard widened to the 3 names; a user struct method with the same name (e.g. `fn (v: V2) dot_product(...)`) still dispatches to the struct (integration 266). `infer_expr_type_static()` Embedding arm: `to_matrix` → `Matrix`, the 3 methods → `Float` (`:type` in the REPL).
 - ARC: both the receiver and the argument are released after the call when they are owned temporaries (`!is_borrowed_ref_expr`) — `Embedding<3>([...]).dot_product(a)` and `a.dot_product(Embedding<3>([...]))` don't leak. Note `.to_matrix()` and the Vector/Stack/Queue/Heap/HashMap methods still do NOT release a temporary receiver (pre-existing leak, untouched).
-- BLAS link validated on macOS (Accelerate) with an isolated `ddot_`/`dnrm2_` program before any embedding code. **Not validated on Linux** — no CI exists in the repo.
+- BLAS link validated on macOS (Accelerate) with an isolated `ddot_`/`dnrm2_` program before any embedding code. Also validated on Linux aarch64 and x86_64 (Ubuntu `liblapack`/`libblas`) via CI.
 
 **ARC conventions changed in Fase 2 (language-wide, found in review — read before touching returns/ternaries/closures):**
 - **Single-value `return` always hands the caller an owned value:** `own_if_borrowed()` (`lib.rs`) retains it if `is_borrowed_ref_expr` (local, parameter, captured var, field, element), then `release_function_scope_vars()` runs, same as a void return. A returned local nets out (+1/−1). Before: `return param` gave the caller an unowned pointer (use-after-free once the caller released the "temporary" call result, e.g. `v.push(id(s)); v.clear(); println(s)`), and every other local of a non-void function leaked. **Tuple returns are unchanged** (caller-side "aliased returns" logic in `stmt.rs` destructuring still applies; they still don't release locals).
@@ -369,6 +369,14 @@ Tests: +19 codegen unit, integration 263–267 (263 dot incl. f64-only precision
 **Known pre-existing bugs found during Fase 2, NOT fixed (separate work):** (1) a closure returning `string`, called through a variable (`var g := (n: int) -> string {...}; println(g(1))`), prints the pointer as an int — the `Closure`→`Tuple` collapse loses the signature; (2) a program combining top-level functions and closures that return strings (ternary over a captured var) crashes LLVM during object emission — reproduces identically on the pre-Fase-2 HEAD, root cause not isolated.
 
 **Next — Fase 3:** `EmbeddingBatch<DIM>`: `add`/`get`/`find_nearest`/`len`/`is_empty` (see `ROADMAP_V2.0.md` contracts: `find_nearest` returns `IntMatrix` `1×min(k,len)` indices sorted by cosine desc, `O(n·DIM + n·log k)`). Then Fase 4 (informative benchmark).
+
+## CI (GitHub Actions) — `.github/workflows/ci.yml`
+
+Runs on PRs to `main`, pushes to `main` and `workflow_dispatch`. Work now goes through feature branches + PRs, not direct pushes to `main`. Jobs: `rustfmt` (`cargo fmt --all --check`) and `test` on a matrix of `ubuntu-24.04` + `macos-14` (build, unit tests, integration `--test-threads=1`, `cargo run -- test`). Token is `contents: read`; checkouts use `persist-credentials: false`.
+
+- **Env:** `LLVM_SYS_180_PREFIX` (`/usr/lib/llvm-18` on Linux, `brew --prefix llvm@18` on macOS). Linux installs `llvm-18-dev libpolly-18-dev libzstd-dev zlib1g-dev liblapack-dev libblas-dev`; macOS uses Accelerate and needs `LIBRARY_PATH=$(brew --prefix)/lib` so `-lzstd` resolves.
+- **Portability bugs found by the first Linux runs (all fixed):** (1) `matrix_new` used `malloc`, so `zeros()` was only zero on macOS — now `calloc`. (2) A union's value slot has the widest variant's LLVM type (`int | float` = `{i64, i64}`); the double was stored without a bitcast, and printing passed integer bits to `sprintf("%g")` — macOS arm64 passes variadic args on the stack, Linux passes doubles in FP registers. `coerce_union_slot()` (`lib.rs`) now bitcasts at the union store sites (`stmt.rs` declaration/assignment) and the union print path. (3) Objects were emitted with `RelocMode::Default`, which the Ubuntu x86_64 PIE linker rejects (`R_X86_64_32`); `src/main.rs` now uses `RelocMode::PIC` in both emit sites.
+- **Still open (pre-existing, not fixed):** unions whose pointer variant isn't the slot type (e.g. `int | string`) skip retain/release for non-pointer slots — leaks, no corruption.
 
 ## Troubleshooting
 

@@ -4045,7 +4045,7 @@ math.sum(arr), math.mean(arr), math.median(arr), math.std(arr)
 
 - **Linhas de Código (Rust):** ~39.900 linhas (lexer + parser + codegen + driver)
 - **Linhas de Código (C Runtime):** ~5.970 linhas (`runtime.c`)
-- **Testes:** 1.397 unit (317 lexer + 220 parser + 860 codegen) + 272 integration + 529 Test Library (32 arquivos `.test.bx`) = 2.198 total
+- **Testes:** 1.398 unit (317 lexer + 220 parser + 861 codegen) + 272 integration + 529 Test Library (32 arquivos `.test.bx`) = 2.199 total
 - **Versão Atual:** v2.0 🚧 **EM ANDAMENTO** (Grupo A, Fases 0–2 de 0–4)
 - **Versão Anterior:** v1.9 ✅ **COMPLETO (Ago 2026)**
 - **Próximo Passo:** v2.0 Grupo A Fase 3 — `EmbeddingBatch<DIM>` + `find_nearest`
