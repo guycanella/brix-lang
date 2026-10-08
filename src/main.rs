@@ -180,7 +180,7 @@ fn compile_and_run_isolated(
             "generic",
             "",
             opt,
-            RelocMode::Default,
+            RelocMode::PIC, // cc links PIE by default on Linux (x86_64 rejects absolute relocs)
             CodeModel::Default,
         )
         .ok_or_else(|| ReplError::ObjectWrite("Failed to create target machine".to_string()))?;
@@ -323,7 +323,7 @@ fn compile_to_exe(file_path: &str, opt_level: u8, verbose: bool) -> String {
             "generic",
             "",
             opt,
-            RelocMode::Default,
+            RelocMode::PIC, // cc links PIE by default on Linux (x86_64 rejects absolute relocs)
             CodeModel::Default,
         )
         .unwrap();
