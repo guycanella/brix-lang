@@ -1,10 +1,12 @@
 # Brix Language (Design Document v1.0)
 
-> ✅ **Status do Projeto (Fev 2026):** O compilador Brix **v1.5 COMPLETO + v1.6 Fases 0–4 COMPLETAS** — v1.6 Fases 0 (break/continue, ARC nested closures), 1 (String Library), 2a (Matrix Constructors), 2b (2D Matrix Iteration), 2c (Float Closure Type Inference), 3a (`await` em control flow aninhado: `if`/`while`), 3b (`async { }` blocks), 3c (Async Closures: `async () -> { await f() }`), 3d (Async Test Matchers), 4 (Pattern Matching 2.0: destructuring patterns, range patterns, universal destructuring) concluídas. v1.5 entregou Ranges Unificados, Iteradores, Pipeline Operator, Test Library Jest-style (28 matchers) e Async/Await via state machines LLVM. **1.194 unit tests + 152 integration tests + 390 Test Library = 1.736 tests passando (100%).**
+> 🚧 **Status do Projeto (Out 2026):** v1.6, v1.7, v1.8 e v1.9 **COMPLETOS**. **v2.0 em andamento** — Grupo A (`Embedding<DIM>`): Fase 0 (const generics na gramática) e Fase 1 (tipo `Embedding<DIM>` + conversões com `Matrix`) concluídas; Fase 2 (métodos de similaridade via BLAS) é a próxima. **1.378 unit tests + 267 integration tests + 522 Test Library = 2.167 tests passando (100%).** Detalhes técnicos por grupo: `CLAUDE.md` (raiz); planejamento: `ROADMAP_V2.0.md`–`ROADMAP_V2.2.md`.
 
-## Status Atual (Fevereiro 2026)
+## Status Atual (Outubro 2026)
 
-### ✅ **Funcionalidades Implementadas (v1.0-v1.6 parcial):**
+> As seções v1.0–v1.6 abaixo são históricas. O resumo de v1.7 em diante está logo após o bloco "v1.6 COMPLETO".
+
+### ✅ **Funcionalidades Implementadas (v1.0-v1.6):**
 - Compilação completa `.bx` → binário nativo via LLVM
 - **LLVM Optimizations**: `-O0`, `-O1`, `-O2`, `-O3`, `--release`
 - **v1.6 Fase 1 — String Library (COMPLETE - Fev 2026):**
@@ -202,12 +204,46 @@
 - ✅ ~~Async Test Matchers (`test.it("name", async () -> { ... })`)~~ — COMPLETO (Fase 3d)
 - ✅ ~~Pattern Matching 2.0 (destructuring patterns, range patterns, universal destructuring)~~ — COMPLETO (Fase 4)
 
-### 🔮 **Planejado (v1.7+):**
-- `split` / `join` (requer `StringMatrix` como novo BrixType)
-- Complex arithmetic operators (`+`, `-`, `*`, `/` em Complex numbers)
-- HashMap / Vector / Stack como tipos built-in
-- Error handling estilo Go (`result, err := f()`)
-- LTO / PGO / SIMD
+### ✅ **v1.7 COMPLETO (Grupos A–I):**
+- **A** `StringMatrix` + `.split()` / `join()`
+- **B** Métodos de array: `.sort()`, `.sort_desc()`, `.min()`, `.max()`, `.flatten()`, `.unique()`, `.reverse()`, `.append()`, `.prepend()`, `.count()`
+- **C** Slicing `arr[1..4]` / `arr[1..<4]` e indexação negativa `arr[-1]` (ranges abertos `arr[2..]` ficaram fora)
+- **D** Named field patterns em `match`: `{ x: px, y: 0 } -> ...`
+- **E** Array rest patterns: `{ first, ...rest } -> ...` (usa `{ }`, não `[ ]`)
+- **F** Exhaustiveness de `match` obrigatório (erro `E102`; exige `_` ou binding sem guard)
+- **G** Matchers `toStartWith`, `toEndWith`, `toMatch`, `toHaveProperty` + correção do `.not.` (nunca havia parseado desde v1.5)
+- **H** `panic(msg)` e matcher `toThrow` (via `fork()` + `waitpid()`)
+- **I** Inferência de tipo em list comprehension (`[x * 2 for x in [1,2,3]]` → `IntMatrix`)
+- Refactor de `lib.rs` em módulos (`builtins/iterator.rs`, `match_compiler.rs`, `async_compiler.rs`, `closure_compiler.rs`, …), sem mudança de comportamento
+
+### ✅ **v1.8 COMPLETO (Grupos A–F) — Coleções e Álgebra Linear:**
+- **A** Constantes físicas (`math.c_light`, `h_planck`, `G_grav`, `k_boltzmann`, `e_charge`, `g_earth`, `avogadro`, `R_gas`) + literais em notação científica (`6.02e23`)
+- **B** Decomposições LAPACK: `math.lu`, `math.qr`, `math.svd`, `math.cholesky`, `math.solve`, `math.norm`, `math.norm_mat`
+- **C** `Vector<T>` dinâmico (`int`/`float`/`string`): `push`/`pop`/`get`/`set`/`len`/`is_empty`/`clear`/`to_array`, `for x in v`
+- **D** `Stack<T>` e `Queue<T>` (ring buffer)
+- **E** `MinHeap<T>` / `MaxHeap<T>`
+- **F** `HashMap<K,V>` (K ∈ int/string, V ∈ int/float/string), com `map[key]` e `map[key] = val`
+
+### ✅ **v1.9 COMPLETO (Grupos A–F):**
+- **A** `import datetime` — tipo `DateTime` nativo com ARC (`now`, `parse`, `format`, `add_*`, comparações)
+- **B** `import json` — tipo `Json` nativo (`json.parse`, `stringify`, `stringify_pretty`, `get`/`index`, `as_*`, indexação `data["key"]`)
+- **C** Funções e métodos variádicos (`...T`), rebaixados para arrays 1D no call site
+- **D** `is_function()` resolvido estaticamente para closures (sem alocação em runtime)
+- **E** Mutabilidade controlada de arrays: `mut int[]` + métodos in-place `push!`, `pop!`, `insert!`, `remove!`, `sort!`, `reverse!`, `clear!`
+- **F** `brix repl` — REPL de **replay** (recompila e reexecuta o histórico inteiro a cada entrada; JIT incremental real fica para depois), com `:type`, `:clear`, `:help`, `:quit`
+
+### 🚧 **v2.0 EM ANDAMENTO — AI-Native Foundation (Grupo A: `Embedding<DIM>`):**
+- ✅ **Fase 0** — Const generics na gramática: `Embedding<1536>(...)` / `EmbeddingBatch<1536>(...)` (só esses dois nomes, e só com `<` colado ao nome — `a < 1 > (b)` continua sendo comparação)
+- ✅ **Fase 1** — `BrixType::Embedding(u32)` com ARC, construtor a partir de array literal / `Matrix` / `IntMatrix`, `.to_matrix()`, anotação de tipo `var e: Embedding<1536>`
+- ⏭️ **Fase 2** — `.dot_product()`, `.euclidean_distance()`, `.cosine_similarity()` via BLAS (`ddot_` / `dnrm2_`)
+- 📋 **Fase 3** — `EmbeddingBatch<DIM>`: `.add()`, `.get()`, `.find_nearest(query, k)`, `.len()`, `.is_empty()`
+- 📋 **Fase 4** — Benchmark informativo (não é gate de CI)
+
+### 🔮 **Planejado (v2.1+):**
+- **v2.1** — Operadores `@` / `<->` / `<=>` como açúcar sobre os métodos de v2.0 + integração com Vector DB (Pinecone; depois Weaviate, Milvus, Chroma) — `ROADMAP_V2.1.md`
+- **v2.2** — ONNX Runtime (CPU) + GPU (CUDA, Metal) — `ROADMAP_V2.2.md`
+- **v2.3+** — Tensores type-safe, prompt engineering, JIT incremental no REPL
+- Sem versão definida: LTO / PGO / SIMD, `StringMatrix` em anotações de tipo (`string[]`), ranges abertos em slicing
 
 ---
 
@@ -2215,9 +2251,9 @@ println(f"Eigenvectors: {eigenvectors}") // [[a+bim, c+dim], [e+fim, g+him]]
 - [x] **Range patterns (int):** `18..64` (inclusivo), `0..<10` (exclusivo) ✅
 - [x] **Range patterns (float):** `0.0..<0.5`, `0.5..1.0` ✅
 - [x] **Universal destructuring de variáveis:** `var { a, b } := struct_ou_array` ✅
-- [ ] **Named field patterns:** `{ x: val_x, y: val_y }` (por nome) — v1.7+
-- [ ] **Array rest patterns:** `[first, second, ...rest]` — v1.7+
-- [ ] **Exhaustiveness checking obrigatório** — v1.7+
+- [x] **Named field patterns:** `{ x: val_x, y: val_y }` (por nome) ✅ v1.7 Grupo D
+- [x] **Array rest patterns:** `{ first, second, ...rest }` (sintaxe `{ }`, não `[ ]`) ✅ v1.7 Grupo E
+- [x] **Exhaustiveness checking obrigatório** ✅ v1.7 Grupo F
 
 ---
 
@@ -2641,7 +2677,7 @@ tests/
 
 - [ ] **panic():** Error handling alternativo para erros irrecuperáveis
 - [x] **String methods (v1.6 Fase 1):** `trim`, `ltrim`, `rtrim`, `starts_with`, `ends_with`, `contains`, `substring`, `reverse`, `repeat`, `index_of` — ✅ COMPLETO
-- [ ] **Advanced string functions:** `split()`, `join()` (requerem `StringMatrix` — v1.7)
+- [x] **Advanced string functions:** `split()`, `join()` ✅ v1.7 Grupo A (`StringMatrix`)
 
 #### User-Defined Modules (planejado)
 
@@ -3547,7 +3583,7 @@ Os seguintes métodos de string foram implementados em v1.6 Fase 1 como **method
 | `.index_of(sub)` | `(string) -> int?` | Índice da primeira ocorrência, `nil` se não encontrar |
 | `for ch in str` | — | Iteração char a char; `ch` é `string` de 1 char |
 
-Pendentes para v1.7 (requerem `StringMatrix`): `split(delim)`, `join(sep)`.
+`split(delim)` / `join(sep)`: ✅ implementados em v1.7 Grupo A (`StringMatrix`).
 
 #### Matrix Constructors
 
@@ -3778,7 +3814,12 @@ TESTES ████████████████████ 100% ✅ Tes
 v1.2 ░░░░░░░░░░░░░░░░░░░░   0% ⏸️ Docs, panic, modules (ADIADO)
 v1.3 ████████████████████ 100% ✅ Structs, Generics, Closures, Stress Tests 🎉
 v1.4 ████████████████████ 100% ✅ Type Aliases, Union, Intersection, Elvis 🎉
-v1.5 ░░░░░░░░░░░░░░░░░░░░   0% 📋 Async/Await, Test Library, Iterators (PLANEJADO)
+v1.5 ████████████████████ 100% ✅ Async/Await, Test Library, Iterators, Pipeline
+v1.6 ████████████████████ 100% ✅ break/continue, String Library, Matrix constructors, Pattern Matching 2.0
+v1.7 ████████████████████ 100% ✅ StringMatrix, array methods, slicing, exhaustive match, panic/toThrow
+v1.8 ████████████████████ 100% ✅ Vector/Stack/Queue/Heap/HashMap, LAPACK decompositions
+v1.9 ████████████████████ 100% ✅ datetime, json, variadics, mut arrays, REPL
+v2.0 ████████░░░░░░░░░░░░  40% 🚧 Embedding<DIM> (Fases 0–1 de 0–4)
 ```
 
 **Legenda:**
@@ -3974,7 +4015,7 @@ math.sum(arr), math.mean(arr), math.median(arr), math.std(arr)
 - Documentation system: `@doc` annotations
 - User-defined modules: `module mymod { ... }`
 - ✅ String methods: `trim`, `starts_with`, `contains`, `substring`, `reverse`, etc. — COMPLETO (v1.6)
-- Advanced string functions: `split()`, `join()` (v1.7)
+- ✅ Advanced string functions: `split()`, `join()` — COMPLETO (v1.7)
 
 **v1.3 - Type System Expansion:** ✅ **COMPLETE (Feb 2026)**
 - ✅ Closures: `var fn := (x: int) -> int { return x * 2 }` com capture by reference + ARC
@@ -4002,18 +4043,13 @@ math.sum(arr), math.mean(arr), math.median(arr), math.std(arr)
 
 ### 📊 Estatísticas do Projeto:
 
-- **Linhas de Código (Rust):** ~6000 linhas (compiler core + advanced type system + atoms + type checkers + string functions)
-- **Linhas de Código (C Runtime):** ~1200 linhas (math + matrix + complex + LAPACK + error handling + atoms + string functions)
-- **Arquivos de Teste (.bx):** 23 Test Library (390 testes) + 152 integration tests + 1.194 unit tests = 1.736 total
-- **Tipos Implementados:** 19 (Int, Float, String, Matrix, IntMatrix, Complex, ComplexMatrix, FloatPtr, Void, Tuple, Nil, Error, Atom, Struct, Generic, Union, Intersection, TypeAlias, Closure)
-- **Built-in Functions:** 60+ (I/O, type system, type checking, conversions, math, stats, linalg, complex, string operations)
-- **Features Implementadas:** ~170+ (v1.6 100% completo ✅)
-- **Features v1.6 Completas:** break/continue ✅, ARC nested closures ✅, String Library ✅, Matrix Constructors ✅, 2D Matrix iteration ✅, Float closure type inference ✅, Async/Await aninhado ✅, async blocks ✅, async closures ✅, async test matchers ✅, Pattern Matching 2.0 (destructuring + range + universal destructuring) ✅
-- **Versão Atual:** v1.6 ✅ **COMPLETO (Fev 2026)** 🎉
-- **Versão Anterior:** v1.5 ✅ **COMPLETO (Fev 2026)**
-- **Progresso MVP:** 100%
-- **Próxima Versão:** v1.7 (split/join com StringMatrix, named field patterns, HashMap built-in)
-- **Última Atualização:** Fev 2026
+- **Linhas de Código (Rust):** ~39.700 linhas (lexer + parser + codegen + driver)
+- **Linhas de Código (C Runtime):** ~5.910 linhas (`runtime.c`)
+- **Testes:** 1.378 unit (317 lexer + 220 parser + 841 codegen) + 267 integration + 522 Test Library (32 arquivos `.test.bx`) = 2.167 total
+- **Versão Atual:** v2.0 🚧 **EM ANDAMENTO** (Grupo A, Fases 0–1 de 0–4)
+- **Versão Anterior:** v1.9 ✅ **COMPLETO (Ago 2026)**
+- **Próximo Passo:** v2.0 Grupo A Fase 2 — métodos de similaridade via BLAS
+- **Última Atualização:** Out 2026
 
 ---
 
@@ -4151,7 +4187,7 @@ Para não ficarmos paralisados tentando fazer tudo, vamos definir o que NÃO vai
 
 ---
 
-## 15. AI-Native Features 🤖 (Planejado v2.0+)
+## 15. AI-Native Features 🤖 (v2.0 em andamento)
 
 **Data Engineering + AI Era**
 
@@ -4167,28 +4203,37 @@ Com o boom de RAG, LLMs e Vector Databases, Brix visa se tornar **a linguagem na
 - Nenhuma linguagem tem embeddings como tipo de primeira classe
 - Python é lento para isso (~10-100x), Rust é verbose demais
 
-**Sintaxe Proposta:**
+**Sintaxe (revisada — ver `ROADMAP_V2.0.md`):**
 
 ```brix
-// Tipo nativo para embeddings (vetores de alta dimensão)
-var embedding1 := embed[1536]([0.1, 0.2, ...])  // OpenAI ada-002 dimension
-var embedding2 := embed[1536]([0.3, 0.4, ...])
+// Dimensão como const generic <DIM>, não indexação [DIM]
+var embedding1 := Embedding<1536>([0.1, 0.2, ...])  // ✅ v2.0 Fase 1
+var embedding2 := Embedding<1536>([0.3, 0.4, ...])
+var m := embedding1.to_matrix()                      // ✅ v2.0 Fase 1 (cópia, Matrix 1×1536)
 
-// Operações built-in otimizadas (SIMD, AVX-512)
-var similarity := embedding1 @ embedding2  // cosine similarity (operador @)
-var distance := embedding1 <-> embedding2  // euclidean distance
+// v2.0 entrega MÉTODOS (Fase 2), double precision via BLAS
+var similarity := embedding1.cosine_similarity(embedding2)
+var distance := embedding1.euclidean_distance(embedding2)
+var dot := embedding1.dot_product(embedding2)
 
-// Batch operations (Fortran-level performance)
-var batch := EmbeddingBatch(1000, 1536)  // 1000 embeddings de dimensão 1536
-var top_k := batch.find_nearest(query, k=10)  // SIMD-optimized nearest neighbors
+// Batch operations (Fase 3)
+var batch := EmbeddingBatch<1536>(1000)       // capacidade inicial
+batch.add(embedding1)
+var top_k := batch.find_nearest(query, 10)    // IntMatrix de índices, ordenados por similaridade
+
+// v2.1: operadores como açúcar sobre os métodos acima
+// embedding1 @ embedding2    → cosine_similarity
+// embedding1 <-> embedding2  → euclidean_distance
+// embedding1 <=> embedding2  → dot_product
 ```
 
 **Características:**
-- ✅ **Tipo de primeira classe:** `Embedding[DIM]` com dimensão fixa
-- ✅ **Operadores nativos:** `@` (cosine sim), `<->` (euclidean distance), `<=>` (dot product)
-- ✅ **SIMD-optimized:** AVX-512, ARM NEON para performance brutal
-- ✅ **Batch operations:** Processa milhares de embeddings em paralelo
-- ✅ **Zero-copy:** Compatível com BLAS/LAPACK existente
+- ✅ **Tipo de primeira classe:** `Embedding<DIM>` com dimensão fixa, checada em compile-time (dimensões diferentes → `E102`)
+- ✅ **Precisão `double` (f64):** mesma de `Matrix`; conversões sempre copiam (sem aliasing)
+- 📋 **Métodos de similaridade via BLAS** (`ddot_` / `dnrm2_`, convenção Fortran já usada pelos wrappers LAPACK) — Fase 2
+- 📋 **Batch operations:** `EmbeddingBatch<DIM>` com k-NN por cosine em `O(n·DIM + n·log k)` — Fase 3
+- 📋 **Operadores nativos** `@` / `<->` / `<=>` — adiados para v2.1
+- ⏸️ **SIMD explícito (AVX-512, NEON):** fora do escopo da v2.0; o ganho vem do BLAS do sistema
 
 **Performance esperada:**
 - Cosine similarity: ~10-100x mais rápido que Python/NumPy
@@ -4407,7 +4452,7 @@ var response := llm.generate(rendered, max_tokens=500)
 
 **Se tivesse que escolher um diferencial killer para v2.0:**
 
-1. **Embedding/Vector como tipo nativo com operações otimizadas (SIMD)**
+1. **Embedding/Vector como tipo nativo com operações otimizadas (BLAS)**
 2. **Vector Database integration no mesmo nível de SQL**
 3. **Performance brutal (Fortran-level) para operações vetoriais**
 
@@ -4427,13 +4472,15 @@ var response := llm.generate(rendered, max_tokens=500)
 
 ### Roadmap de Implementação (v2.0+)
 
-**Phase 1: Embedding Type (v2.0):**
-- `Embedding[DIM]` como novo tipo primitivo
-- Operadores `@` (cosine), `<->` (euclidean), `<=>` (dot product)
-- SIMD optimization (AVX-512, ARM NEON)
-- Batch operations básicas
+**Phase 1: Embedding Type (v2.0) — 🚧 em andamento:**
+- ✅ Fase 0: const generics (`Embedding<DIM>`) na gramática
+- ✅ Fase 1: `Embedding<DIM>` como tipo + conversões com `Matrix`
+- ⏭️ Fase 2: `.cosine_similarity()` / `.euclidean_distance()` / `.dot_product()` via BLAS
+- 📋 Fase 3: `EmbeddingBatch<DIM>` + `find_nearest`
+- 📋 Fase 4: benchmark informativo
 
 **Phase 2: Vector DB Integration (v2.1):**
+- Operadores `@` (cosine), `<->` (euclidean), `<=>` (dot product) como açúcar sobre os métodos de v2.0
 - Bindings para Pinecone, Weaviate, Milvus
 - Query syntax nativa
 - Type-safe schemas
@@ -4477,6 +4524,6 @@ Essas features transformariam Brix em **THE language for AI-powered Data Enginee
 - ✅ Timing perfeito com boom de RAG/LLMs
 - ✅ Diferencial competitivo único no mercado
 
-**Status:** Planejado para v2.0+ (após v1.5+ - todas dependências de tipo atendidas)
+**Status:** v2.0 em andamento (Grupo A, Fases 0–1 concluídas). v2.1 e v2.2 planejadas.
 
 **Prioridade:** Alta - Alinhado com tendências de mercado e filosofia da linguagem
