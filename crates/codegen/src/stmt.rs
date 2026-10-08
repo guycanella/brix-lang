@@ -686,7 +686,7 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
             // already rejects an invalid/zero dimension as `BrixType::Error`
             // before this point is ever reached), so this only needs to
             // require an exact match, no implicit casts.
-            else if let BrixType::Embedding(_) = &hint_bt {
+            else if let BrixType::Embedding(_) | BrixType::EmbeddingBatch(_) = &hint_bt {
                 if val_type != hint_bt {
                     return Err(CodegenError::TypeError {
                         expected: hint.clone(),
@@ -910,6 +910,7 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
             | BrixType::DateTime
             | BrixType::Json
             | BrixType::Embedding(_)
+            | BrixType::EmbeddingBatch(_)
             | BrixType::Error => self.context.ptr_type(AddressSpace::default()).into(),
             BrixType::Complex => {
                 // Allocate space for complex struct { f64, f64 }

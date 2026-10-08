@@ -102,3 +102,68 @@ test.describe("Embedding<DIM> similarity (v2.0 Grupo A Fase 2)", () -> {
         test.expect(a.dot_product(a)).toBeCloseTo(1.0)
     })
 })
+
+test.describe("EmbeddingBatch<DIM> (v2.0 Grupo A Fase 3)", () -> {
+    test.it("starts empty and grows from capacity 0", () -> {
+        var b := EmbeddingBatch<3>(0)
+        test.expect(b.len()).toBe(0)
+        test.expect(b.is_empty()).toBeTruthy()
+        var i := 0
+        while i < 6 {
+            b.add(Embedding<3>([1.0, 0.0, 0.0]))
+            i = i + 1
+        }
+        test.expect(b.len()).toBe(6)
+        test.expect(b.is_empty()).toBeFalsy()
+    })
+
+    test.it("get returns the embedding at its insertion index", () -> {
+        var b := EmbeddingBatch<2>(4)
+        b.add(Embedding<2>([1.0, 2.0]))
+        b.add(Embedding<2>([3.0, 4.0]))
+        test.expect(b.get(1).to_matrix()[0]).toBeCloseTo(3.0)
+        test.expect(b.get(0).to_matrix()[1]).toBeCloseTo(2.0)
+    })
+
+    test.it("shares ownership: the source and the batch outlive each other", () -> {
+        var b := EmbeddingBatch<2>(1)
+        var e := Embedding<2>([3.0, 4.0])
+        b.add(e)
+        e = Embedding<2>([0.0, 0.0])
+        test.expect(b.get(0).dot_product(b.get(0))).toBeCloseTo(25.0)
+        var kept := b.get(0)
+        b = EmbeddingBatch<2>(0)
+        test.expect(kept.euclidean_distance(Embedding<2>([0.0, 0.0]))).toBeCloseTo(5.0)
+    })
+
+    test.it("find_nearest returns indices sorted by cosine similarity", () -> {
+        var b := EmbeddingBatch<2>(0)
+        b.add(Embedding<2>([0.0, 1.0]))
+        b.add(Embedding<2>([1.0, 0.0]))
+        b.add(Embedding<2>([1.0, 1.0]))
+        var r := b.find_nearest(Embedding<2>([1.0, 0.2]), 2)
+        test.expect(r).toHaveLength(2)
+        test.expect(r[0]).toBe(1)
+        test.expect(r[1]).toBe(2)
+    })
+
+    test.it("find_nearest clamps k: k == 0, k > len, empty batch", () -> {
+        var b := EmbeddingBatch<2>(0)
+        var q := Embedding<2>([1.0, 0.0])
+        test.expect(b.find_nearest(q, 3)).toHaveLength(0)
+        b.add(Embedding<2>([1.0, 0.0]))
+        b.add(Embedding<2>([0.0, 1.0]))
+        test.expect(b.find_nearest(q, 0)).toHaveLength(0)
+        test.expect(b.find_nearest(q, 5)).toHaveLength(2)
+    })
+
+    test.it("get combined with find_nearest materializes the nearest embedding", () -> {
+        var b := EmbeddingBatch<3>(2)
+        b.add(Embedding<3>([1.0, 0.0, 0.0]))
+        b.add(Embedding<3>([0.0, 0.0, 1.0]))
+        b.add(Embedding<3>([0.0, 1.0, 0.0]))
+        var q := Embedding<3>([0.1, 0.2, 0.9])
+        var nearest := b.get(b.find_nearest(q, 1)[0])
+        test.expect(nearest.cosine_similarity(Embedding<3>([0.0, 0.0, 1.0]))).toBeCloseTo(1.0)
+    })
+})

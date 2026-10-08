@@ -2446,3 +2446,43 @@ fn test_267_ternary_ownership() {
         "hello world\nhello world\n1\n1\n5\n1",
     );
 }
+
+#[test]
+fn test_268_embedding_batch_basic() {
+    // Growth from capacity 0 (10 adds), and get() returns its own reference:
+    // the embedding outlives the batch it came from.
+    assert_success(
+        "tests/integration/success/268_embedding_batch_basic.bx",
+        "0\n1\n10\n0\n5\n0",
+    );
+}
+
+#[test]
+fn test_269_embedding_batch_find_nearest() {
+    // Sorted by cosine desc, exact tie (indices 0 and 4) broken by lower
+    // index; k == 0, k > len and an empty batch all follow the 1×min(k, len)
+    // contract.
+    assert_success(
+        "tests/integration/success/269_embedding_batch_find_nearest.bx",
+        "[0, 4, 2]\n[0, 4, 2, 1, 3]\n[0]\n[]\n[]\n1",
+    );
+}
+
+#[test]
+fn test_270_embedding_batch_get_out_of_bounds() {
+    assert_output(
+        "tests/integration/success/270_embedding_batch_get_out_of_bounds.bx",
+        1,
+        Some("EmbeddingBatch.get(1) out of bounds (len 1)"),
+    );
+}
+
+#[test]
+fn test_271_embedding_batch_capacity_overflow() {
+    // cap * sizeof(ptr) would wrap to 8 bytes: must abort, not overflow the heap.
+    assert_output(
+        "tests/integration/success/271_embedding_batch_capacity_overflow.bx",
+        1,
+        Some("EmbeddingBatch capacity overflow"),
+    );
+}

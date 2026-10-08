@@ -3571,3 +3571,201 @@ fn test_union_float_in_int_slot_is_bitcast() {
         ir
     );
 }
+
+// ====== EmbeddingBatch<DIM> (v2.0 Grupo A Fase 3) ======
+
+/// Lex + parse + compile real Brix source, expecting a codegen error.
+fn error_from_source(src: &str) -> crate::error::CodegenError {
+    let mut program = crate::lex_and_parse_program(src).expect("parse");
+    parser::closure_analysis::analyze_closures(&mut program);
+    let context = Context::create();
+    let module = context.create_module("test");
+    let builder = context.create_builder();
+    let mut compiler = Compiler::new(
+        &context,
+        &builder,
+        &module,
+        "test.bx".to_string(),
+        src.to_string(),
+    );
+    compiler
+        .compile_program(&program)
+        .expect_err("expected a codegen error")
+}
+
+const BATCH_PRELUDE: &str = "var b := EmbeddingBatch<2>(0)\nvar q := Embedding<2>([1.0, 0.0])\n";
+
+#[test]
+fn test_embedding_batch_constructor_passes_dim_and_capacity() {
+    let ir = ir_from_source("var b := EmbeddingBatch<3>(5)\n");
+    assert!(
+        ir.contains("call ptr @brix_embedding_batch_new(i64 3, i64 5)"),
+        "IR:\n{}",
+        ir
+    );
+}
+
+#[test]
+fn test_embedding_batch_methods_call_runtime() {
+    let ir = ir_from_source(&format!(
+        "{}b.add(q)\nvar e := b.get(0)\nvar r := b.find_nearest(q, 2)\nvar n := b.len()\nvar z := b.is_empty()\n",
+        BATCH_PRELUDE
+    ));
+    for sym in [
+        "call void @brix_embedding_batch_add(",
+        "call ptr @brix_embedding_batch_get(",
+        "call ptr @brix_embedding_batch_find_nearest(",
+        "call i64 @brix_embedding_batch_len(",
+    ] {
+        assert!(ir.contains(sym), "missing {}\nIR:\n{}", sym, ir);
+    }
+    assert!(
+        ir.contains("icmp eq i64"),
+        "is_empty compares len to 0\nIR:\n{}",
+        ir
+    );
+}
+
+#[test]
+fn test_embedding_batch_get_and_find_nearest_types_chain() {
+    // get() yields Embedding<2> (usable with similarity methods);
+    // find_nearest() yields IntMatrix (accepted by an int[] annotation).
+    ir_from_source(&format!(
+        "{}b.add(q)\nvar s := b.get(0).dot_product(q)\nvar r: int[] := b.find_nearest(q, 1)\n",
+        BATCH_PRELUDE
+    ));
+}
+
+#[test]
+fn test_embedding_batch_add_releases_only_temporary_arg() {
+    // C retains on add: a borrowed variable must not be released by the
+    // call site, an owned temporary must be (exactly one extra release).
+    let releases = |src: &str| {
+        ir_from_source(&format!("{}{}", BATCH_PRELUDE, src))
+            .matches("call void @brix_embedding_release(")
+            .count()
+    };
+    let borrowed = releases("b.add(q)\n");
+    let temp = releases("b.add(Embedding<2>([0.0, 1.0]))\n");
+    assert_eq!(temp, borrowed + 1);
+}
+
+#[test]
+fn test_embedding_batch_temporary_receiver_released() {
+    let ir = ir_from_source("var n := EmbeddingBatch<2>(1).len()\n");
+    assert!(
+        ir.contains("call void @brix_embedding_batch_release("),
+        "IR:\n{}",
+        ir
+    );
+}
+
+#[test]
+fn test_embedding_batch_add_dim_mismatch_is_type_error() {
+    let err = error_from_source(&format!(
+        "{}b.add(Embedding<3>([1.0, 2.0, 3.0]))\n",
+        BATCH_PRELUDE
+    ));
+    assert!(
+        matches!(err, crate::error::CodegenError::TypeError { .. }),
+        "{:?}",
+        err
+    );
+}
+
+#[test]
+fn test_embedding_batch_find_nearest_query_dim_mismatch_is_type_error() {
+    let err = error_from_source(&format!(
+        "{}var r := b.find_nearest(Embedding<3>([1.0, 2.0, 3.0]), 1)\n",
+        BATCH_PRELUDE
+    ));
+    assert!(
+        matches!(err, crate::error::CodegenError::TypeError { .. }),
+        "{:?}",
+        err
+    );
+}
+
+#[test]
+fn test_embedding_batch_non_int_args_are_type_errors() {
+    for src in [
+        "var c := EmbeddingBatch<2>(1.5)\n",
+        "var e := b.get(0.5)\n",
+        "var r := b.find_nearest(q, 1.0)\n",
+    ] {
+        let err = error_from_source(&format!("{}{}", BATCH_PRELUDE, src));
+        assert!(
+            matches!(err, crate::error::CodegenError::TypeError { .. }),
+            "{}: {:?}",
+            src,
+            err
+        );
+    }
+}
+
+#[test]
+fn test_embedding_batch_arity_and_zero_dim_are_invalid_operations() {
+    for src in [
+        "var n := b.len(3)\n",
+        "b.add()\n",
+        "var r := b.find_nearest(q)\n",
+        "var c := EmbeddingBatch<2>()\n",
+        "var c := EmbeddingBatch<0>(1)\n",
+    ] {
+        let err = error_from_source(&format!("{}{}", BATCH_PRELUDE, src));
+        assert!(
+            matches!(err, crate::error::CodegenError::InvalidOperation { .. }),
+            "{}: {:?}",
+            src,
+            err
+        );
+    }
+}
+
+#[test]
+fn test_embedding_batch_annotation_dim_mismatch_is_type_error() {
+    let err = error_from_source("var b: EmbeddingBatch<3> := EmbeddingBatch<2>(1)\n");
+    assert!(
+        matches!(err, crate::error::CodegenError::TypeError { .. }),
+        "{:?}",
+        err
+    );
+}
+
+#[test]
+fn test_embedding_batch_static_type_inference() {
+    use crate::types::BrixType;
+    let history = "var b := EmbeddingBatch<2>(0)\nvar q := Embedding<2>([1.0, 0.0])";
+    for (expr, want) in [
+        ("EmbeddingBatch<2>(4)", BrixType::EmbeddingBatch(2)),
+        ("b.get(0)", BrixType::Embedding(2)),
+        ("b.find_nearest(q, 1)", BrixType::IntMatrix),
+        ("b.len()", BrixType::Int),
+        ("b.is_empty()", BrixType::Int),
+    ] {
+        assert_eq!(
+            crate::infer_type_of_expr_in_context(history, expr),
+            Ok(want),
+            "{}",
+            expr
+        );
+    }
+}
+
+#[test]
+fn test_embedding_batch_typeof() {
+    let ir = ir_from_source("var b := EmbeddingBatch<4>(0)\nprintln(typeof(b))\n");
+    assert!(ir.contains("EmbeddingBatch<4>"), "IR:\n{}", ir);
+}
+
+#[test]
+fn test_struct_method_named_like_batch_method_evaluates_receiver_once() {
+    // `add`/`find_nearest` joined the builtin method guard, which compiles the
+    // receiver before checking its type; a non-batch receiver must reuse that
+    // value instead of compiling (running) `mk()` a second time.
+    let ir = ir_from_source(
+        "struct P { x: int }\nfn (p: P) add(n: int) -> int { return p.x + n }\nfn mk() -> P {\n    return P{ x: 10 }\n}\nvar r := mk().add(5)\n",
+    );
+    let main = function_body(&ir, "main");
+    assert_eq!(main.matches("@mk(").count(), 1, "IR:\n{}", main);
+}
