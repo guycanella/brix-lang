@@ -639,14 +639,22 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         // never silently become a valid type by falling through to the
         // "unknown type, defaulting to Int" branch below) — an invalid or
         // zero dimension here must never reach that fallback either.
-        // EmbeddingBatch<DIM> is deliberately NOT handled here — deferred to
-        // Grupo A Fase 3 (no BrixType::EmbeddingBatch variant exists yet).
+        // EmbeddingBatch<DIM> (Fase 3) follows the same rule.
         if let Some(inner) = resolved_type_str
             .strip_prefix("Embedding<")
             .and_then(|s| s.strip_suffix('>'))
         {
             return match inner.trim().parse::<u32>() {
                 Ok(dim) if dim > 0 => BrixType::Embedding(dim),
+                _ => BrixType::Error,
+            };
+        }
+        if let Some(inner) = resolved_type_str
+            .strip_prefix("EmbeddingBatch<")
+            .and_then(|s| s.strip_suffix('>'))
+        {
+            return match inner.trim().parse::<u32>() {
+                Ok(dim) if dim > 0 => BrixType::EmbeddingBatch(dim),
                 _ => BrixType::Error,
             };
         }
@@ -753,8 +761,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 // Json is a pointer to the heap JsonValue struct.
                 self.context.ptr_type(AddressSpace::default()).into()
             }
-            BrixType::Embedding(_) => {
-                // Embedding<DIM> is a pointer to the heap BrixEmbedding struct.
+            BrixType::Embedding(_) | BrixType::EmbeddingBatch(_) => {
+                // Embedding<DIM>/EmbeddingBatch<DIM> point to their heap structs.
                 self.context.ptr_type(AddressSpace::default()).into()
             }
             BrixType::Void => self.context.i64_type().into(), // Placeholder (shouldn't be used)
@@ -1386,6 +1394,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 | BrixType::DateTime
                 | BrixType::Json
                 | BrixType::Embedding(_)
+                | BrixType::EmbeddingBatch(_)
         )
     }
 
@@ -1448,6 +1457,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             BrixType::DateTime => "datetime_retain",
             BrixType::Json => "json_retain",
             BrixType::Embedding(_) => "brix_embedding_retain",
+            BrixType::EmbeddingBatch(_) => "brix_embedding_batch_retain",
             _ => unreachable!("is_ref_counted should have filtered this"),
         };
 
@@ -1509,6 +1519,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             BrixType::DateTime => "datetime_release",
             BrixType::Json => "json_release",
             BrixType::Embedding(_) => "brix_embedding_release",
+            BrixType::EmbeddingBatch(_) => "brix_embedding_batch_release",
             _ => unreachable!("is_ref_counted should have filtered this"),
         };
 
@@ -4978,9 +4989,11 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         | BrixType::HashMap(_, _)
                         | BrixType::DateTime
                         | BrixType::Json
-                        | BrixType::Embedding(_) => {
+                        | BrixType::Embedding(_)
+                        | BrixType::EmbeddingBatch(_) => {
                             // Vector<T>/Stack<T>/Queue<T>/MinHeap<T>/MaxHeap<T>/
-                            // HashMap<K,V>/DateTime/Embedding<DIM> are stored as an opaque heap-struct pointer.
+                            // HashMap<K,V>/DateTime/Embedding<DIM>/EmbeddingBatch<DIM>
+                            // are stored as an opaque heap-struct pointer.
                             let ptr_type = self.context.ptr_type(AddressSpace::default());
                             let val =
                                 self.builder.build_load(ptr_type, *ptr, name).map_err(|_| {
@@ -6977,7 +6990,6 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         );
                         // Embedding<DIM> methods: `.to_matrix()` (v2.0 Grupo A
                         // Fase 1) + BLAS similarity methods (Fase 2).
-                        // EmbeddingBatch (Fase 3) is not implemented yet.
                         let is_embedding_method = matches!(
                             field.as_str(),
                             "to_matrix"
@@ -6985,6 +6997,15 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                 | "euclidean_distance"
                                 | "cosine_similarity"
                         );
+                        // EmbeddingBatch<DIM> methods (v2.0 Grupo A Fase 3).
+                        let is_embedding_batch_method = matches!(
+                            field.as_str(),
+                            "add" | "get" | "find_nearest" | "len" | "is_empty"
+                        );
+                        // A receiver compiled by the guard below that matched no
+                        // builtin dispatch is reused by the arbitrary-expression
+                        // fall-through instead of being compiled (evaluated) twice.
+                        let mut precompiled_receiver = None;
                         if is_iter_method
                             || is_str_method
                             || is_vector_method
@@ -6993,8 +7014,21 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             || is_heap_method
                             || is_hashmap_method
                             || is_embedding_method
+                            || is_embedding_batch_method
                         {
                             let (receiver_val, receiver_type) = self.compile_expr(target)?;
+                            if is_embedding_batch_method {
+                                if let BrixType::EmbeddingBatch(dim) = &receiver_type {
+                                    return self.compile_embedding_batch_method(
+                                        receiver_val,
+                                        *dim,
+                                        field,
+                                        target,
+                                        args,
+                                        expr,
+                                    );
+                                }
+                            }
                             if is_vector_method {
                                 if let BrixType::Vector(elem) = &receiver_type {
                                     let elem = elem.as_ref().clone();
@@ -7113,6 +7147,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                     return Ok(result);
                                 }
                             }
+                            precompiled_receiver = Some((receiver_val, receiver_type));
                         }
 
                         // Special handling for method calls on struct identifiers
@@ -7201,7 +7236,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         } else {
                             // Receiver is an arbitrary expression (e.g., fn_call().method(),
                             // chained method calls, struct literals).
-                            let (receiver_val, receiver_type) = self.compile_expr(target)?;
+                            let (receiver_val, receiver_type) = match precompiled_receiver {
+                                Some(r) => r,
+                                None => self.compile_expr(target)?,
+                            };
 
                             if let BrixType::Struct(struct_name) = receiver_type {
                                 let mangled_name = format!("{}_{}", struct_name, field);
@@ -7413,6 +7451,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             BrixType::DateTime => "datetime".to_string(),
                             BrixType::Json => "json".to_string(),
                             BrixType::Embedding(dim) => format!("Embedding<{}>", dim),
+                            BrixType::EmbeddingBatch(dim) => format!("EmbeddingBatch<{}>", dim),
                         };
 
                         return self.compile_expr(&Expr::dummy(ExprKind::Literal(
@@ -9275,34 +9314,35 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         )),
                     };
 
-                // Embedding<DIM>() constructor (v2.0 Grupo A Fase 1) — the
-                // one explicit exception to the bare-integer-literal guard
-                // below, intercepted before it. EmbeddingBatch is NOT handled
-                // here (deferred to Fase 3) — `EmbeddingBatch<1536>(...)`
-                // still falls through to the guard and errors, which is
-                // correct until Fase 3 adds its own exception.
-                if func_name == "Embedding" {
+                // Embedding<DIM>() (v2.0 Grupo A Fase 1) and EmbeddingBatch<DIM>()
+                // (Fase 3) constructors — the explicit exceptions to the
+                // bare-integer-literal guard below, intercepted before it.
+                if func_name == "Embedding" || func_name == "EmbeddingBatch" {
                     if type_args.len() != 1 {
                         return Err(CodegenError::InvalidOperation {
-                            operation: "Embedding".to_string(),
-                            reason:
-                                "expects exactly one dimension argument, e.g. Embedding<1536>(...)"
-                                    .to_string(),
+                            operation: func_name.clone(),
+                            reason: format!(
+                                "expects exactly one dimension argument, e.g. {}<1536>(...)",
+                                func_name
+                            ),
                             span: Some(expr.span.clone()),
                         });
                     }
                     let dim: u32 = type_args[0].parse().map_err(|_| CodegenError::TypeError {
                         expected: "a non-negative integer dimension".to_string(),
                         found: type_args[0].clone(),
-                        context: "Embedding<...> dimension".to_string(),
+                        context: format!("{}<...> dimension", func_name),
                         span: Some(expr.span.clone()),
                     })?;
                     if dim == 0 {
                         return Err(CodegenError::InvalidOperation {
-                            operation: "Embedding".to_string(),
+                            operation: func_name.clone(),
                             reason: "dimension must be greater than zero".to_string(),
                             span: Some(expr.span.clone()),
                         });
+                    }
+                    if func_name == "EmbeddingBatch" {
+                        return self.compile_embedding_batch_new(args, dim, expr);
                     }
                     return self.compile_embedding_constructor(args, dim, expr);
                 }
@@ -16749,6 +16789,198 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         Ok((result, BrixType::Matrix))
     }
 
+    /// Declare-if-missing and call an EmbeddingBatch runtime function.
+    fn call_embedding_batch_rt(
+        &self,
+        name: &str,
+        fn_type: inkwell::types::FunctionType<'ctx>,
+        args: &[BasicMetadataValueEnum<'ctx>],
+        expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let func = self.module.get_function(name).unwrap_or_else(|| {
+            self.module
+                .add_function(name, fn_type, Some(Linkage::External))
+        });
+        let call =
+            self.builder
+                .build_call(func, args, name)
+                .map_err(|_| CodegenError::LLVMError {
+                    operation: "build_call".to_string(),
+                    details: format!("Failed to call {}", name),
+                    span: Some(expr.span.clone()),
+                })?;
+        Ok(call.try_as_basic_value().left())
+    }
+
+    /// Compile `EmbeddingBatch<DIM>(capacity)` -> a fresh, empty
+    /// BrixEmbeddingBatch* (ref_count = 1). A negative capacity aborts at
+    /// runtime; 0 is valid (the first `.add()` grows it).
+    fn compile_embedding_batch_new(
+        &mut self,
+        args: &[Expr],
+        dim: u32,
+        expr: &Expr,
+    ) -> CodegenResult<(BasicValueEnum<'ctx>, BrixType)> {
+        if args.len() != 1 {
+            return Err(CodegenError::InvalidOperation {
+                operation: "EmbeddingBatch".to_string(),
+                reason: format!("expects exactly one capacity argument, got {}", args.len()),
+                span: Some(expr.span.clone()),
+            });
+        }
+        let (cap_val, cap_type) = self.compile_expr(&args[0])?;
+        if cap_type != BrixType::Int {
+            return Err(CodegenError::TypeError {
+                expected: "int".to_string(),
+                found: crate::types::format_brix_type(&cap_type),
+                context: format!("EmbeddingBatch<{}> capacity", dim),
+                span: Some(expr.span.clone()),
+            });
+        }
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let i64_type = self.context.i64_type();
+        let batch = self
+            .call_embedding_batch_rt(
+                "brix_embedding_batch_new",
+                ptr_type.fn_type(&[i64_type.into(), i64_type.into()], false),
+                &[i64_type.const_int(dim as u64, false).into(), cap_val.into()],
+                expr,
+            )?
+            .ok_or_else(|| CodegenError::MissingValue {
+                what: "brix_embedding_batch_new result".to_string(),
+                context: format!("EmbeddingBatch<{}> constructor", dim),
+                span: Some(expr.span.clone()),
+            })?;
+        Ok((batch, BrixType::EmbeddingBatch(dim)))
+    }
+
+    /// Compile `add`/`get`/`find_nearest`/`len`/`is_empty` on an
+    /// `EmbeddingBatch<DIM>`. Dim mismatches are E102 at compile time (the dim
+    /// is part of both types); out-of-bounds `get` and negative `k` abort at
+    /// runtime. Owned temporary arguments and receiver are released after the
+    /// call (same contract as the Fase 2 similarity methods): `add` retains
+    /// in C, `get` returns an owned reference, `find_nearest` returns a fresh
+    /// `IntMatrix` of indices (1×min(k, len), most similar first).
+    fn compile_embedding_batch_method(
+        &mut self,
+        receiver_val: BasicValueEnum<'ctx>,
+        dim: u32,
+        method: &str,
+        receiver_expr: &Expr,
+        args: &[Expr],
+        expr: &Expr,
+    ) -> CodegenResult<(BasicValueEnum<'ctx>, BrixType)> {
+        let expected_args = match method {
+            "add" | "get" => 1,
+            "find_nearest" => 2,
+            _ => 0, // len / is_empty
+        };
+        if args.len() != expected_args {
+            return Err(CodegenError::InvalidOperation {
+                operation: format!("EmbeddingBatch.{}", method),
+                reason: format!("expects {} argument(s), got {}", expected_args, args.len()),
+                span: Some(expr.span.clone()),
+            });
+        }
+
+        let mut compiled = Vec::with_capacity(args.len());
+        for (i, arg) in args.iter().enumerate() {
+            let (val, ty) = self.compile_expr(arg)?;
+            let expected = match (method, i) {
+                ("add", 0) | ("find_nearest", 0) => BrixType::Embedding(dim),
+                _ => BrixType::Int, // get(i), find_nearest(_, k)
+            };
+            if ty != expected {
+                return Err(CodegenError::TypeError {
+                    expected: crate::types::format_brix_type(&expected),
+                    found: crate::types::format_brix_type(&ty),
+                    context: format!("EmbeddingBatch<{}>.{} argument {}", dim, method, i + 1),
+                    span: Some(expr.span.clone()),
+                });
+            }
+            compiled.push((val, ty));
+        }
+
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let i64_type = self.context.i64_type();
+        let mut call_args: Vec<BasicMetadataValueEnum<'ctx>> = vec![receiver_val.into()];
+        call_args.extend(
+            compiled
+                .iter()
+                .map(|(v, _)| BasicMetadataValueEnum::from(*v)),
+        );
+
+        let (rt_name, fn_type, result_type) = match method {
+            "add" => (
+                "brix_embedding_batch_add",
+                self.context
+                    .void_type()
+                    .fn_type(&[ptr_type.into(), ptr_type.into()], false),
+                BrixType::Void,
+            ),
+            "get" => (
+                "brix_embedding_batch_get",
+                ptr_type.fn_type(&[ptr_type.into(), i64_type.into()], false),
+                BrixType::Embedding(dim),
+            ),
+            "find_nearest" => (
+                "brix_embedding_batch_find_nearest",
+                ptr_type.fn_type(&[ptr_type.into(), ptr_type.into(), i64_type.into()], false),
+                BrixType::IntMatrix,
+            ),
+            _ => (
+                "brix_embedding_batch_len",
+                i64_type.fn_type(&[ptr_type.into()], false),
+                BrixType::Int,
+            ),
+        };
+        let result = self.call_embedding_batch_rt(rt_name, fn_type, &call_args, expr)?;
+
+        let result = match (method, result) {
+            ("add", _) => i64_type.const_zero().into(),
+            ("is_empty", Some(len)) => self
+                .builder
+                .build_int_compare(
+                    IntPredicate::EQ,
+                    len.into_int_value(),
+                    i64_type.const_zero(),
+                    "batch_is_empty",
+                )
+                .and_then(|b| {
+                    self.builder
+                        .build_int_z_extend(b, i64_type, "batch_is_empty_i64")
+                })
+                .map_err(|_| CodegenError::LLVMError {
+                    operation: "build_int_compare".to_string(),
+                    details: "Failed to build EmbeddingBatch.is_empty".to_string(),
+                    span: Some(expr.span.clone()),
+                })?
+                .into(),
+            (_, Some(v)) => v,
+            (_, None) => {
+                return Err(CodegenError::MissingValue {
+                    what: format!("{} result", rt_name),
+                    context: format!("EmbeddingBatch<{}>.{}", dim, method),
+                    span: Some(expr.span.clone()),
+                });
+            }
+        };
+
+        for (arg, (val, ty)) in args.iter().zip(&compiled) {
+            if Compiler::is_ref_counted(ty) && !self.is_borrowed_ref_expr(arg) {
+                self.insert_release(val.into_pointer_value(), ty)?;
+            }
+        }
+        if !self.is_borrowed_ref_expr(receiver_expr) {
+            self.insert_release(
+                receiver_val.into_pointer_value(),
+                &BrixType::EmbeddingBatch(dim),
+            )?;
+        }
+
+        Ok((result, result_type))
+    }
+
     /// Compile `HashMap<K,V>()` -> a fresh, empty BrixHashMap* (ref_count = 1).
     /// K in {Int, String}, V in {Int, Float, String}. The runtime reuses the
     /// same elem-kind codes as Vector (1=int, 2=float, 3=string) for both the
@@ -18261,12 +18493,16 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 // inference helper, not the compile-time error path (that
                 // lives in the GenericCall dispatch in compile_expr).
                 if let ExprKind::Identifier(name) = &func.kind {
-                    if name == "Embedding" {
-                        return type_args
+                    if name == "Embedding" || name == "EmbeddingBatch" {
+                        let dim = type_args
                             .first()
                             .and_then(|s| s.parse::<u32>().ok())
-                            .filter(|&d| d > 0)
-                            .map(BrixType::Embedding);
+                            .filter(|&d| d > 0)?;
+                        return Some(if name == "Embedding" {
+                            BrixType::Embedding(dim)
+                        } else {
+                            BrixType::EmbeddingBatch(dim)
+                        });
                     }
                 }
                 None
@@ -18419,6 +18655,13 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                 "dot_product" | "euclidean_distance" | "cosine_similarity" => {
                                     return Some(BrixType::Float);
                                 }
+                                _ => {}
+                            },
+                            BrixType::EmbeddingBatch(dim) => match field.as_str() {
+                                "get" => return Some(BrixType::Embedding(*dim)),
+                                "find_nearest" => return Some(BrixType::IntMatrix),
+                                "len" | "is_empty" => return Some(BrixType::Int),
+                                "add" => return Some(BrixType::Void),
                                 _ => {}
                             },
                             BrixType::HashMap(_, val) => match field.as_str() {
