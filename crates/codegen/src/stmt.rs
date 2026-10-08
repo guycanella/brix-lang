@@ -777,9 +777,11 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
                     }
 
                     // Insert value
+                    let slot_type = struct_type.get_field_type_at_index(1).unwrap();
+                    let slot_val = self.coerce_union_slot(final_val, slot_type)?;
                     union_val = self
                         .builder
-                        .build_insert_value(union_val, final_val, 1, "insert_value")
+                        .build_insert_value(union_val, slot_val, 1, "insert_value")
                         .map_err(|_| CodegenError::LLVMError {
                             operation: "build_insert_value".to_string(),
                             details: "Failed to insert value in union".to_string(),
@@ -1429,9 +1431,11 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
                 }
 
                 // Insert value
+                let slot_type = struct_type.get_field_type_at_index(1).unwrap();
+                let slot_val = self.coerce_union_slot(final_val, slot_type)?;
                 union_val = self
                     .builder
-                    .build_insert_value(union_val, final_val, 1, "insert_value")
+                    .build_insert_value(union_val, slot_val, 1, "insert_value")
                     .map_err(|_| CodegenError::LLVMError {
                         operation: "build_insert_value".to_string(),
                         details: "Failed to insert value in union assignment".to_string(),

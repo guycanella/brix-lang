@@ -1725,6 +1725,49 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         }
     }
 
+    /// Reinterpret a 64-bit scalar as `target`, the LLVM type of a union's
+    /// value slot (on store) or of the active variant (on load). The slot is
+    /// the widest variant's type, so `int | float` keeps a `double` in an
+    /// `i64` slot: without the bitcast the IR is malformed and the bits end up
+    /// in the wrong register class on Linux (AArch64/x86_64 pass variadic
+    /// doubles in FP registers). Anything else passes through unchanged.
+    pub(crate) fn coerce_union_slot(
+        &self,
+        val: BasicValueEnum<'ctx>,
+        target: BasicTypeEnum<'ctx>,
+    ) -> CodegenResult<BasicValueEnum<'ctx>> {
+        if val.get_type() == target {
+            return Ok(val);
+        }
+        let is_64bit_scalar = |t: BasicTypeEnum<'ctx>| match t {
+            BasicTypeEnum::IntType(i) => i.get_bit_width() == 64,
+            BasicTypeEnum::FloatType(f) => f == self.context.f64_type(),
+            _ => false,
+        };
+        let err = |op: &str| CodegenError::LLVMError {
+            operation: op.to_string(),
+            details: "Failed to coerce union slot value".to_string(),
+            span: None,
+        };
+        match (val, target) {
+            (BasicValueEnum::PointerValue(p), BasicTypeEnum::IntType(i)) => Ok(self
+                .builder
+                .build_ptr_to_int(p, i, "union_slot_p2i")
+                .map_err(|_| err("build_ptr_to_int"))?
+                .into()),
+            (BasicValueEnum::IntValue(v), BasicTypeEnum::PointerType(p)) => Ok(self
+                .builder
+                .build_int_to_ptr(v, p, "union_slot_i2p")
+                .map_err(|_| err("build_int_to_ptr"))?
+                .into()),
+            _ if is_64bit_scalar(val.get_type()) && is_64bit_scalar(target) => Ok(self
+                .builder
+                .build_bit_cast(val, target, "union_slot_cast")
+                .map_err(|_| err("build_bit_cast"))?),
+            _ => Ok(val),
+        }
+    }
+
     /// Turn a possibly-borrowed ref-counted value into an owned one: retain
     /// it when `expr` is a borrowed reference (see `is_borrowed_ref_expr`),
     /// leave owned temporaries untouched. Used where a value must leave its
@@ -13176,7 +13219,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
                     // Case block: convert to string
                     self.builder.position_at_end(case_block);
-                    let str_val = self.value_to_string(inner_val, typ, format)?;
+                    let variant_val =
+                        self.coerce_union_slot(inner_val, self.brix_type_to_llvm(typ))?;
+                    let str_val = self.value_to_string(variant_val, typ, format)?;
                     self.builder.build_store(result_ptr, str_val).map_err(|_| {
                         CodegenError::LLVMError {
                             operation: "build_store".to_string(),
