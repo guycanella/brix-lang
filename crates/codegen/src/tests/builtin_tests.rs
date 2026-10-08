@@ -3549,3 +3549,25 @@ fn test_embedding_similarity_releases_temporary_receiver() {
     ));
     assert_eq!(count(&temp), count(&borrowed) + 1, "IR:\n{}", temp);
 }
+
+#[test]
+fn test_union_float_in_int_slot_is_bitcast() {
+    // `int | float` lays out as `{ i64, i64 }`: the double must be bitcast
+    // into the slot on store and back to `double` before printing, or the
+    // IR is malformed (and `%g` reads the wrong register on Linux).
+    let ir = ir_from_source("var x: int | float := 3.14\nprintln(x)\nx = 2.5\nprintln(x)\n");
+    // Constant stores fold the bitcast: the slot holds the raw f64 bits.
+    for bits in ["i64 4614253070214989087", "i64 4612811918334230528"] {
+        assert!(
+            ir.contains(bits),
+            "missing {} (3.14 / 2.5 bits)\nIR:\n{}",
+            bits,
+            ir
+        );
+    }
+    assert!(
+        ir.contains("bitcast i64"),
+        "print must bitcast i64 -> double\nIR:\n{}",
+        ir
+    );
+}

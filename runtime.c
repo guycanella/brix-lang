@@ -402,7 +402,7 @@ Matrix *matrix_new(long rows, long cols) {
   m->ref_count = 1;  // Initialize ARC
   m->rows = rows;
   m->cols = cols;
-  m->data = (double *)malloc(rows * cols * sizeof(double));
+  m->data = (double *)calloc(rows * cols, sizeof(double));
   return m;
 }
 
