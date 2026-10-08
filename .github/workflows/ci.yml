@@ -50,10 +50,12 @@ jobs:
           echo "LLVM_SYS_180_PREFIX=/usr/lib/llvm-18" >> "$GITHUB_ENV"
       - name: Install dependencies (macOS)
         if: runner.os == 'macOS'
-        # LAPACK/BLAS come from the system Accelerate framework.
+        # LAPACK/BLAS come from the system Accelerate framework. llvm-sys links
+        # -lzstd, which Homebrew keeps outside the default linker search path.
         run: |
-          brew install llvm@18
+          brew install llvm@18 zstd
           echo "LLVM_SYS_180_PREFIX=$(brew --prefix llvm@18)" >> "$GITHUB_ENV"
+          echo "LIBRARY_PATH=$(brew --prefix)/lib" >> "$GITHUB_ENV"
 
       - name: Build
         run: cargo build
