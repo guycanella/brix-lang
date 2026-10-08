@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <limits.h>
 #include <time.h>
 #include <setjmp.h>
 #include <unistd.h>
@@ -4271,7 +4272,8 @@ BrixString* json_stringify_pretty(JsonValue* val, long indent) {
 // only against an internal compiler bug reaching runtime, not a user-facing
 // error path.
 //
-// EmbeddingBatch is NOT implemented here — deferred to Grupo A Fase 3.
+// Similarity methods via BLAS added in Fase 2 (below). EmbeddingBatch is NOT
+// implemented here — deferred to Grupo A Fase 3.
 
 typedef struct {
   long ref_count;
@@ -4332,6 +4334,68 @@ void brix_embedding_release(BrixEmbedding *e) {
     free(e->data);
     free(e);
   }
+}
+
+// --- Similarity methods (v2.0 Grupo A Fase 2) ---
+//
+// BLAS Fortran-convention symbols (trailing `_`), the same convention the
+// existing LAPACK wrappers use (dgetrf_ etc.) and resolved by the
+// `-llapack -lblas` link flags the driver already passes. Every argument is
+// passed by pointer, Fortran-style.
+extern double ddot_(int *n, double *x, int *incx, double *y, int *incy);
+extern double dnrm2_(int *n, double *x, int *incx);
+
+// Defensive invariant check, never a user-facing error path: two
+// Embedding<D> operands with different D are rejected at compile time
+// (E102), so a mismatch here means a compiler bug. BLAS takes `int` lengths,
+// while dim comes from a u32 const generic, so dims above INT_MAX are
+// rejected too instead of silently truncating.
+static int brix_embedding_check_pair(BrixEmbedding *a, BrixEmbedding *b,
+                                     const char *op) {
+  if (!a || !b) {
+    fprintf(stderr, "Error: Embedding.%s called with NULL (internal compiler bug)\n", op);
+    exit(1);
+  }
+  if (a->dim != b->dim) {
+    fprintf(stderr,
+            "Error: Embedding.%s dimension mismatch %ld vs %ld (internal "
+            "compiler bug — should have been rejected at compile time)\n",
+            op, a->dim, b->dim);
+    exit(1);
+  }
+  if (a->dim > INT_MAX) {
+    fprintf(stderr, "Error: Embedding.%s dimension %ld exceeds BLAS int range\n",
+            op, a->dim);
+    exit(1);
+  }
+  return (int)a->dim;
+}
+
+double brix_embedding_dot(BrixEmbedding *a, BrixEmbedding *b) {
+  int n = brix_embedding_check_pair(a, b, "dot_product");
+  int one = 1;
+  return ddot_(&n, a->data, &one, b->data, &one);
+}
+
+double brix_embedding_euclidean(BrixEmbedding *a, BrixEmbedding *b) {
+  int n = brix_embedding_check_pair(a, b, "euclidean_distance");
+  int one = 1;
+  double *diff = (double *)malloc((size_t)n * sizeof(double));
+  for (int i = 0; i < n; i++) diff[i] = a->data[i] - b->data[i];
+  double d = dnrm2_(&n, diff, &one);
+  free(diff);
+  return d;
+}
+
+// Zero-vector contract: if either norm is 0 the ratio is 0/0 — returns 0.0
+// (never NaN/Inf), an explicit roadmap decision.
+double brix_embedding_cosine(BrixEmbedding *a, BrixEmbedding *b) {
+  int n = brix_embedding_check_pair(a, b, "cosine_similarity");
+  int one = 1;
+  double na = dnrm2_(&n, a->data, &one);
+  double nb = dnrm2_(&n, b->data, &one);
+  if (na == 0.0 || nb == 0.0) return 0.0;
+  return ddot_(&n, a->data, &one, b->data, &one) / (na * nb);
 }
 
 // ==========================================

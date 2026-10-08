@@ -1,0 +1,17 @@
+// v2.0 Grupo A Fase 2: Embedding.dot_product() via BLAS ddot_.
+var a := Embedding<3>([1.0, 2.0, 3.0])
+var b := Embedding<3>([4.0, 5.0, 6.0])
+println(a.dot_product(b))
+println(b.dot_product(a))
+println(a.dot_product(Embedding<3>([1, 1, 1])))
+
+// Orthogonal vectors
+var x := Embedding<2>([1.0, 0.0])
+var y := Embedding<2>([0.0, 1.0])
+println(x.dot_product(y))
+
+// Double precision: 1.0 + 1e-10 is exactly 1.0 in float32, so the
+// difference below survives only if the dot product runs in f64.
+var p := Embedding<2>([1.0, 1e-10])
+var q := Embedding<2>([1.0, 1.0])
+println(p.dot_product(q) - 1.0 > 0.0)

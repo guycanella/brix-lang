@@ -50,3 +50,55 @@ test.describe("Embedding<DIM> ARC (v2.0 Grupo A Fase 1)", () -> {
         test.expect(outer.to_matrix()[1]).toBeCloseTo(3.0)
     })
 })
+
+// v2.0 Grupo A Fase 2: similarity methods via BLAS (ddot_ / dnrm2_).
+// Dimension mismatch is a compile-time E102, pinned in codegen unit tests.
+test.describe("Embedding<DIM> similarity (v2.0 Grupo A Fase 2)", () -> {
+    test.it("dot_product sums element-wise products", () -> {
+        var a := Embedding<3>([1.0, 2.0, 3.0])
+        var b := Embedding<3>([4.0, 5.0, 6.0])
+        test.expect(a.dot_product(b)).toBeCloseTo(32.0)
+    })
+
+    test.it("euclidean_distance is the L2 norm of the difference", () -> {
+        var a := Embedding<2>([1.0, 1.0])
+        var b := Embedding<2>([4.0, 5.0])
+        test.expect(a.euclidean_distance(b)).toBeCloseTo(5.0)
+    })
+
+    test.it("cosine_similarity of parallel vectors is 1", () -> {
+        var a := Embedding<3>([1.0, 2.0, 3.0])
+        var b := Embedding<3>([3.0, 6.0, 9.0])
+        test.expect(a.cosine_similarity(b)).toBeCloseTo(1.0)
+    })
+
+    test.it("cosine_similarity with a zero vector is 0, not NaN", () -> {
+        var a := Embedding<2>([1.0, 2.0])
+        var z := Embedding<2>([0.0, 0.0])
+        test.expect(a.cosine_similarity(z)).toBe(0.0)
+    })
+
+    test.it("all three methods are symmetric", () -> {
+        var a := Embedding<3>([0.5, -1.0, 2.0])
+        var b := Embedding<3>([3.0, 1.5, -0.25])
+        test.expect(a.dot_product(b)).toBeCloseTo(b.dot_product(a))
+        test.expect(a.euclidean_distance(b)).toBeCloseTo(b.euclidean_distance(a))
+        test.expect(a.cosine_similarity(b)).toBeCloseTo(b.cosine_similarity(a))
+    })
+
+    test.it("accepts an inline temporary argument", () -> {
+        var a := Embedding<3>([1.0, 2.0, 3.0])
+        test.expect(a.dot_product(Embedding<3>([1, 1, 1]))).toBeCloseTo(6.0)
+        test.expect(a.to_matrix()[2]).toBeCloseTo(3.0)
+    })
+
+    test.it("works through a ternary receiver and aliasing", () -> {
+        var a := Embedding<2>([1.0, 0.0])
+        var b := Embedding<2>([0.0, 1.0])
+        var f := 1
+        test.expect((f > 0 ? a : b).dot_product(a)).toBeCloseTo(1.0)
+        var c := f > 0 ? b : a
+        test.expect(c.dot_product(b)).toBeCloseTo(1.0)
+        test.expect(a.dot_product(a)).toBeCloseTo(1.0)
+    })
+})

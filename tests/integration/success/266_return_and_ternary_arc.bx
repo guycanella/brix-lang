@@ -1,0 +1,44 @@
+// ARC regressions found while reviewing v2.0 Grupo A Fase 2.
+// 1) Returning a parameter must retain it: a call result is treated as an
+//    owned temporary, so without the retain the caller freed memory still
+//    owned by the original variable.
+fn ids(s: string) -> string {
+    return s
+}
+fn id(e: Embedding<3>) -> Embedding<3> {
+    return e
+}
+
+var s := "hello" + " world"
+var v := Vector<string>()
+v.push(ids(s))
+v.clear()
+var junk := "zzzzzzzzzzzz" + "yyyyyyyyy"
+println(s)
+
+var a := Embedding<3>([1.0, 2.0, 3.0])
+var b := Embedding<3>([4.0, 5.0, 6.0])
+println(id(a).dot_product(b))
+println(a.dot_product(id(b)))
+println(a.dot_product(a))
+println(b.dot_product(b))
+
+// 2) Ternary over pointer-backed types builds a ptr PHI, and aliasing a
+//    variable through a ternary retains it.
+var f := 1
+println((f > 0 ? a : b).dot_product(a))
+var c := f > 0 ? a : b
+println(c.dot_product(a))
+
+// 3) A user struct method named like an Embedding method still dispatches
+//    to the struct.
+struct V2 {
+    x: float,
+    y: float
+}
+fn (p: V2) dot_product(q: V2) -> float {
+    return p.x * q.x + p.y * q.y
+}
+var p := V2 { x: 1.0, y: 2.0 }
+var q := V2 { x: 3.0, y: 4.0 }
+println(p.dot_product(q))

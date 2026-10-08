@@ -3168,3 +3168,384 @@ fn test_embedding_to_matrix_rejects_arguments() {
     };
     assert!(!vector_compiles(program));
 }
+
+// ============ EMBEDDING<DIM> SIMILARITY (v2.0 Grupo A Fase 2) ============
+
+fn embedding_decl(name: &str, dim: &str, vals: &[f64]) -> Stmt {
+    Stmt::dummy(StmtKind::VariableDecl {
+        name: name.to_string(),
+        type_hint: None,
+        value: embedding_new_expr(dim, float_array(vals)),
+        is_const: false,
+    })
+}
+
+fn method_call(receiver: Expr, method: &str, args: Vec<Expr>) -> Expr {
+    Expr::dummy(ExprKind::Call {
+        func: Box::new(Expr::dummy(ExprKind::FieldAccess {
+            target: Box::new(receiver),
+            field: method.to_string(),
+        })),
+        args,
+    })
+}
+
+/// Compiles `program` and returns the CodegenError it fails with (if any) —
+/// `compile_program` above discards errors, so it can't pin the variant.
+fn compile_error(program: Program) -> Result<(), crate::error::CodegenError> {
+    let context = Context::create();
+    let module = context.create_module("test");
+    let builder = context.create_builder();
+    let mut compiler = Compiler::new(
+        &context,
+        &builder,
+        &module,
+        "test.bx".to_string(),
+        "".to_string(),
+    );
+    compiler.compile_program(&program)
+}
+
+fn ident(name: &str) -> Expr {
+    Expr::dummy(ExprKind::Identifier(name.to_string()))
+}
+
+/// `var r := a.<method>(b)` over two Embedding<3> variables.
+fn similarity_program(method: &str, b_dim: &str, b_vals: &[f64]) -> Program {
+    Program {
+        statements: vec![
+            embedding_decl("a", "3", &[1.0, 2.0, 3.0]),
+            embedding_decl("b", b_dim, b_vals),
+            Stmt::dummy(StmtKind::VariableDecl {
+                name: "r".to_string(),
+                type_hint: None,
+                value: method_call(ident("a"), method, vec![ident("b")]),
+                is_const: false,
+            }),
+        ],
+    }
+}
+
+#[test]
+fn test_embedding_dot_product_calls_runtime() {
+    let ir = compile_program(similarity_program("dot_product", "3", &[4.0, 5.0, 6.0])).unwrap();
+    assert!(ir.contains("@brix_embedding_dot("), "IR:\n{}", ir);
+}
+
+#[test]
+fn test_embedding_euclidean_distance_calls_runtime() {
+    let ir = compile_program(similarity_program(
+        "euclidean_distance",
+        "3",
+        &[4.0, 5.0, 6.0],
+    ))
+    .unwrap();
+    assert!(ir.contains("@brix_embedding_euclidean("), "IR:\n{}", ir);
+}
+
+#[test]
+fn test_embedding_cosine_similarity_calls_runtime() {
+    let ir = compile_program(similarity_program(
+        "cosine_similarity",
+        "3",
+        &[4.0, 5.0, 6.0],
+    ))
+    .unwrap();
+    assert!(ir.contains("@brix_embedding_cosine("), "IR:\n{}", ir);
+}
+
+#[test]
+fn test_embedding_similarity_returns_double() {
+    // The runtime functions return f64 (Brix `float`), never f32.
+    let ir = compile_program(similarity_program("dot_product", "3", &[4.0, 5.0, 6.0])).unwrap();
+    assert!(
+        ir.contains("declare double @brix_embedding_dot(ptr, ptr)"),
+        "IR:\n{}",
+        ir
+    );
+}
+
+#[test]
+fn test_embedding_similarity_dimension_mismatch_is_type_error() {
+    let result = compile_error(similarity_program("dot_product", "2", &[1.0, 2.0]));
+    assert!(
+        matches!(result, Err(crate::error::CodegenError::TypeError { .. })),
+        "expected E102 TypeError, got {:?}",
+        result
+    );
+}
+
+#[test]
+fn test_embedding_similarity_non_embedding_argument_is_type_error() {
+    let program = Program {
+        statements: vec![
+            embedding_decl("a", "3", &[1.0, 2.0, 3.0]),
+            Stmt::dummy(StmtKind::Expr(method_call(
+                ident("a"),
+                "cosine_similarity",
+                vec![float_array(&[1.0, 2.0, 3.0])],
+            ))),
+        ],
+    };
+    assert!(matches!(
+        compile_error(program),
+        Err(crate::error::CodegenError::TypeError { .. })
+    ));
+}
+
+#[test]
+fn test_embedding_similarity_wrong_arity_rejected() {
+    let program = Program {
+        statements: vec![
+            embedding_decl("a", "3", &[1.0, 2.0, 3.0]),
+            Stmt::dummy(StmtKind::Expr(method_call(
+                ident("a"),
+                "dot_product",
+                vec![],
+            ))),
+        ],
+    };
+    assert!(matches!(
+        compile_error(program),
+        Err(crate::error::CodegenError::InvalidOperation { .. })
+    ));
+}
+
+#[test]
+fn test_embedding_similarity_releases_temporary_argument() {
+    // a.dot_product(Embedding<3>([...])) — the inline argument is an owned
+    // temporary and must be released after the call. Compared against the
+    // same program with a borrowed argument (a.dot_product(a)), which must
+    // NOT release anything extra: exactly one more release in the temp case.
+    let program_with = |arg: Expr| Program {
+        statements: vec![
+            embedding_decl("a", "3", &[1.0, 2.0, 3.0]),
+            Stmt::dummy(StmtKind::VariableDecl {
+                name: "r".to_string(),
+                type_hint: None,
+                value: method_call(ident("a"), "dot_product", vec![arg]),
+                is_const: false,
+            }),
+        ],
+    };
+    let count = |ir: &str| ir.matches("call void @brix_embedding_release(").count();
+    let borrowed = compile_program(program_with(ident("a"))).unwrap();
+    let temp = compile_program(program_with(embedding_new_expr(
+        "3",
+        float_array(&[1.0, 1.0, 1.0]),
+    )))
+    .unwrap();
+    assert_eq!(
+        count(&temp),
+        count(&borrowed) + 1,
+        "temp IR:\n{}\nborrowed IR:\n{}",
+        temp,
+        borrowed
+    );
+}
+
+#[test]
+fn test_embedding_methods_static_type_inference() {
+    // Powers `:type` in the REPL.
+    let history = "var a := Embedding<3>([1.0, 2.0, 3.0])";
+    for method in ["dot_product", "euclidean_distance", "cosine_similarity"] {
+        let ty = crate::infer_type_of_expr_in_context(history, &format!("a.{}(a)", method));
+        assert_eq!(ty, Ok(crate::types::BrixType::Float), "method {}", method);
+    }
+    assert_eq!(
+        crate::infer_type_of_expr_in_context(history, "a.to_matrix()"),
+        Ok(crate::types::BrixType::Matrix)
+    );
+}
+
+// ====== ARC regressions found in the Fase 2 review (return / ternary) ======
+
+/// Lex + parse + compile real Brix source and return the module IR.
+fn ir_from_source(src: &str) -> String {
+    let mut program = crate::lex_and_parse_program(src).expect("parse");
+    parser::closure_analysis::analyze_closures(&mut program);
+    let context = Context::create();
+    let module = context.create_module("test");
+    let builder = context.create_builder();
+    let mut compiler = Compiler::new(
+        &context,
+        &builder,
+        &module,
+        "test.bx".to_string(),
+        src.to_string(),
+    );
+    compiler.compile_program(&program).expect("compile");
+    if let Err(e) = module.verify() {
+        panic!("invalid IR: {}\n{}", e, module.print_to_string());
+    }
+    module.print_to_string().to_string()
+}
+
+/// The IR body of `define ... @name(...)`, up to its closing brace.
+fn function_body<'a>(ir: &'a str, name: &str) -> &'a str {
+    let needle = format!(" @{}(", name);
+    let start = ir
+        .match_indices("define ")
+        .map(|(i, _)| i)
+        .find(|&i| ir[i..].lines().next().is_some_and(|l| l.contains(&needle)))
+        .expect("function definition");
+    let end = ir[start..].find("\n}\n").expect("function end") + start;
+    &ir[start..end]
+}
+
+#[test]
+fn test_return_of_parameter_retains() {
+    // A parameter is borrowed from the caller, while a call result is
+    // treated as owned — so returning a parameter must retain it, or the
+    // caller's release frees memory the original variable still owns.
+    let ir = ir_from_source(
+        "fn id(s: string) -> string {\n    return s\n}\nvar x := id(\"a\" + \"b\")\n",
+    );
+    assert!(
+        function_body(&ir, "id").contains("@string_retain("),
+        "IR:\n{}",
+        ir
+    );
+}
+
+#[test]
+fn test_return_of_local_is_balanced() {
+    // The returned value leaves owned: a returned local is retained, then
+    // every local is released before `ret` — net zero for the local.
+    let ir = ir_from_source(
+        "fn mk() -> string {\n    var s := \"a\" + \"b\"\n    return s\n}\nvar x := mk()\n",
+    );
+    let body = function_body(&ir, "mk");
+    assert!(body.contains("@string_retain("), "IR:\n{}", body);
+    // `%s_release_load` is the scope-exit release (a declaration's own
+    // `%s_old_release` of the previous null value doesn't count).
+    assert!(
+        body.contains("@string_release(ptr %s_release_load"),
+        "IR:\n{}",
+        body
+    );
+}
+
+#[test]
+fn test_return_of_ternary_releases_locals() {
+    // `return flag > 0 ? local : other`: the ternary already yields an owned
+    // value (the chosen branch is retained), so the local must still be
+    // released on return — otherwise picking `local` leaks one reference.
+    let ir = ir_from_source(
+        "fn pick(flag: int, other: string) -> string {\n    var local := \"a\" + \"b\"\n    return flag > 0 ? local : other\n}\nvar x := pick(1, \"c\" + \"d\")\n",
+    );
+    let body = function_body(&ir, "pick");
+    assert_eq!(body.matches("@string_retain(").count(), 2, "IR:\n{}", body);
+    assert!(
+        body.contains("call void @string_release(ptr %local_release_load"),
+        "IR:\n{}",
+        body
+    );
+}
+
+#[test]
+fn test_closure_has_its_own_arc_scope() {
+    // A closure is its own LLVM function: its locals are released by its own
+    // return, and its `return` never touches the enclosing function's locals
+    // (that would reference another function's allocas — invalid IR, caught
+    // by the verifier in `ir_from_source`).
+    let ir = ir_from_source(
+        "var s := \"a\" + \"b\"\nvar f := (x: int) -> int {\n    var t := \"c\" + \"d\"\n    return x\n}\nprintln(f(1))\nprintln(s)\n",
+    );
+    let main = function_body(&ir, "main");
+    assert!(!main.contains("%t_release"), "IR:\n{}", main);
+}
+
+#[test]
+fn test_return_of_embedding_parameter_retains() {
+    let ir = ir_from_source(
+        "fn id(e: Embedding<3>) -> Embedding<3> {\n    return e\n}\nvar a := Embedding<3>([1.0, 2.0, 3.0])\nvar b := id(a)\n",
+    );
+    assert!(
+        function_body(&ir, "id").contains("@brix_embedding_retain("),
+        "IR:\n{}",
+        ir
+    );
+}
+
+#[test]
+fn test_ternary_of_pointer_type_builds_ptr_phi() {
+    // The PHI used to fall back to i64 for every pointer-backed type other
+    // than String/Matrix/FloatPtr, producing invalid IR (and a compiler
+    // panic once the value was used as a pointer).
+    let ir = ir_from_source(
+        "var a := Embedding<2>([1.0, 0.0])\nvar b := Embedding<2>([0.0, 1.0])\nvar f := 1\nvar r := (f > 0 ? a : b).dot_product(a)\n",
+    );
+    assert!(ir.contains("phi ptr"), "IR:\n{}", ir);
+}
+
+#[test]
+fn test_ternary_retains_each_borrowed_branch_in_its_own_block() {
+    // The ternary always yields an owned value: each borrowed branch is
+    // retained inside its own block (one retain per branch), and the
+    // declaration then treats the result as an owned temporary (no extra
+    // retain) — so the chosen value is never left with one reference too
+    // few (double free) or too many (leak).
+    let ir = ir_from_source(
+        "var a := Embedding<2>([1.0, 0.0])\nvar b := Embedding<2>([0.0, 1.0])\nvar f := 1\nvar c := f > 0 ? a : b\n",
+    );
+    assert_eq!(
+        ir.matches("call ptr @brix_embedding_retain(").count(),
+        2,
+        "IR:\n{}",
+        ir
+    );
+}
+
+#[test]
+fn test_ternary_mixed_branch_retains_only_the_borrowed_one() {
+    // `f > 0 ? a : Embedding<2>([...])`: the temporary branch is already
+    // owned, so only `a` is retained — retaining the whole ternary leaked
+    // the temporary branch.
+    let ir = ir_from_source(
+        "var a := Embedding<2>([1.0, 0.0])\nvar f := 1\nvar c := f > 0 ? a : Embedding<2>([9.0, 9.0])\n",
+    );
+    assert_eq!(
+        ir.matches("call ptr @brix_embedding_retain(").count(),
+        1,
+        "IR:\n{}",
+        ir
+    );
+}
+
+#[test]
+fn test_discarded_ternary_of_variables_is_balanced() {
+    // A bare `f > 0 ? a : b` statement releases its (owned) result — which
+    // is only safe because the borrowed branch was retained first.
+    let ir = ir_from_source(
+        "var a := Embedding<2>([1.0, 0.0])\nvar b := Embedding<2>([0.0, 1.0])\nvar f := 1\nf > 0 ? a : b\n",
+    );
+    // Both branches retained in their own block, and the discarded result
+    // released once — net zero for whichever variable was chosen.
+    assert_eq!(
+        ir.matches("call ptr @brix_embedding_retain(").count(),
+        2,
+        "IR:\n{}",
+        ir
+    );
+    assert!(
+        ir.contains("call void @brix_embedding_release(ptr %tern_result)"),
+        "IR:\n{}",
+        ir
+    );
+}
+
+#[test]
+fn test_embedding_similarity_releases_temporary_receiver() {
+    // `Embedding<3>([...]).dot_product(a)` — the receiver is an owned
+    // temporary and must be released after the call; a borrowed receiver
+    // (`a.dot_product(a)`) must not be.
+    let base = "var a := Embedding<3>([1.0, 2.0, 3.0])\n";
+    let count = |ir: &str| ir.matches("call void @brix_embedding_release(").count();
+    let borrowed = ir_from_source(&format!("{}var r := a.dot_product(a)\n", base));
+    let temp = ir_from_source(&format!(
+        "{}var r := Embedding<3>([1.0, 0.0, 0.0]).dot_product(a)\n",
+        base
+    ));
+    assert_eq!(count(&temp), count(&borrowed) + 1, "IR:\n{}", temp);
+}

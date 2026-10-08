@@ -251,6 +251,12 @@ impl<'a, 'ctx> ExpressionCompiler<'ctx> for Compiler<'a, 'ctx> {
         // Compile then branch
         self.builder.position_at_end(then_bb);
         let (then_val, then_type) = self.compile_expr(then_expr)?;
+        // ARC: the ternary always yields an OWNED value (same contract as
+        // Elvis): a borrowed branch (variable, field, ...) is retained here,
+        // inside its own block, so every consumer — declaration, discarded
+        // statement, println, method argument, return — can treat the result
+        // as a plain temporary without knowing which branch ran.
+        let then_val = self.own_if_borrowed(then_val, &then_type, then_expr)?;
         self.builder
             .build_unconditional_branch(merge_bb)
             .map_err(|_| CodegenError::LLVMError {
@@ -270,6 +276,7 @@ impl<'a, 'ctx> ExpressionCompiler<'ctx> for Compiler<'a, 'ctx> {
         // Compile else branch
         self.builder.position_at_end(else_bb);
         let (else_val, else_type) = self.compile_expr(else_expr)?;
+        let else_val = self.own_if_borrowed(else_val, &else_type, else_expr)?;
         self.builder
             .build_unconditional_branch(merge_bb)
             .map_err(|_| CodegenError::LLVMError {
@@ -333,14 +340,14 @@ impl<'a, 'ctx> ExpressionCompiler<'ctx> for Compiler<'a, 'ctx> {
             else_val
         };
 
-        // Create PHI node
+        // Create PHI node. Int/Float are fixed (the branches were cast above);
+        // every other type takes the branch value's own LLVM type, so
+        // pointer-backed types (Vector, HashMap, DateTime, Embedding, ...)
+        // get a `ptr` PHI instead of a mismatched i64 fallback.
         let phi_type: BasicTypeEnum = match result_type {
             BrixType::Int => self.context.i64_type().into(),
             BrixType::Float => self.context.f64_type().into(),
-            BrixType::String | BrixType::Matrix | BrixType::FloatPtr => {
-                self.context.ptr_type(AddressSpace::default()).into()
-            }
-            _ => self.context.i64_type().into(),
+            _ => final_then_val.get_type(),
         };
 
         let phi = self

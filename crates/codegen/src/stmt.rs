@@ -520,7 +520,18 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
                 })?;
         } else if values.len() == 1 {
             // Single return
-            let (val, _) = self.compile_expr(&values[0])?;
+            let (val, val_type) = self.compile_expr(&values[0])?;
+
+            // ARC: the returned value leaves the function OWNED by the caller
+            // (call results are treated as owned temporaries — see
+            // `is_borrowed_ref_expr`). So: retain it if it's a borrowed
+            // reference (a local, parameter, captured variable, field or
+            // element), then release every local, same as a void return.
+            // A returned local nets out (+1 retain, -1 scope release); a
+            // ternary/call result is already owned and passes through.
+            let val = self.own_if_borrowed(val, &val_type, &values[0])?;
+            self.release_function_scope_vars()?;
+
             self.builder
                 .build_return(Some(&val))
                 .map_err(|_| CodegenError::LLVMError {

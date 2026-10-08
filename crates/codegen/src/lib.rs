@@ -1209,9 +1209,12 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         let entry_block = self.context.append_basic_block(llvm_function, "entry");
         self.builder.position_at_end(entry_block);
 
-        // 7. Save current state
+        // 7. Save current state. The method is its own LLVM function, so it
+        // gets its own ARC scope (same as compile_function_def) — otherwise a
+        // `return` inside it releases the caller's locals.
         let saved_vars = self.variables.clone();
         let saved_mutable_variables = self.mutable_variables.clone();
+        let saved_scope_vars = std::mem::take(&mut self.function_scope_vars);
         self.current_function = Some(llvm_function);
 
         // 8. Store receiver parameter (as pointer - no alloca needed)
@@ -1262,6 +1265,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         if ret_types.is_empty() {
             if let Some(block) = self.builder.get_insert_block() {
                 if block.get_terminator().is_none() {
+                    self.release_function_scope_vars()?;
                     self.builder
                         .build_return(None)
                         .map_err(|_| CodegenError::LLVMError {
@@ -1276,6 +1280,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         // 12. Restore state
         self.variables = saved_vars;
         self.mutable_variables = saved_mutable_variables;
+        self.function_scope_vars = saved_scope_vars;
         self.current_function = Some(_parent_function);
 
         // 13. Position builder back
@@ -1717,6 +1722,31 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 }
             }
             _ => false,
+        }
+    }
+
+    /// Turn a possibly-borrowed ref-counted value into an owned one: retain
+    /// it when `expr` is a borrowed reference (see `is_borrowed_ref_expr`),
+    /// leave owned temporaries untouched. Used where a value must leave its
+    /// expression as owned regardless of where it came from — each ternary
+    /// branch, and `return`.
+    pub(crate) fn own_if_borrowed(
+        &mut self,
+        val: BasicValueEnum<'ctx>,
+        brix_type: &BrixType,
+        expr: &parser::ast::Expr,
+    ) -> CodegenResult<BasicValueEnum<'ctx>> {
+        if !self.is_borrowed_ref_expr(expr) {
+            return Ok(val);
+        }
+        match brix_type {
+            BrixType::Union(types) => {
+                if Self::union_has_ref_counted_variant(types) {
+                    self.insert_union_retain(val, types)?;
+                }
+                Ok(val)
+            }
+            _ => self.insert_retain(val, brix_type),
         }
     }
 
@@ -6902,11 +6932,16 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             field.as_str(),
                             "set" | "get" | "has" | "delete" | "len" | "keys"
                         );
-                        // Embedding<DIM> methods (v2.0 Grupo A Fase 1). Only
-                        // `.to_matrix()` exists this phase — similarity
-                        // methods (Fase 2) and EmbeddingBatch (Fase 3) are
-                        // not implemented yet.
-                        let is_embedding_method = field == "to_matrix";
+                        // Embedding<DIM> methods: `.to_matrix()` (v2.0 Grupo A
+                        // Fase 1) + BLAS similarity methods (Fase 2).
+                        // EmbeddingBatch (Fase 3) is not implemented yet.
+                        let is_embedding_method = matches!(
+                            field.as_str(),
+                            "to_matrix"
+                                | "dot_product"
+                                | "euclidean_distance"
+                                | "cosine_similarity"
+                        );
                         if is_iter_method
                             || is_str_method
                             || is_vector_method
@@ -6992,7 +7027,17 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                 }
                             }
                             if is_embedding_method {
-                                if let BrixType::Embedding(_) = &receiver_type {
+                                if let BrixType::Embedding(dim) = &receiver_type {
+                                    if field != "to_matrix" {
+                                        return self.compile_embedding_similarity(
+                                            receiver_val,
+                                            *dim,
+                                            field,
+                                            target,
+                                            args,
+                                            expr,
+                                        );
+                                    }
                                     if !args.is_empty() {
                                         return Err(CodegenError::InvalidOperation {
                                             operation: "Embedding.to_matrix".to_string(),
@@ -16533,6 +16578,94 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         Ok((embedding_val, BrixType::Embedding(dim)))
     }
 
+    /// Compile `a.dot_product(b)` / `a.euclidean_distance(b)` /
+    /// `a.cosine_similarity(b)` (v2.0 Grupo A Fase 2) — a single runtime call
+    /// into BLAS (`ddot_`/`dnrm2_`), returning `Float` (f64). `b` must be an
+    /// `Embedding` of the same `dim` as the receiver — a mismatch is an E102
+    /// at compile time, since `dim` is part of the type. The receiver and the
+    /// argument are released after the call when they are owned temporaries
+    /// (the result is a plain f64, so nothing else holds them) — e.g.
+    /// `Embedding<3>([...]).dot_product(a)` or `a.dot_product(id(b))`. This
+    /// relies on call results and ternaries always being owned (see
+    /// `own_if_borrowed`).
+    fn compile_embedding_similarity(
+        &mut self,
+        receiver_val: BasicValueEnum<'ctx>,
+        dim: u32,
+        method: &str,
+        receiver_expr: &Expr,
+        args: &[Expr],
+        expr: &Expr,
+    ) -> CodegenResult<(BasicValueEnum<'ctx>, BrixType)> {
+        let runtime_fn = match method {
+            "dot_product" => "brix_embedding_dot",
+            "euclidean_distance" => "brix_embedding_euclidean",
+            "cosine_similarity" => "brix_embedding_cosine",
+            other => {
+                return Err(CodegenError::UndefinedSymbol {
+                    name: format!("Embedding.{}", other),
+                    context: "Embedding<DIM> method".to_string(),
+                    span: Some(expr.span.clone()),
+                });
+            }
+        };
+        if args.len() != 1 {
+            return Err(CodegenError::InvalidOperation {
+                operation: format!("Embedding.{}", method),
+                reason: format!("expects exactly one Embedding argument, got {}", args.len()),
+                span: Some(expr.span.clone()),
+            });
+        }
+
+        let (arg_val, arg_type) = self.compile_expr(&args[0])?;
+        if arg_type != BrixType::Embedding(dim) {
+            return Err(CodegenError::TypeError {
+                expected: format!("Embedding<{}>", dim),
+                found: crate::types::format_brix_type(&arg_type),
+                context: format!("Embedding<{}>.{} argument", dim, method),
+                span: Some(expr.span.clone()),
+            });
+        }
+
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let f64_type = self.context.f64_type();
+        let fn_type = f64_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+        let func = self.module.get_function(runtime_fn).unwrap_or_else(|| {
+            self.module
+                .add_function(runtime_fn, fn_type, Some(Linkage::External))
+        });
+        let call = self
+            .builder
+            .build_call(
+                func,
+                &[receiver_val.into(), arg_val.into()],
+                "embedding_similarity",
+            )
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_call".to_string(),
+                details: format!("Failed to call {}", runtime_fn),
+                span: Some(expr.span.clone()),
+            })?;
+        let result =
+            call.try_as_basic_value()
+                .left()
+                .ok_or_else(|| CodegenError::MissingValue {
+                    what: format!("{} result", runtime_fn),
+                    context: format!("Embedding<{}>.{}", dim, method),
+                    span: Some(expr.span.clone()),
+                })?;
+
+        let emb_type = BrixType::Embedding(dim);
+        if !self.is_borrowed_ref_expr(&args[0]) {
+            self.insert_release(arg_val.into_pointer_value(), &emb_type)?;
+        }
+        if !self.is_borrowed_ref_expr(receiver_expr) {
+            self.insert_release(receiver_val.into_pointer_value(), &emb_type)?;
+        }
+
+        Ok((result, BrixType::Float))
+    }
+
     /// Compile `embedding.to_matrix()` — returns a new, independent
     /// `Matrix` (1×dim) copy; releasing one side never invalidates the other.
     fn compile_embedding_to_matrix(
@@ -18234,6 +18367,13 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                 "len" | "size" => return Some(BrixType::Int),
                                 "is_empty" => return Some(BrixType::Int),
                                 "enqueue" => return Some(BrixType::Void),
+                                _ => {}
+                            },
+                            BrixType::Embedding(_) => match field.as_str() {
+                                "to_matrix" => return Some(BrixType::Matrix),
+                                "dot_product" | "euclidean_distance" | "cosine_similarity" => {
+                                    return Some(BrixType::Float);
+                                }
                                 _ => {}
                             },
                             BrixType::HashMap(_, val) => match field.as_str() {
