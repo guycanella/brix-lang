@@ -1,6 +1,6 @@
 # Brix Language (Design Document v1.0)
 
-> 🚧 **Status do Projeto (Out 2026):** v1.6, v1.7, v1.8 e v1.9 **COMPLETOS**. **v2.0 em andamento** — Grupo A (`Embedding<DIM>`): Fase 0 (const generics na gramática) e Fase 1 (tipo `Embedding<DIM>` + conversões com `Matrix`) concluídas; Fase 2 (métodos de similaridade via BLAS) é a próxima. **1.378 unit tests + 267 integration tests + 522 Test Library = 2.167 tests passando (100%).** Detalhes técnicos por grupo: `CLAUDE.md` (raiz); planejamento: `ROADMAP_V2.0.md`–`ROADMAP_V2.2.md`.
+> 🚧 **Status do Projeto (Out 2026):** v1.6, v1.7, v1.8 e v1.9 **COMPLETOS**. **v2.0 em andamento** — Grupo A (`Embedding<DIM>`): Fase 0 (const generics na gramática), Fase 1 (tipo `Embedding<DIM>` + conversões com `Matrix`) e Fase 2 (métodos de similaridade via BLAS) concluídas; Fase 3 (`EmbeddingBatch<DIM>`) é a próxima. **1.397 unit tests + 272 integration tests + 529 Test Library = 2.198 tests passando (100%).** Detalhes técnicos por grupo: `CLAUDE.md` (raiz); planejamento: `ROADMAP_V2.0.md`–`ROADMAP_V2.2.md`.
 
 ## Status Atual (Outubro 2026)
 
@@ -235,8 +235,8 @@
 ### 🚧 **v2.0 EM ANDAMENTO — AI-Native Foundation (Grupo A: `Embedding<DIM>`):**
 - ✅ **Fase 0** — Const generics na gramática: `Embedding<1536>(...)` / `EmbeddingBatch<1536>(...)` (só esses dois nomes, e só com `<` colado ao nome — `a < 1 > (b)` continua sendo comparação)
 - ✅ **Fase 1** — `BrixType::Embedding(u32)` com ARC, construtor a partir de array literal / `Matrix` / `IntMatrix`, `.to_matrix()`, anotação de tipo `var e: Embedding<1536>`
-- ⏭️ **Fase 2** — `.dot_product()`, `.euclidean_distance()`, `.cosine_similarity()` via BLAS (`ddot_` / `dnrm2_`)
-- 📋 **Fase 3** — `EmbeddingBatch<DIM>`: `.add()`, `.get()`, `.find_nearest(query, k)`, `.len()`, `.is_empty()`
+- ✅ **Fase 2** — `.dot_product()`, `.euclidean_distance()`, `.cosine_similarity()` via BLAS (`ddot_` / `dnrm2_`); cosine de vetor zero = `0.0`. Junto vieram correções de ARC na linguagem toda: `return` sempre entrega valor próprio e libera os locais, closures e métodos com escopo de ARC próprio, ternário sempre devolve valor próprio
+- ⏭️ **Fase 3** — `EmbeddingBatch<DIM>`: `.add()`, `.get()`, `.find_nearest(query, k)`, `.len()`, `.is_empty()`
 - 📋 **Fase 4** — Benchmark informativo (não é gate de CI)
 
 ### 🔮 **Planejado (v2.1+):**
@@ -3819,7 +3819,7 @@ v1.6 ████████████████████ 100% ✅ break
 v1.7 ████████████████████ 100% ✅ StringMatrix, array methods, slicing, exhaustive match, panic/toThrow
 v1.8 ████████████████████ 100% ✅ Vector/Stack/Queue/Heap/HashMap, LAPACK decompositions
 v1.9 ████████████████████ 100% ✅ datetime, json, variadics, mut arrays, REPL
-v2.0 ████████░░░░░░░░░░░░  40% 🚧 Embedding<DIM> (Fases 0–1 de 0–4)
+v2.0 ████████████░░░░░░░░  60% 🚧 Embedding<DIM> (Fases 0–2 de 0–4)
 ```
 
 **Legenda:**
@@ -4043,12 +4043,12 @@ math.sum(arr), math.mean(arr), math.median(arr), math.std(arr)
 
 ### 📊 Estatísticas do Projeto:
 
-- **Linhas de Código (Rust):** ~39.700 linhas (lexer + parser + codegen + driver)
-- **Linhas de Código (C Runtime):** ~5.910 linhas (`runtime.c`)
-- **Testes:** 1.378 unit (317 lexer + 220 parser + 841 codegen) + 267 integration + 522 Test Library (32 arquivos `.test.bx`) = 2.167 total
-- **Versão Atual:** v2.0 🚧 **EM ANDAMENTO** (Grupo A, Fases 0–1 de 0–4)
+- **Linhas de Código (Rust):** ~39.900 linhas (lexer + parser + codegen + driver)
+- **Linhas de Código (C Runtime):** ~5.970 linhas (`runtime.c`)
+- **Testes:** 1.397 unit (317 lexer + 220 parser + 860 codegen) + 272 integration + 529 Test Library (32 arquivos `.test.bx`) = 2.198 total
+- **Versão Atual:** v2.0 🚧 **EM ANDAMENTO** (Grupo A, Fases 0–2 de 0–4)
 - **Versão Anterior:** v1.9 ✅ **COMPLETO (Ago 2026)**
-- **Próximo Passo:** v2.0 Grupo A Fase 2 — métodos de similaridade via BLAS
+- **Próximo Passo:** v2.0 Grupo A Fase 3 — `EmbeddingBatch<DIM>` + `find_nearest`
 - **Última Atualização:** Out 2026
 
 ---
@@ -4211,7 +4211,7 @@ var embedding1 := Embedding<1536>([0.1, 0.2, ...])  // ✅ v2.0 Fase 1
 var embedding2 := Embedding<1536>([0.3, 0.4, ...])
 var m := embedding1.to_matrix()                      // ✅ v2.0 Fase 1 (cópia, Matrix 1×1536)
 
-// v2.0 entrega MÉTODOS (Fase 2), double precision via BLAS
+// v2.0 entrega MÉTODOS (✅ Fase 2), double precision via BLAS
 var similarity := embedding1.cosine_similarity(embedding2)
 var distance := embedding1.euclidean_distance(embedding2)
 var dot := embedding1.dot_product(embedding2)
@@ -4230,7 +4230,7 @@ var top_k := batch.find_nearest(query, 10)    // IntMatrix de índices, ordenado
 **Características:**
 - ✅ **Tipo de primeira classe:** `Embedding<DIM>` com dimensão fixa, checada em compile-time (dimensões diferentes → `E102`)
 - ✅ **Precisão `double` (f64):** mesma de `Matrix`; conversões sempre copiam (sem aliasing)
-- 📋 **Métodos de similaridade via BLAS** (`ddot_` / `dnrm2_`, convenção Fortran já usada pelos wrappers LAPACK) — Fase 2
+- ✅ **Métodos de similaridade via BLAS** (`ddot_` / `dnrm2_`, convenção Fortran já usada pelos wrappers LAPACK) — Fase 2
 - 📋 **Batch operations:** `EmbeddingBatch<DIM>` com k-NN por cosine em `O(n·DIM + n·log k)` — Fase 3
 - 📋 **Operadores nativos** `@` / `<->` / `<=>` — adiados para v2.1
 - ⏸️ **SIMD explícito (AVX-512, NEON):** fora do escopo da v2.0; o ganho vem do BLAS do sistema
@@ -4475,8 +4475,8 @@ var response := llm.generate(rendered, max_tokens=500)
 **Phase 1: Embedding Type (v2.0) — 🚧 em andamento:**
 - ✅ Fase 0: const generics (`Embedding<DIM>`) na gramática
 - ✅ Fase 1: `Embedding<DIM>` como tipo + conversões com `Matrix`
-- ⏭️ Fase 2: `.cosine_similarity()` / `.euclidean_distance()` / `.dot_product()` via BLAS
-- 📋 Fase 3: `EmbeddingBatch<DIM>` + `find_nearest`
+- ✅ Fase 2: `.cosine_similarity()` / `.euclidean_distance()` / `.dot_product()` via BLAS
+- ⏭️ Fase 3: `EmbeddingBatch<DIM>` + `find_nearest`
 - 📋 Fase 4: benchmark informativo
 
 **Phase 2: Vector DB Integration (v2.1):**
@@ -4524,6 +4524,6 @@ Essas features transformariam Brix em **THE language for AI-powered Data Enginee
 - ✅ Timing perfeito com boom de RAG/LLMs
 - ✅ Diferencial competitivo único no mercado
 
-**Status:** v2.0 em andamento (Grupo A, Fases 0–1 concluídas). v2.1 e v2.2 planejadas.
+**Status:** v2.0 em andamento (Grupo A, Fases 0–2 concluídas). v2.1 e v2.2 planejadas.
 
 **Prioridade:** Alta - Alinhado com tendências de mercado e filosofia da linguagem

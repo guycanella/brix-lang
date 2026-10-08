@@ -27,10 +27,10 @@ Each entry recompiles and re-runs the whole accumulated session through the same
 
 **Run Rust unit tests:**
 ```bash
-cargo test -p lexer -p parser -p codegen  # All unit tests: 317 + 220 + 841 = 1,378 (all passing)
+cargo test -p lexer -p parser -p codegen  # All unit tests: 317 + 220 + 860 = 1,397 (all passing)
 cargo test -p lexer                       # Only lexer (317 tests)
 cargo test -p parser                      # Only parser (220 tests)
-cargo test -p codegen                     # Only codegen (841 tests)
+cargo test -p codegen                     # Only codegen (860 tests)
 cargo test -p codegen json_tests          # Specific test module in codegen
 cargo test <pattern>                      # Tests matching pattern
 cargo test -- --nocapture                 # Show println! output
@@ -38,7 +38,7 @@ cargo test -- --nocapture                 # Show println! output
 
 **Run integration tests (must be sequential):**
 ```bash
-cargo test --test integration_test -- --test-threads=1 # 267 tests passing
+cargo test --test integration_test -- --test-threads=1 # 272 tests passing
 ```
 
 **Run Brix language tests (Test Library):**
@@ -67,7 +67,7 @@ The driver (`src/main.rs`, ~507 lines; REPL in `src/repl.rs`) orchestrates all s
 ```
 brix/
 ├── src/main.rs              # CLI + compilation pipeline driver
-├── runtime.c                # C runtime (~5,910 lines) — must be in project root
+├── runtime.c                # C runtime (~5,974 lines) — must be in project root
 ├── crates/
 │   ├── lexer/src/token.rs   # Token enum (logos)
 │   ├── parser/src/
@@ -76,9 +76,9 @@ brix/
 │   │   ├── closure_analysis.rs  # Capture analysis pass (runs after parse)
 │   │   └── error.rs         # Ariadne-based parse error reporting
 │   └── codegen/src/
-│       ├── lib.rs           # Main compiler (~19,318 lines — post-refactor 11,014, grew with v1.8–v2.0 + rustfmt expansion)
-│       ├── stmt.rs          # Statement compilation (~1,498 lines)
-│       ├── expr.rs          # Expression compilation + list comprehension (~2,021 lines)
+│       ├── lib.rs           # Main compiler (~19,458 lines — post-refactor 11,014, grew with v1.8–v2.0 + rustfmt expansion)
+│       ├── stmt.rs          # Statement compilation (~1,509 lines)
+│       ├── expr.rs          # Expression compilation + list comprehension (~2,028 lines)
 │       ├── helpers.rs       # LLVM helpers
 │       ├── error.rs         # CodegenError enum + CodegenResult<T>
 │       ├── error_report.rs  # Ariadne codegen error formatting
@@ -88,7 +88,7 @@ brix/
 │                            #   iterator.rs, match_compiler.rs, async_compiler.rs, closure_compiler.rs
 ├── tests/
 │   ├── integration/         # End-to-end .bx files (success/, parser_errors/, codegen_errors/, runtime_errors/, test_library_failures/)
-│   └── brix/                # Language test files (*.test.bx) — 32 files, 522 tests, all passing
+│   └── brix/                # Language test files (*.test.bx) — 32 files, 529 tests, all passing
 └── examples/                # Example .bx programs
 ```
 
@@ -121,7 +121,7 @@ Flat `HashMap<String, (PointerValue, BrixType)>` with module prefixes. `import m
 - **match**: one basic block per arm + PHI in merge block
 - **break/continue**: `Compiler` has `current_break_block` / `current_continue_block` (`Option<BasicBlock>`). Each loop saves the outer blocks, sets its own, restores after body. After emitting the unconditional branch, a dead basic block is appended to keep LLVM IR valid.
 
-### Type System (current: v2.0 in progress — Grupo A Fases 0–1 done)
+### Type System (current: v2.0 in progress — Grupo A Fases 0–2 done)
 
 Core types: `Int` (i64), `Float` (f64), `String`, `Matrix` (f64, contiguous), `IntMatrix` (i64), `StringMatrix` (array of `BrixString*`, v1.7), `Complex`, `ComplexArray`, `ComplexMatrix`, `Tuple`, `Nil`, `Error`, `Atom` (i64 interned), `Void`, `Struct(String)`, `Optional(Box)` (desugars to Union), `Union(Vec<BrixType>)`, `Intersection(Vec<BrixType>)`, `AsyncFuture`, `FloatPtr`, `Vector(Box<BrixType>)` (v1.8 Grupo C — dynamic `Vector<T>`, `BrixVector*`), `Stack`/`Queue`/`MinHeap`/`MaxHeap(Box<BrixType>)` and `HashMap(Box, Box)` (v1.8 D–F), `DateTime` (v1.9 A), `Json` (v1.9 B), and `Embedding(u32)` (v2.0 Grupo A — `BrixEmbedding*`, dim is a const generic).
 
@@ -205,7 +205,7 @@ Jest-style framework. 17 matchers (all support `.not.`): `toBe`, `toEqual`, `toB
 
 **Test baseline at v1.9 completion:** 1,357 unit (317 lexer + 209 parser + 831 codegen) + 264 integration + 517 Test Library (31 `.test.bx` files).
 
-**Current test baseline (v2.0 Grupo A Fase 1 COMPLETE):** 1,378 unit (317 lexer + 220 parser + 841 codegen) + 267 integration + 522 Test Library (32 `.test.bx` files). All green.
+**Current test baseline (v2.0 Grupo A Fase 2 COMPLETE):** 1,397 unit (317 lexer + 220 parser + 860 codegen) + 272 integration + 529 Test Library (32 `.test.bx` files). All green.
 
 **Completed in v1.9 (Grupo F):**
 - **Grupo F — `brix repl` — COMPLETE, as a "replay REPL", not the roadmap's original incremental-JIT design:**
@@ -350,7 +350,25 @@ Single group, **Grupo A — `Embedding<DIM>`**, in 5 phases. v2.0 ships **method
 - `.to_matrix()` (arity-checked) is the only method so far. `infer_expr_type_static()` gained its first `ExprKind::GenericCall` arm (`:type Embedding<3>(...)` in the REPL). The two known gap sites are closed for `Embedding`; the nil-comparison / match-PHI gaps are inherited, same as `Vector`. `println(embedding)` not supported (no `value_to_string` arm, same as `Vector`).
 - +9 codegen unit, +2 parser unit, integration tests 260–262 (incl. runtime-abort via subprocess exit code), +5 Test Library (`embedding.test.bx`).
 
-**Next — Fase 2:** `.dot_product` / `.euclidean_distance` / `.cosine_similarity` via Fortran-convention BLAS `ddot_`/`dnrm2_` (no BLAS dot/norm symbol is used anywhere yet — validate link with an isolated test first). Zero-vector cosine returns `0.0`; dim mismatch is `E102` at compile time. Then Fase 3 (`EmbeddingBatch<DIM>`: `add`/`get`/`find_nearest`/`len`/`is_empty`) and Fase 4 (informative benchmark).
+**Fase 2 — COMPLETE** (`2734f43`) — similarity methods via BLAS:
+- `a.dot_product(b)` / `a.euclidean_distance(b)` / `a.cosine_similarity(b)` → `Float` (f64). `runtime.c` `SECTION 2.10`: `brix_embedding_dot`/`_euclidean`/`_cosine` over Fortran-convention `ddot_`/`dnrm2_` (`extern`, pass-by-pointer, `int` lengths — same convention as the LAPACK wrappers, resolved by the existing `-llapack -lblas`). Euclidean builds a temp `a - b` buffer for `dnrm2_`. Zero-vector cosine returns `0.0`, never `NaN`.
+- Static helper `brix_embedding_check_pair` aborts on `NULL` / dim mismatch / `dim > INT_MAX` — an internal-invariant defense only; user-facing dim mismatch is `E102` at compile time (`compile_embedding_similarity` in `lib.rs` requires the arg type to equal `Embedding(dim)` exactly). Arity ≠ 1 → `E104`.
+- Dispatch: `is_embedding_method` guard widened to the 3 names; a user struct method with the same name (e.g. `fn (v: V2) dot_product(...)`) still dispatches to the struct (integration 266). `infer_expr_type_static()` Embedding arm: `to_matrix` → `Matrix`, the 3 methods → `Float` (`:type` in the REPL).
+- ARC: both the receiver and the argument are released after the call when they are owned temporaries (`!is_borrowed_ref_expr`) — `Embedding<3>([...]).dot_product(a)` and `a.dot_product(Embedding<3>([...]))` don't leak. Note `.to_matrix()` and the Vector/Stack/Queue/Heap/HashMap methods still do NOT release a temporary receiver (pre-existing leak, untouched).
+- BLAS link validated on macOS (Accelerate) with an isolated `ddot_`/`dnrm2_` program before any embedding code. **Not validated on Linux** — no CI exists in the repo.
+
+**ARC conventions changed in Fase 2 (language-wide, found in review — read before touching returns/ternaries/closures):**
+- **Single-value `return` always hands the caller an owned value:** `own_if_borrowed()` (`lib.rs`) retains it if `is_borrowed_ref_expr` (local, parameter, captured var, field, element), then `release_function_scope_vars()` runs, same as a void return. A returned local nets out (+1/−1). Before: `return param` gave the caller an unowned pointer (use-after-free once the caller released the "temporary" call result, e.g. `v.push(id(s)); v.clear(); println(s)`), and every other local of a non-void function leaked. **Tuple returns are unchanged** (caller-side "aliased returns" logic in `stmt.rs` destructuring still applies; they still don't release locals).
+- **Closures and struct methods have their own ARC scope:** `function_scope_vars` is saved/cleared/restored (`std::mem::take`) in `compile_closure` (`builtins/closure_compiler.rs`) and in the method-definition path (`lib.rs`), as `compile_function_def` and the async compilers already did; both now also release their locals on implicit void return. Before: closure-body locals were pushed into the enclosing function's list, and a `return` inside a struct method released the *caller's* locals (invalid IR / segfault).
+- **A ternary always yields an owned value** (same contract as Elvis since v1.8 Fase 4A): each borrowed branch is retained inside its own block via `own_if_borrowed` (`expr.rs`), and `is_borrowed_ref_expr` treats `Ternary` as an owned temporary. Before: `println(f ? s1 : s2)` / a discarded `f ? a : b` released the chosen variable (use-after-free — pre-existing for `string`).
+- **Ternary PHI type** for pointer-backed types now comes from the branch value (`final_then_val.get_type()`); it used to fall back to `i64` for anything but String/Matrix/FloatPtr (invalid IR for Vector/HashMap/DateTime/Embedding/...).
+- Source-based codegen unit tests: `ir_from_source()` / `function_body()` helpers in `tests/builtin_tests.rs` (lex+parse+compile real Brix, then `module.verify()`), plus `compile_error()` to pin a `CodegenError` variant (the older `compile_program` helper discards errors).
+
+Tests: +19 codegen unit, integration 263–267 (263 dot incl. f64-only precision case, 264 euclidean, 265 cosine incl. zero vector, 266 return/ternary/struct-method ARC, 267 ternary ownership), +7 Test Library (`embedding.test.bx`).
+
+**Known pre-existing bugs found during Fase 2, NOT fixed (separate work):** (1) a closure returning `string`, called through a variable (`var g := (n: int) -> string {...}; println(g(1))`), prints the pointer as an int — the `Closure`→`Tuple` collapse loses the signature; (2) a program combining top-level functions and closures that return strings (ternary over a captured var) crashes LLVM during object emission — reproduces identically on the pre-Fase-2 HEAD, root cause not isolated.
+
+**Next — Fase 3:** `EmbeddingBatch<DIM>`: `add`/`get`/`find_nearest`/`len`/`is_empty` (see `ROADMAP_V2.0.md` contracts: `find_nearest` returns `IntMatrix` `1×min(k,len)` indices sorted by cosine desc, `O(n·DIM + n·log k)`). Then Fase 4 (informative benchmark).
 
 ## Troubleshooting
 
