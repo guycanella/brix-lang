@@ -84,7 +84,7 @@ Não há `rustfmt.toml` nem `clippy.toml` customizados — usar defaults do `rus
 ## Coisas a evitar
 
 - **Não** adicionar `.unwrap()`/`.expect()` em caminho alcançável por input do usuário — sempre `CodegenResult` + `?`
-- **Não** editar `lib.rs` sem passar pelo checklist de dispatch (guard `matches!()` em ~linha 7392 + match arm no local certo) — feature "funciona só às vezes" costuma ser esse checklist incompleto
+- **Não** editar `lib.rs` sem passar pelo checklist de dispatch (guard `matches!()` em ~linha 6,835 de `lib.rs` + match arm no local certo) — feature "funciona só às vezes" costuma ser esse checklist incompleto
 - **Não** esquecer ARC ao adicionar um tipo heap-allocated: todo struct C precisa de `ref_count` como primeiro campo, `_retain()`/`_release()` idempotentes, e os pontos em `lib.rs` (`is_ref_counted()`, `insert_retain()`, `insert_release()`)
 - **Não** rodar integration tests em paralelo — todos compilam no mesmo diretório; sempre `--test-threads=1`
 - **Não** pular o clean build (`rm -f runtime.o output.o program && cargo clean`) ao investigar erros de linking antes de assumir que é um bug real

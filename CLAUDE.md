@@ -27,10 +27,10 @@ Each entry recompiles and re-runs the whole accumulated session through the same
 
 **Run Rust unit tests:**
 ```bash
-cargo test -p lexer -p parser -p codegen  # All unit tests: 312 + 202 + 824 = 1,338 (all passing)
-cargo test -p lexer                       # Only lexer (312 tests)
-cargo test -p parser                      # Only parser (202 tests)
-cargo test -p codegen                     # Only codegen (824 tests)
+cargo test -p lexer -p parser -p codegen  # All unit tests: 317 + 220 + 841 = 1,378 (all passing)
+cargo test -p lexer                       # Only lexer (317 tests)
+cargo test -p parser                      # Only parser (220 tests)
+cargo test -p codegen                     # Only codegen (841 tests)
 cargo test -p codegen json_tests          # Specific test module in codegen
 cargo test <pattern>                      # Tests matching pattern
 cargo test -- --nocapture                 # Show println! output
@@ -38,12 +38,12 @@ cargo test -- --nocapture                 # Show println! output
 
 **Run integration tests (must be sequential):**
 ```bash
-cargo test --test integration_test -- --test-threads=1 # 238 tests passing
+cargo test --test integration_test -- --test-threads=1 # 267 tests passing
 ```
 
 **Run Brix language tests (Test Library):**
 ```bash
-cargo run -- test                   # All *.test.bx and *.spec.bx (30 suites passing)
+cargo run -- test                   # All *.test.bx and *.spec.bx (32 suites passing)
 cargo run -- test json              # Files matching "json" in path
 ```
 
@@ -60,24 +60,24 @@ rm -f runtime.o output.o program && cargo clean && cargo run <file.bx>
 .bx source → Lexer (logos) → Parser (chumsky) → AST → Codegen (inkwell/LLVM 18) → Object + runtime.o → Native Binary
 ```
 
-The driver (`src/main.rs`, ~314 lines) orchestrates all stages: lexing, parsing, closure analysis, codegen, `cc`-compiling `runtime.c`, LLVM object emission, and linking with `-lm -llapack -lblas`.
+The driver (`src/main.rs`, ~507 lines; REPL in `src/repl.rs`) orchestrates all stages: lexing, parsing, closure analysis, codegen, `cc`-compiling `runtime.c`, LLVM object emission, and linking with `-lm -llapack -lblas`.
 
 ### Workspace Structure
 
 ```
 brix/
 ├── src/main.rs              # CLI + compilation pipeline driver
-├── runtime.c                # C runtime (~4,595 lines) — must be in project root
+├── runtime.c                # C runtime (~5,910 lines) — must be in project root
 ├── crates/
 │   ├── lexer/src/token.rs   # Token enum (logos)
 │   ├── parser/src/
 │   │   ├── ast.rs           # Expr { kind: ExprKind, span }, Stmt { kind: StmtKind, span }
-│   │   ├── parser.rs        # chumsky parser (~1,621 lines)
+│   │   ├── parser.rs        # chumsky parser (~2,064 lines)
 │   │   ├── closure_analysis.rs  # Capture analysis pass (runs after parse)
 │   │   └── error.rs         # Ariadne-based parse error reporting
 │   └── codegen/src/
-│       ├── lib.rs           # Main compiler (~17,244 lines — post-refactor 11,014, grew with v1.8 + rustfmt expansion)
-│       ├── stmt.rs          # Statement compilation (~1,410 lines)
+│       ├── lib.rs           # Main compiler (~19,318 lines — post-refactor 11,014, grew with v1.8–v2.0 + rustfmt expansion)
+│       ├── stmt.rs          # Statement compilation (~1,498 lines)
 │       ├── expr.rs          # Expression compilation + list comprehension (~2,021 lines)
 │       ├── helpers.rs       # LLVM helpers
 │       ├── error.rs         # CodegenError enum + CodegenResult<T>
@@ -88,7 +88,7 @@ brix/
 │                            #   iterator.rs, match_compiler.rs, async_compiler.rs, closure_compiler.rs
 ├── tests/
 │   ├── integration/         # End-to-end .bx files (success/, parser_errors/, codegen_errors/, runtime_errors/, test_library_failures/)
-│   └── brix/                # Language test files (*.test.bx) — 26 files, 434 tests, all passing
+│   └── brix/                # Language test files (*.test.bx) — 32 files, 522 tests, all passing
 └── examples/                # Example .bx programs
 ```
 
@@ -121,9 +121,9 @@ Flat `HashMap<String, (PointerValue, BrixType)>` with module prefixes. `import m
 - **match**: one basic block per arm + PHI in merge block
 - **break/continue**: `Compiler` has `current_break_block` / `current_continue_block` (`Option<BasicBlock>`). Each loop saves the outer blocks, sets its own, restores after body. After emitting the unconditional branch, a dead basic block is appended to keep LLVM IR valid.
 
-### Type System (current: v1.8 in progress — Grupos A/B done, C partial)
+### Type System (current: v2.0 in progress — Grupo A Fases 0–1 done)
 
-Core types: `Int` (i64), `Float` (f64), `String`, `Matrix` (f64, contiguous), `IntMatrix` (i64), `StringMatrix` (array of `BrixString*`, v1.7), `Complex`, `ComplexArray`, `ComplexMatrix`, `Tuple`, `Nil`, `Error`, `Atom` (i64 interned), `Void`, `Struct(String)`, `Optional(Box)` (desugars to Union), `Union(Vec<BrixType>)`, `Intersection(Vec<BrixType>)`, `AsyncFuture`, `FloatPtr`, and `Vector(Box<BrixType>)` (v1.8 Grupo C — dynamic `Vector<T>`, `BrixVector*`).
+Core types: `Int` (i64), `Float` (f64), `String`, `Matrix` (f64, contiguous), `IntMatrix` (i64), `StringMatrix` (array of `BrixString*`, v1.7), `Complex`, `ComplexArray`, `ComplexMatrix`, `Tuple`, `Nil`, `Error`, `Atom` (i64 interned), `Void`, `Struct(String)`, `Optional(Box)` (desugars to Union), `Union(Vec<BrixType>)`, `Intersection(Vec<BrixType>)`, `AsyncFuture`, `FloatPtr`, `Vector(Box<BrixType>)` (v1.8 Grupo C — dynamic `Vector<T>`, `BrixVector*`), `Stack`/`Queue`/`MinHeap`/`MaxHeap(Box<BrixType>)` and `HashMap(Box, Box)` (v1.8 D–F), `DateTime` (v1.9 A), `Json` (v1.9 B), and `Embedding(u32)` (v2.0 Grupo A — `BrixEmbedding*`, dim is a const generic).
 
 **Scientific notation (v1.8):** float literals accept exponents — `6.0e23`, `1.5e-10`, `6.02E+23`, and integer-mantissa `1e10`; imaginary too (`1e3i`). Lexer `Float`/`ImaginaryLiteral` regexes; parser converts via `str::parse::<f64>()`.
 
@@ -173,17 +173,17 @@ Jest-style framework. 17 matchers (all support `.not.`): `toBe`, `toEqual`, `toB
 
 **New built-in function:** External declaration in codegen → C implementation in `runtime.c` (auto-recompiled). Register in `builtins/` module.
 
-**New global constructor/function (e.g., `ones`, `linspace`):** Add `if fn_name == "foo"` dispatch block in `lib.rs` (~line 9,304, after the `eye` block) → add `compile_foo()` method in `lib.rs` (after `compile_irand`, before `compile_zip`) → add C implementation in `runtime.c`. For functions taking float args that may receive int literals, use `self.coerce_to_f64(val, &brix_type)` helper.
+**New global constructor/function (e.g., `ones`, `linspace`):** Add `if fn_name == "foo"` dispatch block in `lib.rs` (~line 8,758, next to the `ones` block) → add `compile_foo()` method in `lib.rs` (after `compile_irand` ~line 13,845, before `compile_zip`) → add C implementation in `runtime.c`. For functions taking float args that may receive int literals, use `self.coerce_to_f64(val, &brix_type)` helper.
 
-**New type:** Update `BrixType` enum in `types.rs`, `infer_type()`, `cast_value()`, `get_llvm_type()` in `lib.rs`.
+**New type:** use the `/add-type` skill checklist. Minimum: `BrixType` enum + `format_brix_type()` in `types.rs`; `brix_type_to_llvm()`, `is_ref_counted()`, `insert_retain()`/`insert_release()`, `typeof()` and `infer_expr_type_static()` in `lib.rs`; plus the two non-exhaustive `match BrixType` gap sites (`stmt.rs` variable-decl allocation match and `lib.rs` `ExprKind::Identifier` variable-load match) — see v1.8 Grupo D below.
 
-**New iterator method on IntMatrix/Matrix:** Add match arm in `compile_iterator_method()` in `lib.rs` (~line 13,613); add method name to the `matches!(field.as_str(), ...)` dispatch guard (~line 7,707) — note this guard is shared between iterator methods and string methods (see `is_iter_method`/`is_str_method` split, added in v1.7 Grupo D to fix a struct-init grammar ambiguity — see Status & Limitations).
+**New iterator method on IntMatrix/Matrix:** Add match arm in `compile_iterator_method()` in `builtins/iterator.rs`; add method name to the `matches!(field.as_str(), ...)` dispatch guard in `lib.rs` (~line 6,835) — note this guard is shared between iterator methods and string methods (see `is_iter_method`/`is_str_method` split, added in v1.7 Grupo D to fix a struct-init grammar ambiguity — see Status & Limitations).
 
 **Soft keywords** (context-sensitive, e.g., `step`): parsed as `Identifier("step")` in the lexer — no new `Token` variant needed. Match via `just(Token::Identifier("step".to_string()))` in `parser.rs`.
 
-**New pattern variant (e.g., for `match`):** Add variant to `Pattern` enum in `parser/src/ast.rs` → parse it in the `pattern` recursive block in `parser.rs` (inside `let pattern = recursive(|_pat| { ... })`) → add match arm to `compile_pattern_match()` in `lib.rs` (~line 16,355). For sub-patterns, use `apply_sub_pattern()` helper. Also add the variant's binding names to `collect_pattern_binding_names()` (v1.7 fix — used to scope match-arm bindings so they don't leak into the next arm; see Status & Limitations).
+**New pattern variant (e.g., for `match`):** Add variant to `Pattern` enum in `parser/src/ast.rs` → parse it in the `pattern` recursive block in `parser.rs` (inside `let pattern = recursive(|_pat| { ... })`) → add match arm to `compile_pattern_match()` in `builtins/match_compiler.rs`. For sub-patterns, use `apply_sub_pattern()` helper. Also add the variant's binding names to `collect_pattern_binding_names()` (v1.7 fix — used to scope match-arm bindings so they don't leak into the next arm; see Status & Limitations).
 
-## Status & Limitations (v1.7 complete)
+## Status & Limitations (v1.9 complete, v2.0 in progress)
 
 **Completed in v1.6 (Fases 0–4):**
 - `break` / `continue` (Fase 0a): `Token::Break`/`Token::Continue`, `StmtKind::Break`/`StmtKind::Continue`, save/restore pattern on `Compiler`. Note: `break`/`continue` inside closures (e.g., `.map()` callbacks) is not supported.
@@ -203,11 +203,13 @@ Jest-style framework. 17 matchers (all support `.not.`): `toBe`, `toEqual`, `toB
 
 **Test baseline (post Phase 4, pre-v1.7):** 1,194 unit + 152 integration + 390 Test Library (23 `.test.bx` files)
 
-**Current test baseline (v1.9 Grupo F COMPLETE — replay REPL, v1.9 feature-complete):** 1,357 unit (317 lexer + 209 parser + 831 codegen) + 264 integration + 517 Test Library (31 `.test.bx` files). All green.
+**Test baseline at v1.9 completion:** 1,357 unit (317 lexer + 209 parser + 831 codegen) + 264 integration + 517 Test Library (31 `.test.bx` files).
+
+**Current test baseline (v2.0 Grupo A Fase 1 COMPLETE):** 1,378 unit (317 lexer + 220 parser + 841 codegen) + 267 integration + 522 Test Library (32 `.test.bx` files). All green.
 
 **Completed in v1.9 (Grupo F):**
 - **Grupo F — `brix repl` — COMPLETE, as a "replay REPL", not the roadmap's original incremental-JIT design:**
-  - **Deliberate scope reduction from the roadmap:** the roadmap's draft (`ROADMAP_V1.9.md`) called for a true incremental JIT via inkwell's `ExecutionEngine` — per-line LLVM modules, prior variables redeclared as `extern`, no re-execution of old code. That has no existing foothold anywhere in this compiler (every other path emits an object file and shells out to `cc`/`ld`) and would need to solve cross-module linking and ARC lifetime across module boundaries from scratch — real, `High`-risk engineering the roadmap itself flags. Implemented instead as a **replay REPL**: each entry recompiles and re-runs the *entire* accumulated session history through the existing object+cc+ld pipeline. This preserves every type's exact semantics (ARC, `Vector<string>`, JSON, closures — anything) for free, since each evaluation is a real, complete `compile_program()` run, not a partial approximation. True incremental JIT is deferred to v2.0.
+  - **Deliberate scope reduction from the roadmap:** the roadmap's draft (`ROADMAP_V1.9.md`, no longer in the repo) called for a true incremental JIT via inkwell's `ExecutionEngine` — per-line LLVM modules, prior variables redeclared as `extern`, no re-execution of old code. That has no existing foothold anywhere in this compiler (every other path emits an object file and shells out to `cc`/`ld`) and would need to solve cross-module linking and ARC lifetime across module boundaries from scratch — real, `High`-risk engineering the roadmap itself flags. Implemented instead as a **replay REPL**: each entry recompiles and re-runs the *entire* accumulated session history through the existing object+cc+ld pipeline. This preserves every type's exact semantics (ARC, `Vector<string>`, JSON, closures — anything) for free, since each evaluation is a real, complete `compile_program()` run, not a partial approximation. True incremental JIT is deferred to v2.0.
   - **This has real, load-bearing limitations, documented rather than glossed over:** (1) prior side effects (`println`, `input()`, randomness, `datetime.now()`, file I/O) genuinely re-execute on every entry — only the *current* entry's output is shown to the user, the underlying effects still repeat; (2) performance is `O(history length)` — a full recompile + link happens on every entry; (3) it is not a persistent process in the JIT sense — there is no long-lived state beyond the accumulated source text itself.
   - **Pipeline refactor (prerequisite):** `src/main.rs` gained `compile_and_run_isolated(source: &str, opt_level: u8, workdir: &Path, label: &str) -> Result<EvalOutcome, ReplError>` — takes source as an in-memory string (never written to a `.bx` file), writes all artifacts (`runtime.o`, `output.o`, the executable, always named `program`) into a caller-supplied directory instead of the project root, never calls `exit()` (every failure path returns one of 8 `ReplError` variants), and captures the child binary's stdout/stderr instead of inheriting the parent's. **Deliberately not unified with the legacy `compile_to_exe`/`run_exe` path** used by `run_file`/`run_tests`: that path's ~250-test integration suite depends on the compiled binary being named after the file stem *in the repo root* (e.g. `./246_mut_array_push_pop`), a contract `compile_and_run_isolated`'s fixed `workdir/program` naming can't satisfy without special-casing that would defeat the point of extracting it. Accepted as intentional duplication (~120 lines) rather than risk that test suite.
   - **Implicit expression printing:** an entry that parses standalone as exactly one `StmtKind::Expr` (checked via `is_bare_expr()` in `src/repl.rs`, a throwaway parse with no codegen) is wrapped as `println(<expr>)` *only for that evaluation* — the unwrapped original text is what gets appended to history, so re-running it later doesn't double-print. Declarations, imports, and function/struct defs are never wrapped.
@@ -231,6 +233,11 @@ Jest-style framework. 17 matchers (all support `.not.`): `toBe`, `toEqual`, `toB
   - Receiver scope restriction: in-place methods (`!`) are strictly restricted to plain variable identifiers (`ExprKind::Identifier`).
   - C Runtime (`runtime.c` `SECTION 1.9`): 14 in-place array functions (`intmatrix_push_inplace`, `intmatrix_pop_inplace`, `intmatrix_insert_inplace`, `intmatrix_remove_inplace`, `intmatrix_sort_inplace`, `intmatrix_reverse_inplace`, `intmatrix_clear_inplace`, and float `matrix_*_inplace` equivalents). All restricted to 1D arrays (`rows == 1`), raising runtime error on 2D matrices or empty `pop!` / OOB `insert!`/`remove!`.
   - Integration tests 246–250 (`246_mut_array_push_pop.bx`, `247_mut_array_sort_inplace.bx`, `248_mut_immut_mix.bx`, `mut_array_on_immutable.bx`, `mut_array_non_identifier.bx`). All tests passing 100%.
+
+**Completed in v1.9 (Grupos B–D)** — summarized from commit messages (no dedicated doc entry was written at the time):
+- **Grupo B — `import json`:** `BrixType::Json` + `runtime.c` `SECTION 2.9`. Constructors `json.null/bool/int/float/string/array/object`; `json.parse`/`get`/`index` → `Union(Json, Nil)`; `as_string`/`as_int`/`as_bool`/`as_float` → optional; `set`/`array_push`/`array_len`/`tag`; `stringify`/`stringify_pretty(indent)`; index sugar `data["key"]`. Hardening fixes in `22c7d33`: UTF-8 multi-byte overflow guard, `\u0000` rejected, full control-char + key escaping in `stringify`, and an ARC regression where `StringMatrix` indexing lost its retain on assignment. Integration tests 230–238; `json.test.bx`.
+- **Grupo C — variadic params (`...T`):** `FunctionParam` AST; must be last, no default. Lowered at the call site to a 1D `IntMatrix`/`Matrix`/`StringMatrix` (N=0 → `1×0`); `StringMatrix` element ARC delegated to `string_matrix_set`. Integration tests 239–244; `variadic_v19.test.bx`.
+- **Grupo D — static `is_function()`:** `infer_expr_type_static()` handles `ExprKind::Closure`; `is_function(x)` emits a constant `i64 1`/`0` without compiling the argument (no spurious closure alloc/retain). Integration test 245; `type_checking.test.bx`.
 
 **Completed in v1.9 (Grupo A):**
 - **Grupo A — `import datetime` — COMPLETE:**
@@ -264,7 +271,7 @@ Jest-style framework. 17 matchers (all support `.not.`): `toBe`, `toEqual`, `toB
 
 - **Grupo I** List comprehension result-type inference: `[x * 2 for x in [1, 2, 3]]` now produces `IntMatrix` instead of always defaulting to `Matrix` (float). In `compile_list_comprehension()`, the previously-hardcoded `result_elem_type` is now inferred per-generator (`Int` for an `IntMatrix` iterable, `Float` otherwise) via `infer_expr_type_static()`, with all of a generator's `var_names` bound to the same type — correct even for destructuring generators (`for a, b in m`, note: **no parentheses**), since a `Matrix`/`IntMatrix` row is always homogeneously typed. Falls back to `Float` when inference can't resolve something (preserves prior behavior for those cases; a non-`Matrix`/`IntMatrix` iterable like a `StringMatrix` from `.split()` is still rejected by the pre-existing iterable-type check regardless of what this inference produces). Integration test 174; +5 codegen unit tests; +3 Test Library tests. No regressions, no additional fixes needed — reviewed clean.
 
-**`lib.rs` refactor — COMPLETE.** See `REFACTOR_LIB.md`. Split `lib.rs` into dedicated modules across 6 extractions, zero behavior change, all test counts identical to baseline (lexer 312 + parser 202 + codegen 753 unit, 179 integration, 434 Test Library):
+**`lib.rs` refactor — COMPLETE.** (`REFACTOR_LIB.md` is no longer in the repo.) Split `lib.rs` into dedicated modules across 6 extractions, zero behavior change, all test counts identical to baseline (lexer 312 + parser 202 + codegen 753 unit, 179 integration, 434 Test Library):
 
 1. `compile_list_comprehension` + `generate_comp_loop` → `expr.rs`
 2. `compile_test_matcher` + `try_compile_test_call` + helpers → `builtins/test.rs`
@@ -275,7 +282,7 @@ Jest-style framework. 17 matchers (all support `.not.`): `toBe`, `toEqual`, `toB
 
 Result: `lib.rs` **17,953 → 11,014 lines (−39%)**; codegen crate 12 → 20 files. The general per-type ARC dispatch (`is_ref_counted`/`insert_retain`/`insert_release`/`release_function_scope_vars`) and the `ExprKind::Match` handler + exhaustiveness check stay inline in `lib.rs`. Extracted functions that are called from `lib.rs` or other modules are `pub(crate)`; purely-internal helpers stay private. The `REFACTOR_LIB.md` <9,000-line target was aspirational and not reached — the cohesive extractable blocks totaled ~6,900 lines; the primary criterion (zero behavior change) is fully met.
 
-## v1.8 Status (COMPLETE) — see `ROADMAP_V1.8.md`
+## v1.8 Status (COMPLETE) — `ROADMAP_V1.8.md` is no longer in the repo
 
 Order: Grupo A (physical constants) → B (LAPACK) → C (`Vector<T>`) → D (`Stack`/`Queue`) → E (heaps) → F (`HashMap`).
 
@@ -325,6 +332,25 @@ Order: Grupo A (physical constants) → B (LAPACK) → C (`Vector<T>`) → D (`S
 v1.8 is now feature-complete across all 6 groups (A–F).
 
 **Working conventions this session (memory):** run `rustfmt --edition 2021` on every touched file so `rustfmt --check` passes (the whole `codegen` crate was normalized in commit `rustfmt: format the codegen crate`); NEVER run two compile-producing suites concurrently (integration + Test Library clobber the shared `output.o`/`program` in repo root → bogus low counts + `ld: file is empty` — run each alone, sequentially); each phase is validated across all 3 test layers + a full integration run before commit.
+
+## v2.0 Status (IN PROGRESS) — see `ROADMAP_V2.0.md` (untracked, local only)
+
+Single group, **Grupo A — `Embedding<DIM>`**, in 5 phases. v2.0 ships **methods, not operators** (`@`/`<->`/`<=>` are v2.1 sugar).
+
+**Fase 0 — COMPLETE** (`50cd02d`) — const generics grammar:
+- No AST change: a numeric arg is stringified into the existing `GenericCall.type_args: Vec<String>`.
+- Recognized **only** for the literal names `Embedding`/`EmbeddingBatch`, at the identifier-atom level (not the shared postfix generic-call combinator — widening that broke `a < 1 > (b)`), and **only when `<` is byte-adjacent** to the name (`id_span.end == lt_span.start`), so a variable named `Embedding` still works in a spaced comparison. After the adjacent `<` the parser commits (`then_with`/`rewind`/`boxed`): negative or `> u32::MAX` dims are named parse errors, never a fallback to comparison.
+- Codegen guard `is_bare_integer_literal()` rejects numeric type args for every other generic (`Vector<1536>()` etc.).
+- Parser test helper `parse_expr_with_real_spans` (the plain `parse_expr` uses token-index pseudo-spans, useless for whitespace tests). +9 parser unit tests.
+
+**Fase 1 — COMPLETE** (`84910a9`) — type + conversions:
+- `BrixType::Embedding(u32)`; `runtime.c` `SECTION 2.10`: `BrixEmbedding { ref_count, dim, double* }` (double = `Matrix` precision), `brix_embedding_from_matrix(Matrix*, long dim)` / `brix_embedding_to_matrix` (always copy), retain/release.
+- `type_annotation_parser()` accepts a bare integer in `<...>` universally (no name gate needed — no comparison ambiguity in type position); `string_to_brix_type("Embedding<...>")` returns `BrixType::Error` for bad/zero dims instead of the silent default-to-`Int` fallback.
+- Constructor takes `Matrix`, or `IntMatrix` promoted via `intmatrix_to_matrix()` (both the promoted temp and an owned source `IntMatrix` are released). Literal-length mismatch → `E104` at compile time; `Matrix` variable with wrong shape → runtime abort (`BrixType::Matrix` carries no shape). `Embedding<0>` → `E104`.
+- `.to_matrix()` (arity-checked) is the only method so far. `infer_expr_type_static()` gained its first `ExprKind::GenericCall` arm (`:type Embedding<3>(...)` in the REPL). The two known gap sites are closed for `Embedding`; the nil-comparison / match-PHI gaps are inherited, same as `Vector`. `println(embedding)` not supported (no `value_to_string` arm, same as `Vector`).
+- +9 codegen unit, +2 parser unit, integration tests 260–262 (incl. runtime-abort via subprocess exit code), +5 Test Library (`embedding.test.bx`).
+
+**Next — Fase 2:** `.dot_product` / `.euclidean_distance` / `.cosine_similarity` via Fortran-convention BLAS `ddot_`/`dnrm2_` (no BLAS dot/norm symbol is used anywhere yet — validate link with an isolated test first). Zero-vector cosine returns `0.0`; dim mismatch is `E102` at compile time. Then Fase 3 (`EmbeddingBatch<DIM>`: `add`/`get`/`find_nearest`/`len`/`is_empty`) and Fase 4 (informative benchmark).
 
 ## Troubleshooting
 
