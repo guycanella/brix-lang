@@ -1,0 +1,20 @@
+// EmbeddingBatch<DIM>: creation, len/is_empty, get, growth from capacity 0.
+var b := EmbeddingBatch<2>(0)
+println(b.len())
+println(b.is_empty())
+
+var first := Embedding<2>([1.0, 2.0])
+b.add(first)
+var i := 0
+while i < 9 {
+    b.add(Embedding<2>([0.0, 1.0]))
+    i = i + 1
+}
+println(b.len())
+println(b.is_empty())
+
+// get() returns its own reference: still valid after the batch is gone.
+var e := b.get(0)
+b = EmbeddingBatch<2>(1)
+println(e.dot_product(first))
+println(b.len())

@@ -3,6 +3,7 @@
 #include <string.h>
 #include <math.h>
 #include <limits.h>
+#include <stdint.h>
 #include <time.h>
 #include <setjmp.h>
 #include <unistd.h>
@@ -399,10 +400,19 @@ typedef struct {
 
 Matrix *matrix_new(long rows, long cols) {
   Matrix *m = (Matrix *)malloc(sizeof(Matrix));
+  if (!m) {
+    fprintf(stderr, "Error: out of memory allocating a %ldx%ld matrix\n", rows, cols);
+    exit(1);
+  }
   m->ref_count = 1;  // Initialize ARC
   m->rows = rows;
   m->cols = cols;
   m->data = (double *)calloc(rows * cols, sizeof(double));
+  // calloc(0, ...) may legitimately return NULL (e.g. a 1x0 result).
+  if (!m->data && rows * cols > 0) {
+    fprintf(stderr, "Error: out of memory allocating a %ldx%ld matrix\n", rows, cols);
+    exit(1);
+  }
   return m;
 }
 
@@ -487,10 +497,19 @@ typedef struct {
 
 IntMatrix *intmatrix_new(long rows, long cols) {
   IntMatrix *m = (IntMatrix *)malloc(sizeof(IntMatrix));
+  if (!m) {
+    fprintf(stderr, "Error: out of memory allocating a %ldx%ld matrix\n", rows, cols);
+    exit(1);
+  }
   m->ref_count = 1;  // Initialize ARC
   m->rows = rows;
   m->cols = cols;
   m->data = (long *)calloc(rows * cols, sizeof(long));  // calloc zeros memory
+  // calloc(0, ...) may legitimately return NULL (e.g. a 1x0 result).
+  if (!m->data && rows * cols > 0) {
+    fprintf(stderr, "Error: out of memory allocating a %ldx%ld matrix\n", rows, cols);
+    exit(1);
+  }
   return m;
 }
 
@@ -4272,8 +4291,8 @@ BrixString* json_stringify_pretty(JsonValue* val, long indent) {
 // only against an internal compiler bug reaching runtime, not a user-facing
 // error path.
 //
-// Similarity methods via BLAS added in Fase 2 (below). EmbeddingBatch is NOT
-// implemented here — deferred to Grupo A Fase 3.
+// Similarity methods via BLAS added in Fase 2 (below); EmbeddingBatch in
+// SECTION 2.11.
 
 typedef struct {
   long ref_count;
@@ -4396,6 +4415,179 @@ double brix_embedding_cosine(BrixEmbedding *a, BrixEmbedding *b) {
   double nb = dnrm2_(&n, b->data, &one);
   if (na == 0.0 || nb == 0.0) return 0.0;
   return ddot_(&n, a->data, &one, b->data, &one) / (na * nb);
+}
+
+// ==========================================
+// SECTION 2.11: EMBEDDINGBATCH<DIM> (v2.0 Grupo A Fase 3)
+// ==========================================
+//
+// Growable array of BrixEmbedding* with shared ownership: add() retains,
+// get() retains for the caller, release() releases every element. All
+// embeddings share the batch's dim (enforced at compile time — E102 — and
+// re-checked here only as an internal-invariant defense).
+
+typedef struct {
+  long ref_count;
+  long dim;
+  long len;
+  long cap;
+  BrixEmbedding **items;
+} BrixEmbeddingBatch;
+
+BrixEmbeddingBatch *brix_embedding_batch_new(long dim, long cap) {
+  if (cap < 0) {
+    fprintf(stderr, "Error: EmbeddingBatch capacity must be >= 0, got %ld\n", cap);
+    exit(1);
+  }
+  if ((size_t)cap > SIZE_MAX / sizeof(BrixEmbedding *)) {
+    fprintf(stderr, "Error: EmbeddingBatch capacity overflow (%ld)\n", cap);
+    exit(1);
+  }
+  BrixEmbeddingBatch *b = (BrixEmbeddingBatch *)malloc(sizeof(BrixEmbeddingBatch));
+  BrixEmbedding **items =
+      cap > 0 ? (BrixEmbedding **)malloc((size_t)cap * sizeof(BrixEmbedding *)) : NULL;
+  if (!b || (cap > 0 && !items)) {
+    fprintf(stderr, "Error: EmbeddingBatch out of memory (capacity %ld)\n", cap);
+    exit(1);
+  }
+  b->ref_count = 1;
+  b->dim = dim;
+  b->len = 0;
+  b->cap = cap;
+  b->items = items;
+  return b;
+}
+
+void brix_embedding_batch_add(BrixEmbeddingBatch *b, BrixEmbedding *e) {
+  if (!b || !e || e->dim != b->dim) {
+    fprintf(stderr, "Error: EmbeddingBatch.add invalid operand (internal compiler bug)\n");
+    exit(1);
+  }
+  if (b->len == b->cap) {
+    // Check before multiplying: overflowing a signed long is UB.
+    if (b->cap > LONG_MAX / 2) {
+      fprintf(stderr, "Error: EmbeddingBatch capacity overflow\n");
+      exit(1);
+    }
+    long new_cap = b->cap == 0 ? 4 : b->cap * 2;
+    if ((size_t)new_cap > SIZE_MAX / sizeof(BrixEmbedding *)) {
+      fprintf(stderr, "Error: EmbeddingBatch capacity overflow\n");
+      exit(1);
+    }
+    BrixEmbedding **items =
+        (BrixEmbedding **)realloc(b->items, (size_t)new_cap * sizeof(BrixEmbedding *));
+    if (!items) {
+      fprintf(stderr, "Error: EmbeddingBatch out of memory\n");
+      exit(1);
+    }
+    b->items = items;
+    b->cap = new_cap;
+  }
+  brix_embedding_retain(e);
+  b->items[b->len++] = e;
+}
+
+// Returns an owned reference (retained for the caller).
+BrixEmbedding *brix_embedding_batch_get(BrixEmbeddingBatch *b, long i) {
+  if (i < 0 || i >= b->len) {
+    fprintf(stderr, "Error: EmbeddingBatch.get(%ld) out of bounds (len %ld)\n", i, b->len);
+    exit(1);
+  }
+  return (BrixEmbedding *)brix_embedding_retain(b->items[i]);
+}
+
+long brix_embedding_batch_len(BrixEmbeddingBatch *b) { return b->len; }
+
+void *brix_embedding_batch_retain(BrixEmbeddingBatch *b) {
+  if (!b) return NULL;
+  b->ref_count++;
+  return b;
+}
+
+void brix_embedding_batch_release(BrixEmbeddingBatch *b) {
+  if (!b) return;
+  b->ref_count--;
+  if (b->ref_count == 0) {
+    for (long i = 0; i < b->len; i++) brix_embedding_release(b->items[i]);
+    free(b->items);
+    free(b);
+  }
+}
+
+// --- find_nearest: top-k by cosine similarity ---
+
+typedef struct {
+  double score;
+  long idx;
+} BrixNearest;
+
+// "a ranks before b": higher score first; ties broken by lower index, so the
+// result is deterministic.
+static int brix_nearest_before(BrixNearest a, BrixNearest b) {
+  return a.score > b.score || (a.score == b.score && a.idx < b.idx);
+}
+
+static int brix_nearest_cmp(const void *pa, const void *pb) {
+  BrixNearest a = *(const BrixNearest *)pa, b = *(const BrixNearest *)pb;
+  return brix_nearest_before(a, b) ? -1 : (brix_nearest_before(b, a) ? 1 : 0);
+}
+
+// Min-heap ordered so the root is the *worst* kept candidate.
+static void brix_nearest_sift_down(BrixNearest *h, long n, long i) {
+  for (;;) {
+    long worst = i, l = 2 * i + 1, r = 2 * i + 2;
+    if (l < n && brix_nearest_before(h[worst], h[l])) worst = l;
+    if (r < n && brix_nearest_before(h[worst], h[r])) worst = r;
+    if (worst == i) return;
+    BrixNearest t = h[i];
+    h[i] = h[worst];
+    h[worst] = t;
+    i = worst;
+  }
+}
+
+static void brix_nearest_sift_up(BrixNearest *h, long i) {
+  while (i > 0) {
+    long p = (i - 1) / 2;
+    if (!brix_nearest_before(h[p], h[i])) return;
+    BrixNearest t = h[i];
+    h[i] = h[p];
+    h[p] = t;
+    i = p;
+  }
+}
+
+// Returns a 1×min(k, len) IntMatrix of batch indices, most similar first.
+// O(n·DIM + n·log k): one cosine per element, a size-k heap of the best.
+IntMatrix *brix_embedding_batch_find_nearest(BrixEmbeddingBatch *b, BrixEmbedding *q, long k) {
+  if (k < 0) {
+    fprintf(stderr, "Error: EmbeddingBatch.find_nearest k must be >= 0, got %ld\n", k);
+    exit(1);
+  }
+  long count = k < b->len ? k : b->len;
+  IntMatrix *out = intmatrix_new(1, count);
+  if (count == 0) return out;
+
+  BrixNearest *heap = (BrixNearest *)malloc((size_t)count * sizeof(BrixNearest));
+  if (!heap) {
+    fprintf(stderr, "Error: EmbeddingBatch.find_nearest out of memory (k %ld)\n", count);
+    exit(1);
+  }
+  long n = 0;
+  for (long i = 0; i < b->len; i++) {
+    BrixNearest c = {brix_embedding_cosine(b->items[i], q), i};
+    if (n < count) {
+      heap[n] = c;
+      brix_nearest_sift_up(heap, n++);
+    } else if (brix_nearest_before(c, heap[0])) {
+      heap[0] = c;
+      brix_nearest_sift_down(heap, n, 0);
+    }
+  }
+  qsort(heap, (size_t)count, sizeof(BrixNearest), brix_nearest_cmp);
+  for (long i = 0; i < count; i++) out->data[i] = heap[i].idx;
+  free(heap);
+  return out;
 }
 
 // ==========================================

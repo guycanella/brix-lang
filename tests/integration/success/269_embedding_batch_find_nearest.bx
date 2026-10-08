@@ -1,0 +1,19 @@
+// find_nearest: indices sorted by cosine similarity (desc), ties by lower
+// index, shape 1×min(k, len).
+var b := EmbeddingBatch<2>(2)
+b.add(Embedding<2>([1.0, 0.0]))
+b.add(Embedding<2>([0.0, 1.0]))
+b.add(Embedding<2>([0.7, 0.7]))
+b.add(Embedding<2>([-1.0, 0.0]))
+b.add(Embedding<2>([2.0, 0.0]))
+
+var q := Embedding<2>([1.0, 0.1])
+println(b.find_nearest(q, 3))
+println(b.find_nearest(q, 10))
+// k == 1: the exact tie (0 vs 4) must evict the later index.
+println(b.find_nearest(q, 1))
+println(b.find_nearest(q, 0))
+println(EmbeddingBatch<2>(4).find_nearest(q, 3))
+
+var top := b.find_nearest(Embedding<2>([0.0, 5.0]), 1)
+println(b.get(top[0]).cosine_similarity(Embedding<2>([0.0, 1.0])))
