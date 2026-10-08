@@ -15,12 +15,18 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
 
+# Jobs only read the repo; default the token to least privilege.
+permissions:
+  contents: read
+
 jobs:
   fmt:
     name: rustfmt
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
@@ -35,6 +41,8 @@ jobs:
         os: [ubuntu-24.04, macos-14]
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
