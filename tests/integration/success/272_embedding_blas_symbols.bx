@@ -1,5 +1,5 @@
-// The similarity methods must reach the platform BLAS (ddot_/dnrm2_), not a
-// local reimplementation: the test also inspects the linked binary with nm.
+// The similarity methods must not use a local ddot_/dnrm2_: the test also
+// inspects the linked binary with nm (both symbols must be undefined).
 var a := Embedding<3>([1.0, 2.0, 2.0])
 var b := Embedding<3>([2.0, 0.0, 0.0])
 println(a.dot_product(b))
