@@ -2489,10 +2489,10 @@ fn test_271_embedding_batch_capacity_overflow() {
 
 #[test]
 fn test_272_embedding_blas_symbols() {
-    // v2.0 Fase 4: confirm the similarity methods call the platform BLAS.
-    // `ddot_`/`dnrm2_` must be *undefined* in the program binary (imported
-    // from libblas / Accelerate), never defined locally (which would mean a
-    // naive C fallback hiding behind the same names).
+    // v2.0 Fase 4: `ddot_`/`dnrm2_` must be *undefined* in the program
+    // binary, never defined locally (which would mean a naive C fallback
+    // hiding behind the same names). nm doesn't say which library provides
+    // them — that's the `-lblas` link; benchmarks/run.sh reports it.
     assert_success(
         "tests/integration/success/272_embedding_blas_symbols.bx",
         "2\n3\n0.333333",
@@ -2518,7 +2518,7 @@ fn test_272_embedding_blas_symbols() {
             lines
                 .iter()
                 .all(|l| l.split_whitespace().nth_back(1) == Some("U")),
-            "{} must be imported from BLAS, found: {:?}",
+            "{} must be undefined (not defined locally), found: {:?}",
             name,
             lines
         );
