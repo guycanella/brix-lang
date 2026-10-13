@@ -2486,3 +2486,41 @@ fn test_271_embedding_batch_capacity_overflow() {
         Some("EmbeddingBatch capacity overflow"),
     );
 }
+
+#[test]
+fn test_272_embedding_blas_symbols() {
+    // v2.0 Fase 4: confirm the similarity methods call the platform BLAS.
+    // `ddot_`/`dnrm2_` must be *undefined* in the program binary (imported
+    // from libblas / Accelerate), never defined locally (which would mean a
+    // naive C fallback hiding behind the same names).
+    assert_success(
+        "tests/integration/success/272_embedding_blas_symbols.bx",
+        "2\n3\n0.333333",
+    );
+    let nm = Command::new("nm")
+        .arg("./272_embedding_blas_symbols")
+        .output()
+        .expect("nm must be available");
+    let symbols = String::from_utf8_lossy(&nm.stdout);
+    for name in ["ddot_", "dnrm2_"] {
+        // nm prints `<addr> <type> <name>`, or `U <name>` for an import; macOS
+        // prefixes C symbols with `_`.
+        let lines: Vec<&str> = symbols
+            .lines()
+            .filter(|l| {
+                l.split_whitespace()
+                    .last()
+                    .is_some_and(|s| s.trim_start_matches('_') == name)
+            })
+            .collect();
+        assert!(!lines.is_empty(), "{} not referenced:\n{}", name, symbols);
+        assert!(
+            lines
+                .iter()
+                .all(|l| l.split_whitespace().nth_back(1) == Some("U")),
+            "{} must be imported from BLAS, found: {:?}",
+            name,
+            lines
+        );
+    }
+}

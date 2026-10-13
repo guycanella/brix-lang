@@ -1,0 +1,14 @@
+// Informative benchmark (v2.0 Grupo A Fase 4) — NOT a CI gate.
+// 1M cosine similarities between two Embedding<1536> (BLAS ddot_/dnrm2_).
+// Run through benchmarks/run.sh, which records the platform, the BLAS
+// library and the timings. The printed mean keeps the loop observable.
+var a := Embedding<1536>(rand(1, 1536))
+var b := Embedding<1536>(rand(1, 1536))
+var pairs := 1000000
+var sum := 0.0
+var i := 0
+while i < pairs {
+    sum = sum + a.cosine_similarity(b)
+    i = i + 1
+}
+println(sum / 1000000.0)
