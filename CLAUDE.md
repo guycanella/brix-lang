@@ -27,10 +27,10 @@ Each entry recompiles and re-runs the whole accumulated session through the same
 
 **Run Rust unit tests:**
 ```bash
-cargo test -p lexer -p parser -p codegen  # All unit tests: 317 + 220 + 861 = 1,398 (all passing)
+cargo test -p lexer -p parser -p codegen  # All unit tests: 317 + 220 + 874 = 1,411 (all passing)
 cargo test -p lexer                       # Only lexer (317 tests)
 cargo test -p parser                      # Only parser (220 tests)
-cargo test -p codegen                     # Only codegen (861 tests)
+cargo test -p codegen                     # Only codegen (874 tests)
 cargo test -p codegen json_tests          # Specific test module in codegen
 cargo test <pattern>                      # Tests matching pattern
 cargo test -- --nocapture                 # Show println! output
@@ -38,7 +38,7 @@ cargo test -- --nocapture                 # Show println! output
 
 **Run integration tests (must be sequential):**
 ```bash
-cargo test --test integration_test -- --test-threads=1 # 272 tests passing
+cargo test --test integration_test -- --test-threads=1 # 277 tests passing
 ```
 
 **Run Brix language tests (Test Library):**
@@ -67,7 +67,7 @@ The driver (`src/main.rs`, ~507 lines; REPL in `src/repl.rs`) orchestrates all s
 ```
 brix/
 ├── src/main.rs              # CLI + compilation pipeline driver
-├── runtime.c                # C runtime (~5,974 lines) — must be in project root
+├── runtime.c                # C runtime (~6,166 lines) — must be in project root
 ├── crates/
 │   ├── lexer/src/token.rs   # Token enum (logos)
 │   ├── parser/src/
@@ -76,8 +76,8 @@ brix/
 │   │   ├── closure_analysis.rs  # Capture analysis pass (runs after parse)
 │   │   └── error.rs         # Ariadne-based parse error reporting
 │   └── codegen/src/
-│       ├── lib.rs           # Main compiler (~19,503 lines — post-refactor 11,014, grew with v1.8–v2.0 + rustfmt expansion)
-│       ├── stmt.rs          # Statement compilation (~1,513 lines)
+│       ├── lib.rs           # Main compiler (~19,746 lines — post-refactor 11,014, grew with v1.8–v2.0 + rustfmt expansion)
+│       ├── stmt.rs          # Statement compilation (~1,514 lines)
 │       ├── expr.rs          # Expression compilation + list comprehension (~2,028 lines)
 │       ├── helpers.rs       # LLVM helpers
 │       ├── error.rs         # CodegenError enum + CodegenResult<T>
@@ -89,6 +89,7 @@ brix/
 ├── tests/
 │   ├── integration/         # End-to-end .bx files (success/, parser_errors/, codegen_errors/, runtime_errors/, test_library_failures/)
 │   └── brix/                # Language test files (*.test.bx) — 32 files, 529 tests, all passing
+├── benchmarks/              # Informative benchmarks (run.sh + .bx), not CI gates
 └── examples/                # Example .bx programs
 ```
 
@@ -121,9 +122,9 @@ Flat `HashMap<String, (PointerValue, BrixType)>` with module prefixes. `import m
 - **match**: one basic block per arm + PHI in merge block
 - **break/continue**: `Compiler` has `current_break_block` / `current_continue_block` (`Option<BasicBlock>`). Each loop saves the outer blocks, sets its own, restores after body. After emitting the unconditional branch, a dead basic block is appended to keep LLVM IR valid.
 
-### Type System (current: v2.0 in progress — Grupo A Fases 0–2 done)
+### Type System (current: v2.0 in progress — Grupo A COMPLETE, Fases 0–4)
 
-Core types: `Int` (i64), `Float` (f64), `String`, `Matrix` (f64, contiguous), `IntMatrix` (i64), `StringMatrix` (array of `BrixString*`, v1.7), `Complex`, `ComplexArray`, `ComplexMatrix`, `Tuple`, `Nil`, `Error`, `Atom` (i64 interned), `Void`, `Struct(String)`, `Optional(Box)` (desugars to Union), `Union(Vec<BrixType>)`, `Intersection(Vec<BrixType>)`, `AsyncFuture`, `FloatPtr`, `Vector(Box<BrixType>)` (v1.8 Grupo C — dynamic `Vector<T>`, `BrixVector*`), `Stack`/`Queue`/`MinHeap`/`MaxHeap(Box<BrixType>)` and `HashMap(Box, Box)` (v1.8 D–F), `DateTime` (v1.9 A), `Json` (v1.9 B), and `Embedding(u32)` (v2.0 Grupo A — `BrixEmbedding*`, dim is a const generic).
+Core types: `Int` (i64), `Float` (f64), `String`, `Matrix` (f64, contiguous), `IntMatrix` (i64), `StringMatrix` (array of `BrixString*`, v1.7), `Complex`, `ComplexArray`, `ComplexMatrix`, `Tuple`, `Nil`, `Error`, `Atom` (i64 interned), `Void`, `Struct(String)`, `Optional(Box)` (desugars to Union), `Union(Vec<BrixType>)`, `Intersection(Vec<BrixType>)`, `AsyncFuture`, `FloatPtr`, `Vector(Box<BrixType>)` (v1.8 Grupo C — dynamic `Vector<T>`, `BrixVector*`), `Stack`/`Queue`/`MinHeap`/`MaxHeap(Box<BrixType>)` and `HashMap(Box, Box)` (v1.8 D–F), `DateTime` (v1.9 A), `Json` (v1.9 B), and `Embedding(u32)` (v2.0 Grupo A — `BrixEmbedding*`, dim is a const generic) and `EmbeddingBatch(u32)` (v2.0 Fase 3 — `BrixEmbeddingBatch*`).
 
 **Scientific notation (v1.8):** float literals accept exponents — `6.0e23`, `1.5e-10`, `6.02E+23`, and integer-mantissa `1e10`; imaginary too (`1e3i`). Lexer `Float`/`ImaginaryLiteral` regexes; parser converts via `str::parse::<f64>()`.
 
@@ -205,7 +206,7 @@ Jest-style framework. 17 matchers (all support `.not.`): `toBe`, `toEqual`, `toB
 
 **Test baseline at v1.9 completion:** 1,357 unit (317 lexer + 209 parser + 831 codegen) + 264 integration + 517 Test Library (31 `.test.bx` files).
 
-**Current test baseline (v2.0 Grupo A Fase 2 COMPLETE + CI):** 1,398 unit (317 lexer + 220 parser + 861 codegen) + 272 integration + 529 Test Library (32 `.test.bx` files). All green.
+**Current test baseline (v2.0 Grupo A COMPLETE):** 1,411 unit (317 lexer + 220 parser + 874 codegen) + 277 integration + 535 Test Library (32 `.test.bx` files). All green.
 
 **Completed in v1.9 (Grupo F):**
 - **Grupo F — `brix repl` — COMPLETE, as a "replay REPL", not the roadmap's original incremental-JIT design:**
@@ -333,7 +334,7 @@ v1.8 is now feature-complete across all 6 groups (A–F).
 
 **Working conventions this session (memory):** run `rustfmt` with the crate's own edition on every touched file so `rustfmt --check` passes (root/`codegen`/`parser` = `--edition 2024`, `lexer` = `--edition 2021`; rustfmt follows `mod` declarations, so formatting `lib.rs` touches every codegen module — confirm with `git diff --stat`) (the whole `codegen` crate was normalized in commit `rustfmt: format the codegen crate`); NEVER run two compile-producing suites concurrently (integration + Test Library clobber the shared `output.o`/`program` in repo root → bogus low counts + `ld: file is empty` — run each alone, sequentially); each phase is validated across all 3 test layers + a full integration run before commit.
 
-## v2.0 Status (IN PROGRESS) — see `ROADMAP_V2.0.md` (untracked, local only)
+## v2.0 Status (COMPLETE — Grupo A Fases 0–4) — see `ROADMAP_V2.0.md` (untracked, local only)
 
 Single group, **Grupo A — `Embedding<DIM>`**, in 5 phases. v2.0 ships **methods, not operators** (`@`/`<->`/`<=>` are v2.1 sugar).
 
@@ -368,11 +369,30 @@ Tests: +19 codegen unit, integration 263–267 (263 dot incl. f64-only precision
 
 **Known pre-existing bugs found during Fase 2, NOT fixed (separate work):** (1) a closure returning `string`, called through a variable (`var g := (n: int) -> string {...}; println(g(1))`), prints the pointer as an int — the `Closure`→`Tuple` collapse loses the signature; (2) a program combining top-level functions and closures that return strings (ternary over a captured var) crashes LLVM during object emission — reproduces identically on the pre-Fase-2 HEAD, root cause not isolated.
 
-**Next — Fase 3:** `EmbeddingBatch<DIM>`: `add`/`get`/`find_nearest`/`len`/`is_empty` (see `ROADMAP_V2.0.md` contracts: `find_nearest` returns `IntMatrix` `1×min(k,len)` indices sorted by cosine desc, `O(n·DIM + n·log k)`). Then Fase 4 (informative benchmark).
+**Fase 3 — COMPLETE** (`8af5354`) — `EmbeddingBatch<DIM>`:
+- `BrixType::EmbeddingBatch(u32)`; `runtime.c` `SECTION 2.11`: `BrixEmbeddingBatch { ref_count, dim, len, cap, BrixEmbedding **items }`. `EmbeddingBatch<DIM>(capacity)` (cap 0 valid; first `add` grows 0→4, then ×2) with `add(emb)` / `get(i)` / `find_nearest(q, k)` / `len()` / `is_empty()`.
+- **Shared ownership:** `add()` retains in C (the caller keeps its own reference), `get()` returns an owned reference (retained in C — the call site must NOT retain again), `brix_embedding_batch_release()` releases every element. Owned temporary receivers/arguments are released after the call (`!is_borrowed_ref_expr`), same contract as the Fase 2 similarity methods.
+- **`find_nearest(q, k)`** → `IntMatrix` `1×min(k,len)` of insertion indices, most similar first by cosine (`brix_embedding_cosine`, BLAS). Size-k heap with the worst candidate at the root, `O(n·DIM + n·log k)`; **ties broken by lower index** (deterministic). `k == 0` / empty batch → `1×0`. NaN/Inf in an embedding makes the order unspecified (no crash).
+- **Errors:** compile time — `E102` dim mismatch (`add`, `find_nearest`, annotation) and non-`int` capacity/index/`k`; `E104` wrong arity and `DIM == 0`. Runtime abort — `get` out of bounds, `k < 0`, capacity `< 0`, capacity overflow (checked against `SIZE_MAX` in the constructor, `LONG_MAX` before doubling in `add`), out of memory.
+- Codegen: constructor intercepted next to `Embedding` (before the bare-integer-literal guard); `compile_embedding_batch_new` / `compile_embedding_batch_method` / `call_embedding_batch_rt` in `lib.rs`; wired through the new-type checklist (`string_to_brix_type`, `brix_type_to_llvm`, `is_ref_counted`, retain/release, `typeof`, `infer_expr_type_static`, plus the two non-exhaustive sites in `stmt.rs`/`lib.rs`).
+- **Dispatch-guard fix (affects every builtin method name):** the shared guard compiles the receiver once before checking its type; when no builtin matched, the fall-through used to `compile_expr(target)` a second time, so `mk().add(5)` on a user struct ran `mk()` twice. The guard's compiled receiver is now kept in `precompiled_receiver` and reused. Adding a new builtin method name to that guard is now safe for same-named user struct methods.
+- **Allocator hardening:** `matrix_new` / `intmatrix_new` now abort with `Error: out of memory allocating a RxC matrix` instead of dereferencing `NULL` (`calloc(0, …)` returning `NULL` is still fine).
+- Tests: +13 codegen unit, integration 268–271 (268 basic/growth/`get` outliving the batch, 269 k-NN order + exact tie at `k=3` and `k=1` + `k==0`/`k>len`/empty, 270 `get` out of bounds, 271 capacity overflow), +6 Test Library (`embedding.test.bx`).
+- **Known, not fixed (pre-existing, all types):** `b.get(i).to_matrix()` leaks (`to_matrix` doesn't release a temporary receiver); indexing a temporary leaks (`f()[0]`, `b.find_nearest(q, 1)[0]`); reassigning from a call result leaks (`x = Ctor(...)`).
+
+**Fase 4 — COMPLETE** — informative benchmark + BLAS symbol check (**v2.0 Grupo A is now complete**):
+- **BLAS is really called:** integration test 272 (`272_embedding_blas_symbols.bx`) runs the three similarity methods, then inspects the linked binary with `nm`: `ddot_`/`dnrm2_` must be *undefined* (`U`), never defined locally — a naive C fallback behind the same names would fail it (mutation-checked with a local `ddot_`). `nm` does not identify the providing library: that comes from the `-llapack -lblas` link (`src/main.rs`), and `benchmarks/run.sh` reports the library actually linked (`otool -L` / `ldd`). Deterministic, so it is part of the regular suite.
+- **Benchmark, not a gate:** `benchmarks/embedding_cosine.bx` (1M `cosine_similarity` calls on two `Embedding<1536>`, `-O 3`) driven by `benchmarks/run.sh` (1 discarded warm-up + `REPS` timed runs, default 5, bash `time`). It prints a Markdown report: commit, platform, CPU, the BLAS library actually linked (`otool -L` / `ldd`), BLAS thread env vars, every run and the median. Run from the repo root: `benchmarks/run.sh`.
+- **CI:** an "Embedding benchmark (informative)" step (`continue-on-error: true`) appends the report to each platform's job summary; it never fails the build.
+- **First data (1M pairs, DIM 1536, median):** macOS arm64 (Apple M4 Pro, Accelerate) 1.11 s; Linux aarch64 (Docker on the same Mac, Ubuntu reference `libblas.so.3`) 3.63 s. The Ubuntu gap is the netlib reference BLAS — `libopenblas-dev` would close most of it; recorded as an observation, not changed.
+- No user-facing timing API (`time.now_ms()`-style) was added — the harness measures from outside.
+- Tests: integration 272 only (+1); no new codegen/Test Library tests.
+
+**Next — v2.1** (see `ROADMAP_V2.1.md`): Grupo 0 operators (`@`/`<->`/`<=>` as sugar over the v2.0 methods) and the prerequisite fixes listed there.
 
 ## CI (GitHub Actions) — `.github/workflows/ci.yml`
 
-Runs on PRs to `main`, pushes to `main` and `workflow_dispatch`. Work now goes through feature branches + PRs, not direct pushes to `main`. Jobs: `rustfmt` (`cargo fmt --all --check`) and `test` on a matrix of `ubuntu-24.04` + `macos-14` (build, unit tests, integration `--test-threads=1`, `cargo run -- test`). Token is `contents: read`; checkouts use `persist-credentials: false`.
+Runs on PRs to `main`, pushes to `main` and `workflow_dispatch`. Work now goes through feature branches + PRs, not direct pushes to `main`. Jobs: `rustfmt` (`cargo fmt --all --check`) and `test` on a matrix of `ubuntu-24.04` + `macos-14` (build, unit tests, integration `--test-threads=1`, `cargo run -- test`, then the informative embedding benchmark — `continue-on-error`, report goes to the job summary). Token is `contents: read`; checkouts use `persist-credentials: false`.
 
 - **Env:** `LLVM_SYS_180_PREFIX` (`/usr/lib/llvm-18` on Linux, `brew --prefix llvm@18` on macOS). Linux installs `llvm-18-dev libpolly-18-dev libzstd-dev zlib1g-dev liblapack-dev libblas-dev`; macOS uses Accelerate and needs `LIBRARY_PATH=$(brew --prefix)/lib` so `-lzstd` resolves.
 - **Portability bugs found by the first Linux runs (all fixed):** (1) `matrix_new` used `malloc`, so `zeros()` was only zero on macOS — now `calloc`. (2) A union's value slot has the widest variant's LLVM type (`int | float` = `{i64, i64}`); the double was stored without a bitcast, and printing passed integer bits to `sprintf("%g")` — macOS arm64 passes variadic args on the stack, Linux passes doubles in FP registers. `coerce_union_slot()` (`lib.rs`) now bitcasts at the union store sites (`stmt.rs` declaration/assignment) and the union print path. (3) Objects were emitted with `RelocMode::Default`, which the Ubuntu x86_64 PIE linker rejects (`R_X86_64_32`); `src/main.rs` now uses `RelocMode::PIC` in both emit sites.
