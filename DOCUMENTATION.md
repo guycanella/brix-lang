@@ -1,6 +1,6 @@
 # Brix Language (Design Document v1.0)
 
-> 🚧 **Status do Projeto (Out 2026):** v1.6, v1.7, v1.8 e v1.9 **COMPLETOS**. **v2.0 em andamento** — Grupo A (`Embedding<DIM>`): Fase 0 (const generics na gramática), Fase 1 (tipo `Embedding<DIM>` + conversões com `Matrix`) e Fase 2 (métodos de similaridade via BLAS) concluídas; Fase 3 (`EmbeddingBatch<DIM>`) é a próxima. **1.397 unit tests + 272 integration tests + 529 Test Library = 2.198 tests passando (100%).** Detalhes técnicos por grupo: `CLAUDE.md` (raiz); planejamento: `ROADMAP_V2.0.md`–`ROADMAP_V2.2.md`.
+> 🚧 **Status do Projeto (Out 2026):** v1.6, v1.7, v1.8 e v1.9 **COMPLETOS**. **v2.0 Grupo A (`Embedding<DIM>`) COMPLETO** — Fase 0 (const generics na gramática), Fase 1 (tipo `Embedding<DIM>` + conversões com `Matrix`) e Fase 2 (métodos de similaridade via BLAS) Fase 3 (`EmbeddingBatch<DIM>` + `find_nearest`) e Fase 4 (verificação do BLAS + benchmark informativo) concluídas. **1.411 unit tests + 277 integration tests + 535 Test Library = 2.223 tests passando (100%).** Detalhes técnicos por grupo: `CLAUDE.md` (raiz); planejamento: `ROADMAP_V2.0.md`–`ROADMAP_V2.2.md`.
 
 ## Status Atual (Outubro 2026)
 
@@ -232,12 +232,12 @@
 - **E** Mutabilidade controlada de arrays: `mut int[]` + métodos in-place `push!`, `pop!`, `insert!`, `remove!`, `sort!`, `reverse!`, `clear!`
 - **F** `brix repl` — REPL de **replay** (recompila e reexecuta o histórico inteiro a cada entrada; JIT incremental real fica para depois), com `:type`, `:clear`, `:help`, `:quit`
 
-### 🚧 **v2.0 EM ANDAMENTO — AI-Native Foundation (Grupo A: `Embedding<DIM>`):**
+### ✅ **v2.0 COMPLETO — AI-Native Foundation (Grupo A: `Embedding<DIM>`):**
 - ✅ **Fase 0** — Const generics na gramática: `Embedding<1536>(...)` / `EmbeddingBatch<1536>(...)` (só esses dois nomes, e só com `<` colado ao nome — `a < 1 > (b)` continua sendo comparação)
 - ✅ **Fase 1** — `BrixType::Embedding(u32)` com ARC, construtor a partir de array literal / `Matrix` / `IntMatrix`, `.to_matrix()`, anotação de tipo `var e: Embedding<1536>`
 - ✅ **Fase 2** — `.dot_product()`, `.euclidean_distance()`, `.cosine_similarity()` via BLAS (`ddot_` / `dnrm2_`); cosine de vetor zero = `0.0`. Junto vieram correções de ARC na linguagem toda: `return` sempre entrega valor próprio e libera os locais, closures e métodos com escopo de ARC próprio, ternário sempre devolve valor próprio
-- ⏭️ **Fase 3** — `EmbeddingBatch<DIM>`: `.add()`, `.get()`, `.find_nearest(query, k)`, `.len()`, `.is_empty()`
-- 📋 **Fase 4** — Benchmark informativo (não é gate de CI)
+- ✅ **Fase 3** — `EmbeddingBatch<DIM>(capacity)`: `.add()`, `.get()`, `.find_nearest(query, k)` (índices por cosseno decrescente, empate pelo menor índice, `O(n·DIM + n·log k)`), `.len()`, `.is_empty()`; posse compartilhada dos embeddings. Também: `matrix_new`/`intmatrix_new` abortam com mensagem se faltar memória, e um receiver não é mais avaliado duas vezes quando um método de struct do usuário tem o mesmo nome de um builtin
+- ✅ **Fase 4** — teste de integração que confere via `nm` que `ddot_`/`dnrm2_` não são definidos localmente; o binário é ligado com o BLAS da plataforma + benchmark informativo (`benchmarks/run.sh`: 1M cosines em `Embedding<1536>`, relatório com plataforma/CPU/BLAS/mediana; passo `continue-on-error` no CI, não é gate). Primeiros dados: macOS arm64 (Accelerate) 1,11 s; Linux aarch64 (BLAS de referência do Ubuntu) 3,63 s
 
 ### 🔮 **Planejado (v2.1+):**
 - **v2.1** — Operadores `@` / `<->` / `<=>` como açúcar sobre os métodos de v2.0 + integração com Vector DB (Pinecone; depois Weaviate, Milvus, Chroma) — `ROADMAP_V2.1.md`
@@ -3819,7 +3819,7 @@ v1.6 ████████████████████ 100% ✅ break
 v1.7 ████████████████████ 100% ✅ StringMatrix, array methods, slicing, exhaustive match, panic/toThrow
 v1.8 ████████████████████ 100% ✅ Vector/Stack/Queue/Heap/HashMap, LAPACK decompositions
 v1.9 ████████████████████ 100% ✅ datetime, json, variadics, mut arrays, REPL
-v2.0 ████████████░░░░░░░░  60% 🚧 Embedding<DIM> (Fases 0–2 de 0–4)
+v2.0 ████████████████████ 100% ✅ Embedding<DIM> (Fases 0–4)
 ```
 
 **Legenda:**
@@ -4044,11 +4044,11 @@ math.sum(arr), math.mean(arr), math.median(arr), math.std(arr)
 ### 📊 Estatísticas do Projeto:
 
 - **Linhas de Código (Rust):** ~39.900 linhas (lexer + parser + codegen + driver)
-- **Linhas de Código (C Runtime):** ~5.970 linhas (`runtime.c`)
-- **Testes:** 1.398 unit (317 lexer + 220 parser + 861 codegen) + 272 integration + 529 Test Library (32 arquivos `.test.bx`) = 2.199 total
-- **Versão Atual:** v2.0 🚧 **EM ANDAMENTO** (Grupo A, Fases 0–2 de 0–4)
+- **Linhas de Código (C Runtime):** ~6.170 linhas (`runtime.c`)
+- **Testes:** 1.411 unit (317 lexer + 220 parser + 874 codegen) + 277 integration + 535 Test Library (32 arquivos `.test.bx`) = 2.223 total
+- **Versão Atual:** v2.0 ✅ **COMPLETO** (Grupo A, Fases 0–4)
 - **Versão Anterior:** v1.9 ✅ **COMPLETO (Ago 2026)**
-- **Próximo Passo:** v2.0 Grupo A Fase 3 — `EmbeddingBatch<DIM>` + `find_nearest`
+- **Próximo Passo:** v2.1 — operadores `@`/`<->`/`<=>` como açúcar sobre os métodos de v2.0 (`ROADMAP_V2.1.md`)
 - **Última Atualização:** Out 2026
 
 ---
@@ -4187,7 +4187,7 @@ Para não ficarmos paralisados tentando fazer tudo, vamos definir o que NÃO vai
 
 ---
 
-## 15. AI-Native Features 🤖 (v2.0 em andamento)
+## 15. AI-Native Features 🤖 (v2.0 completo)
 
 **Data Engineering + AI Era**
 
@@ -4472,12 +4472,12 @@ var response := llm.generate(rendered, max_tokens=500)
 
 ### Roadmap de Implementação (v2.0+)
 
-**Phase 1: Embedding Type (v2.0) — 🚧 em andamento:**
+**Phase 1: Embedding Type (v2.0) — ✅ completo:**
 - ✅ Fase 0: const generics (`Embedding<DIM>`) na gramática
 - ✅ Fase 1: `Embedding<DIM>` como tipo + conversões com `Matrix`
 - ✅ Fase 2: `.cosine_similarity()` / `.euclidean_distance()` / `.dot_product()` via BLAS
-- ⏭️ Fase 3: `EmbeddingBatch<DIM>` + `find_nearest`
-- 📋 Fase 4: benchmark informativo
+- ✅ Fase 3: `EmbeddingBatch<DIM>` + `find_nearest`
+- ✅ Fase 4: verificação do BLAS + benchmark informativo
 
 **Phase 2: Vector DB Integration (v2.1):**
 - Operadores `@` (cosine), `<->` (euclidean), `<=>` (dot product) como açúcar sobre os métodos de v2.0
@@ -4524,6 +4524,6 @@ Essas features transformariam Brix em **THE language for AI-powered Data Enginee
 - ✅ Timing perfeito com boom de RAG/LLMs
 - ✅ Diferencial competitivo único no mercado
 
-**Status:** v2.0 em andamento (Grupo A, Fases 0–2 concluídas). v2.1 e v2.2 planejadas.
+**Status:** v2.0 completo (Grupo A, Fases 0–4). v2.1 e v2.2 planejadas.
 
 **Prioridade:** Alta - Alinhado com tendências de mercado e filosofia da linguagem
