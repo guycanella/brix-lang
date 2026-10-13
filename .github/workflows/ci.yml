@@ -80,3 +80,9 @@ jobs:
       # in parallel with the integration step (shared build artifacts).
       - name: Test Library
         run: cargo run -- test
+
+      # Informative only (v2.0 Grupo A Fase 4): records per-platform timings
+      # in the job summary and never fails the build.
+      - name: Embedding benchmark (informative)
+        continue-on-error: true
+        run: benchmarks/run.sh
