@@ -7051,6 +7051,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                 | "upsert_batch"
                                 | "delete"
                                 | "delete_batch"
+                                | "delete_namespace"
+                                | "reset_index"
                         );
                         // A receiver compiled by the guard below that matched no
                         // builtin dispatch is reused by the arbitrary-expression
@@ -17220,7 +17222,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     /// `last_error()`): `upsert(id, embedding[, metadata])`,
     /// `upsert_batch(ids, embeddings[, metadata])` (a `Vector<string>`, an
     /// `EmbeddingBatch<DIM>` and a JSON array), `delete(id)` and
-    /// `delete_batch(ids)`.
+    /// `delete_batch(ids)`, plus index management: `delete_namespace(ns)` and
+    /// `reset_index()` (every namespace).
     /// `last_error()` -> `string` ("" after a successful operation). Owned
     /// temporary receivers and arguments are released after the call.
     fn compile_vectordb_method(
@@ -17239,12 +17242,18 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             "upsert_batch" => (2, 3, "(ids, embeddings[, metadata])"),
             "delete" => (1, 1, "(id)"),
             "delete_batch" => (1, 1, "(ids)"),
+            "delete_namespace" => (1, 1, "(namespace)"),
             _ => (0, 0, "()"),
         };
         // Writes return int (1 = success, 0 = failure); reads return json?.
         let is_write = matches!(
             method,
-            "upsert" | "upsert_batch" | "delete" | "delete_batch"
+            "upsert"
+                | "upsert_batch"
+                | "delete"
+                | "delete_batch"
+                | "delete_namespace"
+                | "reset_index"
         );
         if args.len() < min || args.len() > max {
             return Err(CodegenError::InvalidOperation {
@@ -19101,7 +19110,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                     ]));
                                 }
                                 "last_error" => return Some(BrixType::String),
-                                "upsert" | "upsert_batch" | "delete" | "delete_batch" => {
+                                "upsert" | "upsert_batch" | "delete" | "delete_batch"
+                                | "delete_namespace" | "reset_index" => {
                                     return Some(BrixType::Int);
                                 }
                                 _ => {}

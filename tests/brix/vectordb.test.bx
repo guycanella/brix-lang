@@ -136,3 +136,17 @@ test.describe("VectorDB writes (v2.1 Grupo A Fase 3)", () -> {
         test.expect(db.last_error()).toStartWith("/vectors/delete: ")
     })
 })
+
+test.describe("VectorDB index management (v2.1 Grupo A Fase 4)", () -> {
+    test.it("delete_namespace on a refused connection returns 0", () -> {
+        var db := vectordb.connect("pinecone", "http://127.0.0.1:1", "key")
+        test.expect(db.delete_namespace("prod")).toBe(0)
+        test.expect(db.last_error()).toStartWith("/vectors/delete: ")
+    })
+
+    test.it("reset_index stops at the stats request when offline", () -> {
+        var db := vectordb.connect("pinecone", "http://127.0.0.1:1", "key")
+        test.expect(db.reset_index()).toBe(0)
+        test.expect(db.last_error()).toStartWith("/describe_index_stats: ")
+    })
+})

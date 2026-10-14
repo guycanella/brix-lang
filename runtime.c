@@ -4593,7 +4593,7 @@ IntMatrix *brix_embedding_batch_find_nearest(BrixEmbeddingBatch *b, BrixEmbeddin
 }
 
 // ==========================================
-// SECTION 2.12: VECTORDB (v2.1 Grupo A Fases 1-3)
+// SECTION 2.12: VECTORDB (v2.1 Grupo A Fases 1-4)
 // ==========================================
 //
 // A BrixVectorDB is one connection to one Pinecone index (its data-plane
@@ -5315,6 +5315,66 @@ long brix_vectordb_delete_batch(BrixVectorDB *db, BrixVector *ids) {
   }
   return vdb_send(db, "/vectors/delete", "{\"ids\":[", ids->len,
                   vdb_delete_item, id_data);
+}
+
+// ---- Fase 4: index management. Both return 1 on success, 0 on failure.
+
+// POST /vectors/delete {"deleteAll": true, "namespace": ns}.
+static int vdb_delete_all(BrixVectorDB *db, BrixString *ns) {
+  JsonValue *req = json_object();
+  vdb_put(req, "deleteAll", json_bool(1));
+  vdb_put(req, "namespace", json_string(ns));
+  BrixString *body = json_stringify(req);
+  json_release(req);
+  JsonValue *resp = vdb_request(db, "/vectors/delete", NULL, body->data);
+  string_release(body);
+  if (!resp) return 0;
+  json_release(resp);
+  return 1;
+}
+
+// db.delete_namespace(ns) -> int : delete every vector in `ns` ("" = the
+// default namespace). Clearing an empty or missing namespace succeeds.
+long brix_vectordb_delete_namespace(BrixVectorDB *db, BrixString *ns) {
+  free(db->last_error);
+  db->last_error = NULL;
+  return vdb_delete_all(db, ns);
+}
+
+// db.reset_index() -> int : delete every vector in every namespace. Pinecone
+// has no single call for this: the namespaces come from
+// describe_index_stats, then each one is cleared. A failure stops the reset
+// and last_error says how many namespaces were already cleared.
+long brix_vectordb_reset_index(BrixVectorDB *db) {
+  JsonValue *stats = brix_vectordb_stats(db); // clears last_error
+  if (!stats) return 0;
+  JsonValue *nss = vdb_field(stats, "namespaces");
+  json_release(stats);
+  if (!nss || nss->tag != JSON_OBJECT) {
+    json_release(nss);
+    vdb_set_error(db, "/describe_index_stats: response has no \"namespaces\" "
+                  "object");
+    return 0;
+  }
+  long total = 0;
+  for (JsonObjectEntry *e = nss->data.as_object->head; e; e = e->next) total++;
+  long done = 0;
+  int ok = 1;
+  for (JsonObjectEntry *e = nss->data.as_object->head; e; e = e->next) {
+    if (!vdb_delete_all(db, e->key)) {
+      ok = 0;
+      break;
+    }
+    done++;
+  }
+  json_release(nss);
+  if (!ok && db->last_error) {
+    char *err = db->last_error;
+    db->last_error = NULL;
+    vdb_set_error(db, "%s (%ld of %ld namespaces cleared)", err, done, total);
+    free(err);
+  }
+  return ok;
 }
 
 // db.last_error() -> string ("" when the last operation succeeded).
