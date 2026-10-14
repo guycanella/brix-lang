@@ -167,3 +167,31 @@ test.describe("EmbeddingBatch<DIM> (v2.0 Grupo A Fase 3)", () -> {
         test.expect(nearest.cosine_similarity(Embedding<3>([0.0, 0.0, 1.0]))).toBeCloseTo(1.0)
     })
 })
+
+test.describe("Embedding operators @ <-> <=> (v2.1 Grupo 0)", () -> {
+    test.it("match the similarity methods", () -> {
+        var a := Embedding<3>([1.0, 2.0, 2.0])
+        var b := Embedding<3>([2.0, 0.0, 1.0])
+        test.expect(a @ b).toBeCloseTo(a.cosine_similarity(b))
+        test.expect(a <-> b).toBeCloseTo(a.euclidean_distance(b))
+        test.expect(a <=> b).toBeCloseTo(a.dot_product(b))
+    })
+
+    test.it("bind tighter than arithmetic and comparisons", () -> {
+        var a := Embedding<2>([1.0, 0.0])
+        var b := Embedding<2>([0.0, 1.0])
+        test.expect(1.0 - a @ b).toBeCloseTo(1.0)
+        test.expect(3.0 * a <=> a).toBeCloseTo(3.0)
+        test.expect(a <-> b > 1.0).toBeTruthy()
+        test.expect(-a <=> a).toBeCloseTo(-1.0)
+        test.expect(a <-> b ** 2).toBeCloseTo(2.0)
+    })
+
+    test.it("work with batch results and temporaries", () -> {
+        var batch := EmbeddingBatch<2>(0)
+        batch.add(Embedding<2>([3.0, 4.0]))
+        var q := Embedding<2>([3.0, 4.0])
+        test.expect(q @ batch.get(0)).toBeCloseTo(1.0)
+        test.expect(Embedding<2>([0.0, 0.0]) <-> batch.get(0)).toBeCloseTo(5.0)
+    })
+})
