@@ -1679,11 +1679,13 @@ where
                     .to("cosine_similarity")
                     .or(just(Token::LeftRightArrow).to("euclidean_distance"))
                     .or(just(Token::DoubleArrow).to("dot_product"))
-                    .then(postfix_inc_dec.clone())
+                    // The consumed span, not `rhs.span`: postfix chains keep
+                    // their base's span, so `b.get(0)` would end at `b`.
+                    .then(postfix_inc_dec.clone().map_with_span(|e, span| (e, span)))
                     .repeated(),
             )
-            .foldl(|lhs, (method, rhs)| {
-                let span = lhs.span.start..rhs.span.end;
+            .foldl(|lhs, (method, (rhs, rhs_span))| {
+                let span = lhs.span.start..rhs_span.end;
                 let field_access = Expr::new(
                     ExprKind::FieldAccess {
                         target: Box::new(lhs),

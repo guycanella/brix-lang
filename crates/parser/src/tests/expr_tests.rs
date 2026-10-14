@@ -1199,3 +1199,21 @@ fn test_embedding_const_generic_requires_no_whitespace_before_lt() {
         expr
     );
 }
+
+#[test]
+fn test_embedding_operator_span_ends_at_postfix_right_operand() {
+    // Postfix chains keep their base's span, so the operator must use the
+    // span it actually consumed: `a @ b.get(0)` covers all 12 bytes, not
+    // just up to `b`.
+    let expr = parse_expr_with_real_spans("a @ b.get(0)").unwrap();
+    assert_eq!(expr.span, 0..12);
+    match &expr.kind {
+        ExprKind::Call { func, .. } => assert_eq!(func.span, 0..12),
+        other => panic!("expected desugared call, got {:?}", other),
+    }
+    // Chained: the outer call spans the whole expression too.
+    assert_eq!(
+        parse_expr_with_real_spans("a @ b <-> c[0]").unwrap().span,
+        0..14
+    );
+}
