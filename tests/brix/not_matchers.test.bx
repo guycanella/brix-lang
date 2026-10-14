@@ -43,3 +43,31 @@ test.describe(".not. on toContain / toHaveLength", () -> {
         test.expect("abc").not.toHaveLength(4)
     })
 })
+
+// 2D arrays: equality and containment must scan rows * cols elements, not
+// just the first row.
+test.describe("2D arrays scan every element", () -> {
+    test.it("int", () -> {
+        var a := izeros(2, 2)
+        var b := izeros(2, 2)
+        b[1][1] := 7
+        test.expect(a).not.toEqual(b)
+        test.expect(b).toContain(7)
+        test.expect(a).not.toContain(7)
+    })
+
+    test.it("float", () -> {
+        var a := zeros(2, 2)
+        var b := zeros(2, 2)
+        b[1][1] := 7.5
+        test.expect(a).not.toEqual(b)
+        test.expect(b).toContain(7.5)
+        test.expect(a).not.toContain(7.5)
+    })
+
+    test.it("equal 2D arrays", () -> {
+        var a := izeros(2, 2)
+        var b := izeros(2, 2)
+        test.expect(a).toEqual(b)
+    })
+})

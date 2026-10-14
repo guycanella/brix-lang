@@ -5691,18 +5691,20 @@ static long brix_test_len(long rows, long cols) {
 }
 
 static int brix_int_arrays_equal(IntMatrix* a, IntMatrix* b) {
-    long alen = brix_test_len(a->rows, a->cols);
-    if (alen != brix_test_len(b->rows, b->cols)) return 0;
-    for (long i = 0; i < alen; i++) {
+    long total = a->rows * a->cols;
+    if (total != b->rows * b->cols) return 0;
+    if (brix_test_len(a->rows, a->cols) != brix_test_len(b->rows, b->cols)) return 0;
+    for (long i = 0; i < total; i++) {
         if (a->data[i] != b->data[i]) return 0;
     }
     return 1;
 }
 
 static int brix_float_arrays_equal(Matrix* a, Matrix* b) {
-    long alen = brix_test_len(a->rows, a->cols);
-    if (alen != brix_test_len(b->rows, b->cols)) return 0;
-    for (long i = 0; i < alen; i++) {
+    long total = a->rows * a->cols;
+    if (total != b->rows * b->cols) return 0;
+    if (brix_test_len(a->rows, a->cols) != brix_test_len(b->rows, b->cols)) return 0;
+    for (long i = 0; i < total; i++) {
         if (a->data[i] != b->data[i]) return 0;
     }
     return 1;
@@ -5977,7 +5979,7 @@ static int brix_test_str_contains(BrixString* actual, BrixString* substring) {
 }
 
 static int brix_int_array_contains(IntMatrix* arr, long element) {
-    long len = brix_test_len(arr->rows, arr->cols);
+    long len = arr->rows * arr->cols;
     for (long i = 0; i < len; i++) {
         if (arr->data[i] == element) return 1;
     }
@@ -5985,7 +5987,7 @@ static int brix_int_array_contains(IntMatrix* arr, long element) {
 }
 
 static int brix_float_array_contains(Matrix* arr, double element) {
-    long len = brix_test_len(arr->rows, arr->cols);
+    long len = arr->rows * arr->cols;
     for (long i = 0; i < len; i++) {
         if (arr->data[i] == element) return 1;
     }
