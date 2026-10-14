@@ -4273,6 +4273,62 @@ fn test_vectordb_write_inference_and_hashmap_delete() {
     assert!(!ir.contains("brix_vectordb_"), "{}", ir);
 }
 
+// ---- v2.1 Grupo A Fase 4: delete_namespace / reset_index ----
+
+#[test]
+fn test_vectordb_index_management_calls_and_types() {
+    let ir = vdb_ir("var a := db.delete_namespace(\"prod\")\nvar b := db.reset_index()\n");
+    assert!(
+        ir.contains("declare i64 @brix_vectordb_delete_namespace(ptr, ptr)"),
+        "{}",
+        ir
+    );
+    assert!(
+        ir.contains("declare i64 @brix_vectordb_reset_index(ptr)"),
+        "{}",
+        ir
+    );
+    let history = "import vectordb\nvar db := vectordb.connect(\"pinecone\", \"h\", \"k\")\n";
+    for expr in ["db.delete_namespace(\"x\")", "db.reset_index()"] {
+        assert_eq!(
+            crate::infer_type_of_expr_in_context(history, expr),
+            Ok(crate::types::BrixType::Int),
+            "{}",
+            expr
+        );
+    }
+}
+
+#[test]
+fn test_vectordb_delete_namespace_releases_temporary_name() {
+    let ir = vdb_ir("var a := db.delete_namespace(\"a\" + \"b\")\n");
+    let body = function_body(&ir, "main");
+    let call = body.find("@brix_vectordb_delete_namespace(").unwrap();
+    assert!(
+        body[call..].contains("call void @string_release("),
+        "{}",
+        body
+    );
+}
+
+#[test]
+fn test_vectordb_index_management_errors() {
+    for (src, type_err) in [
+        ("var a := db.delete_namespace(1)\n", true),
+        ("var a := db.delete_namespace()\n", false),
+        ("var a := db.delete_namespace(\"a\", \"b\")\n", false),
+        ("var a := db.reset_index(\"prod\")\n", false),
+    ] {
+        let err = error_from_source(&format!("{}{}", VDB_DB, src));
+        let ok = if type_err {
+            matches!(err, crate::error::CodegenError::TypeError { .. })
+        } else {
+            matches!(err, crate::error::CodegenError::InvalidOperation { .. })
+        };
+        assert!(ok, "{}: {:?}", src, err);
+    }
+}
+
 #[test]
 fn test_match_arm_borrowed_value_is_retained() {
     // `match` yields an owned value: an identifier arm must be retained, or

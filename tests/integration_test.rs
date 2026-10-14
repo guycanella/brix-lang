@@ -2756,6 +2756,17 @@ fn test_284_vectordb_delete() {
 }
 
 #[test]
+fn test_285_vectordb_index_management() {
+    // v2.1 Grupo A Fase 4: delete_namespace (one namespace, missing one, the
+    // default one) and reset_index (every namespace, idempotent, a failure
+    // reporting how many namespaces were cleared), plus API failures.
+    MockPinecone::start().assert_success(
+        "tests/integration/success/285_vectordb_index_management.bx",
+        "{\"\":{\"vectorCount\":3},\"prod\":{\"vectorCount\":2}} 5\n1\n{\"\":{\"vectorCount\":3}} 3\n{\"vectors\":[],\"namespace\":\"prod\"}\n1\n1\n1\n{\"tmp\":{\"vectorCount\":1}} 1\n1\n1\n{} 0\n1\n1\n1\n1\n0\n/vectors/delete: HTTP 400: {\"message\": \"rejected\"} (1 of 3 namespaces cleared)\n{\"reject-ns\":{\"vectorCount\":1},\"prod\":{\"vectorCount\":1}} 2\n0\n/vectors/delete: HTTP 401: {\"code\": 16, \"message\": \"Invalid API Key\"}\n0\n/describe_index_stats: HTTP 401: {\"code\": 16, \"message\": \"Invalid API Key\"}",
+    );
+}
+
+#[test]
 fn test_278_vectordb_userinfo_rejected() {
     // Parsed with libcurl's URL parser, so the check sees the real host.
     assert_output(

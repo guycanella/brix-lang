@@ -7,7 +7,7 @@ X-Pinecone-API-Version; POSTs also a JSON content type and a JSON body), or it
 gets a 400 naming what is missing. Endpoints: POST /describe_index_stats
 (computed from the stored vectors), POST /query (cosine, equality filters),
 GET /vectors/fetch, GET /vectors/list (paginated), POST /vectors/upsert and
-POST /vectors/delete, with Pinecone's limits (1000 records and 2 MB per
+POST /vectors/delete (ids or deleteAll), with Pinecone's limits (1000 records and 2 MB per
 request). State lives in this process, so each test gets a fresh index.
 API keys:
   test-key      -> normal responses
@@ -136,6 +136,14 @@ class Handler(BaseHTTPRequestHandler):
         return self.reply(200, {"upsertedCount": len(vectors)})
 
     def delete(self, body):
+        ns = body.get("namespace", "")
+        if body.get("deleteAll"):
+            if "ids" in body:
+                return self.reply(400, {"message": "deleteAll and ids are exclusive"})
+            if ns == "reject-ns":  # test hook: fail one namespace of a reset
+                return self.reply(400, {"message": "rejected"})
+            VECTORS.pop(ns, None)
+            return self.reply(200, {})
         ids = body.get("ids")
         if not isinstance(ids, list) or not 1 <= len(ids) <= MAX_BATCH:
             return self.reply(400, {"message": f"ids must hold 1 to {MAX_BATCH} ids"})

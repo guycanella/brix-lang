@@ -1,0 +1,52 @@
+// v2.1 Grupo A Fase 4: db.delete_namespace and db.reset_index against the
+// mock (which starts with a, b, c in the default namespace and two vectors
+// in "prod").
+import vectordb
+import json
+
+var host := env("BRIX_TEST_PINECONE_HOST") ?: "http://127.0.0.1:1"
+var db := vectordb.connect("pinecone", host, "test-key")
+
+fn summary(db: VectorDB) -> string {
+    var st := db.stats() ?: json.object()
+    return json.stringify(st["namespaces"]) + " " + json.stringify(st["totalVectorCount"])
+}
+
+println(summary(db))
+
+// Clearing one namespace leaves the others alone; the connection's own
+// namespace does not matter.
+println(db.delete_namespace("prod"))
+println(summary(db))
+var prod := vectordb.connect("pinecone", host, "test-key", "prod")
+println(json.stringify(prod.list()))
+
+// A missing namespace is not an error.
+println(db.delete_namespace("never-existed"))
+
+// "" is the default namespace.
+var tmp := vectordb.connect("pinecone", host, "test-key", "tmp")
+println(tmp.upsert("t1", Embedding<3>([1.0, 0.0, 0.0])))
+println(db.delete_namespace(""))
+println(summary(db))
+
+// reset_index clears every namespace.
+println(prod.upsert("p9", Embedding<3>([0.0, 1.0, 0.0])))
+println(db.reset_index())
+println(summary(db))
+println(db.reset_index())
+
+// A failure stops the reset and says how far it got.
+println(db.upsert("a", Embedding<3>([1.0, 0.0, 0.0])))
+var rej := vectordb.connect("pinecone", host, "test-key", "reject-ns")
+println(rej.upsert("r", Embedding<3>([1.0, 0.0, 0.0])))
+println(prod.upsert("p9", Embedding<3>([0.0, 1.0, 0.0])))
+println(db.reset_index())
+println(db.last_error())
+println(summary(db))
+
+var bad := vectordb.connect("pinecone", host, "wrong-key")
+println(bad.delete_namespace("prod"))
+println(bad.last_error())
+println(bad.reset_index())
+println(bad.last_error())
