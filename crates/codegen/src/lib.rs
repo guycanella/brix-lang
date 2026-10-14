@@ -6733,6 +6733,11 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     if let ExprKind::Identifier(_module_name) = &target.kind {
                         // Check if this is a math module function
                         let fn_name = field.as_str();
+                        // A variable shadows a module (or alias) of the same
+                        // name: `import vectordb as db` + `var db := ...` makes
+                        // `db.stats()` a method call, not a module call. Same
+                        // for a top-level function hijacking `v.push(3)`.
+                        let receiver_is_variable = self.variables.contains_key(_module_name);
 
                         // LAPACK decompositions that return several matrices as a
                         // Brix tuple (math.lu/qr/svd). Handled here (not via the
@@ -6740,10 +6745,11 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         // returns a heap struct that must be unpacked and
                         // assembled into a tuple. Gated to the math module
                         // (honouring `import math as m`).
-                        let is_math = self
-                            .imported_modules
-                            .iter()
-                            .any(|(m, p)| m == "math" && p == _module_name);
+                        let is_math = !receiver_is_variable
+                            && self
+                                .imported_modules
+                                .iter()
+                                .any(|(m, p)| m == "math" && p == _module_name);
                         if is_math {
                             match fn_name {
                                 "lu" => {
@@ -6811,10 +6817,11 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         }
 
                         // Check if this is a datetime module function
-                        let is_datetime = self
-                            .imported_modules
-                            .iter()
-                            .any(|(m, p)| m == "datetime" && p == _module_name);
+                        let is_datetime = !receiver_is_variable
+                            && self
+                                .imported_modules
+                                .iter()
+                                .any(|(m, p)| m == "datetime" && p == _module_name);
                         if is_datetime {
                             use crate::builtins::datetime::DateTimeFunctions;
                             let mut compiled_args = Vec::new();
@@ -6830,10 +6837,11 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         }
 
                         // Check if this is a json module function
-                        let is_json = self
-                            .imported_modules
-                            .iter()
-                            .any(|(m, p)| m == "json" && p == _module_name);
+                        let is_json = !receiver_is_variable
+                            && self
+                                .imported_modules
+                                .iter()
+                                .any(|(m, p)| m == "json" && p == _module_name);
                         if is_json {
                             use crate::builtins::json::JsonFunctions;
                             let mut compiled_args = Vec::new();
@@ -6849,10 +6857,11 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         }
 
                         // vectordb module (v2.1 Grupo A).
-                        let is_vectordb = self
-                            .imported_modules
-                            .iter()
-                            .any(|(m, p)| m == "vectordb" && p == _module_name);
+                        let is_vectordb = !receiver_is_variable
+                            && self
+                                .imported_modules
+                                .iter()
+                                .any(|(m, p)| m == "vectordb" && p == _module_name);
                         if is_vectordb {
                             return self.compile_vectordb_call(fn_name, args, expr);
                         }
@@ -6865,10 +6874,6 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             fn_name
                         };
 
-                        // Only for a module receiver (`math.sin(x)`): on a
-                        // variable (`db.stats()`, `v.push(3)`) a same-named
-                        // top-level function must not hijack the method call.
-                        let receiver_is_variable = self.variables.contains_key(_module_name);
                         if let Some(llvm_fn) = self
                             .module
                             .get_function(lookup_name)
@@ -8972,8 +8977,11 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         return Ok((val, BrixType::IntMatrix));
                     }
                     // env(name) -> string? (v2.1 Grupo A). A user function
-                    // named `env` keeps priority.
-                    if fn_name == "env" && !self.functions.contains_key("env") {
+                    // named `env` (generic or not) keeps priority.
+                    if fn_name == "env"
+                        && !self.functions.contains_key("env")
+                        && !self.generic_functions.contains_key("env")
+                    {
                         return self.compile_env(args, expr);
                     }
                     if fn_name == "panic" {

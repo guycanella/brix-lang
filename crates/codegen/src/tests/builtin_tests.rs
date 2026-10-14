@@ -4063,3 +4063,20 @@ fn test_top_level_function_does_not_hijack_method_on_variable() {
     assert!(ir.contains("@brix_vector_push("), "{}", ir);
     assert!(!ir.contains("call i64 @push("), "{}", ir);
 }
+
+#[test]
+fn test_generic_user_function_named_env_keeps_priority() {
+    // Generic definitions live in `generic_functions`, not `functions`.
+    let ir = ir_from_source("fn env<T>(x: T) -> T { return x }\nvar v := env(5)\n");
+    assert!(!ir.contains("@brix_env("), "{}", ir);
+}
+
+#[test]
+fn test_variable_shadows_module_alias() {
+    // `import vectordb as db` + `var db := ...`: `db.stats()` is a method
+    // call on the variable, not `vectordb.stats` (which doesn't exist).
+    let ir = ir_from_source(
+        "import vectordb as db\nvar db := db.connect(\"pinecone\", \"h\", \"k\")\nvar s := db.stats()\n",
+    );
+    assert!(ir.contains("call ptr @brix_vectordb_stats("), "{}", ir);
+}
