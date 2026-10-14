@@ -27,7 +27,7 @@ Each entry recompiles and re-runs the whole accumulated session through the same
 
 **Run Rust unit tests:**
 ```bash
-cargo test -p lexer -p parser -p codegen  # All unit tests: 317 + 220 + 874 = 1,411 (all passing)
+cargo test -p lexer -p parser -p codegen  # All unit tests: 322 + 228 + 878 = 1,428 (all passing)
 cargo test -p lexer                       # Only lexer (317 tests)
 cargo test -p parser                      # Only parser (220 tests)
 cargo test -p codegen                     # Only codegen (874 tests)
@@ -38,7 +38,7 @@ cargo test -- --nocapture                 # Show println! output
 
 **Run integration tests (must be sequential):**
 ```bash
-cargo test --test integration_test -- --test-threads=1 # 277 tests passing
+cargo test --test integration_test -- --test-threads=1 # 278 tests passing
 ```
 
 **Run Brix language tests (Test Library):**
@@ -72,11 +72,11 @@ brix/
 │   ├── lexer/src/token.rs   # Token enum (logos)
 │   ├── parser/src/
 │   │   ├── ast.rs           # Expr { kind: ExprKind, span }, Stmt { kind: StmtKind, span }
-│   │   ├── parser.rs        # chumsky parser (~2,064 lines)
+│   │   ├── parser.rs        # chumsky parser (~2,104 lines)
 │   │   ├── closure_analysis.rs  # Capture analysis pass (runs after parse)
 │   │   └── error.rs         # Ariadne-based parse error reporting
 │   └── codegen/src/
-│       ├── lib.rs           # Main compiler (~19,746 lines — post-refactor 11,014, grew with v1.8–v2.0 + rustfmt expansion)
+│       ├── lib.rs           # Main compiler (~19,770 lines — post-refactor 11,014, grew with v1.8–v2.0 + rustfmt expansion)
 │       ├── stmt.rs          # Statement compilation (~1,514 lines)
 │       ├── expr.rs          # Expression compilation + list comprehension (~2,028 lines)
 │       ├── helpers.rs       # LLVM helpers
@@ -122,7 +122,7 @@ Flat `HashMap<String, (PointerValue, BrixType)>` with module prefixes. `import m
 - **match**: one basic block per arm + PHI in merge block
 - **break/continue**: `Compiler` has `current_break_block` / `current_continue_block` (`Option<BasicBlock>`). Each loop saves the outer blocks, sets its own, restores after body. After emitting the unconditional branch, a dead basic block is appended to keep LLVM IR valid.
 
-### Type System (current: v2.0 in progress — Grupo A COMPLETE, Fases 0–4)
+### Type System (current: v2.1 in progress — v2.0 complete, Grupo 0 operators done)
 
 Core types: `Int` (i64), `Float` (f64), `String`, `Matrix` (f64, contiguous), `IntMatrix` (i64), `StringMatrix` (array of `BrixString*`, v1.7), `Complex`, `ComplexArray`, `ComplexMatrix`, `Tuple`, `Nil`, `Error`, `Atom` (i64 interned), `Void`, `Struct(String)`, `Optional(Box)` (desugars to Union), `Union(Vec<BrixType>)`, `Intersection(Vec<BrixType>)`, `AsyncFuture`, `FloatPtr`, `Vector(Box<BrixType>)` (v1.8 Grupo C — dynamic `Vector<T>`, `BrixVector*`), `Stack`/`Queue`/`MinHeap`/`MaxHeap(Box<BrixType>)` and `HashMap(Box, Box)` (v1.8 D–F), `DateTime` (v1.9 A), `Json` (v1.9 B), and `Embedding(u32)` (v2.0 Grupo A — `BrixEmbedding*`, dim is a const generic) and `EmbeddingBatch(u32)` (v2.0 Fase 3 — `BrixEmbeddingBatch*`).
 
@@ -206,7 +206,7 @@ Jest-style framework. 17 matchers (all support `.not.`): `toBe`, `toEqual`, `toB
 
 **Test baseline at v1.9 completion:** 1,357 unit (317 lexer + 209 parser + 831 codegen) + 264 integration + 517 Test Library (31 `.test.bx` files).
 
-**Current test baseline (v2.0 Grupo A COMPLETE):** 1,411 unit (317 lexer + 220 parser + 874 codegen) + 277 integration + 535 Test Library (32 `.test.bx` files). All green.
+**Current test baseline (v2.1 Grupo 0 COMPLETE):** 1,428 unit (322 lexer + 228 parser + 878 codegen) + 278 integration + 538 Test Library (32 `.test.bx` files). All green.
 
 **Completed in v1.9 (Grupo F):**
 - **Grupo F — `brix repl` — COMPLETE, as a "replay REPL", not the roadmap's original incremental-JIT design:**
@@ -388,7 +388,21 @@ Tests: +19 codegen unit, integration 263–267 (263 dot incl. f64-only precision
 - No user-facing timing API (`time.now_ms()`-style) was added — the harness measures from outside.
 - Tests: integration 272 only (+1); no new codegen/Test Library tests.
 
-**Next — v2.1** (see `ROADMAP_V2.1.md`): Grupo 0 operators (`@`/`<->`/`<=>` as sugar over the v2.0 methods) and the prerequisite fixes listed there.
+**Next:** v2.1 (below).
+
+## v2.1 Status (IN PROGRESS) — see `ROADMAP_V2.1.md` (untracked, local only)
+
+Three groups: **0** (embedding operators), **A** (`VectorDB` type system + Pinecone), **B** (Weaviate/Milvus/Chroma). Only Grupo 0 is done.
+
+**Grupo 0 — COMPLETE** (`66be0c1`, `3f47b1c`) — embedding operators, pure parser sugar, no runtime code:
+- `a @ b` → `a.cosine_similarity(b)`, `a <-> b` → `a.euclidean_distance(b)`, `a <=> b` → `a.dot_product(b)`. Tokens `At` / `LeftRightArrow` / `DoubleArrow` (`lexer/src/token.rs`); logos longest match leaves `<`, `<=`, `->` and `a<-1` unchanged (`<->`/`<=>` were never valid token sequences, and `@` used to be a lexer error).
+- **One left-associative precedence level (`similarity` in `parser.rs`) whose operands are `postfix_inc_dec`** — tighter than every prefix and binary operator, including unary, `await` and `**`. No Brix operator yields an `Embedding` and the result is a `float`, so grouping `a @ b` first is the only well-typed reading of `-a @ b` (= `-(a @ b)`), `a @ b ** 2` (= `(a @ b) ** 2`), `1.0 - a @ b`, `2.0 * a <=> b`, `a @ b > 0.8`. Cost: awaiting one operand needs parentheses, `(await f()) @ b`. (A first version sat between `**` and `*`; the review showed `-a @ b` / `a @ b ** 2` then parsed into type errors.)
+- **Spans:** the desugared `Call` and its `FieldAccess` span `lhs.start..` the end of the span the right operand *consumed* (`map_with_span`), not `rhs.span` — `postfix_chain` keeps its base's span, so `a @ b.get(0)` would otherwise end at `b`. The same postfix-chain behavior still applies to every ordinary method call (diagnostics point at the base); fixing it at the source would change spans language-wide and was left out.
+- **Codegen:** the three method names on a receiver that is neither `Embedding` nor a struct is now `E102` ("receiver of .cosine_similarity() (left operand of `@`)") instead of the generic `Unknown function` + `E105` (`lib.rs`, in the `is_embedding_method` guard). A same-named user struct method still dispatches, since the sugar is pure (`p <=> q` calls `V2.dot_product`). Dim mismatch stays `E102`.
+- `:type a @ b` in the REPL → `float` (the Fase 2 inference arm covers it); works inside f-string interpolation.
+- Tests: +5 lexer, +8 parser (precedence via an s-expression helper, associativity, spans incl. a postfix right operand), +4 codegen, integration 273 (results, precedence, temporaries, struct method), +3 Test Library (`embedding.test.bx`).
+
+**Next — Grupo A** (`VectorDB` type system + Pinecone) in `ROADMAP_V2.1.md`.
 
 ## CI (GitHub Actions) — `.github/workflows/ci.yml`
 
