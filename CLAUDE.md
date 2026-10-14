@@ -67,7 +67,7 @@ The driver (`src/main.rs`, ~509 lines; REPL in `src/repl.rs`) orchestrates all s
 ```
 brix/
 ├── src/main.rs              # CLI + compilation pipeline driver
-├── runtime.c                # C runtime (~7,003 lines) — must be in project root
+├── runtime.c                # C runtime (~7,023 lines) — must be in project root
 ├── crates/
 │   ├── lexer/src/token.rs   # Token enum (logos)
 │   ├── parser/src/
@@ -88,7 +88,7 @@ brix/
 │                            #   iterator.rs, match_compiler.rs, async_compiler.rs, closure_compiler.rs
 ├── tests/
 │   ├── integration/         # End-to-end .bx files (success/, parser_errors/, codegen_errors/, runtime_errors/, test_library_failures/)
-│   └── brix/                # Language test files (*.test.bx) — 34 files, 563 tests, all passing
+│   └── brix/                # Language test files (*.test.bx) — 34 files, 564 tests, all passing
 ├── benchmarks/              # Informative benchmarks (run.sh + .bx), not CI gates
 └── examples/                # Example .bx programs
 ```
@@ -206,7 +206,7 @@ Jest-style framework. 17 matchers (all support `.not.` — `toEqual`, `toBeClose
 
 **Test baseline at v1.9 completion:** 1,357 unit (317 lexer + 209 parser + 831 codegen) + 264 integration + 517 Test Library (31 `.test.bx` files).
 
-**Current test baseline (v2.1 Grupo A Fase 3 COMPLETE):** 1,459 unit (322 lexer + 228 parser + 909 codegen) + 291 integration + 563 Test Library (34 `.test.bx` files) = 2,313. All green.
+**Current test baseline (v2.1 Grupo A Fase 3 COMPLETE):** 1,459 unit (322 lexer + 228 parser + 909 codegen) + 291 integration + 564 Test Library (34 `.test.bx` files) = 2,314. All green.
 
 **Completed in v1.9 (Grupo F):**
 - **Grupo F — `brix repl` — COMPLETE, as a "replay REPL", not the roadmap's original incremental-JIT design:**
@@ -430,10 +430,10 @@ Three groups: **0** (embedding operators), **A** (`VectorDB` type system + Pinec
 - `db.upsert_batch(ids, embeddings[, metadata])` — `ids` a `Vector<string>`, `embeddings` an `EmbeddingBatch<DIM>`, `metadata` a JSON array with one object or null per id (nil or JSON null = none). Length mismatches are local errors.
 - `db.delete(id)` / `db.delete_batch(ids)` — `POST /vectors/delete`; a missing id is a success. Empty batches succeed without a request.
 - **Deviations from the roadmap:** positional args (no keyword args / map literals); batches take parallel `Vector<string>` + `EmbeddingBatch` + JSON array instead of a list of record maps (Brix has no map literals); writes return `int`, not `json?`.
-- **Batching (runtime):** every record is checked first (NaN/Inf, metadata type) so those errors write nothing; then records are serialized lazily and sent in requests of at most 1000 records and 2 MB (Pinecone's limits) — only one request body is in memory. A failed request stops the batch with `"... (N of M written)"` in `last_error` (earlier requests are not rolled back; after a timeout N is a lower bound — upsert/delete are idempotent, so retrying the batch is safe). Batch errors name the record (`record 1: ...`); a single record over 2 MB is rejected locally. `vdb_post_chunked` takes an item callback (`vdb_upsert_item` / `vdb_delete_item`).
+- **Batching (runtime):** every record is checked first (empty id, NaN/Inf, metadata type; `delete_batch` checks every id) so those errors write nothing; then records are serialized lazily and sent in requests of at most 1000 records and 2 MB (Pinecone's limits) — only one request body is in memory. A failed request stops the batch with `"... (N of M written)"` in `last_error` (earlier requests are not rolled back; after a timeout N is a lower bound — upsert/delete are idempotent, so retrying the batch is safe). Batch errors name the record (`record 1: ...`); a single record over 2 MB is rejected locally. `vdb_post_chunked` takes an item callback (`vdb_upsert_item` / `vdb_delete_item`).
 - **Codegen:** same `compile_vectordb_method` arity/type table, now with an `i64` return for writes; `HashMap.delete` and same-named struct methods are unaffected.
 - **Mock:** stats are now computed from the stored vectors; `POST /vectors/upsert` / `POST /vectors/delete` mutate them; requests over 1000 records (400) or 2 MB (413) are rejected, so the batching tests really prove the splitting; id `reject-me` fails its request (test hook for partial failure).
-- Tests: +6 codegen unit, integration 282 (upsert: metadata, overwrite, borrowed args, searchable, errors), 283 (upsert_batch: split by count and by size, per-record metadata, failed second request, up-front checks, oversized record mid-batch, length checks), 284 (delete / delete_batch incl. a 1201-id batch and namespaces), +6 Test Library (offline cases).
+- Tests: +6 codegen unit, integration 282 (upsert: metadata, overwrite, borrowed args, searchable, errors), 283 (upsert_batch: split by count and by size, per-record metadata, failed second request, up-front checks, oversized record mid-batch, length checks), 284 (delete / delete_batch incl. a 1201-id batch, namespace isolation with the same id in both, an empty id checked up front), +7 Test Library (offline cases).
 
 **Next — Grupo A Fase 4** (index management: `reset_index`, `delete_namespace`) in `ROADMAP_V2.1.md`; then Fase 5 (timeouts, retry, pooling), then Grupo B.
 
