@@ -4047,7 +4047,7 @@ math.sum(arr), math.mean(arr), math.median(arr), math.std(arr)
 - **Linhas de Código (Rust):** ~39.900 linhas (lexer + parser + codegen + driver)
 - **Linhas de Código (C Runtime):** ~6.170 linhas (`runtime.c`)
 - **Testes:** 1.462 unit (322 lexer + 228 parser + 912 codegen) + 292 integration + 566 Test Library (34 arquivos `.test.bx`) = 2.320 total
-- **Versão Atual:** v2.1 🚧 **EM ANDAMENTO** (Grupo 0 ✅ operadores; Grupo A 🚧 Fases 1–3 de 5 ✅ — VectorDB + `connect`/`stats` + `query`/`fetch`/`list` + `upsert`/`delete` + `delete_namespace`/`reset_index`; Grupo B pendente)
+- **Versão Atual:** v2.1 🚧 **EM ANDAMENTO** (Grupo 0 ✅ operadores; Grupo A 🚧 Fases 1–4 de 5 ✅ — VectorDB + `connect`/`stats` + `query`/`fetch`/`list` + `upsert`/`delete` + `delete_namespace`/`reset_index`; Grupo B pendente)
 - **Versão Anterior:** v2.0 ✅ **COMPLETO** (Grupo A, Fases 0–4)
 - **Próximo Passo:** v2.1 Grupo A Fase 5 — timeouts configuráveis, retry com backoff em 429/503, pooling (`ROADMAP_V2.1.md`)
 - **Última Atualização:** Out 2026
