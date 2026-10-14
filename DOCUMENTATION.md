@@ -4049,7 +4049,7 @@ math.sum(arr), math.mean(arr), math.median(arr), math.std(arr)
 - **Testes:** 1.453 unit (322 lexer + 228 parser + 903 codegen) + 288 integration + 557 Test Library (34 arquivos `.test.bx`) = 2.298 total
 - **Versão Atual:** v2.1 🚧 **EM ANDAMENTO** (Grupo 0 ✅ operadores; Grupo A 🚧 Fases 1–2 de 5 ✅ — VectorDB + `connect`/`stats` + `query`/`fetch`/`list`; Grupo B pendente)
 - **Versão Anterior:** v2.0 ✅ **COMPLETO** (Grupo A, Fases 0–4)
-- **Próximo Passo:** v2.1 Grupo A Fase 2 — `db.query` / `fetch` / `list` e os tipos de resultado (`ROADMAP_V2.1.md`)
+- **Próximo Passo:** v2.1 Grupo A Fase 3 — upsert/delete (`ROADMAP_V2.1.md`)
 - **Última Atualização:** Out 2026
 
 ---
