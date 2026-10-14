@@ -1,5 +1,6 @@
 import test
 import vectordb
+import json
 
 // Offline only: the request/response paths against a (mock) Pinecone host
 // are covered by integration tests 274-275.
@@ -66,5 +67,54 @@ test.describe("VectorDB query / fetch / list (v2.1 Grupo A Fase 2)", () -> {
         test.expect(db.last_error()).toBe("/vectors/list: limit must be >= 1, got 0")
         test.expect(db.list(10, "tok")).toBeNil()
         test.expect(db.last_error()).toStartWith("/vectors/list: ")
+    })
+})
+
+test.describe("VectorDB writes (v2.1 Grupo A Fase 3)", () -> {
+    test.it("upsert on a refused connection returns 0", () -> {
+        var db := vectordb.connect("pinecone", "http://127.0.0.1:1", "key")
+        test.expect(db.upsert("d1", Embedding<3>([1.0, 0.0, 0.0]))).toBe(0)
+        test.expect(db.last_error()).toStartWith("/vectors/upsert: ")
+    })
+
+    test.it("upsert rejects NaN and non-object metadata without a request", () -> {
+        var db := vectordb.connect("pinecone", "http://127.0.0.1:1", "key")
+        test.expect(db.upsert("d1", Embedding<2>([0.0 / 0.0, 1.0]))).toBe(0)
+        test.expect(db.last_error()).toBe("/vectors/upsert: vector contains NaN or Inf")
+        test.expect(db.upsert("d1", Embedding<2>([1.0, 1.0]), json.parse("3"))).toBe(0)
+        test.expect(db.last_error()).toBe("/vectors/upsert: metadata must be a JSON object")
+    })
+
+    test.it("upsert_batch checks lengths without a request", () -> {
+        var db := vectordb.connect("pinecone", "http://127.0.0.1:1", "key")
+        var ids := Vector<string>()
+        ids.push("a")
+        var vs := EmbeddingBatch<2>(1)
+        test.expect(db.upsert_batch(ids, vs)).toBe(0)
+        test.expect(db.last_error()).toBe("/vectors/upsert: 1 ids but 0 embeddings")
+        vs.add(Embedding<2>([1.0, 0.0]))
+        test.expect(db.upsert_batch(ids, vs, json.array())).toBe(0)
+        test.expect(db.last_error()).toBe("/vectors/upsert: metadata must be a JSON array with one entry per id")
+    })
+
+    test.it("empty batches succeed without a request", () -> {
+        var db := vectordb.connect("pinecone", "http://127.0.0.1:1", "key")
+        test.expect(db.upsert_batch(Vector<string>(), EmbeddingBatch<2>(0))).toBe(1)
+        test.expect(db.delete_batch(Vector<string>())).toBe(1)
+        test.expect(db.last_error()).toBe("")
+    })
+
+    test.it("a record over the request limit is rejected without a request", () -> {
+        var db := vectordb.connect("pinecone", "http://127.0.0.1:1", "key")
+        var meta := json.object()
+        json.set(meta, "pad", json.string("x".repeat(2100000)))
+        test.expect(db.upsert("big", Embedding<2>([1.0, 0.0]), meta)).toBe(0)
+        test.expect(db.last_error()).toBe("/vectors/upsert: larger than the 2000000-byte request limit")
+    })
+
+    test.it("delete on a refused connection returns 0", () -> {
+        var db := vectordb.connect("pinecone", "http://127.0.0.1:1", "key")
+        test.expect(db.delete("d1")).toBe(0)
+        test.expect(db.last_error()).toStartWith("/vectors/delete: ")
     })
 })

@@ -2723,6 +2723,38 @@ fn test_281_vectordb_list() {
 }
 
 #[test]
+fn test_282_vectordb_upsert() {
+    // v2.1 Grupo A Fase 3: POST /vectors/upsert with and without metadata,
+    // overwrite, borrowed arguments, searchable afterwards, and failures.
+    MockPinecone::start().assert_success(
+        "tests/integration/success/282_vectordb_upsert.bx",
+        "1\n1\n{\"id\":\"d1\",\"values\":[1,0,0],\"metadata\":{\"title\":\"One\"}}\n1\nd2 {\"id\":\"d2\",\"values\":[0,1,0],\"metadata\":{}}\n1\n1\n{\"id\":\"d1\",\"values\":[0,0,1],\"metadata\":{}}\n{\"vectors\":[{\"id\":\"d1\"},{\"id\":\"d2\"}],\"namespace\":\"docs\"}\nd2\n0\n/vectors/upsert: HTTP 400: {\"message\": \"Vector dimension 2 does not match the dimension of the index 3\"}\n0\n/vectors/upsert: vector contains NaN or Inf\n0\n/vectors/upsert: metadata must be a JSON object\n0\n/vectors/upsert: HTTP 401: {\"code\": 16, \"message\": \"Invalid API Key\"}",
+    );
+}
+
+#[test]
+fn test_283_vectordb_upsert_batch() {
+    // Batches split by count (2500 -> 3 requests) and by size (~3 MB of
+    // metadata), per-record metadata, a failed second chunk reporting how
+    // many records were written, records checked before any request, an
+    // oversized record mid-batch, json.null() metadata, and the length checks.
+    MockPinecone::start().assert_success(
+        "tests/integration/success/283_vectordb_upsert_batch.bx",
+        "1\n2500\n1\n2600\n1\n{\"id\":\"t1\",\"values\":[1,0,0],\"metadata\":{\"k\":1}}\n{\"id\":\"t2\",\"values\":[0,1,0],\"metadata\":{}}\n0\n/vectors/upsert: HTTP 400: {\"message\": \"rejected\"} (1000 of 1500 written)\n3602\n0\n/vectors/upsert: record 1: vector contains NaN or Inf\n3602\n0\n/vectors/upsert: record 1: larger than the 2000000-byte request limit (1 of 3 written)\n1\n1\n1\n0\n/vectors/upsert: 2 ids but 2500 embeddings\n0\n/vectors/upsert: metadata must be a JSON array with one entry per id\n1",
+    );
+}
+
+#[test]
+fn test_284_vectordb_delete() {
+    // POST /vectors/delete: single, missing id, a 1201-id batch (2 requests),
+    // empty batch, namespace, failure.
+    MockPinecone::start().assert_success(
+        "tests/integration/success/284_vectordb_delete.bx",
+        "1\n1\n{\"vectors\":[{\"id\":\"b\"},{\"id\":\"c\"}],\"namespace\":\"\"}\n1\n1\n1\n{\"vectors\":[{\"id\":\"c\"}],\"namespace\":\"\"}\n1\n1\n{\"vectors\":[{\"id\":\"x&y z\"}],\"namespace\":\"prod\"}\n0\n/vectors/delete: HTTP 401: {\"code\": 16, \"message\": \"Invalid API Key\"}",
+    );
+}
+
+#[test]
 fn test_278_vectordb_userinfo_rejected() {
     // Parsed with libcurl's URL parser, so the check sees the real host.
     assert_output(

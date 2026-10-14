@@ -1,0 +1,38 @@
+// v2.1 Grupo A Fase 3: db.delete / db.delete_batch (POST /vectors/delete).
+import vectordb
+import json
+
+var host := env("BRIX_TEST_PINECONE_HOST") ?: "http://127.0.0.1:1"
+var db := vectordb.connect("pinecone", host, "test-key")
+
+// The mock starts with a, b, c in the default namespace.
+println(db.delete("a"))
+println(db.fetch("a") == nil)
+println(json.stringify(db.list()))
+
+// Deleting a missing id succeeds.
+println(db.delete("nope"))
+
+// 1200 ids: 2 requests.
+var ids := Vector<string>()
+var vecs := EmbeddingBatch<3>(0)
+var i := 0
+while i < 1200 {
+    ids.push(f"x{i}")
+    vecs.add(Embedding<3>([1.0, 0.0, 0.0]))
+    i := i + 1
+}
+println(db.upsert_batch(ids, vecs))
+ids.push("b")
+println(db.delete_batch(ids))
+println(json.stringify(db.list()))
+println(db.delete_batch(Vector<string>()))
+
+// The namespace is sent: deleting "p1" in prod leaves the default one alone.
+var prod := vectordb.connect("pinecone", host, "test-key", "prod")
+println(prod.delete("p1"))
+println(json.stringify(prod.list()))
+
+var bad := vectordb.connect("pinecone", host, "wrong-key")
+println(bad.delete("c"))
+println(bad.last_error())

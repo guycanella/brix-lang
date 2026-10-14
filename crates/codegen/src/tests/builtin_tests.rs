@@ -4155,6 +4155,124 @@ fn test_struct_methods_named_query_fetch_list_dispatch_to_struct() {
     assert!(!ir.contains("brix_vectordb_"), "{}", ir);
 }
 
+// ---- v2.1 Grupo A Fase 3: upsert / upsert_batch / delete / delete_batch ----
+
+const VDB_BATCH: &str = "var ids := Vector<string>()\nvar vs := EmbeddingBatch<3>(0)\n";
+
+#[test]
+fn test_vectordb_writes_return_int_and_pad_metadata() {
+    let ir = vdb_ir(&format!(
+        "{}var a := db.upsert(\"x\", q)\nvar b := db.upsert_batch(ids, vs)\nvar c := db.delete(\"x\")\nvar d := db.delete_batch(ids)\n",
+        VDB_BATCH
+    ));
+    for f in [
+        "declare i64 @brix_vectordb_upsert(ptr, ptr, ptr, ptr)",
+        "declare i64 @brix_vectordb_upsert_batch(ptr, ptr, ptr, ptr)",
+        "declare i64 @brix_vectordb_delete(ptr, ptr)",
+        "declare i64 @brix_vectordb_delete_batch(ptr, ptr)",
+    ] {
+        assert!(ir.contains(f), "{}\n{}", f, ir);
+    }
+    // No metadata given: NULL (the third is connect's default namespace).
+    assert_eq!(ir.matches(", ptr null)").count(), 3, "{}", ir);
+}
+
+#[test]
+fn test_vectordb_upsert_metadata_unwraps_optional_json() {
+    let ir = vdb_ir("var a := db.upsert(\"x\", q, json.parse(\"{}\"))\n");
+    assert!(ir.contains("select i1 %filter_is_json"), "{}", ir);
+    // The json.parse temporary is released (no other Json in scope).
+    assert_eq!(ir.matches("call void @json_release(").count(), 1, "{}", ir);
+}
+
+#[test]
+fn test_vectordb_upsert_releases_temporaries() {
+    // Temporary id string and embedding: released after the call.
+    let ir = vdb_ir("var a := db.upsert(\"a\" + \"b\", Embedding<3>([0.0, 1.0, 0.0]))\n");
+    let body = function_body(&ir, "main");
+    let call = body.find("@brix_vectordb_upsert(").unwrap();
+    assert!(
+        body[call..].contains("call void @string_release("),
+        "{}",
+        body
+    );
+    // The temporary, plus q's declaration old-value and scope-end releases.
+    assert_eq!(
+        ir.matches("call void @brix_embedding_release(").count(),
+        3,
+        "{}",
+        ir
+    );
+}
+
+#[test]
+fn test_vectordb_write_type_errors() {
+    for src in [
+        "var a := db.upsert(1, q)\n",
+        "var a := db.upsert(\"x\", [1.0, 0.0, 0.0])\n",
+        "var a := db.upsert(\"x\", q, \"{}\")\n",
+        "var a := db.upsert_batch(vs, ids)\n",
+        "var a := db.upsert_batch(Vector<int>(), vs)\n",
+        "var a := db.upsert_batch(ids, q)\n",
+        "var a := db.delete(1)\n",
+        "var a := db.delete_batch(\"x\")\n",
+    ] {
+        let err = error_from_source(&format!("{}{}{}", VDB_DB, VDB_BATCH, src));
+        assert!(
+            matches!(err, crate::error::CodegenError::TypeError { .. }),
+            "{}: {:?}",
+            src,
+            err
+        );
+    }
+}
+
+#[test]
+fn test_vectordb_write_arity() {
+    for src in [
+        "var a := db.upsert(\"x\")\n",
+        "var a := db.upsert(\"x\", q, nil, 1)\n",
+        "var a := db.upsert_batch(ids)\n",
+        "var a := db.delete()\n",
+        "var a := db.delete_batch(ids, ids)\n",
+    ] {
+        let err = error_from_source(&format!("{}{}{}", VDB_DB, VDB_BATCH, src));
+        assert!(
+            matches!(err, crate::error::CodegenError::InvalidOperation { .. }),
+            "{}: {:?}",
+            src,
+            err
+        );
+    }
+}
+
+#[test]
+fn test_vectordb_write_inference_and_hashmap_delete() {
+    let history = "import vectordb\nvar db := vectordb.connect(\"pinecone\", \"h\", \"k\")\nvar q := Embedding<3>([1.0, 0.0, 0.0])\nvar ids := Vector<string>()\nvar vs := EmbeddingBatch<3>(0)\n";
+    use crate::types::BrixType;
+    for expr in [
+        "db.upsert(\"a\", q)",
+        "db.upsert_batch(ids, vs)",
+        "db.delete(\"a\")",
+        "db.delete_batch(ids)",
+    ] {
+        assert_eq!(
+            crate::infer_type_of_expr_in_context(history, expr),
+            Ok(BrixType::Int),
+            "{}",
+            expr
+        );
+    }
+    // Same-named struct methods still dispatch to the struct.
+    let ir = ir_from_source(
+        "struct C { n: int }\nfn (c: C) upsert(a: int, b: int) -> int { return c.n }\nfn (c: C) upsert_batch(a: int, b: int) -> int { return c.n }\nfn (c: C) delete_batch(a: int) -> int { return c.n }\nvar c := C { n: 3 }\nvar r := c.upsert(1, 2) + c.upsert_batch(1, 2) + c.delete_batch(1)\n",
+    );
+    assert!(!ir.contains("brix_vectordb_"), "{}", ir);
+    // HashMap.delete still goes to the hash map.
+    let ir = ir_from_source("var m := HashMap<string, int>()\nm.set(\"a\", 1)\nm.delete(\"a\")\n");
+    assert!(!ir.contains("brix_vectordb_"), "{}", ir);
+}
+
 #[test]
 fn test_match_arm_borrowed_value_is_retained() {
     // `match` yields an owned value: an identifier arm must be retained, or
