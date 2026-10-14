@@ -1,6 +1,6 @@
 # Brix Language (Design Document v1.0)
 
-> 🚧 **Status do Projeto (Out 2026):** v1.6, v1.7, v1.8 e v1.9 **COMPLETOS**. **v2.0 Grupo A (`Embedding<DIM>`) COMPLETO** — Fase 0 (const generics na gramática), Fase 1 (tipo `Embedding<DIM>` + conversões com `Matrix`) e Fase 2 (métodos de similaridade via BLAS) Fase 3 (`EmbeddingBatch<DIM>` + `find_nearest`) e Fase 4 (verificação do BLAS + benchmark informativo) concluídas. **v2.1 em andamento — Grupo 0 (operadores `@` / `<->` / `<=>`) concluído; Grupo A (VectorDB + Pinecone) em andamento, Fase 1 de 5 concluída (`VectorDB`, `vectordb.connect`, `db.stats()`, `env()`).** **1.443 unit tests + 284 integration tests + 543 Test Library = 2.270 tests passando (100%).** Detalhes técnicos por grupo: `CLAUDE.md` (raiz); planejamento: `ROADMAP_V2.0.md`–`ROADMAP_V2.2.md`.
+> 🚧 **Status do Projeto (Out 2026):** v1.6, v1.7, v1.8 e v1.9 **COMPLETOS**. **v2.0 Grupo A (`Embedding<DIM>`) COMPLETO** — Fase 0 (const generics na gramática), Fase 1 (tipo `Embedding<DIM>` + conversões com `Matrix`) e Fase 2 (métodos de similaridade via BLAS) Fase 3 (`EmbeddingBatch<DIM>` + `find_nearest`) e Fase 4 (verificação do BLAS + benchmark informativo) concluídas. **v2.1 em andamento — Grupo 0 (operadores `@` / `<->` / `<=>`) concluído; Grupo A (VectorDB + Pinecone) em andamento, Fase 1 de 5 concluída (`VectorDB`, `vectordb.connect`, `db.stats()`, `env()`).** **1.443 unit tests + 285 integration tests + 549 Test Library = 2.277 tests passando (100%).** Detalhes técnicos por grupo: `CLAUDE.md` (raiz); planejamento: `ROADMAP_V2.0.md`–`ROADMAP_V2.2.md`.
 
 ## Status Atual (Outubro 2026)
 
@@ -4046,7 +4046,7 @@ math.sum(arr), math.mean(arr), math.median(arr), math.std(arr)
 
 - **Linhas de Código (Rust):** ~39.900 linhas (lexer + parser + codegen + driver)
 - **Linhas de Código (C Runtime):** ~6.170 linhas (`runtime.c`)
-- **Testes:** 1.443 unit (322 lexer + 228 parser + 893 codegen) + 284 integration + 543 Test Library (33 arquivos `.test.bx`) = 2.270 total
+- **Testes:** 1.443 unit (322 lexer + 228 parser + 893 codegen) + 285 integration + 549 Test Library (34 arquivos `.test.bx`) = 2.277 total
 - **Versão Atual:** v2.1 🚧 **EM ANDAMENTO** (Grupo 0 ✅ operadores; Grupo A 🚧 Fase 1 de 5 ✅ — VectorDB + `connect`/`stats`; Grupo B pendente)
 - **Versão Anterior:** v2.0 ✅ **COMPLETO** (Grupo A, Fases 0–4)
 - **Próximo Passo:** v2.1 Grupo A Fase 2 — `db.query` / `fetch` / `list` e os tipos de resultado (`ROADMAP_V2.1.md`)

@@ -38,12 +38,12 @@ cargo test -- --nocapture                 # Show println! output
 
 **Run integration tests (must be sequential):**
 ```bash
-cargo test --test integration_test -- --test-threads=1 # 284 tests passing
+cargo test --test integration_test -- --test-threads=1 # 285 tests passing
 ```
 
 **Run Brix language tests (Test Library):**
 ```bash
-cargo run -- test                   # All *.test.bx and *.spec.bx (33 suites passing)
+cargo run -- test                   # All *.test.bx and *.spec.bx (34 suites passing)
 cargo run -- test json              # Files matching "json" in path
 ```
 
@@ -88,7 +88,7 @@ brix/
 │                            #   iterator.rs, match_compiler.rs, async_compiler.rs, closure_compiler.rs
 ├── tests/
 │   ├── integration/         # End-to-end .bx files (success/, parser_errors/, codegen_errors/, runtime_errors/, test_library_failures/)
-│   └── brix/                # Language test files (*.test.bx) — 33 files, 543 tests, all passing
+│   └── brix/                # Language test files (*.test.bx) — 34 files, 549 tests, all passing
 ├── benchmarks/              # Informative benchmarks (run.sh + .bx), not CI gates
 └── examples/                # Example .bx programs
 ```
@@ -164,7 +164,7 @@ Key rules:
 
 ### Test Library (`import test`)
 
-Jest-style framework. 17 matchers (`.not.` works on `toBe`, `toBeTruthy`/`toBeFalsy`, `toStartWith`, `toEndWith`, `toMatch`, `toHaveProperty`, `toBeNil`, `toThrow`; **known bug, fix queued:** it is silently ignored by `toEqual`, `toBeCloseTo`, `toBeGreaterThan`/`toBeLessThan` (and `OrEqual`), `toContain` and `toHaveLength`, which then assert the positive form): `toBe`, `toEqual`, `toBeCloseTo`, `toBeTruthy`, `toBeFalsy`, `toBeGreaterThan`, `toBeLessThan`, `toBeGreaterThanOrEqual`, `toBeLessThanOrEqual`, `toContain`, `toHaveLength`, `toStartWith`, `toEndWith`, `toMatch` (glob, `*` only), `toHaveProperty` (resolved at compile time via `struct_defs` — the property-name argument must be a string literal in the AST, not a variable), `toBeNil`, `toThrow` (v1.7 Grupo H — `fork()` + `waitpid()` in `runtime.c`; only supports a synchronous, zero-parameter closure literal passed directly to `test.expect(...)`, not a variable holding a closure). Dispatch in `compile_test_matcher()` in `lib.rs`; C implementations in `runtime.c` `SECTION 8`.
+Jest-style framework. 17 matchers (all support `.not.` — `toEqual`, `toBeCloseTo`, the four comparisons, `toContain` and `toHaveLength` silently ignored it until the `fix/test-library-not-matchers` fix, asserting the positive form; their `test_expect_not_*` variants fail when the positive condition holds, so `not.toBeGreaterThan(NaN)` passes): `toBe`, `toEqual`, `toBeCloseTo`, `toBeTruthy`, `toBeFalsy`, `toBeGreaterThan`, `toBeLessThan`, `toBeGreaterThanOrEqual`, `toBeLessThanOrEqual`, `toContain`, `toHaveLength`, `toStartWith`, `toEndWith`, `toMatch` (glob, `*` only), `toHaveProperty` (resolved at compile time via `struct_defs` — the property-name argument must be a string literal in the AST, not a variable), `toBeNil`, `toThrow` (v1.7 Grupo H — `fork()` + `waitpid()` in `runtime.c`; only supports a synchronous, zero-parameter closure literal passed directly to `test.expect(...)`, not a variable holding a closure). Dispatch in `compile_test_matcher()` in `lib.rs`; C implementations in `runtime.c` `SECTION 8`.
 
 **`.not.` parsing (bugfix, v1.7 Grupo G):** `not` lexes as the keyword `Token::Not` (used for the `not x` prefix operator), so the parser's field-access postfix rule — which only accepted `Token::Identifier(name)` after a `.` — could never parse `.not.` as a field. This meant `not.toBe`/etc. were documented as working since v1.5 but had never actually parsed. Fixed by accepting `Token::Not` as an alternative there, mapped to the literal field name `"not"` (parser.rs, postfix `Field` production).
 
@@ -206,7 +206,7 @@ Jest-style framework. 17 matchers (`.not.` works on `toBe`, `toBeTruthy`/`toBeFa
 
 **Test baseline at v1.9 completion:** 1,357 unit (317 lexer + 209 parser + 831 codegen) + 264 integration + 517 Test Library (31 `.test.bx` files).
 
-**Current test baseline (v2.1 Grupo A Fase 1 COMPLETE):** 1,443 unit (322 lexer + 228 parser + 893 codegen) + 284 integration + 543 Test Library (33 `.test.bx` files) = 2,270. All green.
+**Current test baseline (v2.1 Grupo A Fase 1 COMPLETE):** 1,443 unit (322 lexer + 228 parser + 893 codegen) + 285 integration + 549 Test Library (34 `.test.bx` files) = 2,277. All green.
 
 **Completed in v1.9 (Grupo F):**
 - **Grupo F — `brix repl` — COMPLETE, as a "replay REPL", not the roadmap's original incremental-JIT design:**
@@ -412,7 +412,7 @@ Three groups: **0** (embedding operators), **A** (`VectorDB` type system + Pinec
 - **Build:** every compiled program now links `-lcurl` (both link sites in `src/main.rs`); CI installs `libcurl4-openssl-dev` on Linux.
 - **Tests:** a mock Pinecone host (`tests/integration/mock_pinecone.py`, stdlib only; the harness starts it on a free port, passes it as `BRIX_TEST_PINECONE_HOST` and sets a bogus `http_proxy` to prove loopback bypasses proxies). Integration 274 (stats, connection reuse, namespace), 275 (401, non-JSON 200, refused connection, recovery), 276 (plain http to a non-loopback host), 277 (match arm ownership), 278 (userinfo bypass) + codegen error 08 (unknown provider); +15 codegen unit tests; +5 Test Library (`vectordb.test.bx`, offline cases only).
 - **Pre-existing bugs fixed along the way** (libcurl changed the heap layout enough to turn the first into a Linux crash): (1) a `match` arm yielding a borrowed value (`var r := match x { s -> s }`) double-released it — a `match` now always yields an owned value, like the ternary (`own_if_borrowed` per arm); (2) a `fn`/method/closure/async fn defined after a `match` produced invalid IR and an LLVM segfault, because the builder resumed in the parent's *last* block (a `match` appends its merge block before its arms) — now it resumes in the exact saved insert block (`compile_function_def`, method defs, `compile_closure`, async compilers); (3) a top-level function hijacked a method call on a variable (`fn stats` vs `db.stats()`, `fn push` vs `v.push(3)`), and a variable named like a module alias (`import vectordb as db` + `var db`) went down the module path — the module dispatch (`math`/`datetime`/`json`/`vectordb`/generic lookup) is now skipped when the receiver is a variable (`receiver_is_variable`).
-- **Known, not fixed:** `println(db)`, `db == nil` and a `VectorDB` as a `match` result are unsupported (same gaps as `Vector`); `.not.` is ignored by several Test Library matchers (see the Test Library section).
+- **Known, not fixed:** `println(db)`, `db == nil` and a `VectorDB` as a `match` result are unsupported (same gaps as `Vector`); `.not.` was ignored by several Test Library matchers (fixed separately, see the Test Library section).
 
 **Next — Grupo A Fase 2** (`db.query` / `fetch` / `list` and the results/record types) in `ROADMAP_V2.1.md`; then Fase 3 (upsert/delete), 4 (index management), 5 (timeouts, retry, pooling), then Grupo B.
 
