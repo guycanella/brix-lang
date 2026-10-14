@@ -1,6 +1,6 @@
 # Brix Language (Design Document v1.0)
 
-> 🚧 **Status do Projeto (Out 2026):** v1.6, v1.7, v1.8 e v1.9 **COMPLETOS**. **v2.0 Grupo A (`Embedding<DIM>`) COMPLETO** — Fase 0 (const generics na gramática), Fase 1 (tipo `Embedding<DIM>` + conversões com `Matrix`) e Fase 2 (métodos de similaridade via BLAS) Fase 3 (`EmbeddingBatch<DIM>` + `find_nearest`) e Fase 4 (verificação do BLAS + benchmark informativo) concluídas. **v2.1 em andamento — Grupo 0 (operadores `@` / `<->` / `<=>`) concluído; Grupo A (VectorDB + Pinecone) em andamento, Fases 1–2 de 5 concluídas (`VectorDB`, `vectordb.connect`, `db.stats()`, `env()`; `db.query` / `db.fetch` / `db.list` retornando `json?`).** **1.453 unit tests + 288 integration tests + 557 Test Library = 2.298 tests passando (100%).** Detalhes técnicos por grupo: `CLAUDE.md` (raiz); planejamento: `ROADMAP_V2.0.md`–`ROADMAP_V2.2.md`.
+> 🚧 **Status do Projeto (Out 2026):** v1.6, v1.7, v1.8 e v1.9 **COMPLETOS**. **v2.0 Grupo A (`Embedding<DIM>`) COMPLETO** — Fase 0 (const generics na gramática), Fase 1 (tipo `Embedding<DIM>` + conversões com `Matrix`) e Fase 2 (métodos de similaridade via BLAS) Fase 3 (`EmbeddingBatch<DIM>` + `find_nearest`) e Fase 4 (verificação do BLAS + benchmark informativo) concluídas. **v2.1 em andamento — Grupo 0 (operadores `@` / `<->` / `<=>`) concluído; Grupo A (VectorDB + Pinecone) em andamento, Fases 1–3 de 5 concluídas (`VectorDB`, `vectordb.connect`, `db.stats()`, `env()`; `db.query` / `db.fetch` / `db.list` retornando `json?`; `db.upsert` / `upsert_batch` / `delete` / `delete_batch` retornando `int`).** **1.459 unit tests + 291 integration tests + 563 Test Library = 2.313 tests passando (100%).** Detalhes técnicos por grupo: `CLAUDE.md` (raiz); planejamento: `ROADMAP_V2.0.md`–`ROADMAP_V2.2.md`.
 
 ## Status Atual (Outubro 2026)
 
@@ -240,7 +240,7 @@
 - ✅ **Fase 4** — teste de integração que confere via `nm` que `ddot_`/`dnrm2_` não são definidos localmente; o binário é ligado com o BLAS da plataforma + benchmark informativo (`benchmarks/run.sh`: 1M cosines em `Embedding<1536>`, relatório com plataforma/CPU/BLAS/mediana; passo `continue-on-error` no CI, não é gate). Primeiros dados: macOS arm64 (Accelerate) 1,11 s; Linux aarch64 (BLAS de referência do Ubuntu) 3,63 s
 
 ### 🔮 **Planejado (v2.1+):**
-- **v2.1** — ✅ Grupo 0: operadores `@` / `<->` / `<=>` como açúcar sobre os métodos de v2.0 (`a @ b` = `a.cosine_similarity(b)`, `a <-> b` = `a.euclidean_distance(b)`, `a <=> b` = `a.dot_product(b)`; um nível de precedência acima de unário/`**`, então `-a @ b` = `-(a @ b)`). ✅ Grupo A Fase 1: tipo `VectorDB` + `vectordb.connect("pinecone", host, api_key[, namespace])` + `db.stats()` / `db.last_error()` via libcurl + builtin `env()`. ✅ Grupo A Fase 2: `db.query(embedding, top_k[, filter])` (array de matches), `db.fetch(id)` (o record; nil com `last_error() == ""` quando não existe) e `db.list([limit[, token]])` (a página com `pagination.next`), todos `json?`. Pendente: Grupo A Fases 3–5 (upsert/delete, gerência de índice, timeouts/retry) e Grupo B (Weaviate, Milvus, Chroma) — `ROADMAP_V2.1.md`
+- **v2.1** — ✅ Grupo 0: operadores `@` / `<->` / `<=>` como açúcar sobre os métodos de v2.0 (`a @ b` = `a.cosine_similarity(b)`, `a <-> b` = `a.euclidean_distance(b)`, `a <=> b` = `a.dot_product(b)`; um nível de precedência acima de unário/`**`, então `-a @ b` = `-(a @ b)`). ✅ Grupo A Fase 1: tipo `VectorDB` + `vectordb.connect("pinecone", host, api_key[, namespace])` + `db.stats()` / `db.last_error()` via libcurl + builtin `env()`. ✅ Grupo A Fase 2: `db.query(embedding, top_k[, filter])` (array de matches), `db.fetch(id)` (o record; nil com `last_error() == ""` quando não existe) e `db.list([limit[, token]])` (a página com `pagination.next`), todos `json?`. ✅ Grupo A Fase 3: `db.upsert(id, embedding[, metadata])`, `db.upsert_batch(ids, embeddings[, metadata])` (lotes divididos nos limites do Pinecone: 1000 registros / 2 MB por requisição), `db.delete(id)` e `db.delete_batch(ids)`, todos `int` (1 = sucesso, 0 = falha). Pendente: Grupo A Fases 4–5 (gerência de índice, timeouts/retry) e Grupo B (Weaviate, Milvus, Chroma) — `ROADMAP_V2.1.md`
 - **v2.2** — ONNX Runtime (CPU) + GPU (CUDA, Metal) — `ROADMAP_V2.2.md`
 - **v2.3+** — Tensores type-safe, prompt engineering, JIT incremental no REPL
 - Sem versão definida: LTO / PGO / SIMD, `StringMatrix` em anotações de tipo (`string[]`), ranges abertos em slicing
@@ -3820,7 +3820,7 @@ v1.7 ████████████████████ 100% ✅ Strin
 v1.8 ████████████████████ 100% ✅ Vector/Stack/Queue/Heap/HashMap, LAPACK decompositions
 v1.9 ████████████████████ 100% ✅ datetime, json, variadics, mut arrays, REPL
 v2.0 ████████████████████ 100% ✅ Embedding<DIM> (Fases 0–4)
-v2.1 ████████░░░░░░░░░░░░  40% 🚧 Operadores ✅; VectorDB/Pinecone Fases 1–2 de 5 ✅ (Grupo A em andamento, B pendente)
+v2.1 ████████░░░░░░░░░░░░  40% 🚧 Operadores ✅; VectorDB/Pinecone Fases 1–3 de 5 ✅ (Grupo A em andamento, B pendente)
 ```
 
 **Legenda:**
@@ -4046,10 +4046,10 @@ math.sum(arr), math.mean(arr), math.median(arr), math.std(arr)
 
 - **Linhas de Código (Rust):** ~39.900 linhas (lexer + parser + codegen + driver)
 - **Linhas de Código (C Runtime):** ~6.170 linhas (`runtime.c`)
-- **Testes:** 1.453 unit (322 lexer + 228 parser + 903 codegen) + 288 integration + 557 Test Library (34 arquivos `.test.bx`) = 2.298 total
-- **Versão Atual:** v2.1 🚧 **EM ANDAMENTO** (Grupo 0 ✅ operadores; Grupo A 🚧 Fases 1–2 de 5 ✅ — VectorDB + `connect`/`stats` + `query`/`fetch`/`list`; Grupo B pendente)
+- **Testes:** 1.459 unit (322 lexer + 228 parser + 909 codegen) + 291 integration + 563 Test Library (34 arquivos `.test.bx`) = 2.313 total
+- **Versão Atual:** v2.1 🚧 **EM ANDAMENTO** (Grupo 0 ✅ operadores; Grupo A 🚧 Fases 1–3 de 5 ✅ — VectorDB + `connect`/`stats` + `query`/`fetch`/`list` + `upsert`/`delete`; Grupo B pendente)
 - **Versão Anterior:** v2.0 ✅ **COMPLETO** (Grupo A, Fases 0–4)
-- **Próximo Passo:** v2.1 Grupo A Fase 3 — upsert/delete (`ROADMAP_V2.1.md`)
+- **Próximo Passo:** v2.1 Grupo A Fase 4 — gerência de índice (`reset_index`, `delete_namespace`) (`ROADMAP_V2.1.md`)
 - **Última Atualização:** Out 2026
 
 ---
@@ -4525,6 +4525,6 @@ Essas features transformariam Brix em **THE language for AI-powered Data Enginee
 - ✅ Timing perfeito com boom de RAG/LLMs
 - ✅ Diferencial competitivo único no mercado
 
-**Status:** v2.0 completo (Grupo A, Fases 0–4). v2.1 em andamento (Grupo 0 concluído; Grupo A Fases 1–2 de 5 concluídas). v2.2 planejada.
+**Status:** v2.0 completo (Grupo A, Fases 0–4). v2.1 em andamento (Grupo 0 concluído; Grupo A Fases 1–3 de 5 concluídas). v2.2 planejada.
 
 **Prioridade:** Alta - Alinhado com tendências de mercado e filosofia da linguagem
