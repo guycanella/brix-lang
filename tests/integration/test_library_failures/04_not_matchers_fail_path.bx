@@ -1,0 +1,38 @@
+// `.not.` used to be ignored by these matchers: each negated assertion below
+// is false, so every test must fail with its own "not" message.
+import test
+test.describe(".not. fail paths", () -> {
+    test.it("toEqual int", () -> {
+        test.expect([1, 2]).not.toEqual([1, 2])
+    })
+    test.it("toEqual float", () -> {
+        test.expect([1.5]).not.toEqual([1.5])
+    })
+    test.it("toBeCloseTo", () -> {
+        test.expect(3.14).not.toBeCloseTo(3.14)
+    })
+    test.it("toBeGreaterThan", () -> {
+        test.expect(2).not.toBeGreaterThan(1)
+    })
+    test.it("toBeLessThan", () -> {
+        test.expect(1.5).not.toBeLessThan(2.5)
+    })
+    test.it("toBeGreaterThanOrEqual", () -> {
+        test.expect(2).not.toBeGreaterThanOrEqual(2)
+    })
+    test.it("toBeLessThanOrEqual", () -> {
+        test.expect(2.0).not.toBeLessThanOrEqual(2.0)
+    })
+    test.it("toContain string", () -> {
+        test.expect("hello").not.toContain("ell")
+    })
+    test.it("toContain int", () -> {
+        test.expect([1, 2]).not.toContain(2)
+    })
+    test.it("toContain float", () -> {
+        test.expect([1.5]).not.toContain(1.5)
+    })
+    test.it("toHaveLength", () -> {
+        test.expect("abc").not.toHaveLength(3)
+    })
+})

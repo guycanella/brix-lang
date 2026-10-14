@@ -1091,6 +1091,38 @@ fn test_library_grupo_h_to_throw_fail_path() {
     );
 }
 
+#[test]
+fn test_library_not_matchers_fail_path() {
+    // `.not.` used to be ignored by toEqual/toBeCloseTo/the comparisons/
+    // toContain/toHaveLength (they asserted the positive form): each of the
+    // 11 negated assertions is false, so each must fail with its own message.
+    let (stdout, stderr, exit_code) =
+        run_brix_file("tests/integration/test_library_failures/04_not_matchers_fail_path.bx");
+    let out = format!("{}{}", stdout, stderr);
+    assert_eq!(exit_code, 1, "{}", out);
+    for msg in [
+        "Expected arrays not to be equal",
+        "Expected (not close to): 3.14",
+        "Expected: not > 1",
+        "Expected: not < 2.5",
+        "Expected: not >= 2",
+        "Expected: not <= 2",
+        "Expected string not to contain: \"ell\"",
+        "Expected array not to contain: 2",
+        "Expected array not to contain: 1.5",
+        "Expected length: not 3",
+    ] {
+        assert!(out.contains(msg), "missing {:?} in:\n{}", msg, out);
+    }
+    assert_eq!(
+        out.matches("Expected arrays not to be equal").count(),
+        2,
+        "{}",
+        out
+    );
+    assert!(out.contains("11 failed"), "{}", out);
+}
+
 // ==========================================
 // RUNTIME ERRORS - Exit Code 1
 // ==========================================

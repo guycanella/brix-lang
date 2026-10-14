@@ -1,0 +1,73 @@
+import test
+
+// `.not.` used to be silently ignored by these matchers (they asserted the
+// positive form). Every case here passes only if the negation is honored;
+// the fail paths are integration test test_library_failures/04.
+test.describe(".not. on toEqual / toBeCloseTo", () -> {
+    test.it("not.toEqual on different arrays", () -> {
+        test.expect([1, 2, 3]).not.toEqual([1, 2, 4])
+        test.expect([1.5, 2.5]).not.toEqual([1.5])
+    })
+
+    test.it("not.toBeCloseTo on distant floats", () -> {
+        test.expect(3.14).not.toBeCloseTo(3.2)
+    })
+})
+
+test.describe(".not. on comparisons", () -> {
+    test.it("int", () -> {
+        test.expect(1).not.toBeGreaterThan(1)
+        test.expect(5).not.toBeLessThan(5)
+        test.expect(1).not.toBeGreaterThanOrEqual(2)
+        test.expect(3).not.toBeLessThanOrEqual(2)
+    })
+
+    test.it("float", () -> {
+        test.expect(1.5).not.toBeGreaterThan(2.5)
+        test.expect(2.5).not.toBeLessThan(1.5)
+        test.expect(1.0).not.toBeGreaterThanOrEqual(1.5)
+        test.expect(2.0).not.toBeLessThanOrEqual(1.5)
+    })
+})
+
+test.describe(".not. on toContain / toHaveLength", () -> {
+    test.it("not.toContain", () -> {
+        test.expect("hello").not.toContain("xyz")
+        test.expect([1, 2, 3]).not.toContain(4)
+        test.expect([1.5, 2.5]).not.toContain(3.5)
+    })
+
+    test.it("not.toHaveLength", () -> {
+        test.expect([1, 2, 3]).not.toHaveLength(2)
+        test.expect([1.5, 2.5]).not.toHaveLength(3)
+        test.expect("abc").not.toHaveLength(4)
+    })
+})
+
+// 2D arrays: equality and containment must scan rows * cols elements, not
+// just the first row.
+test.describe("2D arrays scan every element", () -> {
+    test.it("int", () -> {
+        var a := izeros(2, 2)
+        var b := izeros(2, 2)
+        b[1][1] := 7
+        test.expect(a).not.toEqual(b)
+        test.expect(b).toContain(7)
+        test.expect(a).not.toContain(7)
+    })
+
+    test.it("float", () -> {
+        var a := zeros(2, 2)
+        var b := zeros(2, 2)
+        b[1][1] := 7.5
+        test.expect(a).not.toEqual(b)
+        test.expect(b).toContain(7.5)
+        test.expect(a).not.toContain(7.5)
+    })
+
+    test.it("equal 2D arrays", () -> {
+        var a := izeros(2, 2)
+        var b := izeros(2, 2)
+        test.expect(a).toEqual(b)
+    })
+})
