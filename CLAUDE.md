@@ -27,10 +27,10 @@ Each entry recompiles and re-runs the whole accumulated session through the same
 
 **Run Rust unit tests:**
 ```bash
-cargo test -p lexer -p parser -p codegen  # All unit tests: 322 + 228 + 893 = 1,443 (all passing)
+cargo test -p lexer -p parser -p codegen  # All unit tests: 322 + 228 + 903 = 1,453 (all passing)
 cargo test -p lexer                       # Only lexer (322 tests)
 cargo test -p parser                      # Only parser (228 tests)
-cargo test -p codegen                     # Only codegen (893 tests)
+cargo test -p codegen                     # Only codegen (903 tests)
 cargo test -p codegen json_tests          # Specific test module in codegen
 cargo test <pattern>                      # Tests matching pattern
 cargo test -- --nocapture                 # Show println! output
@@ -38,7 +38,7 @@ cargo test -- --nocapture                 # Show println! output
 
 **Run integration tests (must be sequential):**
 ```bash
-cargo test --test integration_test -- --test-threads=1 # 285 tests passing
+cargo test --test integration_test -- --test-threads=1 # 288 tests passing
 ```
 
 **Run Brix language tests (Test Library):**
@@ -67,7 +67,7 @@ The driver (`src/main.rs`, ~509 lines; REPL in `src/repl.rs`) orchestrates all s
 ```
 brix/
 ├── src/main.rs              # CLI + compilation pipeline driver
-├── runtime.c                # C runtime (~6,573 lines) — must be in project root
+├── runtime.c                # C runtime (~6,731 lines) — must be in project root
 ├── crates/
 │   ├── lexer/src/token.rs   # Token enum (logos)
 │   ├── parser/src/
@@ -76,7 +76,7 @@ brix/
 │   │   ├── closure_analysis.rs  # Capture analysis pass (runs after parse)
 │   │   └── error.rs         # Ariadne-based parse error reporting
 │   └── codegen/src/
-│       ├── lib.rs           # Main compiler (~20,036 lines — post-refactor 11,014, grew with v1.8–v2.0 + rustfmt expansion)
+│       ├── lib.rs           # Main compiler (~20,157 lines — post-refactor 11,014, grew with v1.8–v2.0 + rustfmt expansion)
 │       ├── stmt.rs          # Statement compilation (~1,515 lines)
 │       ├── expr.rs          # Expression compilation + list comprehension (~2,028 lines)
 │       ├── helpers.rs       # LLVM helpers
@@ -88,7 +88,7 @@ brix/
 │                            #   iterator.rs, match_compiler.rs, async_compiler.rs, closure_compiler.rs
 ├── tests/
 │   ├── integration/         # End-to-end .bx files (success/, parser_errors/, codegen_errors/, runtime_errors/, test_library_failures/)
-│   └── brix/                # Language test files (*.test.bx) — 34 files, 552 tests, all passing
+│   └── brix/                # Language test files (*.test.bx) — 34 files, 557 tests, all passing
 ├── benchmarks/              # Informative benchmarks (run.sh + .bx), not CI gates
 └── examples/                # Example .bx programs
 ```
@@ -206,7 +206,7 @@ Jest-style framework. 17 matchers (all support `.not.` — `toEqual`, `toBeClose
 
 **Test baseline at v1.9 completion:** 1,357 unit (317 lexer + 209 parser + 831 codegen) + 264 integration + 517 Test Library (31 `.test.bx` files).
 
-**Current test baseline (v2.1 Grupo A Fase 1 COMPLETE):** 1,443 unit (322 lexer + 228 parser + 893 codegen) + 285 integration + 552 Test Library (34 `.test.bx` files) = 2,280. All green.
+**Current test baseline (v2.1 Grupo A Fase 2 COMPLETE):** 1,453 unit (322 lexer + 228 parser + 903 codegen) + 288 integration + 557 Test Library (34 `.test.bx` files) = 2,298. All green.
 
 **Completed in v1.9 (Grupo F):**
 - **Grupo F — `brix repl` — COMPLETE, as a "replay REPL", not the roadmap's original incremental-JIT design:**
@@ -392,7 +392,7 @@ Tests: +19 codegen unit, integration 263–267 (263 dot incl. f64-only precision
 
 ## v2.1 Status (IN PROGRESS) — see `ROADMAP_V2.1.md` (untracked, local only)
 
-Three groups: **0** (embedding operators), **A** (`VectorDB` type system + Pinecone), **B** (Weaviate/Milvus/Chroma). Grupo 0 is done; Grupo A is in progress (Fase 1 of 5 done); Grupo B is pending.
+Three groups: **0** (embedding operators), **A** (`VectorDB` type system + Pinecone), **B** (Weaviate/Milvus/Chroma). Grupo 0 is done; Grupo A is in progress (Fases 1–2 of 5 done); Grupo B is pending.
 
 **Grupo 0 — COMPLETE** (`66be0c1`, `3f47b1c`) — embedding operators, pure parser sugar, no runtime code:
 - `a @ b` → `a.cosine_similarity(b)`, `a <-> b` → `a.euclidean_distance(b)`, `a <=> b` → `a.dot_product(b)`. Tokens `At` / `LeftRightArrow` / `DoubleArrow` (`lexer/src/token.rs`); logos longest match leaves `<`, `<=`, `->` and `a<-1` unchanged (`<->`/`<=>` were never valid token sequences, and `@` used to be a lexer error).
@@ -414,7 +414,18 @@ Three groups: **0** (embedding operators), **A** (`VectorDB` type system + Pinec
 - **Pre-existing bugs fixed along the way** (libcurl changed the heap layout enough to turn the first into a Linux crash): (1) a `match` arm yielding a borrowed value (`var r := match x { s -> s }`) double-released it — a `match` now always yields an owned value, like the ternary (`own_if_borrowed` per arm); (2) a `fn`/method/closure/async fn defined after a `match` produced invalid IR and an LLVM segfault, because the builder resumed in the parent's *last* block (a `match` appends its merge block before its arms) — now it resumes in the exact saved insert block (`compile_function_def`, method defs, `compile_closure`, async compilers); (3) a top-level function hijacked a method call on a variable (`fn stats` vs `db.stats()`, `fn push` vs `v.push(3)`), and a variable named like a module alias (`import vectordb as db` + `var db`) went down the module path — the module dispatch (`math`/`datetime`/`json`/`vectordb`/generic lookup) is now skipped when the receiver is a variable (`receiver_is_variable`).
 - **Known, not fixed:** `println(db)`, `db == nil` and a `VectorDB` as a `match` result are unsupported (same gaps as `Vector`); `.not.` was ignored by several Test Library matchers (fixed separately, see the Test Library section).
 
-**Next — Grupo A Fase 2** (`db.query` / `fetch` / `list` and the results/record types) in `ROADMAP_V2.1.md`; then Fase 3 (upsert/delete), 4 (index management), 5 (timeouts, retry, pooling), then Grupo B.
+**Fase 2 — COMPLETE** — `db.query` / `db.fetch` / `db.list`, all returning `json?`:
+- **Decision: `json?`, not new types.** The roadmap's `VectorDBResults` / `VectorDBRecord` / `VectorDBIDList` were not built — same call as `stats()` in Fase 1. Results are read with the existing Json sugar (`hits[0]`, `top["id"]`, `json.as_float(...)`); dedicated types can come later without breaking this API.
+- `db.query(embedding, top_k[, filter]) -> json?` — Pinecone `POST /query` with `topK`, `includeMetadata: true`, `includeValues: false`, the connection's namespace and, when given, `filter` sent as-is (Pinecone filter syntax). Returns the `matches` array (`[{id, score, metadata}]`, best first). `filter` is `json` or `json?` (nil = no filter; unwrapped by the union tag, never a stale pointer) or a literal `nil`; any other union (`json | int`) is `E102`. Local errors without a request: `top_k < 1`, NaN/Inf in the vector (JSON can't carry them), a filter the JSON layer refused to embed (never falls back to an unfiltered query). The embedding dimension is not checked at compile time (the index dimension is unknown) — a mismatch is the API's HTTP 400 in `last_error`.
+- `db.fetch(id) -> json?` — `GET /vectors/fetch?ids=…&namespace=…`; returns the record `{id, values, metadata}`. **Not found is nil with `last_error() == ""`**; a failure is nil with a reason.
+- `db.list([limit[, pagination_token]]) -> json?` — `GET /vectors/list` (serverless indexes); returns the page as-is, `{vectors: [{id}], pagination: {next}}` (`pagination` absent on the last page). Omitted limit = server default (codegen passes `LONG_MIN` as the "not given" sentinel); `limit < 1` is a local error; token `""` = first page.
+- **Runtime:** `vdb_post` became `vdb_request(db, path, query, body)` — GET when `body` is NULL (no `Content-Type` then). Query-string values go through `curl_easy_escape`; `last_error` names only the path, never the query string (ids, tokens). Helpers `vdb_put` / `vdb_field` / `vdb_add_param`. Request bodies are built as a `JsonValue` tree and serialized with `json_stringify` (escaping for free).
+- **Codegen:** `compile_vectordb_method` handles all five methods with one arity table; missing optional args are padded so each runtime function has one signature; owned temporaries (embedding, id/token string, json/json? filter) and the receiver are released after the call. Dispatch guard and `infer_expr_type_static` extended; same-named struct methods still dispatch to the struct.
+- **Mock:** `mock_pinecone.py` gained `POST /query` (cosine, equality and `$eq` filters, namespaces), `GET /vectors/fetch` and `GET /vectors/list` (offset tokens), and rejects a GET carrying a `Content-Type`.
+- Tests: +10 codegen unit, integration 279 (query: order, top_k, filters incl. a runtime-nil `json?`, borrowed filter reuse, namespace, errors), 280 (fetch: found, missing, URL-encoded id, 401), 281 (list: default limit, pagination walk, namespace, invalid limit), +5 Test Library (offline cases).
+- **Known, not fixed (pre-existing):** chained Json indexing `page["a"]["b"]` parses as a 2-D index and is `E104` — use an intermediate variable; `nil` can't start a type annotation (`nil | json`).
+
+**Next — Grupo A Fase 3** (upsert/delete) in `ROADMAP_V2.1.md`; then Fase 4 (index management), 5 (timeouts, retry, pooling), then Grupo B.
 
 ## CI (GitHub Actions) — `.github/workflows/ci.yml`
 
