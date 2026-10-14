@@ -613,28 +613,28 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     return Ok((dummy_val, BrixType::Nil));
                 }
                 let (expected_val, _) = self.compile_expr(&matcher_args[0])?;
-                let (fn_name, params): (&str, Vec<BasicMetadataTypeEnum<'ctx>>) = match &actual_type
-                {
-                    BrixType::IntMatrix => (
-                        "test_expect_toEqual_int_array",
-                        vec![
-                            ptr_type.into(),
-                            ptr_type.into(),
-                            ptr_type.into(),
-                            i32_type.into(),
-                        ],
-                    ),
-                    _ => (
-                        "test_expect_toEqual_float_array",
-                        vec![
-                            ptr_type.into(),
-                            ptr_type.into(),
-                            ptr_type.into(),
-                            i32_type.into(),
-                        ],
-                    ),
-                };
-                let f = self.declare_test_matcher_void(fn_name, &params);
+                let (fn_name, params): (String, Vec<BasicMetadataTypeEnum<'ctx>>) =
+                    match &actual_type {
+                        BrixType::IntMatrix => (
+                            format!("test_expect_{}toEqual_int_array", not_prefix),
+                            vec![
+                                ptr_type.into(),
+                                ptr_type.into(),
+                                ptr_type.into(),
+                                i32_type.into(),
+                            ],
+                        ),
+                        _ => (
+                            format!("test_expect_{}toEqual_float_array", not_prefix),
+                            vec![
+                                ptr_type.into(),
+                                ptr_type.into(),
+                                ptr_type.into(),
+                                i32_type.into(),
+                            ],
+                        ),
+                    };
+                let f = self.declare_test_matcher_void(&fn_name, &params);
                 self.builder
                     .build_call(
                         f,
@@ -686,7 +686,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     expected_val
                 };
                 let f = self.declare_test_matcher_void(
-                    "test_expect_toBeCloseTo",
+                    &format!("test_expect_{}toBeCloseTo", not_prefix),
                     &[
                         f64_type.into(),
                         f64_type.into(),
@@ -783,7 +783,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         _ => "toBeLessThanOrEqual_float",
                     };
                     (
-                        format!("test_expect_{}", suffix),
+                        format!("test_expect_{}{}", not_prefix, suffix),
                         vec![
                             f64_type.into(),
                             f64_type.into(),
@@ -799,7 +799,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         _ => "toBeLessThanOrEqual_int",
                     };
                     (
-                        format!("test_expect_{}", suffix),
+                        format!("test_expect_{}{}", not_prefix, suffix),
                         vec![
                             i64_type.into(),
                             i64_type.into(),
@@ -860,7 +860,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     BrixType::String => {
                         // toContain(substring): both are strings
                         let f = self.declare_test_matcher_void(
-                            "test_expect_toContain_string",
+                            &format!("test_expect_{}toContain_string", not_prefix),
                             &[
                                 ptr_type.into(),
                                 ptr_type.into(),
@@ -887,7 +887,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     }
                     BrixType::IntMatrix => {
                         let f = self.declare_test_matcher_void(
-                            "test_expect_toContain_int_array",
+                            &format!("test_expect_{}toContain_int_array", not_prefix),
                             &[
                                 ptr_type.into(),
                                 i64_type.into(),
@@ -930,7 +930,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             elem_val
                         };
                         let f = self.declare_test_matcher_void(
-                            "test_expect_toContain_float_array",
+                            &format!("test_expect_{}toContain_float_array", not_prefix),
                             &[
                                 ptr_type.into(),
                                 f64_type.into(),
@@ -972,13 +972,14 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     i64_type.const_int(0, false).into()
                 };
 
-                let fn_name = match &actual_type {
-                    BrixType::IntMatrix => "test_expect_toHaveLength_int_array",
-                    BrixType::Matrix => "test_expect_toHaveLength_float_array",
-                    _ => "test_expect_toHaveLength_string",
+                let kind = match &actual_type {
+                    BrixType::IntMatrix => "int_array",
+                    BrixType::Matrix => "float_array",
+                    _ => "string",
                 };
+                let fn_name = format!("test_expect_{}toHaveLength_{}", not_prefix, kind);
                 let f = self.declare_test_matcher_void(
-                    fn_name,
+                    &fn_name,
                     &[
                         ptr_type.into(),
                         i64_type.into(),

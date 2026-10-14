@@ -5686,16 +5686,35 @@ void test_expect_not_toBe_string(BrixString* actual, BrixString* not_expected, c
 
 // ---- toEqual (deep equality for arrays) ----
 
-void test_expect_toEqual_int_array(IntMatrix* actual, IntMatrix* expected, char* file, int line) {
-    long alen = (actual->rows == 1)   ? actual->cols   : actual->rows;
-    long elen = (expected->rows == 1) ? expected->cols : expected->rows;
-    int eq = (alen == elen);
-    if (eq) {
-        for (long i = 0; i < alen; i++) {
-            if (actual->data[i] != expected->data[i]) { eq = 0; break; }
-        }
+static long brix_test_len(long rows, long cols) {
+    return rows == 1 ? cols : rows;
+}
+
+static int brix_int_arrays_equal(IntMatrix* a, IntMatrix* b) {
+    long alen = brix_test_len(a->rows, a->cols);
+    if (alen != brix_test_len(b->rows, b->cols)) return 0;
+    for (long i = 0; i < alen; i++) {
+        if (a->data[i] != b->data[i]) return 0;
     }
-    if (!eq) {
+    return 1;
+}
+
+static int brix_float_arrays_equal(Matrix* a, Matrix* b) {
+    long alen = brix_test_len(a->rows, a->cols);
+    if (alen != brix_test_len(b->rows, b->cols)) return 0;
+    for (long i = 0; i < alen; i++) {
+        if (a->data[i] != b->data[i]) return 0;
+    }
+    return 1;
+}
+
+static void brix_test_fail_msg(const char* msg, char* file, int line) {
+    BrixTestEntry* e = brix_get_current();
+    if (e) brix_test_fail(e, msg, file, line);
+}
+
+void test_expect_toEqual_int_array(IntMatrix* actual, IntMatrix* expected, char* file, int line) {
+    if (!brix_int_arrays_equal(actual, expected)) {
         char msg[BRIX_ERR_BUF];
         snprintf(msg, BRIX_ERR_BUF,
             "      " ANSI_RED "Arrays are not equal" ANSI_RESET);
@@ -5705,20 +5724,24 @@ void test_expect_toEqual_int_array(IntMatrix* actual, IntMatrix* expected, char*
 }
 
 void test_expect_toEqual_float_array(Matrix* actual, Matrix* expected, char* file, int line) {
-    long alen = (actual->rows == 1)   ? actual->cols   : actual->rows;
-    long elen = (expected->rows == 1) ? expected->cols : expected->rows;
-    int eq = (alen == elen);
-    if (eq) {
-        for (long i = 0; i < alen; i++) {
-            if (actual->data[i] != expected->data[i]) { eq = 0; break; }
-        }
-    }
-    if (!eq) {
+    if (!brix_float_arrays_equal(actual, expected)) {
         char msg[BRIX_ERR_BUF];
         snprintf(msg, BRIX_ERR_BUF,
             "      " ANSI_RED "Arrays are not equal" ANSI_RESET);
         BrixTestEntry* e = brix_get_current();
         if (e) brix_test_fail(e, msg, file, line);
+    }
+}
+
+void test_expect_not_toEqual_int_array(IntMatrix* actual, IntMatrix* expected, char* file, int line) {
+    if (brix_int_arrays_equal(actual, expected)) {
+        brix_test_fail_msg("      " ANSI_RED "Expected arrays not to be equal" ANSI_RESET, file, line);
+    }
+}
+
+void test_expect_not_toEqual_float_array(Matrix* actual, Matrix* expected, char* file, int line) {
+    if (brix_float_arrays_equal(actual, expected)) {
+        brix_test_fail_msg("      " ANSI_RED "Expected arrays not to be equal" ANSI_RESET, file, line);
     }
 }
 
@@ -5771,6 +5794,28 @@ void test_expect_toBeFalsy(long value, char* file, int line) {
 }
 
 // ---- Numeric comparison matchers ----
+
+// .not. comparisons fail when the positive condition holds. Not mapped to
+// the opposite matcher: `not > NaN` passes, `<= NaN` would fail.
+#define BRIX_NOT_CMP(name, T, fmt, op)                                          \
+    void test_expect_not_##name(T actual, T threshold, char* file, int line) {  \
+        if (actual op threshold) {                                              \
+            char msg[BRIX_ERR_BUF];                                             \
+            snprintf(msg, BRIX_ERR_BUF,                                         \
+                "      " ANSI_RED "Expected: not " #op " " fmt "\n" ANSI_RESET  \
+                "      " ANSI_RED "Received:   " fmt ANSI_RESET,                \
+                threshold, actual);                                             \
+            brix_test_fail_msg(msg, file, line);                                \
+        }                                                                       \
+    }
+BRIX_NOT_CMP(toBeGreaterThan_int, long, "%ld", >)
+BRIX_NOT_CMP(toBeGreaterThan_float, double, "%g", >)
+BRIX_NOT_CMP(toBeLessThan_int, long, "%ld", <)
+BRIX_NOT_CMP(toBeLessThan_float, double, "%g", <)
+BRIX_NOT_CMP(toBeGreaterThanOrEqual_int, long, "%ld", >=)
+BRIX_NOT_CMP(toBeGreaterThanOrEqual_float, double, "%g", >=)
+BRIX_NOT_CMP(toBeLessThanOrEqual_int, long, "%ld", <=)
+BRIX_NOT_CMP(toBeLessThanOrEqual_float, double, "%g", <=)
 
 void test_expect_toBeGreaterThan_int(long actual, long threshold, char* file, int line) {
     if (actual <= threshold) {
@@ -5881,16 +5926,32 @@ static double brix_round_to(double value, int decimals) {
     return round(value * m) / m;
 }
 
-void test_expect_toBeCloseTo(double actual, double expected, char* file, int line) {
+// Equal after rounding both to the fewer decimals of the two (min 1);
+// the decimals used are written to *dec.
+static int brix_close_to(double actual, double expected, int* dec) {
     int dec_a = brix_count_decimals(actual);
     int dec_e = brix_count_decimals(expected);
-    int dec   = dec_a < dec_e ? dec_a : dec_e;
-    if (dec == 0) dec = 1;  // epsilon minimum: at least 1 decimal
+    *dec = dec_a < dec_e ? dec_a : dec_e;
+    if (*dec == 0) *dec = 1;  // epsilon minimum: at least 1 decimal
+    return brix_round_to(actual, *dec) == brix_round_to(expected, *dec);
+}
 
-    double ra = brix_round_to(actual,   dec);
-    double re = brix_round_to(expected, dec);
+void test_expect_not_toBeCloseTo(double actual, double expected, char* file, int line) {
+    int dec;
+    if (brix_close_to(actual, expected, &dec)) {
+        char msg[BRIX_ERR_BUF];
+        snprintf(msg, BRIX_ERR_BUF,
+            "      " ANSI_RED "Expected (not close to): %.15g\n" ANSI_RESET
+            "      " ANSI_RED "Received:                %.15g\n" ANSI_RESET
+            "      " ANSI_GRAY "(rounded to %d decimal(s))" ANSI_RESET,
+            expected, actual, dec);
+        brix_test_fail_msg(msg, file, line);
+    }
+}
 
-    if (ra != re) {
+void test_expect_toBeCloseTo(double actual, double expected, char* file, int line) {
+    int dec;
+    if (!brix_close_to(actual, expected, &dec)) {
         char msg[BRIX_ERR_BUF];
         snprintf(msg, BRIX_ERR_BUF,
             "      " ANSI_RED "Expected (close to): %.15g\n" ANSI_RESET
@@ -5904,17 +5965,66 @@ void test_expect_toBeCloseTo(double actual, double expected, char* file, int lin
 
 // ---- toContain (string substring) ----
 
-void test_expect_toContain_string(BrixString* actual, BrixString* substring, char* file, int line) {
-    int found = 0;
-    if (substring->len == 0) { found = 1; }
-    else if (substring->len <= actual->len) {
-        for (long i = 0; i <= actual->len - (long)substring->len; i++) {
-            if (memcmp(actual->data + i, substring->data, substring->len) == 0) {
-                found = 1; break;
-            }
-        }
+// Byte-wise (memcmp), unlike brix_str_contains (strstr), so the matcher
+// keeps its existing behavior on embedded NULs.
+static int brix_test_str_contains(BrixString* actual, BrixString* substring) {
+    if (substring->len == 0) return 1;
+    if (substring->len > actual->len) return 0;
+    for (long i = 0; i <= actual->len - (long)substring->len; i++) {
+        if (memcmp(actual->data + i, substring->data, substring->len) == 0) return 1;
     }
-    if (!found) {
+    return 0;
+}
+
+static int brix_int_array_contains(IntMatrix* arr, long element) {
+    long len = brix_test_len(arr->rows, arr->cols);
+    for (long i = 0; i < len; i++) {
+        if (arr->data[i] == element) return 1;
+    }
+    return 0;
+}
+
+static int brix_float_array_contains(Matrix* arr, double element) {
+    long len = brix_test_len(arr->rows, arr->cols);
+    for (long i = 0; i < len; i++) {
+        if (arr->data[i] == element) return 1;
+    }
+    return 0;
+}
+
+void test_expect_not_toContain_string(BrixString* actual, BrixString* substring, char* file, int line) {
+    if (brix_test_str_contains(actual, substring)) {
+        char msg[BRIX_ERR_BUF];
+        int slen = (int)(substring->len < 100 ? substring->len : 100);
+        int alen = (int)(actual->len    < 100 ? actual->len    : 100);
+        snprintf(msg, BRIX_ERR_BUF,
+            "      " ANSI_RED "Expected string not to contain: \"%.*s\"\n" ANSI_RESET
+            "      " ANSI_RED "Received:                       \"%.*s\"" ANSI_RESET,
+            slen, substring->data, alen, actual->data);
+        brix_test_fail_msg(msg, file, line);
+    }
+}
+
+void test_expect_not_toContain_int_array(IntMatrix* arr, long element, char* file, int line) {
+    if (brix_int_array_contains(arr, element)) {
+        char msg[BRIX_ERR_BUF];
+        snprintf(msg, BRIX_ERR_BUF,
+            "      " ANSI_RED "Expected array not to contain: %ld" ANSI_RESET, element);
+        brix_test_fail_msg(msg, file, line);
+    }
+}
+
+void test_expect_not_toContain_float_array(Matrix* arr, double element, char* file, int line) {
+    if (brix_float_array_contains(arr, element)) {
+        char msg[BRIX_ERR_BUF];
+        snprintf(msg, BRIX_ERR_BUF,
+            "      " ANSI_RED "Expected array not to contain: %g" ANSI_RESET, element);
+        brix_test_fail_msg(msg, file, line);
+    }
+}
+
+void test_expect_toContain_string(BrixString* actual, BrixString* substring, char* file, int line) {
+    if (!brix_test_str_contains(actual, substring)) {
         char msg[BRIX_ERR_BUF];
         int slen = (int)(substring->len < 100 ? substring->len : 100);
         int alen = (int)(actual->len    < 100 ? actual->len    : 100);
@@ -5930,12 +6040,7 @@ void test_expect_toContain_string(BrixString* actual, BrixString* substring, cha
 // ---- toContain (int array element) ----
 
 void test_expect_toContain_int_array(IntMatrix* arr, long element, char* file, int line) {
-    long len = (arr->rows == 1) ? arr->cols : arr->rows;
-    int found = 0;
-    for (long i = 0; i < len; i++) {
-        if (arr->data[i] == element) { found = 1; break; }
-    }
-    if (!found) {
+    if (!brix_int_array_contains(arr, element)) {
         char msg[BRIX_ERR_BUF];
         snprintf(msg, BRIX_ERR_BUF,
             "      " ANSI_RED "Expected array to contain: %ld" ANSI_RESET, element);
@@ -5945,12 +6050,7 @@ void test_expect_toContain_int_array(IntMatrix* arr, long element, char* file, i
 }
 
 void test_expect_toContain_float_array(Matrix* arr, double element, char* file, int line) {
-    long len = (arr->rows == 1) ? arr->cols : arr->rows;
-    int found = 0;
-    for (long i = 0; i < len; i++) {
-        if (arr->data[i] == element) { found = 1; break; }
-    }
-    if (!found) {
+    if (!brix_float_array_contains(arr, element)) {
         char msg[BRIX_ERR_BUF];
         snprintf(msg, BRIX_ERR_BUF,
             "      " ANSI_RED "Expected array to contain: %g" ANSI_RESET, element);
@@ -5997,6 +6097,29 @@ void test_expect_toHaveLength_string(BrixString* s, long expected_len, char* fil
         BrixTestEntry* e = brix_get_current();
         if (e) brix_test_fail(e, msg, file, line);
     }
+}
+
+static void brix_not_length(long actual_len, long expected_len, char* file, int line) {
+    if (actual_len == expected_len) {
+        char msg[BRIX_ERR_BUF];
+        snprintf(msg, BRIX_ERR_BUF,
+            "      " ANSI_RED "Expected length: not %ld\n" ANSI_RESET
+            "      " ANSI_RED "Received length:     %ld" ANSI_RESET,
+            expected_len, actual_len);
+        brix_test_fail_msg(msg, file, line);
+    }
+}
+
+void test_expect_not_toHaveLength_int_array(IntMatrix* arr, long expected_len, char* file, int line) {
+    brix_not_length(brix_test_len(arr->rows, arr->cols), expected_len, file, line);
+}
+
+void test_expect_not_toHaveLength_float_array(Matrix* arr, long expected_len, char* file, int line) {
+    brix_not_length(brix_test_len(arr->rows, arr->cols), expected_len, file, line);
+}
+
+void test_expect_not_toHaveLength_string(BrixString* s, long expected_len, char* file, int line) {
+    brix_not_length(s->len, expected_len, file, line);
 }
 
 // ---- toStartWith / toEndWith (v1.7 Grupo G) ----
