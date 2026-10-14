@@ -2681,6 +2681,48 @@ fn test_277_match_arm_ownership() {
 }
 
 #[test]
+fn test_279_vectordb_query() {
+    // v2.1 Grupo A Fase 2: POST /query (best first, top_k, filters as json
+    // and json?, nil filter, namespace) and its local/API errors.
+    MockPinecone::start().assert_success(
+        "tests/integration/success/279_vectordb_query.bx",
+        "2\na\n1\n{\"genre\":\"news\",\"year\":2024}\n\
+[{\"id\":\"a\",\"score\":1,\"metadata\":{\"genre\":\"news\",\"year\":2024}},{\"id\":\"c\",\"score\":0,\"metadata\":{\"genre\":\"news\",\"year\":2023}}]\n\
+[{\"id\":\"b\",\"score\":0.6,\"metadata\":{\"genre\":\"blog\",\"year\":2023}},{\"id\":\"c\",\"score\":0,\"metadata\":{\"genre\":\"news\",\"year\":2023}}]\n\
+{\"year\":2023}\n3\n\
+[{\"id\":\"c\",\"score\":1,\"metadata\":{\"genre\":\"news\",\"year\":2023}}]\n\
+p1\n1\n/query: top_k must be >= 1, got 0\n1\n\
+/query: HTTP 400: {\"message\": \"Vector dimension 2 does not match the dimension of the index 3\"}\n\
+1\n/query: query vector contains NaN or Inf",
+    );
+}
+
+#[test]
+fn test_280_vectordb_fetch() {
+    // GET /vectors/fetch: found, missing (nil with empty last_error), a
+    // URL-encoded id in a namespace, and an API failure.
+    MockPinecone::start().assert_success(
+        "tests/integration/success/280_vectordb_fetch.bx",
+        "{\"id\":\"b\",\"values\":[0.6,0.8,0],\"metadata\":{\"genre\":\"blog\",\"year\":2023}}\n1\n1\n1\n\
+{\"id\":\"x&y z\",\"values\":[1,1,0],\"metadata\":{\"env\":\"prod\"}}\n1\n1\n\
+/vectors/fetch: HTTP 401: {\"code\": 16, \"message\": \"Invalid API Key\"}",
+    );
+}
+
+#[test]
+fn test_281_vectordb_list() {
+    // GET /vectors/list: server default limit, pagination walk, namespace,
+    // invalid limit.
+    MockPinecone::start().assert_success(
+        "tests/integration/success/281_vectordb_list.bx",
+        "{\"vectors\":[{\"id\":\"a\"},{\"id\":\"b\"},{\"id\":\"c\"}],\"namespace\":\"\"}\n\
+[{\"id\":\"a\"},{\"id\":\"b\"}]\n[{\"id\":\"c\"}]\n2\n\
+{\"vectors\":[{\"id\":\"p1\"},{\"id\":\"x&y z\"}],\"namespace\":\"prod\"}\n\
+1\n/vectors/list: limit must be >= 1, got 0",
+    );
+}
+
+#[test]
 fn test_278_vectordb_userinfo_rejected() {
     // Parsed with libcurl's URL parser, so the check sees the real host.
     assert_output(

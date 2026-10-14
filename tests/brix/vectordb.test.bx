@@ -33,3 +33,38 @@ test.describe("VectorDB connection (v2.1 Grupo A Fase 1)", () -> {
         test.expect(db.last_error().contains("sk-super-secret")).toBeFalsy()
     })
 })
+
+test.describe("VectorDB query / fetch / list (v2.1 Grupo A Fase 2)", () -> {
+    test.it("query on a refused connection returns nil", () -> {
+        var db := vectordb.connect("pinecone", "http://127.0.0.1:1", "key")
+        test.expect(db.query(Embedding<3>([1.0, 0.0, 0.0]), 3)).toBeNil()
+        test.expect(db.last_error()).toStartWith("/query: ")
+    })
+
+    test.it("query rejects top_k < 1 without a request", () -> {
+        var db := vectordb.connect("pinecone", "http://127.0.0.1:1", "key")
+        test.expect(db.query(Embedding<2>([1.0, 0.0]), 0)).toBeNil()
+        test.expect(db.last_error()).toBe("/query: top_k must be >= 1, got 0")
+    })
+
+    test.it("query rejects NaN in the vector without a request", () -> {
+        var db := vectordb.connect("pinecone", "http://127.0.0.1:1", "key")
+        test.expect(db.query(Embedding<2>([0.0 / 0.0, 1.0]), 1)).toBeNil()
+        test.expect(db.last_error()).toBe("/query: query vector contains NaN or Inf")
+    })
+
+    test.it("fetch on a refused connection returns nil with a reason", () -> {
+        var db := vectordb.connect("pinecone", "http://127.0.0.1:1", "key")
+        test.expect(db.fetch("doc_1")).toBeNil()
+        test.expect(db.last_error()).toStartWith("/vectors/fetch: ")
+        test.expect(db.last_error().contains("doc_1")).toBeFalsy()
+    })
+
+    test.it("list rejects limit < 1 and fails offline", () -> {
+        var db := vectordb.connect("pinecone", "http://127.0.0.1:1", "key")
+        test.expect(db.list(0)).toBeNil()
+        test.expect(db.last_error()).toBe("/vectors/list: limit must be >= 1, got 0")
+        test.expect(db.list(10, "tok")).toBeNil()
+        test.expect(db.last_error()).toStartWith("/vectors/list: ")
+    })
+})

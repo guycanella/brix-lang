@@ -7040,7 +7040,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             "add" | "get" | "find_nearest" | "len" | "is_empty"
                         );
                         // VectorDB methods (v2.1 Grupo A).
-                        let is_vectordb_method = matches!(field.as_str(), "stats" | "last_error");
+                        let is_vectordb_method = matches!(
+                            field.as_str(),
+                            "stats" | "last_error" | "query" | "fetch" | "list"
+                        );
                         // A receiver compiled by the guard below that matched no
                         // builtin dispatch is reused by the arbitrary-expression
                         // fall-through instead of being compiled (evaluated) twice.
@@ -17200,10 +17203,13 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         Ok((db, BrixType::VectorDB))
     }
 
-    /// Compile a method on a `VectorDB`: `stats()` -> `json?` (nil on a
-    /// network/API error) and `last_error()` -> `string` ("" after a
-    /// successful operation). An owned temporary receiver is released after
-    /// the call.
+    /// Compile a method on a `VectorDB`. Every network method returns `json?`
+    /// (nil on a network/API error, with the reason in `last_error()`):
+    /// `stats()`, `query(embedding, top_k[, filter])` (the matches array),
+    /// `fetch(id)` (the record; nil with `last_error() == ""` when the id does
+    /// not exist) and `list([limit[, pagination_token]])` (the raw page).
+    /// `last_error()` -> `string` ("" after a successful operation). Owned
+    /// temporary receivers and arguments are released after the call.
     fn compile_vectordb_method(
         &mut self,
         receiver_val: BasicValueEnum<'ctx>,
@@ -17212,23 +17218,134 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         args: &[Expr],
         expr: &Expr,
     ) -> CodegenResult<(BasicValueEnum<'ctx>, BrixType)> {
-        if !args.is_empty() {
+        let (min, max, usage) = match method {
+            "query" => (2, 3, "(embedding, top_k[, filter])"),
+            "fetch" => (1, 1, "(id)"),
+            "list" => (0, 2, "([limit[, pagination_token]])"),
+            _ => (0, 0, "()"),
+        };
+        if args.len() < min || args.len() > max {
             return Err(CodegenError::InvalidOperation {
                 operation: format!("VectorDB.{}", method),
-                reason: format!("expects 0 arguments, got {}", args.len()),
+                reason: format!(
+                    "expects {}{}, got {} argument(s)",
+                    method,
+                    usage,
+                    args.len()
+                ),
                 span: Some(expr.span.clone()),
             });
         }
         let ptr_type = self.context.ptr_type(AddressSpace::default());
-        let rt_name = match method {
-            "stats" => "brix_vectordb_stats",
-            _ => "brix_vectordb_last_error",
-        };
+        let i64_type = self.context.i64_type();
+        let mut call_args: Vec<BasicMetadataValueEnum<'ctx>> = vec![receiver_val.into()];
+        let mut param_types: Vec<inkwell::types::BasicMetadataTypeEnum<'ctx>> =
+            vec![ptr_type.into()];
+        // Owned temporaries to release after the call.
+        let mut temps: Vec<(PointerValue<'ctx>, BrixType)> = Vec::new();
+
+        for (i, arg) in args.iter().enumerate() {
+            let (val, ty) = self.compile_expr(arg)?;
+            let expected = match (method, i) {
+                ("query", 0) => "Embedding<DIM>",
+                ("query", 1) | ("list", 0) => "int",
+                ("query", 2) => "json or json?",
+                _ => "string",
+            };
+            let type_error = || CodegenError::TypeError {
+                expected: expected.to_string(),
+                found: crate::types::format_brix_type(&ty),
+                context: format!("VectorDB.{} argument {}", method, i + 1),
+                span: Some(arg.span.clone()),
+            };
+            let arg_val: BasicValueEnum<'ctx> = match expected {
+                "Embedding<DIM>" if matches!(ty, BrixType::Embedding(_)) => val,
+                "int" if ty == BrixType::Int => val,
+                "string" if ty == BrixType::String => val,
+                "json or json?" => match &ty {
+                    BrixType::Json => val,
+                    BrixType::Nil => ptr_type.const_null().into(),
+                    BrixType::Union(ts)
+                        if ts.len() == 2
+                            && ts.contains(&BrixType::Json)
+                            && ts.contains(&BrixType::Nil) =>
+                    {
+                        // The tag is the variant's position (`nil | json` puts
+                        // Json at 1). nil -> NULL (no filter), whatever the
+                        // value slot holds.
+                        let json_tag = ts.iter().position(|t| *t == BrixType::Json).unwrap_or(0);
+                        let sv = val.into_struct_value();
+                        let llvm_err = |op: &str| CodegenError::LLVMError {
+                            operation: op.to_string(),
+                            details: "VectorDB.query filter".to_string(),
+                            span: Some(arg.span.clone()),
+                        };
+                        let tag = self
+                            .builder
+                            .build_extract_value(sv, 0, "filter_tag")
+                            .map_err(|_| llvm_err("build_extract_value"))?
+                            .into_int_value();
+                        let ptr = self
+                            .builder
+                            .build_extract_value(sv, 1, "filter_ptr")
+                            .map_err(|_| llvm_err("build_extract_value"))?;
+                        let is_json = self
+                            .builder
+                            .build_int_compare(
+                                IntPredicate::EQ,
+                                tag,
+                                i64_type.const_int(json_tag as u64, false),
+                                "filter_is_json",
+                            )
+                            .map_err(|_| llvm_err("build_int_compare"))?;
+                        self.builder
+                            .build_select(is_json, ptr, ptr_type.const_null().into(), "filter")
+                            .map_err(|_| llvm_err("build_select"))?
+                    }
+                    _ => return Err(type_error()),
+                },
+                _ => return Err(type_error()),
+            };
+            if arg_val.is_pointer_value() && !self.is_borrowed_ref_expr(arg) {
+                let owned = if expected == "json or json?" {
+                    BrixType::Json
+                } else {
+                    ty
+                };
+                temps.push((arg_val.into_pointer_value(), owned));
+            }
+            param_types.push(if arg_val.is_int_value() {
+                i64_type.into()
+            } else {
+                ptr_type.into()
+            });
+            call_args.push(arg_val.into());
+        }
+        match (method, args.len()) {
+            ("query", 2) => {
+                param_types.push(ptr_type.into());
+                call_args.push(ptr_type.const_null().into()); // no filter
+            }
+            ("list", n) => {
+                if n == 0 {
+                    // limit not given: the server default.
+                    param_types.push(i64_type.into());
+                    call_args.push(i64_type.const_int(i64::MIN as u64, true).into());
+                }
+                if n < 2 {
+                    param_types.push(ptr_type.into());
+                    call_args.push(ptr_type.const_null().into()); // first page
+                }
+            }
+            _ => {}
+        }
+
+        let rt_name = format!("brix_vectordb_{}", method);
         let raw = self
             .call_runtime_fn(
-                rt_name,
-                ptr_type.fn_type(&[ptr_type.into()], false),
-                &[receiver_val.into()],
+                &rt_name,
+                ptr_type.fn_type(&param_types, false),
+                &call_args,
                 expr,
             )?
             .ok_or_else(|| CodegenError::MissingValue {
@@ -17236,13 +17353,17 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 context: format!("VectorDB.{}", method),
                 span: Some(expr.span.clone()),
             })?;
-        let result = match method {
-            "stats" => (
+        let result = if method == "last_error" {
+            (raw, BrixType::String)
+        } else {
+            (
                 self.wrap_ptr_in_json_union(raw.into_pointer_value())?,
                 BrixType::Union(vec![BrixType::Json, BrixType::Nil]),
-            ),
-            _ => (raw, BrixType::String),
+            )
         };
+        for (ptr, ty) in temps {
+            self.insert_release(ptr, &ty)?;
+        }
         if !self.is_borrowed_ref_expr(receiver_expr) {
             self.insert_release(receiver_val.into_pointer_value(), &BrixType::VectorDB)?;
         }
@@ -18945,7 +19066,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                 _ => {}
                             },
                             BrixType::VectorDB => match field.as_str() {
-                                "stats" => {
+                                "stats" | "query" | "fetch" | "list" => {
                                     return Some(BrixType::Union(vec![
                                         BrixType::Json,
                                         BrixType::Nil,
