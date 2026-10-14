@@ -1,6 +1,6 @@
 # Brix Language (Design Document v1.0)
 
-> 🚧 **Status do Projeto (Out 2026):** v1.6, v1.7, v1.8 e v1.9 **COMPLETOS**. **v2.0 Grupo A (`Embedding<DIM>`) COMPLETO** — Fase 0 (const generics na gramática), Fase 1 (tipo `Embedding<DIM>` + conversões com `Matrix`) e Fase 2 (métodos de similaridade via BLAS) Fase 3 (`EmbeddingBatch<DIM>` + `find_nearest`) e Fase 4 (verificação do BLAS + benchmark informativo) concluídas. **1.411 unit tests + 277 integration tests + 535 Test Library = 2.223 tests passando (100%).** Detalhes técnicos por grupo: `CLAUDE.md` (raiz); planejamento: `ROADMAP_V2.0.md`–`ROADMAP_V2.2.md`.
+> 🚧 **Status do Projeto (Out 2026):** v1.6, v1.7, v1.8 e v1.9 **COMPLETOS**. **v2.0 Grupo A (`Embedding<DIM>`) COMPLETO** — Fase 0 (const generics na gramática), Fase 1 (tipo `Embedding<DIM>` + conversões com `Matrix`) e Fase 2 (métodos de similaridade via BLAS) Fase 3 (`EmbeddingBatch<DIM>` + `find_nearest`) e Fase 4 (verificação do BLAS + benchmark informativo) concluídas. **v2.1 em andamento — Grupo 0 (operadores `@` / `<->` / `<=>`) concluído.** **1.428 unit tests + 278 integration tests + 538 Test Library = 2.244 tests passando (100%).** Detalhes técnicos por grupo: `CLAUDE.md` (raiz); planejamento: `ROADMAP_V2.0.md`–`ROADMAP_V2.2.md`.
 
 ## Status Atual (Outubro 2026)
 
@@ -240,7 +240,7 @@
 - ✅ **Fase 4** — teste de integração que confere via `nm` que `ddot_`/`dnrm2_` não são definidos localmente; o binário é ligado com o BLAS da plataforma + benchmark informativo (`benchmarks/run.sh`: 1M cosines em `Embedding<1536>`, relatório com plataforma/CPU/BLAS/mediana; passo `continue-on-error` no CI, não é gate). Primeiros dados: macOS arm64 (Accelerate) 1,11 s; Linux aarch64 (BLAS de referência do Ubuntu) 3,63 s
 
 ### 🔮 **Planejado (v2.1+):**
-- **v2.1** — Operadores `@` / `<->` / `<=>` como açúcar sobre os métodos de v2.0 + integração com Vector DB (Pinecone; depois Weaviate, Milvus, Chroma) — `ROADMAP_V2.1.md`
+- **v2.1** — ✅ Grupo 0: operadores `@` / `<->` / `<=>` como açúcar sobre os métodos de v2.0 (`a @ b` = `a.cosine_similarity(b)`, `a <-> b` = `a.euclidean_distance(b)`, `a <=> b` = `a.dot_product(b)`; um nível de precedência acima de unário/`**`, então `-a @ b` = `-(a @ b)`). Pendente: integração com Vector DB (Pinecone; depois Weaviate, Milvus, Chroma) — `ROADMAP_V2.1.md`
 - **v2.2** — ONNX Runtime (CPU) + GPU (CUDA, Metal) — `ROADMAP_V2.2.md`
 - **v2.3+** — Tensores type-safe, prompt engineering, JIT incremental no REPL
 - Sem versão definida: LTO / PGO / SIMD, `StringMatrix` em anotações de tipo (`string[]`), ranges abertos em slicing
@@ -3820,6 +3820,7 @@ v1.7 ████████████████████ 100% ✅ Strin
 v1.8 ████████████████████ 100% ✅ Vector/Stack/Queue/Heap/HashMap, LAPACK decompositions
 v1.9 ████████████████████ 100% ✅ datetime, json, variadics, mut arrays, REPL
 v2.0 ████████████████████ 100% ✅ Embedding<DIM> (Fases 0–4)
+v2.1 ███████░░░░░░░░░░░░░  33% 🚧 Operadores ✅ (Grupo 0 de 0/A/B)
 ```
 
 **Legenda:**
@@ -4045,10 +4046,10 @@ math.sum(arr), math.mean(arr), math.median(arr), math.std(arr)
 
 - **Linhas de Código (Rust):** ~39.900 linhas (lexer + parser + codegen + driver)
 - **Linhas de Código (C Runtime):** ~6.170 linhas (`runtime.c`)
-- **Testes:** 1.411 unit (317 lexer + 220 parser + 874 codegen) + 277 integration + 535 Test Library (32 arquivos `.test.bx`) = 2.223 total
-- **Versão Atual:** v2.0 ✅ **COMPLETO** (Grupo A, Fases 0–4)
-- **Versão Anterior:** v1.9 ✅ **COMPLETO (Ago 2026)**
-- **Próximo Passo:** v2.1 — operadores `@`/`<->`/`<=>` como açúcar sobre os métodos de v2.0 (`ROADMAP_V2.1.md`)
+- **Testes:** 1.428 unit (322 lexer + 228 parser + 878 codegen) + 278 integration + 538 Test Library (32 arquivos `.test.bx`) = 2.244 total
+- **Versão Atual:** v2.1 🚧 **EM ANDAMENTO** (Grupo 0 ✅ operadores; Grupos A e B pendentes)
+- **Versão Anterior:** v2.0 ✅ **COMPLETO** (Grupo A, Fases 0–4)
+- **Próximo Passo:** v2.1 Grupo A — tipo `VectorDB` + provider Pinecone (`ROADMAP_V2.1.md`)
 - **Última Atualização:** Out 2026
 
 ---
@@ -4221,7 +4222,7 @@ var batch := EmbeddingBatch<1536>(1000)       // capacidade inicial
 batch.add(embedding1)
 var top_k := batch.find_nearest(query, 10)    // IntMatrix de índices, ordenados por similaridade
 
-// v2.1: operadores como açúcar sobre os métodos acima
+// v2.1 Grupo 0 ✅: operadores como açúcar sobre os métodos acima
 // embedding1 @ embedding2    → cosine_similarity
 // embedding1 <-> embedding2  → euclidean_distance
 // embedding1 <=> embedding2  → dot_product
@@ -4231,8 +4232,8 @@ var top_k := batch.find_nearest(query, 10)    // IntMatrix de índices, ordenado
 - ✅ **Tipo de primeira classe:** `Embedding<DIM>` com dimensão fixa, checada em compile-time (dimensões diferentes → `E102`)
 - ✅ **Precisão `double` (f64):** mesma de `Matrix`; conversões sempre copiam (sem aliasing)
 - ✅ **Métodos de similaridade via BLAS** (`ddot_` / `dnrm2_`, convenção Fortran já usada pelos wrappers LAPACK) — Fase 2
-- 📋 **Batch operations:** `EmbeddingBatch<DIM>` com k-NN por cosine em `O(n·DIM + n·log k)` — Fase 3
-- 📋 **Operadores nativos** `@` / `<->` / `<=>` — adiados para v2.1
+- ✅ **Batch operations:** `EmbeddingBatch<DIM>` com k-NN por cosine em `O(n·DIM + n·log k)` — Fase 3
+- ✅ **Operadores nativos** `@` / `<->` / `<=>` — v2.1 Grupo 0 (açúcar sintático sobre os métodos)
 - ⏸️ **SIMD explícito (AVX-512, NEON):** fora do escopo da v2.0; o ganho vem do BLAS do sistema
 
 **Performance esperada:**
@@ -4480,7 +4481,7 @@ var response := llm.generate(rendered, max_tokens=500)
 - ✅ Fase 4: verificação do BLAS + benchmark informativo
 
 **Phase 2: Vector DB Integration (v2.1):**
-- Operadores `@` (cosine), `<->` (euclidean), `<=>` (dot product) como açúcar sobre os métodos de v2.0
+- ✅ Operadores `@` (cosine), `<->` (euclidean), `<=>` (dot product) como açúcar sobre os métodos de v2.0 (Grupo 0)
 - Bindings para Pinecone, Weaviate, Milvus
 - Query syntax nativa
 - Type-safe schemas
@@ -4524,6 +4525,6 @@ Essas features transformariam Brix em **THE language for AI-powered Data Enginee
 - ✅ Timing perfeito com boom de RAG/LLMs
 - ✅ Diferencial competitivo único no mercado
 
-**Status:** v2.0 completo (Grupo A, Fases 0–4). v2.1 e v2.2 planejadas.
+**Status:** v2.0 completo (Grupo A, Fases 0–4). v2.1 em andamento (Grupo 0 concluído). v2.2 planejada.
 
 **Prioridade:** Alta - Alinhado com tendências de mercado e filosofia da linguagem

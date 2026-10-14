@@ -56,6 +56,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         use inkwell::module::Linkage;
         use inkwell::types::{BasicMetadataTypeEnum, BasicTypeEnum};
         use inkwell::values::BasicMetadataValueEnum;
+        // Resume in this exact block afterwards, not the caller's last one.
+        let saved_insert_block = self.builder.get_insert_block();
 
         let i64_type = self.context.i64_type();
         let ptr_type = self.context.ptr_type(inkwell::AddressSpace::default());
@@ -261,7 +263,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 })?;
 
             self.current_function = saved_fn;
-            if let Some(prev) = saved_fn {
+            if let Some(bb) = saved_insert_block {
+                self.builder.position_at_end(bb);
+            } else if let Some(prev) = saved_fn {
                 if let Some(bb) = prev.get_last_basic_block() {
                     self.builder.position_at_end(bb);
                 }
@@ -1027,7 +1031,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             self.current_function = saved_fn;
             self.variables = saved_vars;
             self.function_scope_vars = saved_scope;
-            if let Some(prev) = saved_fn {
+            if let Some(bb) = saved_insert_block {
+                self.builder.position_at_end(bb);
+            } else if let Some(prev) = saved_fn {
                 if let Some(bb) = prev.get_last_basic_block() {
                     self.builder.position_at_end(bb);
                 }
@@ -1116,6 +1122,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         use inkwell::module::Linkage;
         use inkwell::types::{BasicMetadataTypeEnum, BasicTypeEnum};
         use inkwell::values::BasicMetadataValueEnum;
+        // Resume in this exact block afterwards, not the caller's last one.
+        let saved_insert_block = self.builder.get_insert_block();
         use parser::ast::StmtKind;
         use std::collections::HashMap as StdHashMap;
 
@@ -1344,7 +1352,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 })?;
 
             self.current_function = saved_fn;
-            if let Some(prev) = saved_fn {
+            if let Some(bb) = saved_insert_block {
+                self.builder.position_at_end(bb);
+            } else if let Some(prev) = saved_fn {
                 if let Some(bb) = prev.get_last_basic_block() {
                     self.builder.position_at_end(bb);
                 }
@@ -2422,7 +2432,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             self.current_function = saved_fn;
             self.variables = saved_vars;
             self.function_scope_vars = saved_scope;
-            if let Some(prev) = saved_fn {
+            if let Some(bb) = saved_insert_block {
+                self.builder.position_at_end(bb);
+            } else if let Some(prev) = saved_fn {
                 if let Some(bb) = prev.get_last_basic_block() {
                     self.builder.position_at_end(bb);
                 }

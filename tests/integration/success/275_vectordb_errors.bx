@@ -1,0 +1,21 @@
+// v2.1 Grupo A Fase 1: network/API failures return nil + last_error, never
+// abort, and a later success clears last_error.
+import vectordb
+
+var host := env("BRIX_TEST_PINECONE_HOST") ?: "http://127.0.0.1:1"
+
+var bad_key := vectordb.connect("pinecone", host, "wrong-key")
+println(bad_key.stats() == nil)
+println(bad_key.last_error())
+
+var bad_json := vectordb.connect("pinecone", host, "bad-json-key")
+println(bad_json.stats() == nil)
+println(bad_json.last_error())
+
+var refused := vectordb.connect("pinecone", "http://127.0.0.1:1", "test-key")
+println(refused.stats() == nil)
+println(refused.last_error().starts_with("/describe_index_stats: "))
+
+var ok := vectordb.connect("pinecone", host, "test-key")
+println(ok.stats() != nil)
+println(ok.last_error() == "")

@@ -113,6 +113,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
         // Save current function and switch to closure function
         let prev_function = self.current_function;
+        // Resume in this exact block afterwards, not the caller's last block
+        // (a match/if merge block precedes its arm blocks).
+        let saved_insert_block = self.builder.get_insert_block();
         self.current_function = Some(closure_fn);
 
         // Save current variable scope
@@ -257,7 +260,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         self.variables = prev_variables;
 
         // Position builder back in original function
-        if let Some(prev_fn) = prev_function {
+        if let Some(bb) = saved_insert_block {
+            self.builder.position_at_end(bb);
+        } else if let Some(prev_fn) = prev_function {
             if let Some(bb) = prev_fn.get_last_basic_block() {
                 self.builder.position_at_end(bb);
             }

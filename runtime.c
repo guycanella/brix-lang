@@ -4,6 +4,8 @@
 #include <math.h>
 #include <limits.h>
 #include <stdint.h>
+#include <stdarg.h>
+#include <curl/curl.h>
 #include <time.h>
 #include <setjmp.h>
 #include <unistd.h>
@@ -4588,6 +4590,286 @@ IntMatrix *brix_embedding_batch_find_nearest(BrixEmbeddingBatch *b, BrixEmbeddin
   for (long i = 0; i < count; i++) out->data[i] = heap[i].idx;
   free(heap);
   return out;
+}
+
+// ==========================================
+// SECTION 2.12: VECTORDB (v2.1 Grupo A Fase 1)
+// ==========================================
+//
+// A BrixVectorDB is one connection to one Pinecone index (its data-plane
+// host). connect() validates the config locally and does no network I/O.
+// Each operation is one HTTPS request through the connection's own CURL easy
+// handle; reusing it lets libcurl keep the TCP/TLS connection alive between
+// calls. Network and API failures never abort: the operation returns NULL
+// (nil in Brix) and the reason is kept in last_error. Invalid config
+// (empty host/key, plain http:// to a non-loopback host, control characters)
+// aborts in connect(). The API key is only ever sent in the Api-Key header;
+// it is never part of last_error or any message.
+
+#define BRIX_PINECONE_API_VERSION "2025-01"
+#define BRIX_VDB_MAX_RESPONSE (64L * 1024 * 1024)
+
+typedef struct {
+  long ref_count;
+  char *base_url;   // "https://host[:port]", no trailing '/'
+  char *api_key;
+  char *ns;         // "" = default namespace (used from Fase 2 on)
+  CURL *curl;
+  char *last_error; // NULL = the last operation succeeded
+} BrixVectorDB;
+
+// env(name) -> string? (NULL when the variable is not set).
+BrixString *brix_env(BrixString *name) {
+  if (!name) return NULL;
+  const char *v = getenv(name->data);
+  return v ? str_new((char *)v) : NULL;
+}
+
+static void vdb_config_error(const char *msg) {
+  fprintf(stderr, "Error: vectordb.connect: %s\n", msg);
+  exit(1);
+}
+
+static char *vdb_strdup(const char *s) {
+  char *d = strdup(s);
+  if (!d) vdb_config_error("out of memory");
+  return d;
+}
+
+// Control characters would allow header injection through the key, or
+// malformed URLs through the host.
+static int vdb_has_ctl(const char *s) {
+  for (; *s; s++) {
+    if ((unsigned char)*s < 0x20 || *s == 0x7f) return 1;
+  }
+  return 0;
+}
+
+static int vdb_is_loopback(const char *host) {
+  return strcmp(host, "localhost") == 0 || strcmp(host, "127.0.0.1") == 0 ||
+         strcmp(host, "[::1]") == 0;
+}
+
+// Parse `base` with libcurl's own URL parser (the one the request will use),
+// so the checks see exactly the host curl will connect to: "localhost:1@evil"
+// is user "localhost", host "evil".
+static void vdb_check_url(const char *base, int plain_http) {
+  CURLU *u = curl_url();
+  if (!u) vdb_config_error("out of memory");
+  if (curl_url_set(u, CURLUPART_URL, base, 0) != CURLUE_OK) {
+    vdb_config_error("host is not a valid URL");
+  }
+  char *part = NULL;
+  if (curl_url_get(u, CURLUPART_USER, &part, 0) == CURLUE_OK ||
+      curl_url_get(u, CURLUPART_PASSWORD, &part, 0) == CURLUE_OK) {
+    vdb_config_error("host must not contain credentials (user@host)");
+  }
+  if (curl_url_get(u, CURLUPART_QUERY, &part, 0) == CURLUE_OK ||
+      curl_url_get(u, CURLUPART_FRAGMENT, &part, 0) == CURLUE_OK) {
+    vdb_config_error("host must not contain a query or fragment");
+  }
+  if (curl_url_get(u, CURLUPART_HOST, &part, 0) != CURLUE_OK || !*part) {
+    vdb_config_error("host is empty");
+  }
+  if (plain_http && !vdb_is_loopback(part)) {
+    vdb_config_error("plain http:// is only allowed for localhost, "
+                     "127.0.0.1 and [::1]; use https://");
+  }
+  curl_free(part);
+  curl_url_cleanup(u);
+}
+
+BrixVectorDB *brix_vectordb_connect(BrixString *host, BrixString *api_key,
+                                    BrixString *ns) {
+  const char *h = host ? host->data : "";
+  const char *k = api_key ? api_key->data : "";
+  const char *n = ns ? ns->data : "";
+  if (!*h) vdb_config_error("host is empty");
+  if (!*k) vdb_config_error("api_key is empty");
+  if (vdb_has_ctl(h) || strchr(h, ' ')) {
+    vdb_config_error("host contains whitespace or control characters");
+  }
+  if (vdb_has_ctl(k)) vdb_config_error("api_key contains control characters");
+  if (vdb_has_ctl(n)) vdb_config_error("namespace contains control characters");
+
+  char *base;
+  size_t scheme_len;
+  if (strncmp(h, "https://", 8) == 0) {
+    base = vdb_strdup(h);
+    scheme_len = 8;
+  } else if (strncmp(h, "http://", 7) == 0) {
+    base = vdb_strdup(h);
+    scheme_len = 7;
+  } else if (strstr(h, "://")) {
+    vdb_config_error("unsupported URL scheme (use https://)");
+    return NULL;
+  } else {
+    base = malloc(strlen(h) + 9);
+    if (!base) vdb_config_error("out of memory");
+    sprintf(base, "https://%s", h);
+    scheme_len = 8;
+  }
+  size_t len = strlen(base);
+  while (len > scheme_len && base[len - 1] == '/') base[--len] = '\0';
+  if (len == scheme_len) vdb_config_error("host is empty");
+  vdb_check_url(base, scheme_len == 7);
+
+  BrixVectorDB *db = malloc(sizeof(BrixVectorDB));
+  if (!db) vdb_config_error("out of memory");
+  db->curl = curl_easy_init();
+  if (!db->curl) vdb_config_error("failed to initialize libcurl");
+  db->ref_count = 1;
+  db->base_url = base;
+  db->api_key = vdb_strdup(k);
+  db->ns = vdb_strdup(n);
+  db->last_error = NULL;
+  return db;
+}
+
+BrixVectorDB *brix_vectordb_retain(BrixVectorDB *db) {
+  if (db) db->ref_count++;
+  return db;
+}
+
+void brix_vectordb_release(BrixVectorDB *db) {
+  if (!db || --db->ref_count > 0) return;
+  curl_easy_cleanup(db->curl);
+  memset(db->api_key, 0, strlen(db->api_key));
+  free(db->api_key);
+  free(db->base_url);
+  free(db->ns);
+  free(db->last_error);
+  free(db);
+}
+
+static void vdb_set_error(BrixVectorDB *db, const char *fmt, ...) {
+  char msg[512];
+  va_list ap;
+  va_start(ap, fmt);
+  vsnprintf(msg, sizeof(msg), fmt, ap);
+  va_end(ap);
+  free(db->last_error);
+  db->last_error = strdup(msg); // NULL on OOM just means "no message"
+}
+
+typedef struct {
+  char *data;
+  size_t len;
+  size_t cap;
+  int too_large;
+} VdbBuf;
+
+static size_t vdb_write_cb(char *ptr, size_t size, size_t nmemb, void *userdata) {
+  VdbBuf *b = userdata;
+  size_t n = size * nmemb;
+  if (b->len + n + 1 > (size_t)BRIX_VDB_MAX_RESPONSE) {
+    b->too_large = 1;
+    return 0; // aborts the transfer
+  }
+  if (b->len + n + 1 > b->cap) {
+    size_t cap = b->cap ? b->cap : 4096;
+    while (cap < b->len + n + 1) cap *= 2;
+    char *p = realloc(b->data, cap);
+    if (!p) return 0;
+    b->data = p;
+    b->cap = cap;
+  }
+  memcpy(b->data + b->len, ptr, n);
+  b->len += n;
+  b->data[b->len] = '\0';
+  return n;
+}
+
+// POST `body` (JSON text) to `path`. Returns the parsed JSON response on a
+// 2xx status; otherwise NULL with db->last_error set.
+static JsonValue *vdb_post(BrixVectorDB *db, const char *path, const char *body) {
+  free(db->last_error);
+  db->last_error = NULL;
+
+  size_t url_len = strlen(db->base_url) + strlen(path) + 1;
+  size_t key_len = strlen(db->api_key) + sizeof("Api-Key: ");
+  char *url = malloc(url_len);
+  char *key_header = malloc(key_len);
+  if (!url || !key_header) {
+    free(url);
+    free(key_header);
+    vdb_set_error(db, "out of memory");
+    return NULL;
+  }
+  snprintf(url, url_len, "%s%s", db->base_url, path);
+  snprintf(key_header, key_len, "Api-Key: %s", db->api_key);
+
+  struct curl_slist *headers = NULL;
+  headers = curl_slist_append(headers, key_header);
+  headers = curl_slist_append(headers, "Content-Type: application/json");
+  headers = curl_slist_append(headers, "Accept: application/json");
+  headers = curl_slist_append(headers,
+                              "X-Pinecone-API-Version: " BRIX_PINECONE_API_VERSION);
+
+  VdbBuf buf = {NULL, 0, 0, 0};
+  CURL *c = db->curl;
+  curl_easy_reset(c); // drops per-request options, keeps live connections
+  curl_easy_setopt(c, CURLOPT_URL, url);
+  curl_easy_setopt(c, CURLOPT_PROTOCOLS_STR, "http,https");
+  curl_easy_setopt(c, CURLOPT_HTTPHEADER, headers);
+  curl_easy_setopt(c, CURLOPT_POSTFIELDS, body);
+  curl_easy_setopt(c, CURLOPT_POSTFIELDSIZE, (long)strlen(body));
+  curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, vdb_write_cb);
+  curl_easy_setopt(c, CURLOPT_WRITEDATA, &buf);
+  curl_easy_setopt(c, CURLOPT_NOSIGNAL, 1L);
+  // Plain http is only allowed to loopback: never hand it (and the Api-Key)
+  // to an http_proxy from the environment. https may still use HTTPS_PROXY,
+  // which tunnels with CONNECT.
+  if (strncmp(db->base_url, "http://", 7) == 0) {
+    curl_easy_setopt(c, CURLOPT_NOPROXY, "*");
+  }
+  // ponytail: fixed timeouts; configurable timeout + retry is Fase 5.
+  curl_easy_setopt(c, CURLOPT_CONNECTTIMEOUT_MS, 10000L);
+  curl_easy_setopt(c, CURLOPT_TIMEOUT_MS, 30000L);
+
+  CURLcode rc = curl_easy_perform(c);
+  long status = 0;
+  curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &status);
+
+  curl_slist_free_all(headers);
+  memset(key_header, 0, key_len);
+  free(key_header);
+  free(url);
+
+  JsonValue *result = NULL;
+  if (buf.too_large) {
+    vdb_set_error(db, "%s: response larger than %ld bytes", path,
+                  BRIX_VDB_MAX_RESPONSE);
+  } else if (rc != CURLE_OK) {
+    vdb_set_error(db, "%s: %s", path, curl_easy_strerror(rc));
+  } else if (status < 200 || status >= 300) {
+    vdb_set_error(db, "%s: HTTP %ld: %.200s", path, status,
+                  buf.data ? buf.data : "");
+  } else {
+    const char *p = buf.data ? buf.data : "";
+    result = json_parse_value(&p, 0);
+    if (result) {
+      json_parse_skip_whitespace(&p);
+      if (*p != '\0') {
+        json_release(result);
+        result = NULL;
+      }
+    }
+    if (!result) vdb_set_error(db, "%s: response is not valid JSON", path);
+  }
+  free(buf.data);
+  return result;
+}
+
+// db.stats() -> json? (Pinecone describe_index_stats: dimension,
+// totalVectorCount, indexFullness, namespaces).
+JsonValue *brix_vectordb_stats(BrixVectorDB *db) {
+  return vdb_post(db, "/describe_index_stats", "{}");
+}
+
+// db.last_error() -> string ("" when the last operation succeeded).
+BrixString *brix_vectordb_last_error(BrixVectorDB *db) {
+  return str_new(db->last_error);
 }
 
 // ==========================================

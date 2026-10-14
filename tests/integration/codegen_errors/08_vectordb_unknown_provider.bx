@@ -1,0 +1,3 @@
+import vectordb
+
+var db := vectordb.connect("weaviate", "localhost", "key")

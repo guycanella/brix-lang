@@ -1,0 +1,5 @@
+// v2.1 Grupo A Fase 1: plain http:// is only for loopback hosts.
+import vectordb
+
+var db := vectordb.connect("pinecone", "http://my-index.svc.pinecone.io", "key")
+println("unreachable")
