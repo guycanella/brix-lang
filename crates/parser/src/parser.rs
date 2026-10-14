@@ -1663,13 +1663,53 @@ where
             Neg,
         }
 
+        // Embedding similarity operators (v2.1 Grupo 0), pure sugar:
+        // `a @ b` → `a.cosine_similarity(b)`, `a <-> b` →
+        // `a.euclidean_distance(b)`, `a <=> b` → `a.dot_product(b)`.
+        // Left-associative, with postfix expressions (calls, fields, indexing)
+        // as operands — tighter than every prefix/binary operator. No Brix
+        // operator produces an Embedding and the result is a float, so
+        // grouping `a @ b` first is the only well-typed reading of
+        // `-a @ b`, `a @ b ** 2`, `1.0 - a @ b`, `2.0 * a <=> b` or
+        // `a @ b > 0.8`. Cost: `(await f()) @ b` needs the parentheses.
+        let similarity = postfix_inc_dec
+            .clone()
+            .then(
+                just(Token::At)
+                    .to("cosine_similarity")
+                    .or(just(Token::LeftRightArrow).to("euclidean_distance"))
+                    .or(just(Token::DoubleArrow).to("dot_product"))
+                    // The consumed span, not `rhs.span`: postfix chains keep
+                    // their base's span, so `b.get(0)` would end at `b`.
+                    .then(postfix_inc_dec.clone().map_with_span(|e, span| (e, span)))
+                    .repeated(),
+            )
+            .foldl(|lhs, (method, (rhs, rhs_span))| {
+                let span = lhs.span.start..rhs_span.end;
+                let field_access = Expr::new(
+                    ExprKind::FieldAccess {
+                        target: Box::new(lhs),
+                        field: method.to_string(),
+                    },
+                    span.clone(),
+                );
+                Expr::new(
+                    ExprKind::Call {
+                        func: Box::new(field_access),
+                        args: vec![rhs],
+                    },
+                    span,
+                )
+            })
+            .boxed();
+
         let unary = just(Token::PlusPlus)
             .to(PrefixOp::Inc)
             .or(just(Token::MinusMinus).to(PrefixOp::Dec))
             .or(just(Token::Not).to(PrefixOp::Not))
             .or(just(Token::Minus).to(PrefixOp::Neg))
             .repeated()
-            .then(postfix_inc_dec.clone())
+            .then(similarity.clone())
             .foldr(|op, expr| {
                 let span = expr.span.clone();
                 match op {

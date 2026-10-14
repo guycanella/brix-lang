@@ -689,3 +689,54 @@ fn test_continue_in_for_token_sequence() {
     assert_eq!(tokens[5], Ok(Token::Continue));
     assert_eq!(tokens[6], Ok(Token::RBrace));
 }
+
+// ==================== EMBEDDING OPERATORS (v2.1 Grupo 0) ====================
+
+#[test]
+fn test_operator_at() {
+    assert_single_token("@", Token::At);
+}
+
+#[test]
+fn test_operator_left_right_arrow() {
+    assert_single_token("<->", Token::LeftRightArrow);
+}
+
+#[test]
+fn test_operator_double_arrow() {
+    assert_single_token("<=>", Token::DoubleArrow);
+}
+
+#[test]
+fn test_embedding_operators_between_identifiers() {
+    let id = |s: &str| Ok(Token::Identifier(s.to_string()));
+    assert_eq!(tokenize("a@b"), vec![id("a"), Ok(Token::At), id("b")]);
+    assert_eq!(
+        tokenize("a<->b"),
+        vec![id("a"), Ok(Token::LeftRightArrow), id("b")]
+    );
+    assert_eq!(
+        tokenize("a<=>b"),
+        vec![id("a"), Ok(Token::DoubleArrow), id("b")]
+    );
+}
+
+#[test]
+fn test_embedding_operators_do_not_change_existing_tokens() {
+    // `a<-1` is still "a less than minus one", and `<=`/`<`/`->` alone are
+    // unaffected by the longer `<->`/`<=>` tokens.
+    let id = |s: &str| Ok(Token::Identifier(s.to_string()));
+    assert_eq!(
+        tokenize("a<-1"),
+        vec![id("a"), Ok(Token::Lt), Ok(Token::Minus), Ok(Token::Int(1))]
+    );
+    assert_eq!(tokenize("a<=b"), vec![id("a"), Ok(Token::LtEq), id("b")]);
+    assert_eq!(
+        tokenize("a <= >"),
+        vec![id("a"), Ok(Token::LtEq), Ok(Token::Gt)]
+    );
+    assert_eq!(
+        tokenize("a < ->"),
+        vec![id("a"), Ok(Token::Lt), Ok(Token::Arrow)]
+    );
+}

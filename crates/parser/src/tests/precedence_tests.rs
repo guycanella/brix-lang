@@ -225,3 +225,110 @@ fn test_complex_expression() {
         _ => panic!("Expected Sub at top"),
     }
 }
+
+// ==================== EMBEDDING OPERATORS (v2.1 Grupo 0) ====================
+
+/// Render an expression as an s-expression: binary ops as `(Op l r)`,
+/// the desugared operators as `(method receiver arg)`.
+fn sexpr(e: &Expr) -> String {
+    match &e.kind {
+        ExprKind::Identifier(name) => name.clone(),
+        ExprKind::Literal(_) => "lit".to_string(),
+        ExprKind::Binary { op, lhs, rhs } => {
+            format!("({:?} {} {})", op, sexpr(lhs), sexpr(rhs))
+        }
+        ExprKind::Unary { expr, .. } => format!("(neg {})", sexpr(expr)),
+        ExprKind::Call { func, args } => match &func.kind {
+            ExprKind::FieldAccess { target, field } => {
+                let args: Vec<String> = args.iter().map(sexpr).collect();
+                format!("({} {} {})", field, sexpr(target), args.join(" "))
+            }
+            _ => format!("(call {})", sexpr(func)),
+        },
+        other => format!("{:?}", other),
+    }
+}
+
+fn parsed(input: &str) -> String {
+    sexpr(&parse_expr(input).unwrap())
+}
+
+#[test]
+fn test_embedding_operators_desugar_to_method_calls() {
+    assert_eq!(parsed("a @ b"), "(cosine_similarity a b)");
+    assert_eq!(parsed("a <-> b"), "(euclidean_distance a b)");
+    assert_eq!(parsed("a <=> b"), "(dot_product a b)");
+}
+
+#[test]
+fn test_embedding_operators_bind_tighter_than_mul_and_add() {
+    assert_eq!(parsed("1.0 - a @ b"), "(Sub lit (cosine_similarity a b))");
+    assert_eq!(parsed("2.0 * a <=> b"), "(Mul lit (dot_product a b))");
+    assert_eq!(
+        parsed("a <-> b / 2.0"),
+        "(Div (euclidean_distance a b) lit)"
+    );
+    assert_eq!(
+        parsed("a @ b + c @ d"),
+        "(Add (cosine_similarity a b) (cosine_similarity c d))"
+    );
+}
+
+#[test]
+fn test_embedding_operators_bind_tighter_than_comparison_and_logic() {
+    assert_eq!(parsed("a @ b > 0.8"), "(Gt (cosine_similarity a b) lit)");
+    assert_eq!(
+        parsed("a @ b >= 0.5 && a <-> b < 1.0"),
+        "(LogicalAnd (GtEq (cosine_similarity a b) lit) (Lt (euclidean_distance a b) lit))"
+    );
+}
+
+#[test]
+fn test_embedding_operators_are_left_associative_at_one_level() {
+    // Same level for all three, left-to-right (type-checked later).
+    assert_eq!(
+        parsed("a @ b <=> c"),
+        "(dot_product (cosine_similarity a b) c)"
+    );
+}
+
+#[test]
+fn test_embedding_operators_looser_than_postfix() {
+    // Method calls / fields / indexing on the operands bind first.
+    assert_eq!(
+        parsed("x.e @ batch.get(0)"),
+        format!(
+            "(cosine_similarity {} (get batch lit))",
+            sexpr(&parse_expr("x.e").unwrap())
+        )
+    );
+}
+
+#[test]
+fn test_embedding_operators_bind_tighter_than_unary_and_pow() {
+    // No operator yields an Embedding, so prefix ops and `**` apply to the
+    // float result: `-a @ b` is a negated similarity, not `(-a) @ b`.
+    assert_eq!(parsed("-a @ b"), "(neg (cosine_similarity a b))");
+    assert_eq!(parsed("a @ b ** 2"), "(Pow (cosine_similarity a b) lit)");
+    assert_eq!(parsed("2.0 ** a <=> b"), "(Pow lit (dot_product a b))");
+    assert_eq!(parsed("a ** b @ c"), "(Pow a (cosine_similarity b c))");
+    // `await` also applies to the whole operation (parenthesize to await
+    // an operand).
+    assert!(matches!(
+        parse_expr("await x @ y").unwrap().kind,
+        ExprKind::Await { .. }
+    ));
+}
+
+#[test]
+fn test_embedding_operator_span_covers_both_operands() {
+    // parse_expr uses token-index spans: `a @ b` is tokens 0..3. The
+    // desugared call (and its FieldAccess) must span both operands, so an
+    // error on it points at the whole `a @ b`, not just `a`.
+    let expr = parse_expr("a @ b").unwrap();
+    assert_eq!(expr.span, 0..3);
+    match &expr.kind {
+        ExprKind::Call { func, .. } => assert_eq!(func.span, 0..3),
+        other => panic!("expected desugared call, got {:?}", other),
+    }
+}

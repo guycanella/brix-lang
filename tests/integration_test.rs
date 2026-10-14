@@ -2524,3 +2524,14 @@ fn test_272_embedding_blas_symbols() {
         );
     }
 }
+
+#[test]
+fn test_273_embedding_operators() {
+    // `@`/`<->`/`<=>` desugar to the v2.0 similarity methods, bind tighter
+    // than `*`/`+`/comparisons, and (being pure sugar) reach a same-named
+    // user struct method too.
+    assert_success(
+        "tests/integration/success/273_embedding_operators.bx",
+        "0.6\n4.47214\n3\n1\n0.4\n6\n1\n-0.6\n0.36\n3\n5\n11",
+    );
+}
