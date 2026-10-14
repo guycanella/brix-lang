@@ -1,0 +1,24 @@
+// v2.1 Grupo A Fase 2: db.fetch (GET /vectors/fetch) against the mock host.
+import vectordb
+import json
+
+var host := env("BRIX_TEST_PINECONE_HOST") ?: "http://127.0.0.1:1"
+var db := vectordb.connect("pinecone", host, "test-key")
+
+var rec := db.fetch("b")
+println(json.stringify(rec))
+println(db.last_error() == "")
+
+// A missing id is nil with an empty last_error (not a failure).
+println(db.fetch("nope") == nil)
+println(db.last_error() == "")
+
+// The id is URL-encoded and the namespace is sent.
+var prod := vectordb.connect("pinecone", host, "test-key", "prod")
+println(json.stringify(prod.fetch("x&y z")))
+println(db.fetch("x&y z") == nil)
+
+// A failure is nil with a reason.
+var bad := vectordb.connect("pinecone", host, "wrong-key")
+println(bad.fetch("b") == nil)
+println(bad.last_error())

@@ -1,0 +1,47 @@
+// v2.1 Grupo A Fase 2: db.query against the mock Pinecone host
+// (cosine similarity, equality filters, metadata included).
+import vectordb
+import json
+
+var host := env("BRIX_TEST_PINECONE_HOST") ?: "http://127.0.0.1:1"
+var db := vectordb.connect("pinecone", host, "test-key")
+var q := Embedding<3>([1.0, 0.0, 0.0])
+
+// Best match first, top_k bounds the result.
+var hits := db.query(q, 2)
+if hits != nil {
+    println(json.array_len(hits))
+    var top := hits[0]
+    println(json.as_string(top["id"]) ?: "?")
+    println(json.as_float(top["score"]) ?: -1.0)
+    println(json.stringify(top["metadata"]))
+}
+
+// Filter as json (from json.parse, a json?) and as a built object.
+println(json.stringify(db.query(q, 5, json.parse("{\"genre\": \"news\"}"))))
+var f := json.object()
+json.set(f, "year", json.int(2023))
+println(json.stringify(db.query(q, 5, f)))
+// The borrowed filter is still alive after the call.
+println(json.stringify(f))
+
+// A json? that is nil at runtime means no filter: all 3 records.
+var bad := json.parse("not json")
+println(json.array_len(db.query(q, 5, bad) ?: json.array()))
+
+// Temporary embedding argument; nil filter means no filter.
+println(json.stringify(db.query(Embedding<3>([0.0, 1.0, 0.0]), 1, nil)))
+
+// Namespace from connect.
+var prod := vectordb.connect("pinecone", host, "test-key", "prod")
+var p := prod.query(Embedding<3>([0.0, 0.0, 1.0]), 1) ?: json.array()
+var p0 := p[0]
+println(json.as_string(p0["id"]) ?: "?")
+
+// Local and API errors return nil and set last_error.
+println(db.query(q, 0) == nil)
+println(db.last_error())
+println(db.query(Embedding<2>([1.0, 0.0]), 1) == nil)
+println(db.last_error())
+println(db.query(Embedding<3>([1.0, 0.0, 0.0 / 0.0]), 1) == nil)
+println(db.last_error())

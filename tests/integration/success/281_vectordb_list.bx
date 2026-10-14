@@ -1,0 +1,30 @@
+// v2.1 Grupo A Fase 2: db.list (GET /vectors/list) with pagination.
+import vectordb
+import json
+
+var host := env("BRIX_TEST_PINECONE_HOST") ?: "http://127.0.0.1:1"
+var db := vectordb.connect("pinecone", host, "test-key")
+
+println(json.stringify(db.list()))
+
+// Walk every page, two ids at a time.
+var token := ""
+var pages := 0
+var more := 1
+while more == 1 {
+    var page := db.list(2, token) ?: json.object()
+    println(json.stringify(page["vectors"]))
+    pages := pages + 1
+    var pg := page["pagination"]
+    token := json.as_string(pg["next"]) ?: ""
+    if token == "" {
+        more := 0
+    }
+}
+println(pages)
+
+var prod := vectordb.connect("pinecone", host, "test-key", "prod")
+println(json.stringify(prod.list(10)))
+
+println(db.list(0) == nil)
+println(db.last_error())

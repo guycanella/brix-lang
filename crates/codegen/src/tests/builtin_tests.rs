@@ -4007,6 +4007,154 @@ fn test_vectordb_static_type_inference() {
     }
 }
 
+// ---- v2.1 Grupo A Fase 2: query / fetch / list ----
+
+const VDB_DB: &str = "import vectordb\nimport json\nvar db := vectordb.connect(\"pinecone\", \"h\", \"k\")\nvar q := Embedding<3>([1.0, 0.0, 0.0])\n";
+
+fn vdb_ir(src: &str) -> String {
+    ir_from_source(&format!("{}{}", VDB_DB, src))
+}
+
+#[test]
+fn test_vectordb_query_without_filter_passes_null() {
+    let ir = vdb_ir("var h := db.query(q, 5)\n");
+    assert!(
+        ir.contains("call ptr @brix_vectordb_query(ptr") && ir.contains("i64 5, ptr null)"),
+        "{}",
+        ir
+    );
+}
+
+#[test]
+fn test_vectordb_query_optional_filter_selects_null_on_nil() {
+    // A json? filter is unwrapped by tag, so nil never passes a stale pointer;
+    // the owned json.parse temporary is released after the call.
+    // (one json_release for the temporary, one for h at scope end).
+    let ir = vdb_ir("var h := db.query(q, 5, json.parse(\"{}\"))\n");
+    assert!(ir.contains("select i1 %filter_is_json"), "{}", ir);
+    assert_eq!(ir.matches("call void @json_release(").count(), 2, "{}", ir);
+    // A variable filter is borrowed: only the declaration's old-value release
+    // of f and the scope-end releases of f and h.
+    let ir = vdb_ir("var f := json.object()\nvar h := db.query(q, 5, f)\n");
+    assert_eq!(ir.matches("call void @json_release(").count(), 3, "{}", ir);
+    // nil literal: no filter.
+    let ir = vdb_ir("var h := db.query(q, 5, nil)\n");
+    assert!(ir.contains("i64 5, ptr null)"), "{}", ir);
+}
+
+#[test]
+fn test_vectordb_query_filter_rejects_mixed_unions() {
+    // A union with a non-nil second variant is not a filter.
+    let err = error_from_source(&format!(
+        "{}fn mk() -> json | int {{ return 1 }}\nvar h := db.query(q, 1, mk())\n",
+        VDB_DB
+    ));
+    assert!(
+        matches!(err, crate::error::CodegenError::TypeError { .. }),
+        "{:?}",
+        err
+    );
+}
+
+#[test]
+fn test_vectordb_query_temporary_embedding_is_released() {
+    // The temporary, plus q's declaration old-value and scope-end releases.
+    let ir = vdb_ir("var h := db.query(Embedding<3>([0.0, 1.0, 0.0]), 1)\n");
+    assert_eq!(
+        ir.matches("call void @brix_embedding_release(").count(),
+        3,
+        "{}",
+        ir
+    );
+}
+
+#[test]
+fn test_vectordb_fetch_releases_temporary_id() {
+    let ir = vdb_ir("var r := db.fetch(\"a\" + \"b\")\n");
+    let body = function_body(&ir, "main");
+    let call = body.find("@brix_vectordb_fetch(").unwrap();
+    assert!(
+        body[call..].contains("call void @string_release("),
+        "{}",
+        body
+    );
+}
+
+#[test]
+fn test_vectordb_list_defaults() {
+    // No limit: LONG_MIN (server default); no token: NULL (first page).
+    let ir = vdb_ir("var a := db.list()\nvar b := db.list(7)\nvar c := db.list(7, \"t\")\n");
+    assert!(ir.contains("i64 -9223372036854775808, ptr null)"), "{}", ir);
+    assert!(ir.contains("i64 7, ptr null)"), "{}", ir);
+    assert_eq!(
+        ir.matches("call ptr @brix_vectordb_list(").count(),
+        3,
+        "{}",
+        ir
+    );
+}
+
+#[test]
+fn test_vectordb_query_fetch_list_type_errors() {
+    for src in [
+        "var h := db.query([1.0, 0.0, 0.0], 1)\n",
+        "var h := db.query(q, \"1\")\n",
+        "var h := db.query(q, 1, \"{}\")\n",
+        "var r := db.fetch(1)\n",
+        "var p := db.list(\"10\")\n",
+        "var p := db.list(10, 2)\n",
+    ] {
+        let err = error_from_source(&format!("{}{}", VDB_DB, src));
+        assert!(
+            matches!(err, crate::error::CodegenError::TypeError { .. }),
+            "{}: {:?}",
+            src,
+            err
+        );
+    }
+}
+
+#[test]
+fn test_vectordb_query_fetch_list_arity() {
+    for src in [
+        "var h := db.query(q)\n",
+        "var h := db.query(q, 1, nil, 2)\n",
+        "var r := db.fetch()\n",
+        "var r := db.fetch(\"a\", \"b\")\n",
+        "var p := db.list(1, \"t\", 3)\n",
+    ] {
+        let err = error_from_source(&format!("{}{}", VDB_DB, src));
+        assert!(
+            matches!(err, crate::error::CodegenError::InvalidOperation { .. }),
+            "{}: {:?}",
+            src,
+            err
+        );
+    }
+}
+
+#[test]
+fn test_vectordb_query_fetch_list_inference() {
+    let history = "import vectordb\nvar db := vectordb.connect(\"pinecone\", \"h\", \"k\")\nvar q := Embedding<3>([1.0, 0.0, 0.0])\n";
+    use crate::types::BrixType;
+    for expr in ["db.query(q, 3)", "db.fetch(\"a\")", "db.list()"] {
+        assert_eq!(
+            crate::infer_type_of_expr_in_context(history, expr),
+            Ok(BrixType::Union(vec![BrixType::Json, BrixType::Nil])),
+            "{}",
+            expr
+        );
+    }
+}
+
+#[test]
+fn test_struct_methods_named_query_fetch_list_dispatch_to_struct() {
+    let ir = ir_from_source(
+        "struct C { n: int }\nfn (c: C) query(a: int, b: int) -> int { return c.n }\nfn (c: C) fetch(s: string) -> int { return c.n }\nfn (c: C) list() -> int { return c.n }\nvar c := C { n: 3 }\nvar r := c.query(1, 2) + c.fetch(\"x\") + c.list()\n",
+    );
+    assert!(!ir.contains("brix_vectordb_"), "{}", ir);
+}
+
 #[test]
 fn test_match_arm_borrowed_value_is_retained() {
     // `match` yields an owned value: an identifier arm must be retained, or

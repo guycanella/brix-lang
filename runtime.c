@@ -4593,7 +4593,7 @@ IntMatrix *brix_embedding_batch_find_nearest(BrixEmbeddingBatch *b, BrixEmbeddin
 }
 
 // ==========================================
-// SECTION 2.12: VECTORDB (v2.1 Grupo A Fase 1)
+// SECTION 2.12: VECTORDB (v2.1 Grupo A Fases 1-2)
 // ==========================================
 //
 // A BrixVectorDB is one connection to one Pinecone index (its data-plane
@@ -4780,13 +4780,17 @@ static size_t vdb_write_cb(char *ptr, size_t size, size_t nmemb, void *userdata)
   return n;
 }
 
-// POST `body` (JSON text) to `path`. Returns the parsed JSON response on a
-// 2xx status; otherwise NULL with db->last_error set.
-static JsonValue *vdb_post(BrixVectorDB *db, const char *path, const char *body) {
+// Send one request to `path`: a POST with `body` (JSON text), or a GET when
+// `body` is NULL. `query` (already URL-encoded, or NULL) is appended after
+// '?'. Returns the parsed JSON response on a 2xx status; otherwise NULL with
+// db->last_error set. Errors name `path` only, never the query string.
+static JsonValue *vdb_request(BrixVectorDB *db, const char *path,
+                              const char *query, const char *body) {
   free(db->last_error);
   db->last_error = NULL;
 
-  size_t url_len = strlen(db->base_url) + strlen(path) + 1;
+  size_t url_len = strlen(db->base_url) + strlen(path) +
+                   (query ? strlen(query) + 1 : 0) + 1;
   size_t key_len = strlen(db->api_key) + sizeof("Api-Key: ");
   char *url = malloc(url_len);
   char *key_header = malloc(key_len);
@@ -4796,12 +4800,13 @@ static JsonValue *vdb_post(BrixVectorDB *db, const char *path, const char *body)
     vdb_set_error(db, "out of memory");
     return NULL;
   }
-  snprintf(url, url_len, "%s%s", db->base_url, path);
+  snprintf(url, url_len, "%s%s%s%s", db->base_url, path, query ? "?" : "",
+           query ? query : "");
   snprintf(key_header, key_len, "Api-Key: %s", db->api_key);
 
   struct curl_slist *headers = NULL;
   headers = curl_slist_append(headers, key_header);
-  headers = curl_slist_append(headers, "Content-Type: application/json");
+  if (body) headers = curl_slist_append(headers, "Content-Type: application/json");
   headers = curl_slist_append(headers, "Accept: application/json");
   headers = curl_slist_append(headers,
                               "X-Pinecone-API-Version: " BRIX_PINECONE_API_VERSION);
@@ -4812,8 +4817,12 @@ static JsonValue *vdb_post(BrixVectorDB *db, const char *path, const char *body)
   curl_easy_setopt(c, CURLOPT_URL, url);
   curl_easy_setopt(c, CURLOPT_PROTOCOLS_STR, "http,https");
   curl_easy_setopt(c, CURLOPT_HTTPHEADER, headers);
-  curl_easy_setopt(c, CURLOPT_POSTFIELDS, body);
-  curl_easy_setopt(c, CURLOPT_POSTFIELDSIZE, (long)strlen(body));
+  if (body) {
+    curl_easy_setopt(c, CURLOPT_POSTFIELDS, body);
+    curl_easy_setopt(c, CURLOPT_POSTFIELDSIZE, (long)strlen(body));
+  } else {
+    curl_easy_setopt(c, CURLOPT_HTTPGET, 1L);
+  }
   curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, vdb_write_cb);
   curl_easy_setopt(c, CURLOPT_WRITEDATA, &buf);
   curl_easy_setopt(c, CURLOPT_NOSIGNAL, 1L);
@@ -4864,7 +4873,156 @@ static JsonValue *vdb_post(BrixVectorDB *db, const char *path, const char *body)
 // db.stats() -> json? (Pinecone describe_index_stats: dimension,
 // totalVectorCount, indexFullness, namespaces).
 JsonValue *brix_vectordb_stats(BrixVectorDB *db) {
-  return vdb_post(db, "/describe_index_stats", "{}");
+  return vdb_request(db, "/describe_index_stats", NULL, "{}");
+}
+
+// Set `key` on `obj`, taking ownership of `val` (NULL is ignored).
+static void vdb_put(JsonValue *obj, const char *key, JsonValue *val) {
+  BrixString *k = str_new((char *)key);
+  json_set(obj, k, val);
+  string_release(k);
+  json_release(val);
+}
+
+// Fetch `key` of `obj` as an owned reference, or NULL.
+static JsonValue *vdb_field(JsonValue *obj, const char *key) {
+  BrixString *k = str_new((char *)key);
+  JsonValue *v = json_get(obj, k);
+  string_release(k);
+  return v;
+}
+
+// Append "&name=<url-encoded value>" (no '&' when *q is empty) to *q.
+// Returns 0 on out of memory.
+static int vdb_add_param(BrixVectorDB *db, char **q, const char *name,
+                         const char *value) {
+  char *enc = curl_easy_escape(db->curl, value, 0);
+  if (!enc) return 0;
+  size_t old = *q ? strlen(*q) : 0;
+  size_t n = old + strlen(name) + strlen(enc) + 3;
+  char *p = realloc(*q, n);
+  if (!p) {
+    curl_free(enc);
+    return 0;
+  }
+  snprintf(p + old, n - old, "%s%s=%s", old ? "&" : "", name, enc);
+  curl_free(enc);
+  *q = p;
+  return 1;
+}
+
+// db.query(q, top_k[, filter]) -> json? : Pinecone POST /query. Returns the
+// "matches" array ([{id, score, metadata}], best first, metadata included,
+// values not). `filter` (a JSON object, NULL = none) is sent as-is.
+JsonValue *brix_vectordb_query(BrixVectorDB *db, BrixEmbedding *q, long top_k,
+                               JsonValue *filter) {
+  if (top_k < 1) {
+    vdb_set_error(db, "/query: top_k must be >= 1, got %ld", top_k);
+    return NULL;
+  }
+  for (long i = 0; i < q->dim; i++) {
+    if (!isfinite(q->data[i])) {
+      vdb_set_error(db, "/query: query vector contains NaN or Inf");
+      return NULL;
+    }
+  }
+  JsonValue *vec = json_array();
+  for (long i = 0; i < q->dim; i++) {
+    JsonValue *x = json_float(q->data[i]);
+    json_array_push(vec, x);
+    json_release(x);
+  }
+  JsonValue *req = json_object();
+  vdb_put(req, "vector", vec);
+  vdb_put(req, "topK", json_int(top_k));
+  vdb_put(req, "includeMetadata", json_bool(1));
+  vdb_put(req, "includeValues", json_bool(0));
+  BrixString *ns = str_new(db->ns);
+  vdb_put(req, "namespace", json_string(ns));
+  string_release(ns);
+  if (filter) {
+    vdb_put(req, "filter", json_retain(filter));
+    // json_set refuses some values (nested deeper than 64 levels): never
+    // fall back to an unfiltered query.
+    JsonValue *sent = vdb_field(req, "filter");
+    json_release(sent);
+    if (sent != filter) {
+      json_release(req);
+      vdb_set_error(db, "/query: filter is nested too deeply");
+      return NULL;
+    }
+  }
+  BrixString *body = json_stringify(req);
+  json_release(req);
+
+  JsonValue *resp = vdb_request(db, "/query", NULL, body->data);
+  string_release(body);
+  if (!resp) return NULL;
+  JsonValue *matches = vdb_field(resp, "matches");
+  json_release(resp);
+  if (!matches || matches->tag != JSON_ARRAY) {
+    json_release(matches);
+    vdb_set_error(db, "/query: response has no \"matches\" array");
+    return NULL;
+  }
+  return matches;
+}
+
+// db.fetch(id) -> json? : Pinecone GET /vectors/fetch. Returns the record
+// {id, values, metadata}; nil with last_error "" when the id does not exist,
+// nil with last_error set on a failure.
+JsonValue *brix_vectordb_fetch(BrixVectorDB *db, BrixString *id) {
+  char *query = NULL;
+  if (!vdb_add_param(db, &query, "ids", id->data) ||
+      (*db->ns && !vdb_add_param(db, &query, "namespace", db->ns))) {
+    free(query);
+    vdb_set_error(db, "/vectors/fetch: out of memory");
+    return NULL;
+  }
+  JsonValue *resp = vdb_request(db, "/vectors/fetch", query, NULL);
+  free(query);
+  if (!resp) return NULL;
+  JsonValue *vectors = vdb_field(resp, "vectors");
+  json_release(resp);
+  if (!vectors || vectors->tag != JSON_OBJECT) {
+    json_release(vectors);
+    vdb_set_error(db, "/vectors/fetch: response has no \"vectors\" object");
+    return NULL;
+  }
+  JsonValue *rec = json_get(vectors, id);
+  json_release(vectors);
+  return rec;
+}
+
+// db.list([limit[, token]]) -> json? : Pinecone GET /vectors/list
+// (serverless indexes). Returns the response as-is:
+// {vectors: [{id}], pagination: {next}} (pagination is absent on the last
+// page). limit LONG_MIN means "not given" (server default; codegen passes it
+// when the argument is omitted); token "" or NULL = first page.
+JsonValue *brix_vectordb_list(BrixVectorDB *db, long limit, BrixString *token) {
+  if (limit != LONG_MIN && limit < 1) {
+    vdb_set_error(db, "/vectors/list: limit must be >= 1, got %ld", limit);
+    return NULL;
+  }
+  char *query = NULL;
+  int ok = 1;
+  if (limit != LONG_MIN) {
+    char num[32];
+    snprintf(num, sizeof(num), "%ld", limit);
+    ok = vdb_add_param(db, &query, "limit", num);
+  }
+  if (ok && token && token->len > 0) {
+    ok = vdb_add_param(db, &query, "paginationToken", token->data);
+  }
+  if (ok && *db->ns) ok = vdb_add_param(db, &query, "namespace", db->ns);
+  if (!ok) {
+    free(query);
+    vdb_set_error(db, "/vectors/list: out of memory");
+    return NULL;
+  }
+  JsonValue *resp = vdb_request(db, "/vectors/list", query, NULL);
+  free(query);
+  return resp;
 }
 
 // db.last_error() -> string ("" when the last operation succeeded).
