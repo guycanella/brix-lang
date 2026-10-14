@@ -88,7 +88,7 @@ brix/
 │                            #   iterator.rs, match_compiler.rs, async_compiler.rs, closure_compiler.rs
 ├── tests/
 │   ├── integration/         # End-to-end .bx files (success/, parser_errors/, codegen_errors/, runtime_errors/, test_library_failures/)
-│   └── brix/                # Language test files (*.test.bx) — 34 files, 549 tests, all passing
+│   └── brix/                # Language test files (*.test.bx) — 34 files, 552 tests, all passing
 ├── benchmarks/              # Informative benchmarks (run.sh + .bx), not CI gates
 └── examples/                # Example .bx programs
 ```
@@ -164,7 +164,7 @@ Key rules:
 
 ### Test Library (`import test`)
 
-Jest-style framework. 17 matchers (all support `.not.` — `toEqual`, `toBeCloseTo`, the four comparisons, `toContain` and `toHaveLength` silently ignored it until the `fix/test-library-not-matchers` fix, asserting the positive form; their `test_expect_not_*` variants fail when the positive condition holds, so `not.toBeGreaterThan(NaN)` passes): `toBe`, `toEqual`, `toBeCloseTo`, `toBeTruthy`, `toBeFalsy`, `toBeGreaterThan`, `toBeLessThan`, `toBeGreaterThanOrEqual`, `toBeLessThanOrEqual`, `toContain`, `toHaveLength`, `toStartWith`, `toEndWith`, `toMatch` (glob, `*` only), `toHaveProperty` (resolved at compile time via `struct_defs` — the property-name argument must be a string literal in the AST, not a variable), `toBeNil`, `toThrow` (v1.7 Grupo H — `fork()` + `waitpid()` in `runtime.c`; only supports a synchronous, zero-parameter closure literal passed directly to `test.expect(...)`, not a variable holding a closure). Dispatch in `compile_test_matcher()` in `lib.rs`; C implementations in `runtime.c` `SECTION 8`.
+Jest-style framework. 17 matchers (all support `.not.` — `toEqual`, `toBeCloseTo`, the four comparisons, `toContain` and `toHaveLength` silently ignored it until the `fix/test-library-not-matchers` fix, asserting the positive form; their `test_expect_not_*` variants fail when the positive condition holds, so `not.toBeGreaterThan(NaN)` passes; `toEqual`/`toContain` on arrays scan all `rows * cols` elements — they used to stop after the first row of a 2D matrix): `toBe`, `toEqual`, `toBeCloseTo`, `toBeTruthy`, `toBeFalsy`, `toBeGreaterThan`, `toBeLessThan`, `toBeGreaterThanOrEqual`, `toBeLessThanOrEqual`, `toContain`, `toHaveLength`, `toStartWith`, `toEndWith`, `toMatch` (glob, `*` only), `toHaveProperty` (resolved at compile time via `struct_defs` — the property-name argument must be a string literal in the AST, not a variable), `toBeNil`, `toThrow` (v1.7 Grupo H — `fork()` + `waitpid()` in `runtime.c`; only supports a synchronous, zero-parameter closure literal passed directly to `test.expect(...)`, not a variable holding a closure). Dispatch in `compile_test_matcher()` in `lib.rs`; C implementations in `runtime.c` `SECTION 8`.
 
 **`.not.` parsing (bugfix, v1.7 Grupo G):** `not` lexes as the keyword `Token::Not` (used for the `not x` prefix operator), so the parser's field-access postfix rule — which only accepted `Token::Identifier(name)` after a `.` — could never parse `.not.` as a field. This meant `not.toBe`/etc. were documented as working since v1.5 but had never actually parsed. Fixed by accepting `Token::Not` as an alternative there, mapped to the literal field name `"not"` (parser.rs, postfix `Field` production).
 
@@ -206,7 +206,7 @@ Jest-style framework. 17 matchers (all support `.not.` — `toEqual`, `toBeClose
 
 **Test baseline at v1.9 completion:** 1,357 unit (317 lexer + 209 parser + 831 codegen) + 264 integration + 517 Test Library (31 `.test.bx` files).
 
-**Current test baseline (v2.1 Grupo A Fase 1 COMPLETE):** 1,443 unit (322 lexer + 228 parser + 893 codegen) + 285 integration + 549 Test Library (34 `.test.bx` files) = 2,277. All green.
+**Current test baseline (v2.1 Grupo A Fase 1 COMPLETE):** 1,443 unit (322 lexer + 228 parser + 893 codegen) + 285 integration + 552 Test Library (34 `.test.bx` files) = 2,280. All green.
 
 **Completed in v1.9 (Grupo F):**
 - **Grupo F — `brix repl` — COMPLETE, as a "replay REPL", not the roadmap's original incremental-JIT design:**
