@@ -911,6 +911,7 @@ impl<'a, 'ctx> StatementCompiler<'ctx> for Compiler<'a, 'ctx> {
             | BrixType::Json
             | BrixType::Embedding(_)
             | BrixType::EmbeddingBatch(_)
+            | BrixType::VectorDB
             | BrixType::Error => self.context.ptr_type(AddressSpace::default()).into(),
             BrixType::Complex => {
                 // Allocate space for complex struct { f64, f64 }

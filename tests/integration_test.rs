@@ -26,8 +26,14 @@ fn extract_program_output(stdout: &str) -> String {
 
 /// Run a .bx file and return (stdout, stderr, exit_code)
 fn run_brix_file(file_path: &str) -> (String, String, i32) {
+    run_brix_file_env(file_path, &[])
+}
+
+/// `run_brix_file` with extra environment variables for the compiled program.
+fn run_brix_file_env(file_path: &str, envs: &[(&str, &str)]) -> (String, String, i32) {
     let output = Command::new("cargo")
         .args(&["run", "--", file_path])
+        .envs(envs.iter().copied())
         .output()
         .expect("Failed to execute cargo run");
 
@@ -64,6 +70,63 @@ fn run_brix_repl(input: &str) -> (String, String, i32) {
         String::from_utf8_lossy(&output.stderr).to_string(),
         output.status.code().unwrap_or(-1),
     )
+}
+
+/// The mock Pinecone host (tests/integration/mock_pinecone.py), killed on drop.
+struct MockPinecone {
+    child: std::process::Child,
+    host: String,
+}
+
+impl MockPinecone {
+    fn start() -> Self {
+        let mut child = Command::new("python3")
+            .arg("tests/integration/mock_pinecone.py")
+            .stdout(Stdio::piped())
+            .spawn()
+            .expect("python3 is required for the vectordb tests");
+        let mut port = String::new();
+        std::io::BufRead::read_line(
+            &mut std::io::BufReader::new(child.stdout.take().unwrap()),
+            &mut port,
+        )
+        .expect("mock_pinecone.py must print its port");
+        let host = format!("http://127.0.0.1:{}", port.trim());
+        MockPinecone { child, host }
+    }
+
+    /// Run `file_path` with BRIX_TEST_PINECONE_HOST pointing at the mock and
+    /// assert it succeeds with exactly `expected_stdout`.
+    fn assert_success(&self, file_path: &str, expected_stdout: &str) {
+        let (stdout, stderr, exit_code) = run_brix_file_env(
+            file_path,
+            &[
+                ("BRIX_TEST_PINECONE_HOST", &self.host),
+                // Plain http to loopback must bypass any proxy: if it
+                // didn't, every request would fail against this one.
+                ("http_proxy", "http://127.0.0.1:9"),
+                ("HTTP_PROXY", "http://127.0.0.1:9"),
+            ],
+        );
+        assert_eq!(
+            exit_code, 0,
+            "\n❌ Expected success but got exit code {}\nStdout: {}\nStderr: {}",
+            exit_code, stdout, stderr
+        );
+        assert_eq!(
+            stdout.trim(),
+            expected_stdout.trim(),
+            "\n❌ Output mismatch for {}",
+            file_path
+        );
+    }
+}
+
+impl Drop for MockPinecone {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
 }
 
 /// Test helper: assert exit code and check for expected output
@@ -965,6 +1028,15 @@ fn test_codegen_non_exhaustive_primitive() {
         "tests/integration/codegen_errors/05_non_exhaustive_primitive.bx",
         102, // TypeError (match exhaustiveness)
         Some("non-exhaustive"),
+    );
+}
+
+#[test]
+fn test_codegen_vectordb_unknown_provider() {
+    assert_output(
+        "tests/integration/codegen_errors/08_vectordb_unknown_provider.bx",
+        104, // InvalidOperation
+        Some("unknown provider \"weaviate\""),
     );
 }
 
@@ -2533,5 +2605,55 @@ fn test_273_embedding_operators() {
     assert_success(
         "tests/integration/success/273_embedding_operators.bx",
         "0.6\n4.47214\n3\n1\n0.4\n6\n1\n-0.6\n0.36\n3\n5\n11",
+    );
+}
+
+#[test]
+fn test_274_vectordb_stats() {
+    // v2.1 Grupo A Fase 1: describe_index_stats through libcurl against the
+    // mock host, which also rejects requests missing the Pinecone headers.
+    MockPinecone::start().assert_success(
+        "tests/integration/success/274_vectordb_stats.bx",
+        "VectorDB\n3\n5\n2\n1\n1\n1",
+    );
+}
+
+#[test]
+fn test_275_vectordb_errors() {
+    // 401, a non-JSON 200 and a refused connection all return nil with a
+    // reason in last_error (the API key never appears in it); a later
+    // success leaves last_error empty.
+    MockPinecone::start().assert_success(
+        "tests/integration/success/275_vectordb_errors.bx",
+        "1\n/describe_index_stats: HTTP 401: {\"code\": 16, \"message\": \"Invalid API Key\"}\n1\n/describe_index_stats: response is not valid JSON\n1\n1\n1\n1",
+    );
+}
+
+#[test]
+fn test_276_vectordb_plain_http_rejected() {
+    // Plain http:// to a non-loopback host would send the API key in clear.
+    assert_output(
+        "tests/integration/success/276_vectordb_plain_http_rejected.bx",
+        1,
+        Some("plain http:// is only allowed for localhost"),
+    );
+}
+
+#[test]
+fn test_277_match_arm_ownership() {
+    // Used to double-release `x` (heap corruption, a crash on Linux).
+    assert_success(
+        "tests/integration/success/277_match_arm_ownership.bx",
+        "hello\nhello\nhello\nfirst\nsecond\nhello",
+    );
+}
+
+#[test]
+fn test_278_vectordb_userinfo_rejected() {
+    // Parsed with libcurl's URL parser, so the check sees the real host.
+    assert_output(
+        "tests/integration/success/278_vectordb_userinfo_rejected.bx",
+        1,
+        Some("host must not contain credentials"),
     );
 }

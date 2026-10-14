@@ -1,0 +1,28 @@
+// A match yields an owned value: a borrowed arm (`s -> s`, `_ -> x`) is
+// retained, so the result and the source variable are released once each.
+var x := "hello"
+var r := match x {
+    s -> s
+}
+println(r)
+println(match x {
+    s -> s
+})
+var y := match 2 {
+    1 -> "lit"
+    _ -> x
+}
+println(y)
+
+fn pick(flag: int) -> string {
+    var a := "first"
+    var b := "second"
+    var chosen := match flag {
+        1 -> a
+        _ -> b
+    }
+    return chosen
+}
+println(pick(1))
+println(pick(0))
+println(x)

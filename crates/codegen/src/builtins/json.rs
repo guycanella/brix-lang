@@ -752,7 +752,9 @@ impl<'a, 'ctx> JsonFunctions<'ctx> for Compiler<'a, 'ctx> {
 }
 
 impl<'a, 'ctx> Compiler<'a, 'ctx> {
-    fn wrap_ptr_in_json_union(
+    /// Wrap a nullable pointer as `Union(T, Nil)` (tag 0 = value, 1 = nil).
+    /// Used for any pointer-backed `T?` (`json?`, `string?`).
+    pub(crate) fn wrap_ptr_in_json_union(
         &self,
         ptr_val: PointerValue<'ctx>,
     ) -> CodegenResult<BasicValueEnum<'ctx>> {

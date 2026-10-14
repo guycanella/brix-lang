@@ -1,0 +1,6 @@
+// v2.1 Grupo A Fase 1: "localhost:1@host" is user "localhost" on `host` —
+// it must not pass the loopback-only rule for plain http://.
+import vectordb
+
+var db := vectordb.connect("pinecone", "http://localhost:1@my-index.example.com", "key")
+println("unreachable")

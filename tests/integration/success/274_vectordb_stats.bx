@@ -1,0 +1,33 @@
+// v2.1 Grupo A Fase 1: stats() against the mock Pinecone host
+// (tests/integration/mock_pinecone.py, started by the integration harness).
+import vectordb
+import json
+
+var host := env("BRIX_TEST_PINECONE_HOST") ?: "http://127.0.0.1:1"
+var db := vectordb.connect("pinecone", host, "test-key")
+println(typeof(db))
+
+var stats := db.stats()
+if stats != nil {
+    println(json.as_int(stats["dimension"]) ?: -1)
+    println(json.as_int(stats["totalVectorCount"]) ?: -1)
+    var ns := stats["namespaces"]
+    if ns != nil {
+        var prod := ns["prod"]
+        if prod != nil {
+            println(json.as_int(prod["vectorCount"]) ?: -1)
+        }
+    }
+} else {
+    println(db.last_error())
+}
+println(db.last_error() == "")
+
+// A copy shares the connection; the same handle serves a second request.
+var alias := db
+var again := alias.stats()
+println(again != nil)
+
+// Namespace argument and a trailing '/' on the host are accepted.
+var db_ns := vectordb.connect("pinecone", host + "/", "test-key", "prod")
+println(db_ns.stats() != nil)

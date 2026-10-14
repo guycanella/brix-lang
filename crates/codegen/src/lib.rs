@@ -669,6 +669,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             "complex" => BrixType::Complex,
             "datetime" | "DateTime" => BrixType::DateTime,
             "json" | "Json" => BrixType::Json,
+            "VectorDB" => BrixType::VectorDB,
             "nil" => BrixType::Nil,
             "error" => BrixType::Error,
             "atom" => BrixType::Atom,
@@ -761,8 +762,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 // Json is a pointer to the heap JsonValue struct.
                 self.context.ptr_type(AddressSpace::default()).into()
             }
-            BrixType::Embedding(_) | BrixType::EmbeddingBatch(_) => {
-                // Embedding<DIM>/EmbeddingBatch<DIM> point to their heap structs.
+            BrixType::Embedding(_) | BrixType::EmbeddingBatch(_) | BrixType::VectorDB => {
+                // Embedding<DIM>/EmbeddingBatch<DIM>/VectorDB point to their heap structs.
                 self.context.ptr_type(AddressSpace::default()).into()
             }
             BrixType::Void => self.context.i64_type().into(), // Placeholder (shouldn't be used)
@@ -858,6 +859,11 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         stmt: &Stmt, // Full statement for storing generics
         _parent_function: inkwell::values::FunctionValue<'ctx>,
     ) -> CodegenResult<()> {
+        // The block to resume in afterwards. Not the parent's *last* block: a
+        // match/if creates its merge block before its arm blocks, so the last
+        // block can be an already-terminated arm.
+        let saved_insert_block = self.builder.get_insert_block();
+
         // Handle generic functions - store for later monomorphization
         if !type_params.is_empty() {
             self.generic_functions
@@ -1028,8 +1034,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         self.function_scope_vars = saved_scope_vars;
         self.current_function = Some(_parent_function);
 
-        // 11. Position builder back at the end of parent function
-        if let Some(block) = _parent_function.get_last_basic_block() {
+        // 11. Position builder back where the definition appeared
+        if let Some(block) = saved_insert_block.or_else(|| _parent_function.get_last_basic_block())
+        {
             self.builder.position_at_end(block);
         }
 
@@ -1092,6 +1099,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         body: &Stmt,
         _parent_function: inkwell::values::FunctionValue<'ctx>,
     ) -> CodegenResult<()> {
+        // See compile_function_def: resume in the exact block, not the last one.
+        let saved_insert_block = self.builder.get_insert_block();
+
         // Check if receiver type is a generic struct
         if self.generic_structs.contains_key(receiver_type) {
             // Store method for later monomorphization
@@ -1291,8 +1301,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         self.function_scope_vars = saved_scope_vars;
         self.current_function = Some(_parent_function);
 
-        // 13. Position builder back
-        if let Some(block) = _parent_function.get_last_basic_block() {
+        // 13. Position builder back where the definition appeared
+        if let Some(block) = saved_insert_block.or_else(|| _parent_function.get_last_basic_block())
+        {
             self.builder.position_at_end(block);
         }
 
@@ -1395,6 +1406,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 | BrixType::Json
                 | BrixType::Embedding(_)
                 | BrixType::EmbeddingBatch(_)
+                | BrixType::VectorDB
         )
     }
 
@@ -1458,6 +1470,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             BrixType::Json => "json_retain",
             BrixType::Embedding(_) => "brix_embedding_retain",
             BrixType::EmbeddingBatch(_) => "brix_embedding_batch_retain",
+            BrixType::VectorDB => "brix_vectordb_retain",
             _ => unreachable!("is_ref_counted should have filtered this"),
         };
 
@@ -1520,6 +1533,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             BrixType::Json => "json_release",
             BrixType::Embedding(_) => "brix_embedding_release",
             BrixType::EmbeddingBatch(_) => "brix_embedding_batch_release",
+            BrixType::VectorDB => "brix_vectordb_release",
             _ => unreachable!("is_ref_counted should have filtered this"),
         };
 
@@ -4990,7 +5004,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         | BrixType::DateTime
                         | BrixType::Json
                         | BrixType::Embedding(_)
-                        | BrixType::EmbeddingBatch(_) => {
+                        | BrixType::EmbeddingBatch(_)
+                        | BrixType::VectorDB => {
                             // Vector<T>/Stack<T>/Queue<T>/MinHeap<T>/MaxHeap<T>/
                             // HashMap<K,V>/DateTime/Embedding<DIM>/EmbeddingBatch<DIM>
                             // are stored as an opaque heap-struct pointer.
@@ -6833,6 +6848,15 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             return Ok((res_val, res_type));
                         }
 
+                        // vectordb module (v2.1 Grupo A).
+                        let is_vectordb = self
+                            .imported_modules
+                            .iter()
+                            .any(|(m, p)| m == "vectordb" && p == _module_name);
+                        if is_vectordb {
+                            return self.compile_vectordb_call(fn_name, args, expr);
+                        }
+
                         // Check for brix_ prefixed functions (stats/linalg/utility wrappers)
                         let brix_fn_name = format!("brix_{}", fn_name);
                         let lookup_name = if self.module.get_function(&brix_fn_name).is_some() {
@@ -6841,7 +6865,15 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             fn_name
                         };
 
-                        if let Some(llvm_fn) = self.module.get_function(lookup_name) {
+                        // Only for a module receiver (`math.sin(x)`): on a
+                        // variable (`db.stats()`, `v.push(3)`) a same-named
+                        // top-level function must not hijack the method call.
+                        let receiver_is_variable = self.variables.contains_key(_module_name);
+                        if let Some(llvm_fn) = self
+                            .module
+                            .get_function(lookup_name)
+                            .filter(|_| !receiver_is_variable)
+                        {
                             // Compile arguments
                             let mut llvm_args = Vec::new();
                             for arg in args {
@@ -7002,6 +7034,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             field.as_str(),
                             "add" | "get" | "find_nearest" | "len" | "is_empty"
                         );
+                        // VectorDB methods (v2.1 Grupo A).
+                        let is_vectordb_method = matches!(field.as_str(), "stats" | "last_error");
                         // A receiver compiled by the guard below that matched no
                         // builtin dispatch is reused by the arbitrary-expression
                         // fall-through instead of being compiled (evaluated) twice.
@@ -7015,8 +7049,18 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             || is_hashmap_method
                             || is_embedding_method
                             || is_embedding_batch_method
+                            || is_vectordb_method
                         {
                             let (receiver_val, receiver_type) = self.compile_expr(target)?;
+                            if is_vectordb_method && receiver_type == BrixType::VectorDB {
+                                return self.compile_vectordb_method(
+                                    receiver_val,
+                                    field,
+                                    target,
+                                    args,
+                                    expr,
+                                );
+                            }
                             if is_embedding_batch_method {
                                 if let BrixType::EmbeddingBatch(dim) = &receiver_type {
                                     return self.compile_embedding_batch_method(
@@ -7476,6 +7520,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             BrixType::Json => "json".to_string(),
                             BrixType::Embedding(dim) => format!("Embedding<{}>", dim),
                             BrixType::EmbeddingBatch(dim) => format!("EmbeddingBatch<{}>", dim),
+                            BrixType::VectorDB => "VectorDB".to_string(),
                         };
 
                         return self.compile_expr(&Expr::dummy(ExprKind::Literal(
@@ -8925,6 +8970,11 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     if fn_name == "irand" {
                         let val = self.compile_irand(args)?;
                         return Ok((val, BrixType::IntMatrix));
+                    }
+                    // env(name) -> string? (v2.1 Grupo A). A user function
+                    // named `env` keeps priority.
+                    if fn_name == "env" && !self.functions.contains_key("env") {
+                        return self.compile_env(args, expr);
                     }
                     if fn_name == "panic" {
                         if args.len() != 1 {
@@ -10616,6 +10666,11 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     // Binding was already created above if needed
 
                     let (body_val, body_type) = self.compile_expr(&arm.body)?;
+                    // A match always yields an owned value (same contract as
+                    // the ternary): an arm that is a borrowed reference
+                    // (`s -> s`, `1 -> x`) is retained in its own block.
+                    // Without it, `var r := match x { s -> s }` released x twice.
+                    let body_val = self.own_if_borrowed(body_val, &body_type, &arm.body)?;
 
                     // Type checking: ensure all arms return compatible types
                     if let Some(ref expected_type) = result_type {
@@ -16813,8 +16868,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         Ok((result, BrixType::Matrix))
     }
 
-    /// Declare-if-missing and call an EmbeddingBatch runtime function.
-    fn call_embedding_batch_rt(
+    /// Declare-if-missing and call a runtime function.
+    fn call_runtime_fn(
         &self,
         name: &str,
         fn_type: inkwell::types::FunctionType<'ctx>,
@@ -16864,7 +16919,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         let ptr_type = self.context.ptr_type(AddressSpace::default());
         let i64_type = self.context.i64_type();
         let batch = self
-            .call_embedding_batch_rt(
+            .call_runtime_fn(
                 "brix_embedding_batch_new",
                 ptr_type.fn_type(&[i64_type.into(), i64_type.into()], false),
                 &[i64_type.const_int(dim as u64, false).into(), cap_val.into()],
@@ -16958,7 +17013,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 BrixType::Int,
             ),
         };
-        let result = self.call_embedding_batch_rt(rt_name, fn_type, &call_args, expr)?;
+        let result = self.call_runtime_fn(rt_name, fn_type, &call_args, expr)?;
 
         let result = match (method, result) {
             ("add", _) => i64_type.const_zero().into(),
@@ -17003,6 +17058,187 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         }
 
         Ok((result, result_type))
+    }
+
+    /// Compile `env(name)` -> `string?`: the environment variable's value, or
+    /// nil when it is not set.
+    fn compile_env(
+        &mut self,
+        args: &[Expr],
+        expr: &Expr,
+    ) -> CodegenResult<(BasicValueEnum<'ctx>, BrixType)> {
+        if args.len() != 1 {
+            return Err(CodegenError::InvalidOperation {
+                operation: "env()".to_string(),
+                reason: format!("expects exactly 1 argument (name), got {}", args.len()),
+                span: Some(expr.span.clone()),
+            });
+        }
+        let (name_val, name_type) = self.compile_expr(&args[0])?;
+        if name_type != BrixType::String {
+            return Err(CodegenError::TypeError {
+                expected: "string".to_string(),
+                found: crate::types::format_brix_type(&name_type),
+                context: "env() argument".to_string(),
+                span: Some(expr.span.clone()),
+            });
+        }
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let value = self
+            .call_runtime_fn(
+                "brix_env",
+                ptr_type.fn_type(&[ptr_type.into()], false),
+                &[name_val.into()],
+                expr,
+            )?
+            .ok_or_else(|| CodegenError::MissingValue {
+                what: "brix_env result".to_string(),
+                context: "env()".to_string(),
+                span: Some(expr.span.clone()),
+            })?;
+        if !self.is_borrowed_ref_expr(&args[0]) {
+            self.insert_release(name_val.into_pointer_value(), &BrixType::String)?;
+        }
+        let union_val = self.wrap_ptr_in_json_union(value.into_pointer_value())?;
+        Ok((
+            union_val,
+            BrixType::Union(vec![BrixType::String, BrixType::Nil]),
+        ))
+    }
+
+    /// Compile a `vectordb.*` module call. Only `connect` exists:
+    /// `vectordb.connect("pinecone", host, api_key[, namespace])` -> VectorDB.
+    /// The provider must be a string literal so an unsupported one is a
+    /// compile error; the config itself is validated at runtime (connect
+    /// aborts on an empty host/key or plain http:// to a non-loopback host).
+    fn compile_vectordb_call(
+        &mut self,
+        fn_name: &str,
+        args: &[Expr],
+        expr: &Expr,
+    ) -> CodegenResult<(BasicValueEnum<'ctx>, BrixType)> {
+        if fn_name != "connect" {
+            return Err(CodegenError::UndefinedSymbol {
+                name: format!("vectordb.{}", fn_name),
+                context: "vectordb module call".to_string(),
+                span: Some(expr.span.clone()),
+            });
+        }
+        if args.len() != 3 && args.len() != 4 {
+            return Err(CodegenError::InvalidOperation {
+                operation: "vectordb.connect".to_string(),
+                reason: format!(
+                    "expects (provider, host, api_key[, namespace]), got {} argument(s)",
+                    args.len()
+                ),
+                span: Some(expr.span.clone()),
+            });
+        }
+        match &args[0].kind {
+            ExprKind::Literal(Literal::String(p)) if p == "pinecone" => {}
+            ExprKind::Literal(Literal::String(p)) => {
+                return Err(CodegenError::InvalidOperation {
+                    operation: "vectordb.connect".to_string(),
+                    reason: format!("unknown provider \"{}\" (supported: \"pinecone\")", p),
+                    span: Some(args[0].span.clone()),
+                });
+            }
+            _ => {
+                return Err(CodegenError::InvalidOperation {
+                    operation: "vectordb.connect".to_string(),
+                    reason: "the provider must be a string literal".to_string(),
+                    span: Some(args[0].span.clone()),
+                });
+            }
+        }
+
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let names = ["host", "api_key", "namespace"];
+        let mut compiled = Vec::with_capacity(3);
+        for (arg, name) in args[1..].iter().zip(names) {
+            let (val, ty) = self.compile_expr(arg)?;
+            if ty != BrixType::String {
+                return Err(CodegenError::TypeError {
+                    expected: "string".to_string(),
+                    found: crate::types::format_brix_type(&ty),
+                    context: format!("vectordb.connect {}", name),
+                    span: Some(arg.span.clone()),
+                });
+            }
+            compiled.push(val);
+        }
+        let mut call_args: Vec<BasicMetadataValueEnum<'ctx>> =
+            compiled.iter().map(|v| (*v).into()).collect();
+        if call_args.len() == 2 {
+            call_args.push(ptr_type.const_null().into()); // default namespace
+        }
+        let db = self
+            .call_runtime_fn(
+                "brix_vectordb_connect",
+                ptr_type.fn_type(&[ptr_type.into(), ptr_type.into(), ptr_type.into()], false),
+                &call_args,
+                expr,
+            )?
+            .ok_or_else(|| CodegenError::MissingValue {
+                what: "brix_vectordb_connect result".to_string(),
+                context: "vectordb.connect".to_string(),
+                span: Some(expr.span.clone()),
+            })?;
+        for (arg, val) in args[1..].iter().zip(&compiled) {
+            if !self.is_borrowed_ref_expr(arg) {
+                self.insert_release(val.into_pointer_value(), &BrixType::String)?;
+            }
+        }
+        Ok((db, BrixType::VectorDB))
+    }
+
+    /// Compile a method on a `VectorDB`: `stats()` -> `json?` (nil on a
+    /// network/API error) and `last_error()` -> `string` ("" after a
+    /// successful operation). An owned temporary receiver is released after
+    /// the call.
+    fn compile_vectordb_method(
+        &mut self,
+        receiver_val: BasicValueEnum<'ctx>,
+        method: &str,
+        receiver_expr: &Expr,
+        args: &[Expr],
+        expr: &Expr,
+    ) -> CodegenResult<(BasicValueEnum<'ctx>, BrixType)> {
+        if !args.is_empty() {
+            return Err(CodegenError::InvalidOperation {
+                operation: format!("VectorDB.{}", method),
+                reason: format!("expects 0 arguments, got {}", args.len()),
+                span: Some(expr.span.clone()),
+            });
+        }
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let rt_name = match method {
+            "stats" => "brix_vectordb_stats",
+            _ => "brix_vectordb_last_error",
+        };
+        let raw = self
+            .call_runtime_fn(
+                rt_name,
+                ptr_type.fn_type(&[ptr_type.into()], false),
+                &[receiver_val.into()],
+                expr,
+            )?
+            .ok_or_else(|| CodegenError::MissingValue {
+                what: format!("{} result", rt_name),
+                context: format!("VectorDB.{}", method),
+                span: Some(expr.span.clone()),
+            })?;
+        let result = match method {
+            "stats" => (
+                self.wrap_ptr_in_json_union(raw.into_pointer_value())?,
+                BrixType::Union(vec![BrixType::Json, BrixType::Nil]),
+            ),
+            _ => (raw, BrixType::String),
+        };
+        if !self.is_borrowed_ref_expr(receiver_expr) {
+            self.insert_release(receiver_val.into_pointer_value(), &BrixType::VectorDB)?;
+        }
+        Ok(result)
     }
 
     /// Compile `HashMap<K,V>()` -> a fresh, empty BrixHashMap* (ref_count = 1).
@@ -18536,6 +18772,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     if let Some((_, ret)) = self.functions.get(name.as_str()) {
                         return ret.as_ref().and_then(|v| v.first()).cloned();
                     }
+                    if name == "env" {
+                        return Some(BrixType::Union(vec![BrixType::String, BrixType::Nil]));
+                    }
                 }
                 // Method calls: .split() on a String returns StringMatrix;
                 // v1.7 Group B array methods return based on the receiver's element type.
@@ -18602,6 +18841,15 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                     }
                                 }
                             }
+                        }
+
+                        if field == "connect"
+                            && self
+                                .imported_modules
+                                .iter()
+                                .any(|(m, p)| m == "vectordb" && p == module_name)
+                        {
+                            return Some(BrixType::VectorDB);
                         }
 
                         let is_json = self
@@ -18686,6 +18934,16 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                 "find_nearest" => return Some(BrixType::IntMatrix),
                                 "len" | "is_empty" => return Some(BrixType::Int),
                                 "add" => return Some(BrixType::Void),
+                                _ => {}
+                            },
+                            BrixType::VectorDB => match field.as_str() {
+                                "stats" => {
+                                    return Some(BrixType::Union(vec![
+                                        BrixType::Json,
+                                        BrixType::Nil,
+                                    ]));
+                                }
+                                "last_error" => return Some(BrixType::String),
                                 _ => {}
                             },
                             BrixType::HashMap(_, val) => match field.as_str() {

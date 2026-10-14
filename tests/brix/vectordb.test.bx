@@ -1,0 +1,35 @@
+import test
+import vectordb
+
+// Offline only: the request/response paths against a (mock) Pinecone host
+// are covered by integration tests 274-275.
+test.describe("env() (v2.1 Grupo A)", () -> {
+    test.it("returns the value of a set variable", () -> {
+        var path := env("PATH") ?: ""
+        test.expect(path.len > 0).toBeTruthy()
+    })
+
+    test.it("returns nil for an unset variable", () -> {
+        test.expect(env("BRIX_TEST_SURELY_UNSET_VAR_42")).toBeNil()
+    })
+})
+
+test.describe("VectorDB connection (v2.1 Grupo A Fase 1)", () -> {
+    test.it("connect returns a VectorDB without network I/O", () -> {
+        var db := vectordb.connect("pinecone", "my-index.svc.pinecone.io", "key", "prod")
+        test.expect(typeof(db)).toBe("VectorDB")
+        test.expect(db.last_error()).toBe("")
+    })
+
+    test.it("a refused connection returns nil and sets last_error", () -> {
+        var db := vectordb.connect("pinecone", "http://127.0.0.1:1", "key")
+        test.expect(db.stats()).toBeNil()
+        test.expect(db.last_error()).toStartWith("/describe_index_stats: ")
+    })
+
+    test.it("last_error never contains the API key", () -> {
+        var db := vectordb.connect("pinecone", "http://localhost:1", "sk-super-secret")
+        test.expect(db.stats()).toBeNil()
+        test.expect(db.last_error().contains("sk-super-secret")).toBeFalsy()
+    })
+})

@@ -3839,3 +3839,227 @@ fn test_embedding_operator_static_type_inference() {
         );
     }
 }
+
+// ---- v2.1 Grupo A Fase 1: env() + VectorDB ----
+
+const VDB_PRELUDE: &str = "import vectordb\n";
+
+fn vdb_error(src: &str) -> crate::error::CodegenError {
+    error_from_source(&format!("{}{}", VDB_PRELUDE, src))
+}
+
+#[test]
+fn test_vectordb_connect_and_release() {
+    let ir = ir_from_source(&format!(
+        "{}var db := vectordb.connect(\"pinecone\", \"h.io\", \"k\")\nvar s := db.stats()\nvar e := db.last_error()\n",
+        VDB_PRELUDE
+    ));
+    // 3 arguments: the namespace defaults to NULL.
+    assert!(ir.contains("call ptr @brix_vectordb_connect(ptr"), "{}", ir);
+    assert!(ir.contains(", ptr null)"), "{}", ir);
+    assert!(ir.contains("call ptr @brix_vectordb_stats("), "{}", ir);
+    assert!(ir.contains("call ptr @brix_vectordb_last_error("), "{}", ir);
+    assert!(ir.contains("call void @brix_vectordb_release("), "{}", ir);
+}
+
+#[test]
+fn test_vectordb_temporary_receiver_is_released() {
+    let ir = ir_from_source(&format!(
+        "{}var s := vectordb.connect(\"pinecone\", \"h.io\", \"k\").stats()\n",
+        VDB_PRELUDE
+    ));
+    assert_eq!(
+        ir.matches("call void @brix_vectordb_release(").count(),
+        1,
+        "{}",
+        ir
+    );
+}
+
+#[test]
+fn test_vectordb_copy_retains() {
+    let ir = ir_from_source(&format!(
+        "{}var db := vectordb.connect(\"pinecone\", \"h.io\", \"k\")\nvar alias := db\n",
+        VDB_PRELUDE
+    ));
+    assert!(ir.contains("@brix_vectordb_retain("), "{}", ir);
+    // Both variables are released at scope end.
+    assert!(
+        ir.contains("@brix_vectordb_release(ptr %db_release_load)"),
+        "{}",
+        ir
+    );
+    assert!(
+        ir.contains("@brix_vectordb_release(ptr %alias_release_load)"),
+        "{}",
+        ir
+    );
+}
+
+#[test]
+fn test_vectordb_provider_errors() {
+    for src in [
+        "var db := vectordb.connect(\"weaviate\", \"h\", \"k\")\n",
+        "var p := \"pinecone\"\nvar db := vectordb.connect(p, \"h\", \"k\")\n",
+        "var db := vectordb.connect(\"pinecone\", \"h\")\n",
+        "var db := vectordb.connect(\"pinecone\", \"h\", \"k\", \"ns\", \"x\")\n",
+    ] {
+        assert!(
+            matches!(
+                vdb_error(src),
+                crate::error::CodegenError::InvalidOperation { .. }
+            ),
+            "{}",
+            src
+        );
+    }
+}
+
+#[test]
+fn test_vectordb_connect_non_string_config_is_type_error() {
+    for src in [
+        "var db := vectordb.connect(\"pinecone\", 1, \"k\")\n",
+        "var db := vectordb.connect(\"pinecone\", \"h\", \"k\", 2)\n",
+    ] {
+        assert!(
+            matches!(vdb_error(src), crate::error::CodegenError::TypeError { .. }),
+            "{}",
+            src
+        );
+    }
+}
+
+#[test]
+fn test_vectordb_method_arity_and_unknown_function() {
+    let err =
+        vdb_error("var db := vectordb.connect(\"pinecone\", \"h\", \"k\")\nvar s := db.stats(1)\n");
+    assert!(
+        matches!(err, crate::error::CodegenError::InvalidOperation { .. }),
+        "{:?}",
+        err
+    );
+    let err = vdb_error("var db := vectordb.open(\"pinecone\")\n");
+    assert!(
+        matches!(err, crate::error::CodegenError::UndefinedSymbol { .. }),
+        "{:?}",
+        err
+    );
+}
+
+#[test]
+fn test_struct_method_named_stats_still_dispatches_to_struct() {
+    let ir = ir_from_source(
+        "struct C { n: int }\nfn (c: C) stats() -> int { return c.n }\nvar c := C { n: 3 }\nvar r := c.stats()\n",
+    );
+    assert!(!ir.contains("brix_vectordb_stats"), "{}", ir);
+}
+
+#[test]
+fn test_env_returns_optional_string_and_releases_temp_name() {
+    let ir = ir_from_source("var v := env(\"A\" + \"B\")\n");
+    assert!(ir.contains("call ptr @brix_env("), "{}", ir);
+    let err = error_from_source("var v := env(1)\n");
+    assert!(
+        matches!(err, crate::error::CodegenError::TypeError { .. }),
+        "{:?}",
+        err
+    );
+    let err = error_from_source("var v := env()\n");
+    assert!(
+        matches!(err, crate::error::CodegenError::InvalidOperation { .. }),
+        "{:?}",
+        err
+    );
+}
+
+#[test]
+fn test_user_function_named_env_keeps_priority() {
+    let ir = ir_from_source("fn env(x: int) -> int { return x + 1 }\nvar v := env(1)\n");
+    assert!(!ir.contains("@brix_env("), "{}", ir);
+}
+
+#[test]
+fn test_vectordb_static_type_inference() {
+    let history = "import vectordb\nvar db := vectordb.connect(\"pinecone\", \"h\", \"k\")\n";
+    use crate::types::BrixType;
+    for (expr, ty) in [
+        ("db", BrixType::VectorDB),
+        (
+            "db.stats()",
+            BrixType::Union(vec![BrixType::Json, BrixType::Nil]),
+        ),
+        ("db.last_error()", BrixType::String),
+        (
+            "vectordb.connect(\"pinecone\", \"h\", \"k\")",
+            BrixType::VectorDB,
+        ),
+        (
+            "env(\"HOME\")",
+            BrixType::Union(vec![BrixType::String, BrixType::Nil]),
+        ),
+    ] {
+        assert_eq!(
+            crate::infer_type_of_expr_in_context(history, expr),
+            Ok(ty),
+            "{}",
+            expr
+        );
+    }
+}
+
+#[test]
+fn test_match_arm_borrowed_value_is_retained() {
+    // `match` yields an owned value: an identifier arm must be retained, or
+    // `var r := match x { s -> s }` releases x twice (heap corruption that
+    // only crashed on Linux).
+    for src in [
+        "var x := \"hello\"\nvar r := match x {\n    s -> s\n}\n",
+        "var x := \"hello\"\nvar r := match 1 {\n    1 -> x\n    _ -> \"lit\"\n}\n",
+    ] {
+        let ir = ir_from_source(src);
+        assert!(
+            ir.contains("call ptr @string_retain("),
+            "{}\nIR:\n{}",
+            src,
+            ir
+        );
+    }
+    // A literal arm is already owned: no retain.
+    let ir = ir_from_source("var r := match 1 {\n    1 -> \"a\"\n    _ -> \"b\"\n}\n");
+    assert!(!ir.contains("@string_retain("), "{}", ir);
+}
+
+#[test]
+fn test_definition_after_match_resumes_in_merge_block() {
+    // A match/ternary appends its merge block before its arm blocks, so after
+    // compiling a nested definition the builder must resume in the block it
+    // left, not the parent's last (already terminated) block. Used to produce
+    // "Basic Block in function 'main' does not have terminator" and an LLVM
+    // segfault at object emission. ir_from_source verifies the module.
+    let prelude = "var x := \"hello\"\nvar r := match x {\n    s -> s\n}\n";
+    for def in [
+        "fn pick(flag: int) -> string {\n    return \"a\"\n}\nprintln(pick(1))\n",
+        "struct P { n: int }\nfn (p: P) get() -> int { return p.n }\nprintln(P { n: 2 }.get())\n",
+        "var g := (n: int) -> int { return n + 1 }\nprintln(g(1))\n",
+        "async fn af() -> int {\n    return 1\n}\nprintln(r)\n",
+    ] {
+        let ir = ir_from_source(&format!("{}{}println(r)\n", prelude, def));
+        assert!(ir.contains("define i64 @main()"), "{}", def);
+    }
+}
+
+#[test]
+fn test_top_level_function_does_not_hijack_method_on_variable() {
+    // `X.f()` used to call a top-level `fn f` whenever one existed, even when
+    // X is a variable: `db.stats()` with a user `fn stats` panicked in
+    // codegen, `v.push(3)` silently called the user's `push`.
+    let ir = ir_from_source(&format!(
+        "{}fn stats() -> int {{ return 42 }}\nvar db := vectordb.connect(\"pinecone\", \"h\", \"k\")\nvar s := db.stats()\n",
+        VDB_PRELUDE
+    ));
+    assert!(ir.contains("call ptr @brix_vectordb_stats("), "{}", ir);
+    let ir =
+        ir_from_source("fn push(x: int) -> int { return x }\nvar v := Vector<int>()\nv.push(3)\n");
+    assert!(ir.contains("@brix_vector_push("), "{}", ir);
+    assert!(!ir.contains("call i64 @push("), "{}", ir);
+}
