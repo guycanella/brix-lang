@@ -67,7 +67,7 @@ The driver (`src/main.rs`, ~509 lines; REPL in `src/repl.rs`) orchestrates all s
 ```
 brix/
 ├── src/main.rs              # CLI + compilation pipeline driver
-├── runtime.c                # C runtime (~6,448 lines) — must be in project root
+├── runtime.c                # C runtime (~6,573 lines) — must be in project root
 ├── crates/
 │   ├── lexer/src/token.rs   # Token enum (logos)
 │   ├── parser/src/
