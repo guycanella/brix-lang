@@ -1,0 +1,109 @@
+// v2.1 Grupo A Fase 3: db.upsert_batch, split into requests that respect the
+// mock's Pinecone limits (1000 records, 2 MB per request).
+import vectordb
+import json
+
+var host := env("BRIX_TEST_PINECONE_HOST") ?: "http://127.0.0.1:1"
+var db := vectordb.connect("pinecone", host, "test-key", "docs")
+
+fn count(db: VectorDB) -> int {
+    var st := db.stats() ?: json.object()
+    var nss := st["namespaces"]
+    var docs := nss["docs"]
+    return json.as_int(docs["vectorCount"]) ?: 0
+}
+
+// 2500 records: 3 requests by count.
+var ids := Vector<string>()
+var vecs := EmbeddingBatch<3>(0)
+var i := 0
+while i < 2500 {
+    ids.push(f"b{i}")
+    vecs.add(Embedding<3>([1.0, 1.0, 0.0]))
+    i := i + 1
+}
+println(db.upsert_batch(ids, vecs))
+println(count(db))
+
+// 100 records with ~30 KB of metadata each (~3 MB): split by size.
+var big := Vector<string>()
+var bigv := EmbeddingBatch<3>(0)
+var metas := json.array()
+var pad := "x".repeat(30000)
+i := 0
+while i < 100 {
+    big.push(f"m{i}")
+    bigv.add(Embedding<3>([0.0, 0.0, 1.0]))
+    var m := json.object()
+    json.set(m, "pad", json.string(pad))
+    json.array_push(metas, m)
+    i := i + 1
+}
+println(db.upsert_batch(big, bigv, metas))
+println(count(db))
+
+// Metadata entries may be null; they are read back per record.
+var two := Vector<string>()
+two.push("t1")
+two.push("t2")
+var twov := EmbeddingBatch<3>(2)
+twov.add(Embedding<3>([1.0, 0.0, 0.0]))
+twov.add(Embedding<3>([0.0, 1.0, 0.0]))
+println(db.upsert_batch(two, twov, json.parse("[{\"k\": 1}, null]")))
+println(json.stringify(db.fetch("t1")))
+println(json.stringify(db.fetch("t2")))
+
+// A failure in the second request: the first 1000 stay written.
+var part := Vector<string>()
+var partv := EmbeddingBatch<3>(0)
+i := 0
+while i < 1500 {
+    if i == 1200 {
+        part.push("reject-me")
+    } else {
+        part.push(f"p{i}")
+    }
+    partv.add(Embedding<3>([1.0, 0.0, 1.0]))
+    i := i + 1
+}
+println(db.upsert_batch(part, partv))
+println(db.last_error())
+println(count(db))
+
+// Every record is checked before the first request: nothing is written.
+var nan := EmbeddingBatch<3>(2)
+nan.add(Embedding<3>([1.0, 0.0, 0.0]))
+nan.add(Embedding<3>([0.0 / 0.0, 0.0, 0.0]))
+println(db.upsert_batch(two, nan))
+println(db.last_error())
+println(count(db))
+
+// A record over the 2 MB request limit stops the batch at that record.
+var three := Vector<string>()
+three.push("o1")
+three.push("o2")
+three.push("o3")
+var threev := EmbeddingBatch<3>(3)
+threev.add(Embedding<3>([1.0, 0.0, 0.0]))
+threev.add(Embedding<3>([0.0, 1.0, 0.0]))
+threev.add(Embedding<3>([0.0, 0.0, 1.0]))
+var huge := json.object()
+json.set(huge, "pad", json.string("x".repeat(2100000)))
+var m3 := json.array()
+json.array_push(m3, json.null())
+json.array_push(m3, huge)
+json.array_push(m3, json.null())
+println(db.upsert_batch(three, threev, m3))
+println(db.last_error())
+println(db.fetch("o1") != nil)
+println(db.fetch("o3") == nil)
+
+// json.null() as the whole metadata argument means none.
+println(db.upsert_batch(two, twov, json.null()))
+
+// Local errors, no request.
+println(db.upsert_batch(two, vecs))
+println(db.last_error())
+println(db.upsert_batch(two, twov, json.parse("[{}]")))
+println(db.last_error())
+println(db.upsert_batch(Vector<string>(), EmbeddingBatch<3>(0)))

@@ -4,9 +4,12 @@
 Listens on 127.0.0.1 on a free port and prints the port on the first line of
 stdout. Every request must carry the headers the Brix runtime sends (Api-Key,
 X-Pinecone-API-Version; POSTs also a JSON content type and a JSON body), or it
-gets a 400 naming what is missing. Endpoints: POST /describe_index_stats,
-POST /query (cosine, equality filters), GET /vectors/fetch, GET /vectors/list
-(paginated). API keys:
+gets a 400 naming what is missing. Endpoints: POST /describe_index_stats
+(computed from the stored vectors), POST /query (cosine, equality filters),
+GET /vectors/fetch, GET /vectors/list (paginated), POST /vectors/upsert and
+POST /vectors/delete, with Pinecone's limits (1000 records and 2 MB per
+request). State lives in this process, so each test gets a fresh index.
+API keys:
   test-key      -> normal responses
   bad-json-key  -> 200 with a body that is not JSON
   anything else -> 401, like Pinecone
@@ -19,14 +22,11 @@ from urllib.parse import parse_qs, urlsplit
 
 VALID_KEYS = {"test-key", "bad-json-key"}
 
-STATS = {
-    "namespaces": {"": {"vectorCount": 3}, "prod": {"vectorCount": 2}},
-    "dimension": 3,
-    "indexFullness": 0.0,
-    "totalVectorCount": 5,
-}
+DIMENSION = 3
+MAX_BATCH = 1000
+MAX_BODY = 2 * 1000 * 1000
 
-# namespace -> id -> (values, metadata); dimension 3, matching STATS.
+# namespace -> id -> (values, metadata), all of DIMENSION values.
 VECTORS = {
     "": {
         "a": ([1.0, 0.0, 0.0], {"genre": "news", "year": 2024}),
@@ -38,6 +38,16 @@ VECTORS = {
         "x&y z": ([1.0, 1.0, 0.0], {"env": "prod"}),
     },
 }
+
+
+def stats():
+    namespaces = {ns: {"vectorCount": len(r)} for ns, r in VECTORS.items() if r}
+    return {
+        "namespaces": namespaces,
+        "dimension": DIMENSION,
+        "indexFullness": 0.0,
+        "totalVectorCount": sum(len(r) for r in VECTORS.values()),
+    }
 
 
 def cosine(u, v):
@@ -81,6 +91,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         length = int(self.headers.get("Content-Length", 0))
         raw = self.rfile.read(length)
+        if length > MAX_BODY:
+            return self.reply(413, {"message": f"request of {length} bytes exceeds {MAX_BODY}"})
         key = self.authorized()
         if key is None:
             return
@@ -93,20 +105,54 @@ class Handler(BaseHTTPRequestHandler):
         if key == "bad-json-key":
             return self.reply(200, b"<html>not json</html>")
         if self.path == "/describe_index_stats":
-            return self.reply(200, STATS)
+            return self.reply(200, stats())
         if self.path == "/query":
             return self.query(body)
+        if self.path == "/vectors/upsert":
+            return self.upsert(body)
+        if self.path == "/vectors/delete":
+            return self.delete(body)
         return self.reply(404, {"message": "Not Found"})
+
+    def upsert(self, body):
+        vectors = body.get("vectors")
+        if not isinstance(vectors, list) or not 1 <= len(vectors) <= MAX_BATCH:
+            return self.reply(400, {"message": f"vectors must hold 1 to {MAX_BATCH} records"})
+        for v in vectors:
+            values = v.get("values")
+            if not isinstance(v.get("id"), str) or not v["id"]:
+                return self.reply(400, {"message": "every record needs a non-empty id"})
+            if v["id"] == "reject-me":  # test hook: fail one chunk of a batch
+                return self.reply(400, {"message": "rejected"})
+            if not isinstance(values, list) or len(values) != DIMENSION:
+                n = len(values) if isinstance(values, list) else 0
+                return self.reply(400, {"message": f"Vector dimension {n} does not match "
+                                                   f"the dimension of the index {DIMENSION}"})
+            if not isinstance(v.get("metadata", {}), dict):
+                return self.reply(400, {"message": "metadata must be an object"})
+        records = VECTORS.setdefault(body.get("namespace", ""), {})
+        for v in vectors:
+            records[v["id"]] = (v["values"], v.get("metadata", {}))
+        return self.reply(200, {"upsertedCount": len(vectors)})
+
+    def delete(self, body):
+        ids = body.get("ids")
+        if not isinstance(ids, list) or not 1 <= len(ids) <= MAX_BATCH:
+            return self.reply(400, {"message": f"ids must hold 1 to {MAX_BATCH} ids"})
+        records = VECTORS.get(body.get("namespace", ""), {})
+        for i in ids:
+            records.pop(i, None)
+        return self.reply(200, {})
 
     def query(self, body):
         vec = body.get("vector")
         top_k = body.get("topK")
         if not isinstance(top_k, int) or top_k < 1:
             return self.reply(400, {"message": "topK must be a positive integer"})
-        if not isinstance(vec, list) or len(vec) != STATS["dimension"]:
+        if not isinstance(vec, list) or len(vec) != DIMENSION:
             n = len(vec) if isinstance(vec, list) else 0
             return self.reply(400, {"message": f"Vector dimension {n} does not match "
-                                               f"the dimension of the index {STATS['dimension']}"})
+                                               f"the dimension of the index {DIMENSION}"})
         flt = body.get("filter") or {}
         records = VECTORS.get(body.get("namespace", ""), {})
         hits = [

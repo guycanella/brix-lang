@@ -1,0 +1,39 @@
+// v2.1 Grupo A Fase 3: db.upsert (POST /vectors/upsert) against the mock.
+import vectordb
+import json
+
+var host := env("BRIX_TEST_PINECONE_HOST") ?: "http://127.0.0.1:1"
+var db := vectordb.connect("pinecone", host, "test-key", "docs")
+
+// With metadata (json? from json.parse), then read back.
+println(db.upsert("d1", Embedding<3>([1.0, 0.0, 0.0]), json.parse("{\"title\": \"One\"}")))
+println(db.last_error() == "")
+println(json.stringify(db.fetch("d1")))
+
+// Without metadata, from variables (borrowed: still usable afterwards).
+var id := "d2"
+var e := Embedding<3>([0.0, 1.0, 0.0])
+println(db.upsert(id, e))
+println(id + " " + json.stringify(db.fetch(id)))
+println(e.to_matrix()[1])
+
+// Upsert overwrites; a nil json? metadata means none.
+println(db.upsert("d1", Embedding<3>([0.0, 0.0, 1.0]), json.parse("bad")))
+println(json.stringify(db.fetch("d1")))
+println(json.stringify(db.list()))
+
+// The new vectors are searchable.
+var hits := db.query(Embedding<3>([0.0, 1.0, 0.0]), 1) ?: json.array()
+var top := hits[0]
+println(json.as_string(top["id"]) ?: "?")
+
+// Failures: 0 and a reason.
+println(db.upsert("bad", Embedding<2>([1.0, 0.0])))
+println(db.last_error())
+println(db.upsert("nan", Embedding<3>([0.0 / 0.0, 0.0, 0.0])))
+println(db.last_error())
+println(db.upsert("m", Embedding<3>([1.0, 0.0, 0.0]), json.parse("[1]")))
+println(db.last_error())
+var bad := vectordb.connect("pinecone", host, "wrong-key")
+println(bad.upsert("d3", e))
+println(bad.last_error())

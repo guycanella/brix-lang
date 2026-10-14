@@ -7042,7 +7042,15 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         // VectorDB methods (v2.1 Grupo A).
                         let is_vectordb_method = matches!(
                             field.as_str(),
-                            "stats" | "last_error" | "query" | "fetch" | "list"
+                            "stats"
+                                | "last_error"
+                                | "query"
+                                | "fetch"
+                                | "list"
+                                | "upsert"
+                                | "upsert_batch"
+                                | "delete"
+                                | "delete_batch"
                         );
                         // A receiver compiled by the guard below that matched no
                         // builtin dispatch is reused by the arbitrary-expression
@@ -17208,6 +17216,11 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     /// `stats()`, `query(embedding, top_k[, filter])` (the matches array),
     /// `fetch(id)` (the record; nil with `last_error() == ""` when the id does
     /// not exist) and `list([limit[, pagination_token]])` (the raw page).
+    /// Writes return `int` (1 = success, 0 = failure, reason in
+    /// `last_error()`): `upsert(id, embedding[, metadata])`,
+    /// `upsert_batch(ids, embeddings[, metadata])` (a `Vector<string>`, an
+    /// `EmbeddingBatch<DIM>` and a JSON array), `delete(id)` and
+    /// `delete_batch(ids)`.
     /// `last_error()` -> `string` ("" after a successful operation). Owned
     /// temporary receivers and arguments are released after the call.
     fn compile_vectordb_method(
@@ -17222,8 +17235,17 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             "query" => (2, 3, "(embedding, top_k[, filter])"),
             "fetch" => (1, 1, "(id)"),
             "list" => (0, 2, "([limit[, pagination_token]])"),
+            "upsert" => (2, 3, "(id, embedding[, metadata])"),
+            "upsert_batch" => (2, 3, "(ids, embeddings[, metadata])"),
+            "delete" => (1, 1, "(id)"),
+            "delete_batch" => (1, 1, "(ids)"),
             _ => (0, 0, "()"),
         };
+        // Writes return int (1 = success, 0 = failure); reads return json?.
+        let is_write = matches!(
+            method,
+            "upsert" | "upsert_batch" | "delete" | "delete_batch"
+        );
         if args.len() < min || args.len() > max {
             return Err(CodegenError::InvalidOperation {
                 operation: format!("VectorDB.{}", method),
@@ -17247,9 +17269,11 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         for (i, arg) in args.iter().enumerate() {
             let (val, ty) = self.compile_expr(arg)?;
             let expected = match (method, i) {
-                ("query", 0) => "Embedding<DIM>",
+                ("query", 0) | ("upsert", 1) => "Embedding<DIM>",
                 ("query", 1) | ("list", 0) => "int",
-                ("query", 2) => "json or json?",
+                ("query", 2) | ("upsert", 2) | ("upsert_batch", 2) => "json or json?",
+                ("upsert_batch", 0) | ("delete_batch", 0) => "Vector<string>",
+                ("upsert_batch", 1) => "EmbeddingBatch<DIM>",
                 _ => "string",
             };
             let type_error = || CodegenError::TypeError {
@@ -17260,6 +17284,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             };
             let arg_val: BasicValueEnum<'ctx> = match expected {
                 "Embedding<DIM>" if matches!(ty, BrixType::Embedding(_)) => val,
+                "EmbeddingBatch<DIM>" if matches!(ty, BrixType::EmbeddingBatch(_)) => val,
+                "Vector<string>" if ty == BrixType::Vector(Box::new(BrixType::String)) => val,
                 "int" if ty == BrixType::Int => val,
                 "string" if ty == BrixType::String => val,
                 "json or json?" => match &ty {
@@ -17322,9 +17348,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             call_args.push(arg_val.into());
         }
         match (method, args.len()) {
-            ("query", 2) => {
+            ("query", 2) | ("upsert", 2) | ("upsert_batch", 2) => {
                 param_types.push(ptr_type.into());
-                call_args.push(ptr_type.const_null().into()); // no filter
+                call_args.push(ptr_type.const_null().into()); // no filter / metadata
             }
             ("list", n) => {
                 if n == 0 {
@@ -17341,13 +17367,13 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         }
 
         let rt_name = format!("brix_vectordb_{}", method);
+        let fn_type = if is_write {
+            i64_type.fn_type(&param_types, false)
+        } else {
+            ptr_type.fn_type(&param_types, false)
+        };
         let raw = self
-            .call_runtime_fn(
-                &rt_name,
-                ptr_type.fn_type(&param_types, false),
-                &call_args,
-                expr,
-            )?
+            .call_runtime_fn(&rt_name, fn_type, &call_args, expr)?
             .ok_or_else(|| CodegenError::MissingValue {
                 what: format!("{} result", rt_name),
                 context: format!("VectorDB.{}", method),
@@ -17355,6 +17381,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             })?;
         let result = if method == "last_error" {
             (raw, BrixType::String)
+        } else if is_write {
+            (raw, BrixType::Int)
         } else {
             (
                 self.wrap_ptr_in_json_union(raw.into_pointer_value())?,
@@ -19073,6 +19101,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                     ]));
                                 }
                                 "last_error" => return Some(BrixType::String),
+                                "upsert" | "upsert_batch" | "delete" | "delete_batch" => {
+                                    return Some(BrixType::Int);
+                                }
                                 _ => {}
                             },
                             BrixType::HashMap(_, val) => match field.as_str() {

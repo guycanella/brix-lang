@@ -4593,15 +4593,15 @@ IntMatrix *brix_embedding_batch_find_nearest(BrixEmbeddingBatch *b, BrixEmbeddin
 }
 
 // ==========================================
-// SECTION 2.12: VECTORDB (v2.1 Grupo A Fases 1-2)
+// SECTION 2.12: VECTORDB (v2.1 Grupo A Fases 1-3)
 // ==========================================
 //
 // A BrixVectorDB is one connection to one Pinecone index (its data-plane
 // host). connect() validates the config locally and does no network I/O.
 // Each operation is one HTTPS request through the connection's own CURL easy
 // handle; reusing it lets libcurl keep the TCP/TLS connection alive between
-// calls. Network and API failures never abort: the operation returns NULL
-// (nil in Brix) and the reason is kept in last_error. Invalid config
+// calls. Network and API failures never abort: a read returns NULL (nil in
+// Brix), a write returns 0, and the reason is kept in last_error. Invalid config
 // (empty host/key, plain http:// to a non-loopback host, control characters)
 // aborts in connect(). The API key is only ever sent in the Api-Key header;
 // it is never part of last_error or any message.
@@ -5023,6 +5023,298 @@ JsonValue *brix_vectordb_list(BrixVectorDB *db, long limit, BrixString *token) {
   JsonValue *resp = vdb_request(db, "/vectors/list", query, NULL);
   free(query);
   return resp;
+}
+
+// ---- Fase 3: writes. Every write returns 1 on success, 0 on failure (the
+// reason in last_error). Batches are validated up front, then serialized and
+// sent one request at a time, within Pinecone's request limits; a failed
+// request stops the batch and last_error says how many records were already
+// written (earlier requests are not rolled back; a timed-out request may
+// still have been applied, so the count is a lower bound). Upsert and delete
+// are idempotent, so retrying the whole batch is safe.
+
+#define BRIX_VDB_MAX_BATCH 1000
+#define BRIX_VDB_MAX_BODY (2L * 1000 * 1000) // Pinecone: 2 MB per request
+
+// Error about record `idx` of a batch (idx < 0: a single-record call).
+static void vdb_record_error(BrixVectorDB *db, const char *path, long idx,
+                             const char *msg) {
+  if (idx < 0) {
+    vdb_set_error(db, "%s: %s", path, msg);
+  } else {
+    vdb_set_error(db, "%s: record %ld: %s", path, idx, msg);
+  }
+}
+
+static JsonValue *vdb_embedding_json(BrixEmbedding *e) {
+  JsonValue *vec = json_array();
+  for (long i = 0; i < e->dim; i++) {
+    JsonValue *x = json_float(e->data[i]);
+    json_array_push(vec, x);
+    json_release(x);
+  }
+  return vec;
+}
+
+// 1 when `id` is a non-empty string (Pinecone ids are 1-512 characters).
+static int vdb_check_id(BrixVectorDB *db, const char *path, long idx,
+                        BrixString *id) {
+  if (!id || id->len == 0) {
+    vdb_record_error(db, path, idx, "id must be a non-empty string");
+    return 0;
+  }
+  return 1;
+}
+
+// 1 when record `idx` can be sent: a non-empty id, finite values (JSON
+// cannot carry NaN or Inf) and metadata that is NULL, JSON null or an object.
+static int vdb_check_record(BrixVectorDB *db, long idx, BrixString *id,
+                            BrixEmbedding *e, JsonValue *metadata) {
+  if (!vdb_check_id(db, "/vectors/upsert", idx, id)) return 0;
+  for (long i = 0; i < e->dim; i++) {
+    if (!isfinite(e->data[i])) {
+      vdb_record_error(db, "/vectors/upsert", idx, "vector contains NaN or Inf");
+      return 0;
+    }
+  }
+  if (metadata && metadata->tag != JSON_NULL && metadata->tag != JSON_OBJECT) {
+    vdb_record_error(db, "/vectors/upsert", idx, "metadata must be a JSON object");
+    return 0;
+  }
+  return 1;
+}
+
+// Produces item `i` of a chunked request as JSON text (owned), or NULL with
+// last_error set.
+typedef BrixString *(*VdbItemFn)(BrixVectorDB *db, void *ctx, long i);
+
+// Grow *buf to hold `need` bytes. 0 on out of memory.
+static int vdb_reserve(char **buf, size_t *cap, size_t need) {
+  if (need <= *cap) return 1;
+  size_t c = *cap ? *cap : 4096;
+  while (c < need) c *= 2;
+  char *p = realloc(*buf, c);
+  if (!p) return 0;
+  *buf = p;
+  *cap = c;
+  return 1;
+}
+
+// POST `prefix` + items 0..n-1 joined by ',' + `suffix` to `path`, split
+// into requests of at most BRIX_VDB_MAX_BATCH items and BRIX_VDB_MAX_BODY
+// bytes. Items are produced lazily, so only one request body is in memory.
+static int vdb_post_chunked(BrixVectorDB *db, const char *path,
+                            const char *prefix, const char *suffix, long n,
+                            VdbItemFn item, void *ctx) {
+  size_t plen = strlen(prefix), slen = strlen(suffix);
+  char *body = NULL;
+  size_t cap = 0;
+  BrixString *pending = NULL; // produced but did not fit the last request
+  long done = 0;
+  int ok = 1;
+  while (ok && done < n) {
+    long count = 0;
+    size_t len = plen;
+    if (!vdb_reserve(&body, &cap, plen + slen + 1)) {
+      vdb_set_error(db, "%s: out of memory", path);
+      ok = 0;
+      break;
+    }
+    memcpy(body, prefix, plen);
+    while (done + count < n && count < BRIX_VDB_MAX_BATCH) {
+      BrixString *it = pending ? pending : item(db, ctx, done + count);
+      pending = NULL;
+      if (!it) {
+        ok = 0;
+        break;
+      }
+      size_t need = len + (count ? 1 : 0) + it->len + slen + 1;
+      if (need > (size_t)BRIX_VDB_MAX_BODY) {
+        if (count > 0) {
+          pending = it; // starts the next request
+          break;
+        }
+        string_release(it);
+        char msg[96];
+        snprintf(msg, sizeof(msg), "larger than the %ld-byte request limit",
+                 BRIX_VDB_MAX_BODY);
+        vdb_record_error(db, path, n > 1 ? done : -1, msg);
+        ok = 0;
+        break;
+      }
+      if (!vdb_reserve(&body, &cap, need)) {
+        string_release(it);
+        vdb_set_error(db, "%s: out of memory", path);
+        ok = 0;
+        break;
+      }
+      if (count) body[len++] = ',';
+      memcpy(body + len, it->data, it->len);
+      len += it->len;
+      string_release(it);
+      count++;
+    }
+    if (!ok) break;
+    memcpy(body + len, suffix, slen + 1);
+    JsonValue *resp = vdb_request(db, path, NULL, body);
+    if (!resp) {
+      ok = 0;
+      break;
+    }
+    json_release(resp);
+    done += count;
+  }
+  string_release(pending);
+  free(body);
+  if (!ok && n > 1 && db->last_error) {
+    char *err = db->last_error;
+    db->last_error = NULL;
+    vdb_set_error(db, "%s (%ld of %ld written)", err, done, n);
+    free(err);
+  }
+  return ok;
+}
+
+// `],"namespace":"<ns>"}` closes a request body after its item list.
+static BrixString *vdb_ns_suffix(BrixVectorDB *db) {
+  BrixString *ns = str_new(db->ns);
+  JsonValue *v = json_string(ns);
+  string_release(ns);
+  if (!v) return NULL; // never send "namespace":null
+  BrixString *quoted = json_stringify(v);
+  json_release(v);
+  size_t blen = quoted->len + 32;
+  char *buf = malloc(blen);
+  if (!buf) {
+    string_release(quoted);
+    return NULL;
+  }
+  snprintf(buf, blen, "],\"namespace\":%s}", quoted->data);
+  string_release(quoted);
+  BrixString *out = str_new(buf);
+  free(buf);
+  return out;
+}
+
+typedef struct {
+  BrixString **ids;
+  BrixEmbedding **vecs;
+  JsonValue **metas; // NULL = no metadata
+  int single;        // 1: errors do not name a record index
+} VdbUpsertCtx;
+
+// Upsert item: {"id", "values"[, "metadata"]}.
+static BrixString *vdb_upsert_item(BrixVectorDB *db, void *ctx, long i) {
+  VdbUpsertCtx *c = ctx;
+  JsonValue *metadata = c->metas ? c->metas[i] : NULL;
+  JsonValue *rec = json_object();
+  vdb_put(rec, "id", json_string(c->ids[i]));
+  vdb_put(rec, "values", vdb_embedding_json(c->vecs[i]));
+  if (metadata && metadata->tag == JSON_OBJECT) {
+    vdb_put(rec, "metadata", json_retain(metadata));
+    // json_set refuses values nested deeper than 64 levels: never send the
+    // record without the metadata the caller asked for.
+    JsonValue *sent = vdb_field(rec, "metadata");
+    json_release(sent);
+    if (sent != metadata) {
+      json_release(rec);
+      vdb_record_error(db, "/vectors/upsert", c->single ? -1 : i,
+                       "metadata is nested too deeply");
+      return NULL;
+    }
+  }
+  BrixString *text = json_stringify(rec);
+  json_release(rec);
+  return text;
+}
+
+// Delete item: the id as a JSON string.
+static BrixString *vdb_delete_item(BrixVectorDB *db, void *ctx, long i) {
+  (void)db;
+  JsonValue *v = json_string(((BrixString **)ctx)[i]);
+  BrixString *text = json_stringify(v);
+  json_release(v);
+  return text;
+}
+
+static int vdb_send(BrixVectorDB *db, const char *path, const char *prefix,
+                    long n, VdbItemFn item, void *ctx) {
+  if (n == 0) return 1;
+  BrixString *suffix = vdb_ns_suffix(db);
+  if (!suffix) {
+    vdb_set_error(db, "%s: out of memory", path);
+    return 0;
+  }
+  int ok = vdb_post_chunked(db, path, prefix, suffix->data, n, item, ctx);
+  string_release(suffix);
+  return ok;
+}
+
+// db.upsert(id, embedding[, metadata]) -> int : POST /vectors/upsert.
+// `metadata` NULL or JSON null = none.
+long brix_vectordb_upsert(BrixVectorDB *db, BrixString *id, BrixEmbedding *e,
+                          JsonValue *metadata) {
+  free(db->last_error);
+  db->last_error = NULL;
+  if (!vdb_check_record(db, -1, id, e, metadata)) return 0;
+  VdbUpsertCtx c = {&id, &e, metadata ? &metadata : NULL, 1};
+  return vdb_send(db, "/vectors/upsert", "{\"vectors\":[", 1, vdb_upsert_item,
+                  &c);
+}
+
+// db.upsert_batch(ids, embeddings[, metadata]) -> int. `ids` is a
+// Vector<string>; `metadata` (NULL or JSON null = none) a JSON array with
+// one object or null per record. Every record is checked before the first
+// request.
+long brix_vectordb_upsert_batch(BrixVectorDB *db, BrixVector *ids,
+                                BrixEmbeddingBatch *vecs, JsonValue *metadata) {
+  free(db->last_error);
+  db->last_error = NULL;
+  if (ids->len != vecs->len) {
+    vdb_set_error(db, "/vectors/upsert: %ld ids but %ld embeddings", ids->len,
+                  vecs->len);
+    return 0;
+  }
+  JsonValue **metas = NULL;
+  if (metadata && metadata->tag != JSON_NULL) {
+    if (metadata->tag != JSON_ARRAY ||
+        (long)metadata->data.as_array->len != ids->len) {
+      vdb_set_error(db, "/vectors/upsert: metadata must be a JSON array with "
+                    "one entry per id");
+      return 0;
+    }
+    metas = metadata->data.as_array->items;
+  }
+  for (long i = 0; i < ids->len; i++) {
+    if (!vdb_check_record(db, i, ((BrixString **)ids->data)[i], vecs->items[i],
+                          metas ? metas[i] : NULL)) {
+      return 0;
+    }
+  }
+  VdbUpsertCtx c = {(BrixString **)ids->data, vecs->items, metas, 0};
+  return vdb_send(db, "/vectors/upsert", "{\"vectors\":[", ids->len,
+                  vdb_upsert_item, &c);
+}
+
+// db.delete(id) -> int : POST /vectors/delete. Deleting a missing id succeeds.
+long brix_vectordb_delete(BrixVectorDB *db, BrixString *id) {
+  free(db->last_error);
+  db->last_error = NULL;
+  if (!vdb_check_id(db, "/vectors/delete", -1, id)) return 0;
+  return vdb_send(db, "/vectors/delete", "{\"ids\":[", 1, vdb_delete_item, &id);
+}
+
+// db.delete_batch(ids) -> int, `ids` a Vector<string>. Every id is checked
+// before the first request.
+long brix_vectordb_delete_batch(BrixVectorDB *db, BrixVector *ids) {
+  free(db->last_error);
+  db->last_error = NULL;
+  BrixString **id_data = (BrixString **)ids->data;
+  for (long i = 0; i < ids->len; i++) {
+    if (!vdb_check_id(db, "/vectors/delete", i, id_data[i])) return 0;
+  }
+  return vdb_send(db, "/vectors/delete", "{\"ids\":[", ids->len,
+                  vdb_delete_item, id_data);
 }
 
 // db.last_error() -> string ("" when the last operation succeeded).
