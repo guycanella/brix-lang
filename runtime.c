@@ -5056,10 +5056,21 @@ static JsonValue *vdb_embedding_json(BrixEmbedding *e) {
   return vec;
 }
 
-// 1 when record `idx` can be sent: finite values (JSON cannot carry NaN or
-// Inf) and metadata that is NULL, JSON null or an object.
-static int vdb_check_record(BrixVectorDB *db, long idx, BrixEmbedding *e,
-                            JsonValue *metadata) {
+// 1 when `id` is a non-empty string (Pinecone ids are 1-512 characters).
+static int vdb_check_id(BrixVectorDB *db, const char *path, long idx,
+                        BrixString *id) {
+  if (!id || id->len == 0) {
+    vdb_record_error(db, path, idx, "id must be a non-empty string");
+    return 0;
+  }
+  return 1;
+}
+
+// 1 when record `idx` can be sent: a non-empty id, finite values (JSON
+// cannot carry NaN or Inf) and metadata that is NULL, JSON null or an object.
+static int vdb_check_record(BrixVectorDB *db, long idx, BrixString *id,
+                            BrixEmbedding *e, JsonValue *metadata) {
+  if (!vdb_check_id(db, "/vectors/upsert", idx, id)) return 0;
   for (long i = 0; i < e->dim; i++) {
     if (!isfinite(e->data[i])) {
       vdb_record_error(db, "/vectors/upsert", idx, "vector contains NaN or Inf");
@@ -5169,14 +5180,16 @@ static BrixString *vdb_ns_suffix(BrixVectorDB *db) {
   BrixString *ns = str_new(db->ns);
   JsonValue *v = json_string(ns);
   string_release(ns);
+  if (!v) return NULL; // never send "namespace":null
   BrixString *quoted = json_stringify(v);
   json_release(v);
-  char *buf = malloc(quoted->len + 32);
+  size_t blen = quoted->len + 32;
+  char *buf = malloc(blen);
   if (!buf) {
     string_release(quoted);
     return NULL;
   }
-  sprintf(buf, "],\"namespace\":%s}", quoted->data);
+  snprintf(buf, blen, "],\"namespace\":%s}", quoted->data);
   string_release(quoted);
   BrixString *out = str_new(buf);
   free(buf);
@@ -5243,7 +5256,7 @@ long brix_vectordb_upsert(BrixVectorDB *db, BrixString *id, BrixEmbedding *e,
                           JsonValue *metadata) {
   free(db->last_error);
   db->last_error = NULL;
-  if (!vdb_check_record(db, -1, e, metadata)) return 0;
+  if (!vdb_check_record(db, -1, id, e, metadata)) return 0;
   VdbUpsertCtx c = {&id, &e, metadata ? &metadata : NULL, 1};
   return vdb_send(db, "/vectors/upsert", "{\"vectors\":[", 1, vdb_upsert_item,
                   &c);
@@ -5273,7 +5286,8 @@ long brix_vectordb_upsert_batch(BrixVectorDB *db, BrixVector *ids,
     metas = metadata->data.as_array->items;
   }
   for (long i = 0; i < ids->len; i++) {
-    if (!vdb_check_record(db, i, vecs->items[i], metas ? metas[i] : NULL)) {
+    if (!vdb_check_record(db, i, ((BrixString **)ids->data)[i], vecs->items[i],
+                          metas ? metas[i] : NULL)) {
       return 0;
     }
   }
@@ -5286,15 +5300,21 @@ long brix_vectordb_upsert_batch(BrixVectorDB *db, BrixVector *ids,
 long brix_vectordb_delete(BrixVectorDB *db, BrixString *id) {
   free(db->last_error);
   db->last_error = NULL;
+  if (!vdb_check_id(db, "/vectors/delete", -1, id)) return 0;
   return vdb_send(db, "/vectors/delete", "{\"ids\":[", 1, vdb_delete_item, &id);
 }
 
-// db.delete_batch(ids) -> int, `ids` a Vector<string>.
+// db.delete_batch(ids) -> int, `ids` a Vector<string>. Every id is checked
+// before the first request.
 long brix_vectordb_delete_batch(BrixVectorDB *db, BrixVector *ids) {
   free(db->last_error);
   db->last_error = NULL;
+  BrixString **id_data = (BrixString **)ids->data;
+  for (long i = 0; i < ids->len; i++) {
+    if (!vdb_check_id(db, "/vectors/delete", i, id_data[i])) return 0;
+  }
   return vdb_send(db, "/vectors/delete", "{\"ids\":[", ids->len,
-                  vdb_delete_item, ids->data);
+                  vdb_delete_item, id_data);
 }
 
 // db.last_error() -> string ("" when the last operation succeeded).

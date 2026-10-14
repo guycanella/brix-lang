@@ -112,6 +112,24 @@ test.describe("VectorDB writes (v2.1 Grupo A Fase 3)", () -> {
         test.expect(db.last_error()).toBe("/vectors/upsert: larger than the 2000000-byte request limit")
     })
 
+    test.it("empty ids are rejected without a request", () -> {
+        var db := vectordb.connect("pinecone", "http://127.0.0.1:1", "key")
+        test.expect(db.upsert("", Embedding<2>([1.0, 0.0]))).toBe(0)
+        test.expect(db.last_error()).toBe("/vectors/upsert: id must be a non-empty string")
+        var ids := Vector<string>()
+        ids.push("a")
+        ids.push("")
+        var vs := EmbeddingBatch<2>(2)
+        vs.add(Embedding<2>([1.0, 0.0]))
+        vs.add(Embedding<2>([0.0, 1.0]))
+        test.expect(db.upsert_batch(ids, vs)).toBe(0)
+        test.expect(db.last_error()).toBe("/vectors/upsert: record 1: id must be a non-empty string")
+        test.expect(db.delete("")).toBe(0)
+        test.expect(db.last_error()).toBe("/vectors/delete: id must be a non-empty string")
+        test.expect(db.delete_batch(ids)).toBe(0)
+        test.expect(db.last_error()).toBe("/vectors/delete: record 1: id must be a non-empty string")
+    })
+
     test.it("delete on a refused connection returns 0", () -> {
         var db := vectordb.connect("pinecone", "http://127.0.0.1:1", "key")
         test.expect(db.delete("d1")).toBe(0)

@@ -28,10 +28,21 @@ println(db.delete_batch(ids))
 println(json.stringify(db.list()))
 println(db.delete_batch(Vector<string>()))
 
-// The namespace is sent: deleting "p1" in prod leaves the default one alone.
+// The namespace is sent: with "p1" in both namespaces, deleting it in prod
+// leaves the default copy alone.
+println(db.upsert("p1", Embedding<3>([0.0, 0.0, 1.0])))
 var prod := vectordb.connect("pinecone", host, "test-key", "prod")
 println(prod.delete("p1"))
 println(json.stringify(prod.list()))
+println(json.stringify(db.list()))
+
+// Every id is checked first: an empty one deletes nothing.
+var some := Vector<string>()
+some.push("c")
+some.push("")
+println(db.delete_batch(some))
+println(db.last_error())
+println(db.fetch("c") != nil)
 
 var bad := vectordb.connect("pinecone", host, "wrong-key")
 println(bad.delete("c"))

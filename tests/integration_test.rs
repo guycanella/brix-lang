@@ -2747,10 +2747,11 @@ fn test_283_vectordb_upsert_batch() {
 #[test]
 fn test_284_vectordb_delete() {
     // POST /vectors/delete: single, missing id, a 1201-id batch (2 requests),
-    // empty batch, namespace, failure.
+    // empty batch, namespace isolation (same id in both), empty id checked
+    // before any request, failure.
     MockPinecone::start().assert_success(
         "tests/integration/success/284_vectordb_delete.bx",
-        "1\n1\n{\"vectors\":[{\"id\":\"b\"},{\"id\":\"c\"}],\"namespace\":\"\"}\n1\n1\n1\n{\"vectors\":[{\"id\":\"c\"}],\"namespace\":\"\"}\n1\n1\n{\"vectors\":[{\"id\":\"x&y z\"}],\"namespace\":\"prod\"}\n0\n/vectors/delete: HTTP 401: {\"code\": 16, \"message\": \"Invalid API Key\"}",
+        "1\n1\n{\"vectors\":[{\"id\":\"b\"},{\"id\":\"c\"}],\"namespace\":\"\"}\n1\n1\n1\n{\"vectors\":[{\"id\":\"c\"}],\"namespace\":\"\"}\n1\n1\n1\n{\"vectors\":[{\"id\":\"x&y z\"}],\"namespace\":\"prod\"}\n{\"vectors\":[{\"id\":\"c\"},{\"id\":\"p1\"}],\"namespace\":\"\"}\n0\n/vectors/delete: record 1: id must be a non-empty string\n1\n0\n/vectors/delete: HTTP 401: {\"code\": 16, \"message\": \"Invalid API Key\"}",
     );
 }
 
