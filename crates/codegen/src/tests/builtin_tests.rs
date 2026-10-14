@@ -3769,3 +3769,73 @@ fn test_struct_method_named_like_batch_method_evaluates_receiver_once() {
     let main = function_body(&ir, "main");
     assert_eq!(main.matches("@mk(").count(), 1, "IR:\n{}", main);
 }
+
+// ====== Embedding operators `@` / `<->` / `<=>` (v2.1 Grupo 0) ======
+
+const OPS_PRELUDE: &str = "var a := Embedding<2>([1.0, 0.0])\nvar b := Embedding<2>([1.0, 1.0])\n";
+
+#[test]
+fn test_embedding_operators_call_the_blas_runtime() {
+    for (op, sym) in [
+        ("@", "@brix_embedding_cosine("),
+        ("<->", "@brix_embedding_euclidean("),
+        ("<=>", "@brix_embedding_dot("),
+    ] {
+        let ir = ir_from_source(&format!("{}var r := a {} b\n", OPS_PRELUDE, op));
+        assert!(
+            ir.contains(&format!("call double {}", sym)),
+            "{}\nIR:\n{}",
+            op,
+            ir
+        );
+    }
+}
+
+#[test]
+fn test_embedding_operator_dim_mismatch_is_type_error() {
+    let err = error_from_source(&format!(
+        "{}var c := Embedding<3>([1.0, 0.0, 0.0])\nvar r := a @ c\n",
+        OPS_PRELUDE
+    ));
+    assert!(
+        matches!(err, crate::error::CodegenError::TypeError { .. }),
+        "{:?}",
+        err
+    );
+}
+
+#[test]
+fn test_embedding_operator_non_embedding_operand_is_type_error() {
+    // Used to surface as a generic "Unknown function" + E105.
+    for src in [
+        "var r := 1 @ 2\n",
+        "var s := \"x\"\nvar r := s <-> s\n",
+        "var r := 1.0 <=> a\n",
+    ] {
+        let err = error_from_source(&format!("{}{}", OPS_PRELUDE, src));
+        match err {
+            crate::error::CodegenError::TypeError { context, .. } => {
+                assert!(
+                    context.contains("(left operand of `"),
+                    "{}: {}",
+                    src,
+                    context
+                )
+            }
+            other => panic!("{}: expected TypeError, got {:?}", src, other),
+        }
+    }
+}
+
+#[test]
+fn test_embedding_operator_static_type_inference() {
+    // `:type a @ b` in the REPL.
+    for op in ["@", "<->", "<=>"] {
+        assert_eq!(
+            crate::infer_type_of_expr_in_context(OPS_PRELUDE, &format!("a {} b", op)),
+            Ok(crate::types::BrixType::Float),
+            "{}",
+            op
+        );
+    }
+}

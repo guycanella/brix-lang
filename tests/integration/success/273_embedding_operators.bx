@@ -1,0 +1,31 @@
+// v2.1 Grupo 0: `@` / `<->` / `<=>` are sugar for cosine_similarity /
+// euclidean_distance / dot_product, binding tighter than `*` and `+`.
+var a := Embedding<2>([1.0, 0.0])
+var b := Embedding<2>([3.0, 4.0])
+
+println(a @ b)
+println(a <-> b)
+println(a <=> b)
+
+// Same results as the methods.
+println(a @ b == a.cosine_similarity(b))
+
+// Precedence: no parentheses needed around the operator.
+println(1.0 - a @ b)
+println(2.0 * a <=> b)
+println(a @ b > 0.5 && a <-> b < 5.0)
+println(-a @ b)
+println(a @ b ** 2)
+
+// Operands can be postfix expressions and temporaries.
+var batch := EmbeddingBatch<2>(1)
+batch.add(b)
+println(a <=> batch.get(0))
+println(Embedding<2>([0.0, 3.0]) <-> Embedding<2>([4.0, 0.0]))
+
+// Pure sugar: a user struct method with the same name is what `<=>` calls.
+struct V2 { x: float, y: float }
+fn (v: V2) dot_product(o: V2) -> float { return v.x * o.x + v.y * o.y }
+var p := V2{ x: 1.0, y: 2.0 }
+var q := V2{ x: 3.0, y: 4.0 }
+println(p <=> q)

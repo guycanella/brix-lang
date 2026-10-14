@@ -214,6 +214,18 @@ pub enum Token {
     #[token("->")]
     Arrow, // Function return (fn -> int)
 
+    // Embedding similarity operators (v2.1 Grupo 0): pure parser sugar for
+    // `a.cosine_similarity(b)` / `a.euclidean_distance(b)` / `a.dot_product(b)`.
+    // Longest match keeps `<`, `<=` and `->` unchanged.
+    #[token("@")]
+    At,
+
+    #[token("<->")]
+    LeftRightArrow,
+
+    #[token("<=>")]
+    DoubleArrow,
+
     #[token("&")]
     Ampersand, // Intersection (TypeA & TypeB)
 

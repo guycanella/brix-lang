@@ -7127,6 +7127,30 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                     }
                                     return self.compile_embedding_to_matrix(receiver_val, expr);
                                 }
+                                // The similarity methods are also what `@` / `<->` / `<=>`
+                                // desugar to (v2.1 Grupo 0), so a non-Embedding receiver
+                                // gets a type error naming both spellings instead of the
+                                // generic "Unknown function". User struct methods with the
+                                // same name still dispatch normally.
+                                let operator = match field.as_str() {
+                                    "cosine_similarity" => Some("@"),
+                                    "euclidean_distance" => Some("<->"),
+                                    "dot_product" => Some("<=>"),
+                                    _ => None,
+                                };
+                                if let Some(op) = operator {
+                                    if !matches!(receiver_type, BrixType::Struct(_)) {
+                                        return Err(CodegenError::TypeError {
+                                            expected: "Embedding<DIM>".to_string(),
+                                            found: crate::types::format_brix_type(&receiver_type),
+                                            context: format!(
+                                                "receiver of .{}() (left operand of `{}`)",
+                                                field, op
+                                            ),
+                                            span: Some(expr.span.clone()),
+                                        });
+                                    }
+                                }
                             }
                             if is_iter_method
                                 && matches!(receiver_type, BrixType::IntMatrix | BrixType::Matrix)
