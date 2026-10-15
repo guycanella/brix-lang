@@ -40,6 +40,24 @@ json.set(year, "year", json.int(2024))
 println(db.upsert("a", Embedding<3>([1.0, 0.0, 0.0]), year))
 show(db.fetch("a"))
 
+// Chroma metadata values are scalars or lists of one scalar type: a nested
+// object is the server's 422, and nothing is written.
+var nested := json.object()
+var inner := json.object()
+json.set(inner, "b", json.int(1))
+json.set(nested, "a", inner)
+println(db.upsert("n", Embedding<3>([1.0, 0.0, 0.0]), nested))
+println(db.last_status())
+show(db.fetch("n"))
+var tags := json.object()
+var list := json.array()
+json.array_push(list, json.string("x"))
+json.array_push(list, json.string("y"))
+json.set(tags, "tags", list)
+println(db.upsert("n", Embedding<3>([1.0, 0.0, 0.0]), tags))
+show(db.fetch("n"))
+println(db.delete("n"))
+
 // upsert_batch: 301 records go out as 300 + 1 (the mock rejects > 300).
 var ids := Vector<string>()
 var vecs := EmbeddingBatch<3>(0)

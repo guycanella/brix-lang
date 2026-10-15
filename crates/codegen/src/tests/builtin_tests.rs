@@ -4490,3 +4490,28 @@ fn test_plain_argument_is_wrapped_for_a_union_parameter() {
         ir
     );
 }
+
+#[test]
+fn test_scalar_in_aggregate_union_slot_is_valid_ir() {
+    // int | complex: the slot is the {f64, f64} struct, so an int is stored
+    // through memory instead of being inserted as an i64 (invalid IR).
+    let ir = ir_from_source(
+        "fn show(x: int | complex) {
+    println(x)
+}
+show(1)
+var y: int | complex = 7
+println(y)
+",
+    );
+    assert!(
+        ir.contains("%union_slot_tmp = alloca { double, double }"),
+        "{}",
+        ir
+    );
+    assert!(
+        ir.contains("%union_slot_load = load { double, double }"),
+        "{}",
+        ir
+    );
+}

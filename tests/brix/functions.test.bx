@@ -28,6 +28,10 @@ function show_num(x: int | float) -> string {
     return f"{x}"
 }
 
+function show_c(x: int | complex) -> string {
+    return f"{x}"
+}
+
 function first_or<T>(x: T, label: string?) -> string {
     return label ?: "none"
 }
@@ -124,6 +128,11 @@ test.describe("Union parameters", () -> {
     test.it("each variant keeps its own tag", () -> {
         test.expect(show_num(5)).toBe("5")
         test.expect(show_num(2.5)).toBe("2.5")
+    })
+
+    test.it("a scalar fits a union whose widest variant is a struct", () -> {
+        test.expect(show_c(1)).toBe("1")
+        test.expect(show_c(2.0 + 3.0i)).toBe("2+3im")
     })
 
     test.it("generic and variadic calls wrap union arguments too", () -> {

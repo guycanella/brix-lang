@@ -1825,7 +1825,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     /// the widest variant's type, so `int | float` keeps a `double` in an
     /// `i64` slot: without the bitcast the IR is malformed and the bits end up
     /// in the wrong register class on Linux (AArch64/x86_64 pass variadic
-    /// doubles in FP registers). Anything else passes through unchanged.
+    /// doubles in FP registers). When either side is an aggregate (an
+    /// `int | complex` slot is the `{f64, f64}` struct) the value is
+    /// reinterpreted through memory instead: stored into the wider type and
+    /// loaded back as `target`. Anything else passes through unchanged.
     pub(crate) fn coerce_union_slot(
         &self,
         val: BasicValueEnum<'ctx>,
@@ -1838,6 +1841,12 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             BasicTypeEnum::IntType(i) => i.get_bit_width() == 64,
             BasicTypeEnum::FloatType(f) => f == self.context.f64_type(),
             _ => false,
+        };
+        let is_aggregate = |t: BasicTypeEnum<'ctx>| {
+            matches!(
+                t,
+                BasicTypeEnum::StructType(_) | BasicTypeEnum::ArrayType(_)
+            )
         };
         let err = |op: &str| CodegenError::LLVMError {
             operation: op.to_string(),
@@ -1859,6 +1868,22 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 .builder
                 .build_bit_cast(val, target, "union_slot_cast")
                 .map_err(|_| err("build_bit_cast"))?),
+            _ if is_aggregate(target) || is_aggregate(val.get_type()) => {
+                // The slot is the widest variant, so the aggregate side is
+                // the larger one: size the temporary by it.
+                let wide = if is_aggregate(target) {
+                    target
+                } else {
+                    val.get_type()
+                };
+                let tmp = self.create_entry_block_alloca(wide, "union_slot_tmp")?;
+                self.builder
+                    .build_store(tmp, val)
+                    .map_err(|_| err("build_store"))?;
+                self.builder
+                    .build_load(target, tmp, "union_slot_load")
+                    .map_err(|_| err("build_load"))
+            }
             _ => Ok(val),
         }
     }

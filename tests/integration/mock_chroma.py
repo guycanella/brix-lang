@@ -3,8 +3,9 @@
 
 Listens on 127.0.0.1 on a free port and prints the port on the first line of
 stdout. Responses follow a real `chroma run` 1.x server: the same shapes,
-status codes and error bodies, insertion-ordered get/list, cosine distances
-and upserts that merge metadata (a key set to null removes it). POSTs must
+status codes and error bodies, insertion-ordered get/list, cosine distances,
+upserts that merge metadata (a key set to null removes it) and metadata
+values limited to scalars or single-type scalar lists (else 422). POSTs must
 send a JSON content type, GETs none. Collections (all of dimension 3):
   default_tenant/default_database/docs  -> a, b, c (cosine)
   acme/prod/docs                        -> z only, to tell the paths apart
@@ -46,6 +47,19 @@ def cosine_distance(u, v):
     if nu == 0 or nv == 0:
         return 1.0
     return 1.0 - sum(x * y for x, y in zip(u, v)) / (nu * nv)
+
+
+def valid_value(v):
+    """A metadata value real Chroma accepts: a scalar (or null, which removes
+    the key), or a list of scalars of one type; objects, mixed or nested
+    lists fail its deserialization with 422."""
+    scalar = (str, int, float, bool)
+    if v is None or isinstance(v, scalar):
+        return True
+    if isinstance(v, list):
+        kinds = {type(x) for x in v}
+        return all(isinstance(x, scalar) for x in v) and len(kinds) <= 1
+    return False
 
 
 def matches_where(meta, where):
@@ -176,6 +190,13 @@ class Handler(BaseHTTPRequestHandler):
             return self.error(422, "QuotaError", f"more than {MAX_BATCH} records per write")
         if "reject-me" in ids:
             return self.error(500, "InternalError", "rejected")
+        for i, meta in enumerate(metas):
+            for k, val in (meta or {}).items():
+                if not valid_value(val):
+                    return self.error(422, "ChromaError",
+                                      "Failed to deserialize the JSON body into the target type: "
+                                      f"metadatas[{i}].{k}: data did not match any variant of "
+                                      "untagged enum UpdateMetadataValue")
         for v in vecs:
             if len(v) != DIMENSION:
                 return self.error(400, "InvalidArgumentError",
