@@ -7,6 +7,7 @@
 #include <stdarg.h>
 #include <curl/curl.h>
 #include <time.h>
+#include <errno.h>
 #include <setjmp.h>
 #include <unistd.h>
 #include <sys/wait.h>
@@ -4593,7 +4594,7 @@ IntMatrix *brix_embedding_batch_find_nearest(BrixEmbeddingBatch *b, BrixEmbeddin
 }
 
 // ==========================================
-// SECTION 2.12: VECTORDB (v2.1 Grupo A Fases 1-4)
+// SECTION 2.12: VECTORDB (v2.1 Grupo A Fases 1-5)
 // ==========================================
 //
 // A BrixVectorDB is one connection to one Pinecone index (its data-plane
@@ -4616,7 +4617,16 @@ typedef struct {
   char *ns;         // "" = default namespace (used from Fase 2 on)
   CURL *curl;
   char *last_error; // NULL = the last operation succeeded
+  long timeout_ms;  // per request attempt (set_timeout)
+  long retries;     // extra attempts on 429/502/503/504 (set_retries)
+  long last_status; // HTTP status of the last response, 0 = none
 } BrixVectorDB;
+
+#define BRIX_VDB_DEFAULT_TIMEOUT_MS 30000L
+#define BRIX_VDB_DEFAULT_RETRIES 3L
+#define BRIX_VDB_MAX_RETRIES 10L
+#define BRIX_VDB_BACKOFF_BASE_MS 100L
+#define BRIX_VDB_MAX_DELAY_MS 30000L
 
 // env(name) -> string? (NULL when the variable is not set).
 BrixString *brix_env(BrixString *name) {
@@ -4723,6 +4733,9 @@ BrixVectorDB *brix_vectordb_connect(BrixString *host, BrixString *api_key,
   db->api_key = vdb_strdup(k);
   db->ns = vdb_strdup(n);
   db->last_error = NULL;
+  db->timeout_ms = BRIX_VDB_DEFAULT_TIMEOUT_MS;
+  db->retries = BRIX_VDB_DEFAULT_RETRIES;
+  db->last_status = 0;
   return db;
 }
 
@@ -4740,6 +4753,14 @@ void brix_vectordb_release(BrixVectorDB *db) {
   free(db->ns);
   free(db->last_error);
   free(db);
+}
+
+// Start of every public operation (and of each request): no error, no
+// status yet.
+static void vdb_begin(BrixVectorDB *db) {
+  free(db->last_error);
+  db->last_error = NULL;
+  db->last_status = 0;
 }
 
 static void vdb_set_error(BrixVectorDB *db, const char *fmt, ...) {
@@ -4786,8 +4807,7 @@ static size_t vdb_write_cb(char *ptr, size_t size, size_t nmemb, void *userdata)
 // db->last_error set. Errors name `path` only, never the query string.
 static JsonValue *vdb_request(BrixVectorDB *db, const char *path,
                               const char *query, const char *body) {
-  free(db->last_error);
-  db->last_error = NULL;
+  vdb_begin(db);
 
   size_t url_len = strlen(db->base_url) + strlen(path) +
                    (query ? strlen(query) + 1 : 0) + 1;
@@ -4832,13 +4852,49 @@ static JsonValue *vdb_request(BrixVectorDB *db, const char *path,
   if (strncmp(db->base_url, "http://", 7) == 0) {
     curl_easy_setopt(c, CURLOPT_NOPROXY, "*");
   }
-  // ponytail: fixed timeouts; configurable timeout + retry is Fase 5.
-  curl_easy_setopt(c, CURLOPT_CONNECTTIMEOUT_MS, 10000L);
-  curl_easy_setopt(c, CURLOPT_TIMEOUT_MS, 30000L);
+  curl_easy_setopt(c, CURLOPT_CONNECTTIMEOUT_MS,
+                   db->timeout_ms < 10000 ? db->timeout_ms : 10000L);
+  curl_easy_setopt(c, CURLOPT_TIMEOUT_MS, db->timeout_ms);
 
-  CURLcode rc = curl_easy_perform(c);
+  // Retry rate limits and transient server errors (every Pinecone data-plane
+  // call is idempotent). Connection failures and timeouts are not retried:
+  // a down host fails fast.
+  CURLcode rc;
   long status = 0;
-  curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &status);
+  long attempt = 0;
+  for (;;) {
+    rc = curl_easy_perform(c);
+    status = 0;
+    curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &status);
+    int retryable = rc == CURLE_OK && (status == 429 || status == 502 ||
+                                       status == 503 || status == 504);
+    if (!retryable || attempt >= db->retries) break;
+    // libcurl reports 0 both for "no Retry-After" and "Retry-After: 0", so
+    // only a positive value overrides the backoff.
+    curl_off_t retry_after = 0;
+    long delay_ms;
+    if (curl_easy_getinfo(c, CURLINFO_RETRY_AFTER, &retry_after) != CURLE_OK) {
+      retry_after = 0;
+    }
+    if (retry_after > 0) {
+      delay_ms = retry_after > BRIX_VDB_MAX_DELAY_MS / 1000
+                     ? BRIX_VDB_MAX_DELAY_MS
+                     : (long)retry_after * 1000;
+    } else {
+      // Exponential backoff with jitter: base * 2^attempt * [0.5, 1].
+      long cap = BRIX_VDB_BACKOFF_BASE_MS << (attempt < 16 ? attempt : 16);
+      if (cap > BRIX_VDB_MAX_DELAY_MS) cap = BRIX_VDB_MAX_DELAY_MS;
+      delay_ms = cap / 2 + rand() % (cap / 2 + 1);
+    }
+    free(buf.data);
+    buf = (VdbBuf){NULL, 0, 0, 0};
+    struct timespec ts = {delay_ms / 1000, (delay_ms % 1000) * 1000000L};
+    // A caught signal cuts the sleep short; finish the remaining delay.
+    while (nanosleep(&ts, &ts) == -1 && errno == EINTR) {
+    }
+    attempt++;
+  }
+  db->last_status = rc == CURLE_OK ? status : 0;
 
   curl_slist_free_all(headers);
   memset(key_header, 0, key_len);
@@ -4852,8 +4908,14 @@ static JsonValue *vdb_request(BrixVectorDB *db, const char *path,
   } else if (rc != CURLE_OK) {
     vdb_set_error(db, "%s: %s", path, curl_easy_strerror(rc));
   } else if (status < 200 || status >= 300) {
-    vdb_set_error(db, "%s: HTTP %ld: %.200s", path, status,
-                  buf.data ? buf.data : "");
+    if (attempt > 0) {
+      vdb_set_error(db, "%s: HTTP %ld after %ld %s: %.200s", path, status,
+                    attempt, attempt == 1 ? "retry" : "retries",
+                    buf.data ? buf.data : "");
+    } else {
+      vdb_set_error(db, "%s: HTTP %ld: %.200s", path, status,
+                    buf.data ? buf.data : "");
+    }
   } else {
     const char *p = buf.data ? buf.data : "";
     result = json_parse_value(&p, 0);
@@ -4873,6 +4935,7 @@ static JsonValue *vdb_request(BrixVectorDB *db, const char *path,
 // db.stats() -> json? (Pinecone describe_index_stats: dimension,
 // totalVectorCount, indexFullness, namespaces).
 JsonValue *brix_vectordb_stats(BrixVectorDB *db) {
+  vdb_begin(db);
   return vdb_request(db, "/describe_index_stats", NULL, "{}");
 }
 
@@ -4916,6 +4979,7 @@ static int vdb_add_param(BrixVectorDB *db, char **q, const char *name,
 // values not). `filter` (a JSON object, NULL = none) is sent as-is.
 JsonValue *brix_vectordb_query(BrixVectorDB *db, BrixEmbedding *q, long top_k,
                                JsonValue *filter) {
+  vdb_begin(db);
   if (top_k < 1) {
     vdb_set_error(db, "/query: top_k must be >= 1, got %ld", top_k);
     return NULL;
@@ -4972,6 +5036,7 @@ JsonValue *brix_vectordb_query(BrixVectorDB *db, BrixEmbedding *q, long top_k,
 // {id, values, metadata}; nil with last_error "" when the id does not exist,
 // nil with last_error set on a failure.
 JsonValue *brix_vectordb_fetch(BrixVectorDB *db, BrixString *id) {
+  vdb_begin(db);
   char *query = NULL;
   if (!vdb_add_param(db, &query, "ids", id->data) ||
       (*db->ns && !vdb_add_param(db, &query, "namespace", db->ns))) {
@@ -5000,6 +5065,7 @@ JsonValue *brix_vectordb_fetch(BrixVectorDB *db, BrixString *id) {
 // page). limit LONG_MIN means "not given" (server default; codegen passes it
 // when the argument is omitted); token "" or NULL = first page.
 JsonValue *brix_vectordb_list(BrixVectorDB *db, long limit, BrixString *token) {
+  vdb_begin(db);
   if (limit != LONG_MIN && limit < 1) {
     vdb_set_error(db, "/vectors/list: limit must be >= 1, got %ld", limit);
     return NULL;
@@ -5254,8 +5320,7 @@ static int vdb_send(BrixVectorDB *db, const char *path, const char *prefix,
 // `metadata` NULL or JSON null = none.
 long brix_vectordb_upsert(BrixVectorDB *db, BrixString *id, BrixEmbedding *e,
                           JsonValue *metadata) {
-  free(db->last_error);
-  db->last_error = NULL;
+  vdb_begin(db);
   if (!vdb_check_record(db, -1, id, e, metadata)) return 0;
   VdbUpsertCtx c = {&id, &e, metadata ? &metadata : NULL, 1};
   return vdb_send(db, "/vectors/upsert", "{\"vectors\":[", 1, vdb_upsert_item,
@@ -5268,8 +5333,7 @@ long brix_vectordb_upsert(BrixVectorDB *db, BrixString *id, BrixEmbedding *e,
 // request.
 long brix_vectordb_upsert_batch(BrixVectorDB *db, BrixVector *ids,
                                 BrixEmbeddingBatch *vecs, JsonValue *metadata) {
-  free(db->last_error);
-  db->last_error = NULL;
+  vdb_begin(db);
   if (ids->len != vecs->len) {
     vdb_set_error(db, "/vectors/upsert: %ld ids but %ld embeddings", ids->len,
                   vecs->len);
@@ -5298,8 +5362,7 @@ long brix_vectordb_upsert_batch(BrixVectorDB *db, BrixVector *ids,
 
 // db.delete(id) -> int : POST /vectors/delete. Deleting a missing id succeeds.
 long brix_vectordb_delete(BrixVectorDB *db, BrixString *id) {
-  free(db->last_error);
-  db->last_error = NULL;
+  vdb_begin(db);
   if (!vdb_check_id(db, "/vectors/delete", -1, id)) return 0;
   return vdb_send(db, "/vectors/delete", "{\"ids\":[", 1, vdb_delete_item, &id);
 }
@@ -5307,8 +5370,7 @@ long brix_vectordb_delete(BrixVectorDB *db, BrixString *id) {
 // db.delete_batch(ids) -> int, `ids` a Vector<string>. Every id is checked
 // before the first request.
 long brix_vectordb_delete_batch(BrixVectorDB *db, BrixVector *ids) {
-  free(db->last_error);
-  db->last_error = NULL;
+  vdb_begin(db);
   BrixString **id_data = (BrixString **)ids->data;
   for (long i = 0; i < ids->len; i++) {
     if (!vdb_check_id(db, "/vectors/delete", i, id_data[i])) return 0;
@@ -5336,8 +5398,7 @@ static int vdb_delete_all(BrixVectorDB *db, BrixString *ns) {
 // db.delete_namespace(ns) -> int : delete every vector in `ns` ("" = the
 // default namespace). Clearing an empty or missing namespace succeeds.
 long brix_vectordb_delete_namespace(BrixVectorDB *db, BrixString *ns) {
-  free(db->last_error);
-  db->last_error = NULL;
+  vdb_begin(db);
   return vdb_delete_all(db, ns);
 }
 
@@ -5376,6 +5437,44 @@ long brix_vectordb_reset_index(BrixVectorDB *db) {
   }
   return ok;
 }
+
+// ---- Fase 5: per-connection settings. Copies of a VectorDB share them.
+
+// db.set_timeout(ms) -> int : time limit of each request *attempt* (its
+// connect phase is capped at 10 s). 0 + last_error if ms < 1. It does not
+// bound a whole operation: one request can take up to
+// (retries + 1) * ms + retries * 30 s of waiting, and a batch or
+// reset_index sends one request per chunk or namespace.
+long brix_vectordb_set_timeout(BrixVectorDB *db, long ms) {
+  vdb_begin(db);
+  if (ms < 1) {
+    vdb_set_error(db, "set_timeout: ms must be >= 1, got %ld", ms);
+    return 0;
+  }
+  db->timeout_ms = ms;
+  return 1;
+}
+
+// db.set_retries(n) -> int : extra attempts on HTTP 429/502/503/504
+// (0 disables retrying). 0 + last_error unless 0 <= n <= 10.
+long brix_vectordb_set_retries(BrixVectorDB *db, long n) {
+  vdb_begin(db);
+  if (n < 0 || n > BRIX_VDB_MAX_RETRIES) {
+    vdb_set_error(db, "set_retries: n must be between 0 and %ld, got %ld",
+                  BRIX_VDB_MAX_RETRIES, n);
+    return 0;
+  }
+  db->retries = n;
+  return 1;
+}
+
+// db.last_status() -> int : HTTP status of the last response received by
+// the last operation (200, 401, 429...); 0 when it got none (a local error,
+// a connection failure or a timeout). An operation that sends several
+// requests reports the last one: a batch whose second chunk fails locally
+// returns 0 with last_status() still 200 from the first chunk. Settings
+// calls are operations too and reset it to 0.
+long brix_vectordb_last_status(BrixVectorDB *db) { return db->last_status; }
 
 // db.last_error() -> string ("" when the last operation succeeded).
 BrixString *brix_vectordb_last_error(BrixVectorDB *db) {

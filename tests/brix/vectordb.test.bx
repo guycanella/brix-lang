@@ -150,3 +150,30 @@ test.describe("VectorDB index management (v2.1 Grupo A Fase 4)", () -> {
         test.expect(db.last_error()).toStartWith("/describe_index_stats: ")
     })
 })
+
+test.describe("VectorDB settings (v2.1 Grupo A Fase 5)", () -> {
+    test.it("last_status is 0 without a response", () -> {
+        var db := vectordb.connect("pinecone", "http://127.0.0.1:1", "key")
+        test.expect(db.last_status()).toBe(0)
+        test.expect(db.stats()).toBeNil()
+        test.expect(db.last_status()).toBe(0)
+    })
+
+    test.it("set_timeout and set_retries validate their argument", () -> {
+        var db := vectordb.connect("pinecone", "http://127.0.0.1:1", "key")
+        test.expect(db.set_timeout(250)).toBe(1)
+        test.expect(db.set_timeout(0)).toBe(0)
+        test.expect(db.last_error()).toBe("set_timeout: ms must be >= 1, got 0")
+        test.expect(db.set_retries(0)).toBe(1)
+        test.expect(db.set_retries(10)).toBe(1)
+        test.expect(db.set_retries(11)).toBe(0)
+        test.expect(db.last_error()).toBe("set_retries: n must be between 0 and 10, got 11")
+    })
+
+    test.it("connection failures are not retried", () -> {
+        var db := vectordb.connect("pinecone", "http://127.0.0.1:1", "key")
+        test.expect(db.set_retries(10)).toBe(1)
+        test.expect(db.stats()).toBeNil()
+        test.expect(db.last_error().contains("retries")).toBeFalsy()
+    })
+})

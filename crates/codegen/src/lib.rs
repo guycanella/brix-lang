@@ -7053,6 +7053,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                 | "delete_batch"
                                 | "delete_namespace"
                                 | "reset_index"
+                                | "set_timeout"
+                                | "set_retries"
+                                | "last_status"
                         );
                         // A receiver compiled by the guard below that matched no
                         // builtin dispatch is reused by the arbitrary-expression
@@ -17223,7 +17226,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     /// `upsert_batch(ids, embeddings[, metadata])` (a `Vector<string>`, an
     /// `EmbeddingBatch<DIM>` and a JSON array), `delete(id)` and
     /// `delete_batch(ids)`, plus index management: `delete_namespace(ns)` and
-    /// `reset_index()` (every namespace).
+    /// `reset_index()` (every namespace), and per-connection settings:
+    /// `set_timeout(ms)`, `set_retries(n)` (both int) and `last_status()`
+    /// (HTTP status of the last response, 0 = none).
     /// `last_error()` -> `string` ("" after a successful operation). Owned
     /// temporary receivers and arguments are released after the call.
     fn compile_vectordb_method(
@@ -17243,10 +17248,13 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             "delete" => (1, 1, "(id)"),
             "delete_batch" => (1, 1, "(ids)"),
             "delete_namespace" => (1, 1, "(namespace)"),
+            "set_timeout" => (1, 1, "(ms)"),
+            "set_retries" => (1, 1, "(n)"),
             _ => (0, 0, "()"),
         };
-        // Writes return int (1 = success, 0 = failure); reads return json?.
-        let is_write = matches!(
+        // Writes and settings return int (1 = success, 0 = failure), as does
+        // last_status(); reads return json?.
+        let returns_int = matches!(
             method,
             "upsert"
                 | "upsert_batch"
@@ -17254,6 +17262,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 | "delete_batch"
                 | "delete_namespace"
                 | "reset_index"
+                | "set_timeout"
+                | "set_retries"
+                | "last_status"
         );
         if args.len() < min || args.len() > max {
             return Err(CodegenError::InvalidOperation {
@@ -17279,7 +17290,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             let (val, ty) = self.compile_expr(arg)?;
             let expected = match (method, i) {
                 ("query", 0) | ("upsert", 1) => "Embedding<DIM>",
-                ("query", 1) | ("list", 0) => "int",
+                ("query", 1) | ("list", 0) | ("set_timeout", 0) | ("set_retries", 0) => "int",
                 ("query", 2) | ("upsert", 2) | ("upsert_batch", 2) => "json or json?",
                 ("upsert_batch", 0) | ("delete_batch", 0) => "Vector<string>",
                 ("upsert_batch", 1) => "EmbeddingBatch<DIM>",
@@ -17376,7 +17387,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         }
 
         let rt_name = format!("brix_vectordb_{}", method);
-        let fn_type = if is_write {
+        let fn_type = if returns_int {
             i64_type.fn_type(&param_types, false)
         } else {
             ptr_type.fn_type(&param_types, false)
@@ -17390,7 +17401,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             })?;
         let result = if method == "last_error" {
             (raw, BrixType::String)
-        } else if is_write {
+        } else if returns_int {
             (raw, BrixType::Int)
         } else {
             (
@@ -19111,7 +19122,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                 }
                                 "last_error" => return Some(BrixType::String),
                                 "upsert" | "upsert_batch" | "delete" | "delete_batch"
-                                | "delete_namespace" | "reset_index" => {
+                                | "delete_namespace" | "reset_index" | "set_timeout"
+                                | "set_retries" | "last_status" => {
                                     return Some(BrixType::Int);
                                 }
                                 _ => {}

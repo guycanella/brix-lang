@@ -4329,6 +4329,50 @@ fn test_vectordb_index_management_errors() {
     }
 }
 
+// ---- v2.1 Grupo A Fase 5: set_timeout / set_retries / last_status ----
+
+#[test]
+fn test_vectordb_settings_calls_and_types() {
+    let ir = vdb_ir(
+        "var a := db.set_timeout(500)\nvar b := db.set_retries(2)\nvar c := db.last_status()\n",
+    );
+    for f in [
+        "declare i64 @brix_vectordb_set_timeout(ptr, i64)",
+        "declare i64 @brix_vectordb_set_retries(ptr, i64)",
+        "declare i64 @brix_vectordb_last_status(ptr)",
+    ] {
+        assert!(ir.contains(f), "{}\n{}", f, ir);
+    }
+    let history = "import vectordb\nvar db := vectordb.connect(\"pinecone\", \"h\", \"k\")\n";
+    for expr in ["db.set_timeout(1)", "db.set_retries(1)", "db.last_status()"] {
+        assert_eq!(
+            crate::infer_type_of_expr_in_context(history, expr),
+            Ok(crate::types::BrixType::Int),
+            "{}",
+            expr
+        );
+    }
+}
+
+#[test]
+fn test_vectordb_settings_errors() {
+    for (src, type_err) in [
+        ("var a := db.set_timeout(\"500\")\n", true),
+        ("var a := db.set_retries(1.5)\n", true),
+        ("var a := db.set_timeout()\n", false),
+        ("var a := db.set_retries(1, 2)\n", false),
+        ("var a := db.last_status(1)\n", false),
+    ] {
+        let err = error_from_source(&format!("{}{}", VDB_DB, src));
+        let ok = if type_err {
+            matches!(err, crate::error::CodegenError::TypeError { .. })
+        } else {
+            matches!(err, crate::error::CodegenError::InvalidOperation { .. })
+        };
+        assert!(ok, "{}: {:?}", src, err);
+    }
+}
+
 #[test]
 fn test_match_arm_borrowed_value_is_retained() {
     // `match` yields an owned value: an identifier arm must be retained, or

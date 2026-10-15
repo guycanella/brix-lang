@@ -27,10 +27,10 @@ Each entry recompiles and re-runs the whole accumulated session through the same
 
 **Run Rust unit tests:**
 ```bash
-cargo test -p lexer -p parser -p codegen  # All unit tests: 322 + 228 + 912 = 1,462 (all passing)
+cargo test -p lexer -p parser -p codegen  # All unit tests: 322 + 228 + 914 = 1,464 (all passing)
 cargo test -p lexer                       # Only lexer (322 tests)
 cargo test -p parser                      # Only parser (228 tests)
-cargo test -p codegen                     # Only codegen (912 tests)
+cargo test -p codegen                     # Only codegen (914 tests)
 cargo test -p codegen json_tests          # Specific test module in codegen
 cargo test <pattern>                      # Tests matching pattern
 cargo test -- --nocapture                 # Show println! output
@@ -38,7 +38,7 @@ cargo test -- --nocapture                 # Show println! output
 
 **Run integration tests (must be sequential):**
 ```bash
-cargo test --test integration_test -- --test-threads=1 # 292 tests passing
+cargo test --test integration_test -- --test-threads=1 # 293 tests passing
 ```
 
 **Run Brix language tests (Test Library):**
@@ -67,7 +67,7 @@ The driver (`src/main.rs`, ~509 lines; REPL in `src/repl.rs`) orchestrates all s
 ```
 brix/
 ├── src/main.rs              # CLI + compilation pipeline driver
-├── runtime.c                # C runtime (~7,083 lines) — must be in project root
+├── runtime.c                # C runtime (~7,179 lines) — must be in project root
 ├── crates/
 │   ├── lexer/src/token.rs   # Token enum (logos)
 │   ├── parser/src/
@@ -76,7 +76,7 @@ brix/
 │   │   ├── closure_analysis.rs  # Capture analysis pass (runs after parse)
 │   │   └── error.rs         # Ariadne-based parse error reporting
 │   └── codegen/src/
-│       ├── lib.rs           # Main compiler (~20,198 lines — post-refactor 11,014, grew with v1.8–v2.0 + rustfmt expansion)
+│       ├── lib.rs           # Main compiler (~20,210 lines — post-refactor 11,014, grew with v1.8–v2.0 + rustfmt expansion)
 │       ├── stmt.rs          # Statement compilation (~1,515 lines)
 │       ├── expr.rs          # Expression compilation + list comprehension (~2,028 lines)
 │       ├── helpers.rs       # LLVM helpers
@@ -88,7 +88,7 @@ brix/
 │                            #   iterator.rs, match_compiler.rs, async_compiler.rs, closure_compiler.rs
 ├── tests/
 │   ├── integration/         # End-to-end .bx files (success/, parser_errors/, codegen_errors/, runtime_errors/, test_library_failures/)
-│   └── brix/                # Language test files (*.test.bx) — 34 files, 566 tests, all passing
+│   └── brix/                # Language test files (*.test.bx) — 34 files, 569 tests, all passing
 ├── benchmarks/              # Informative benchmarks (run.sh + .bx), not CI gates
 └── examples/                # Example .bx programs
 ```
@@ -206,7 +206,7 @@ Jest-style framework. 17 matchers (all support `.not.` — `toEqual`, `toBeClose
 
 **Test baseline at v1.9 completion:** 1,357 unit (317 lexer + 209 parser + 831 codegen) + 264 integration + 517 Test Library (31 `.test.bx` files).
 
-**Current test baseline (v2.1 Grupo A Fase 4 COMPLETE):** 1,462 unit (322 lexer + 228 parser + 912 codegen) + 292 integration + 566 Test Library (34 `.test.bx` files) = 2,320. All green.
+**Current test baseline (v2.1 Grupo A COMPLETE):** 1,464 unit (322 lexer + 228 parser + 914 codegen) + 293 integration + 569 Test Library (34 `.test.bx` files) = 2,326. All green.
 
 **Completed in v1.9 (Grupo F):**
 - **Grupo F — `brix repl` — COMPLETE, as a "replay REPL", not the roadmap's original incremental-JIT design:**
@@ -392,7 +392,7 @@ Tests: +19 codegen unit, integration 263–267 (263 dot incl. f64-only precision
 
 ## v2.1 Status (IN PROGRESS) — see `ROADMAP_V2.1.md` (untracked, local only)
 
-Three groups: **0** (embedding operators), **A** (`VectorDB` type system + Pinecone), **B** (Weaviate/Milvus/Chroma). Grupo 0 is done; Grupo A is in progress (Fases 1–4 of 5 done); Grupo B is pending.
+Three groups: **0** (embedding operators), **A** (`VectorDB` type system + Pinecone), **B** (Weaviate/Milvus/Chroma). Grupo 0 and Grupo A are done; Grupo B is pending.
 
 **Grupo 0 — COMPLETE** (`66be0c1`, `3f47b1c`) — embedding operators, pure parser sugar, no runtime code:
 - `a @ b` → `a.cosine_similarity(b)`, `a <-> b` → `a.euclidean_distance(b)`, `a <=> b` → `a.dot_product(b)`. Tokens `At` / `LeftRightArrow` / `DoubleArrow` (`lexer/src/token.rs`); logos longest match leaves `<`, `<=`, `->` and `a<-1` unchanged (`<->`/`<=>` were never valid token sequences, and `@` used to be a lexer error).
@@ -402,7 +402,7 @@ Three groups: **0** (embedding operators), **A** (`VectorDB` type system + Pinec
 - `:type a @ b` in the REPL → `float` (the Fase 2 inference arm covers it); works inside f-string interpolation.
 - Tests: +5 lexer, +8 parser (precedence via an s-expression helper, associativity, spans incl. a postfix right operand), +4 codegen, integration 273 (results, precedence, temporaries, struct method), +3 Test Library (`embedding.test.bx`).
 
-**Grupo A — IN PROGRESS** (5 phases in `ROADMAP_V2.1.md`):
+**Grupo A — COMPLETE** (5 phases in `ROADMAP_V2.1.md`):
 
 **Fase 1 — COMPLETE** (`238e401`, `b54f1a6`) — `VectorDB` type, Pinecone `connect` + `stats`, `env()`:
 - `env(name) -> string?` builtin (`compile_env`); a user `fn env` (generic or not) keeps priority.
@@ -442,7 +442,17 @@ Three groups: **0** (embedding operators), **A** (`VectorDB` type system + Pinec
 - **Mock:** `/vectors/delete` accepts `deleteAll` (exclusive with `ids`); namespace `reject-ns` fails its `deleteAll` (test hook for a partial reset).
 - Tests: +3 codegen unit, integration 285 (one namespace, a missing one, the default one, reset of every namespace, idempotent reset, partial failure, 401s), +2 Test Library (offline cases).
 
-**Next — Grupo A Fase 5** (configurable timeouts, retry with backoff on 429/503, pooling) in `ROADMAP_V2.1.md`; then Grupo B.
+**Fase 5 — COMPLETE** — resilience, per connection (copies of a `VectorDB` share the settings):
+- `db.set_timeout(ms) -> int` — time limit of each request **attempt** (default 30 s; the connect phase is capped at 10 s). `ms < 1` → 0 + `last_error`, old value kept.
+- `db.set_retries(n) -> int` — extra attempts on HTTP **429/502/503/504** (default 3, `0..10`, else 0 + `last_error`, old value kept). Delay: the server's `Retry-After` when positive (capped at 30 s), otherwise exponential backoff with jitter (`100 ms × 2^attempt × [0.5, 1]`, cap 30 s). **libcurl's `CURLINFO_RETRY_AFTER` returns 0 both for "no header" and "Retry-After: 0"**, so 0 always means backoff (a first version treated it as "retry now" and retried with no delay — found in review). Connection failures and timeouts are **not** retried (a down host fails fast). Every data-plane call is idempotent, so retrying writes is safe. A final failure says `"HTTP 429 after 2 retries: ..."`.
+- `db.last_status() -> int` — HTTP status of the last response of the last operation, 0 when none (local error, connection failure, timeout). Multi-request operations report their last request (a batch whose second chunk fails locally returns 0 with `last_status()` still 200); settings calls reset it to 0. This is the roadmap's "error types": status + `last_error()` instead of new error codes.
+- **Not bounded by `set_timeout`:** one request can take `(retries + 1) × timeout + retries × 30 s`, and batches / `reset_index` send one request per chunk / namespace. No overall deadline yet.
+- **"Connection pooling"** was already there since Fase 1: one libcurl easy handle per connection, reused with keep-alive. No pool across connections (curl share interface) — not needed so far.
+- Runtime: `vdb_begin()` resets `last_error` / `last_status` at the start of every public operation (and of each request); the retry loop lives in `vdb_request`. The backoff jitter uses the global `rand()` (shared with the user-facing `rand`/`irand`; harmless while there is no seed API).
+- **Mock:** keys `flaky-key` (first 2 requests 503 with `Retry-After: 0`), `busy-key` (always 429 without the header; the body counts the requests and says whether the last two were ≥ 40 ms apart, so the backoff is really checked — mutation-checked), `retry1-key` (one 502 with `Retry-After: 1`), `slow-key` (1 s delay); the server ignores errors from clients that timed out.
+- Tests: +2 codegen unit, integration 286 (last_status in every case, retries absorbing 503s, giving up on 429 with counted and spaced retries, invalid settings keeping the old value, 502 + Retry-After, timeout shared by a copy), +3 Test Library (offline cases).
+
+**Next — Grupo B** (Weaviate, Milvus, Chroma) in `ROADMAP_V2.1.md`.
 
 ## CI (GitHub Actions) — `.github/workflows/ci.yml`
 

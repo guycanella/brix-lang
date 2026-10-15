@@ -1,0 +1,72 @@
+// v2.1 Grupo A Fase 5: retries on 429/502/503/504, per-request timeouts and
+// last_status(), against the mock's flaky-key / busy-key / slow-key.
+import vectordb
+import json
+
+var host := env("BRIX_TEST_PINECONE_HOST") ?: "http://127.0.0.1:1"
+
+// last_status: 200 after a success, 401 after a rejected key, 0 after a
+// local error or a refused connection.
+var db := vectordb.connect("pinecone", host, "test-key")
+println(db.last_status())
+println(db.stats() != nil)
+println(db.last_status())
+var bad := vectordb.connect("pinecone", host, "wrong-key")
+println(bad.stats() == nil)
+println(bad.last_status())
+println(db.query(Embedding<3>([1.0, 0.0, 0.0]), 0) == nil)
+println(db.last_status())
+var down := vectordb.connect("pinecone", "http://127.0.0.1:1", "test-key")
+println(down.stats() == nil)
+println(down.last_status())
+
+// 503 twice (Retry-After: 0): no retries fails at once; then the default
+// retries absorb the second 503.
+var flaky := vectordb.connect("pinecone", host, "flaky-key")
+println(flaky.set_retries(0))
+println(flaky.stats() == nil)
+println(flaky.last_status())
+println(flaky.last_error())
+println(flaky.set_retries(3))
+println(flaky.stats() != nil)
+println(flaky.last_status())
+println(flaky.last_error() == "")
+
+// Always 429 without Retry-After: exponential backoff (the mock counts the
+// requests and checks they were spaced out), then give up.
+var busy := vectordb.connect("pinecone", host, "busy-key")
+println(busy.set_retries(2))
+println(busy.stats() == nil)
+println(busy.last_status())
+println(busy.last_error())
+// An invalid setting keeps the old value: still 2 retries (3 more requests).
+println(busy.set_retries(11))
+println(busy.stats() == nil)
+println(busy.last_error())
+println(busy.set_retries(1))
+println(busy.stats() == nil)
+println(busy.last_error())
+
+// 502 with Retry-After: 1 is retried after the server's delay.
+var r1 := vectordb.connect("pinecone", host, "retry1-key")
+println(r1.stats() != nil)
+println(r1.last_status())
+
+// A response slower than the timeout fails with status 0; a copy shares the
+// connection's settings.
+var slow := vectordb.connect("pinecone", host, "slow-key")
+var alias := slow
+println(alias.set_timeout(200))
+println(slow.stats() == nil)
+println(slow.last_status())
+println(slow.last_error().contains("Timeout"))
+println(slow.set_timeout(5000))
+println(slow.stats() != nil)
+
+// Invalid settings are rejected and leave the old value.
+println(db.set_timeout(0))
+println(db.last_error())
+println(db.set_retries(11))
+println(db.last_error())
+println(db.set_retries(-1))
+println(db.last_error())
