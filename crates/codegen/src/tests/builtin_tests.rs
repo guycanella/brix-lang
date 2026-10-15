@@ -3924,6 +3924,7 @@ fn test_vectordb_provider_errors() {
         // Chroma needs the collection.
         "var db := vectordb.connect(\"chroma\", \"h\", \"k\")\n",
         "var db := vectordb.connect(\"weaviate\", \"h\", \"k\")\n",
+        "var db := vectordb.connect(\"milvus\", \"h\", \"k\")\n",
     ] {
         assert!(
             matches!(
@@ -4512,6 +4513,19 @@ println(y)
     );
     assert!(
         ir.contains("%union_slot_load = load { double, double }"),
+        "{}",
+        ir
+    );
+}
+
+#[test]
+fn test_vectordb_connect_milvus() {
+    let ir = ir_from_source(&format!(
+        "{}var db := vectordb.connect(\"milvus\", \"http://localhost:19530\", \"\", \"docs\")\nvar s := db.stats()\n",
+        VDB_PRELUDE
+    ));
+    assert!(
+        ir.contains("call ptr @brix_vectordb_connect(i64 3, ptr"),
         "{}",
         ir
     );

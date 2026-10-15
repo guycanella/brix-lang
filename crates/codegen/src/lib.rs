@@ -17242,7 +17242,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
     /// Compile a `vectordb.*` module call. Only `connect` exists:
     /// `vectordb.connect("pinecone", host, api_key[, namespace])` or
-    /// `vectordb.connect("chroma" | "weaviate", url, api_key, collection)` ->
+    /// `vectordb.connect("chroma" | "weaviate" | "milvus", url, api_key, collection)` ->
     /// VectorDB.
     /// The provider must be a string literal so an unsupported one is a
     /// compile error; the config itself is validated at runtime (connect
@@ -17264,16 +17264,18 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             return Err(CodegenError::InvalidOperation {
                 operation: "vectordb.connect".to_string(),
                 reason: format!(
-                    "expects (\"pinecone\", host, api_key[, namespace]) or (\"chroma\" | \"weaviate\", url, api_key, collection), got {} argument(s)",
+                    "expects (\"pinecone\", host, api_key[, namespace]) or (\"chroma\" | \"weaviate\" | \"milvus\", url, api_key, collection), got {} argument(s)",
                     args.len()
                 ),
                 span: Some(expr.span.clone()),
             });
         }
-        // Provider ids match BRIX_VDB_PINECONE / BRIX_VDB_CHROMA in runtime.c.
+        // Provider ids match BRIX_VDB_PINECONE / _CHROMA / _WEAVIATE / _MILVUS in runtime.c.
         let provider: u64 = match &args[0].kind {
             ExprKind::Literal(Literal::String(p)) if p == "pinecone" => 0,
-            ExprKind::Literal(Literal::String(p)) if p == "chroma" || p == "weaviate" => {
+            ExprKind::Literal(Literal::String(p))
+                if p == "chroma" || p == "weaviate" || p == "milvus" =>
+            {
                 if args.len() != 4 {
                     return Err(CodegenError::InvalidOperation {
                         operation: "vectordb.connect".to_string(),
@@ -17281,13 +17283,17 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         span: Some(expr.span.clone()),
                     });
                 }
-                if p == "chroma" { 1 } else { 2 }
+                match p.as_str() {
+                    "chroma" => 1,
+                    "weaviate" => 2,
+                    _ => 3,
+                }
             }
             ExprKind::Literal(Literal::String(p)) => {
                 return Err(CodegenError::InvalidOperation {
                     operation: "vectordb.connect".to_string(),
                     reason: format!(
-                        "unknown provider \"{}\" (supported: \"pinecone\", \"chroma\", \"weaviate\")",
+                        "unknown provider \"{}\" (supported: \"pinecone\", \"chroma\", \"weaviate\", \"milvus\")",
                         p
                     ),
                     span: Some(args[0].span.clone()),

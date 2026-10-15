@@ -117,3 +117,12 @@ test.describe("String built-in functions", () -> {
         test.expect(replace_all("hello world", "l", "L")).toBe("heLLo worLd")
     })
 })
+
+test.describe("String literal escapes", () -> {
+    test.it("keeps an escaped quote right before the closing quote", () -> {
+        var s := "say \"hi\""
+        test.expect(s.len).toBe(8)
+        test.expect(s).toEndWith("hi\"")
+        test.expect(s.contains("\\")).toBeFalsy()
+    })
+})

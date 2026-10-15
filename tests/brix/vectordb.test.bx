@@ -245,5 +245,33 @@ test.describe("VectorDB empty batches (v2.1 Grupo B Fase 2)", () -> {
         test.expect(ch.delete_batch(ids)).toBe(1)
         test.expect(wv.upsert_batch(ids, vecs)).toBe(1)
         test.expect(wv.delete_batch(ids)).toBe(1)
+        var mv := vectordb.connect("milvus", "http://127.0.0.1:1", "", "docs")
+        test.expect(mv.upsert_batch(ids, vecs)).toBe(1)
+        test.expect(mv.delete_batch(ids)).toBe(1)
+    })
+})
+
+test.describe("VectorDB on Milvus (v2.1 Grupo B Fase 3)", () -> {
+    test.it("namespaces are not supported, without a request", () -> {
+        var db := vectordb.connect("milvus", "http://127.0.0.1:1", "", "docs")
+        test.expect(db.delete_namespace("x")).toBe(0)
+        test.expect(db.last_error()).toBe("delete_namespace: not supported by milvus")
+        test.expect(db.reset_index()).toBe(0)
+        test.expect(db.last_error()).toBe("reset_index: not supported by milvus")
+    })
+
+    test.it("local checks run before any request", () -> {
+        var db := vectordb.connect("milvus", "http://127.0.0.1:1", "", "prod/docs")
+        test.expect(db.list(0)).toBeNil()
+        test.expect(db.last_error()).toBe("/v2/vectordb/entities/query: limit must be >= 1, got 0")
+        test.expect(db.query(Embedding<3>([1.0, 0.0, 0.0]), 1, json.object())).toBeNil()
+        test.expect(db.last_error()).toBe("/v2/vectordb/entities/search: filter must be a Milvus filter expression (a JSON string)")
+    })
+
+    test.it("operations on a refused connection fail describing the collection", () -> {
+        var db := vectordb.connect("milvus", "http://127.0.0.1:1", "", "docs")
+        test.expect(db.fetch("a")).toBeNil()
+        test.expect(db.last_error()).toStartWith("/v2/vectordb/collections/describe: ")
+        test.expect(db.last_status()).toBe(0)
     })
 })
