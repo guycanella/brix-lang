@@ -20,6 +20,26 @@ function sum_and_product(a: int, b: int) -> (int, int) {
     return (a + b, a * b)
 }
 
+function or_none(s: string?) -> string {
+    return s ?: "none"
+}
+
+function show_num(x: int | float) -> string {
+    return f"{x}"
+}
+
+function show_c(x: int | complex) -> string {
+    return f"{x}"
+}
+
+function first_or<T>(x: T, label: string?) -> string {
+    return label ?: "none"
+}
+
+function count_or(label: string?, nums: ...int) -> string {
+    return label ?: "none"
+}
+
 function greet(name: string, greeting: string = "Hello") -> string {
     return greeting + ", " + name + "!"
 }
@@ -97,3 +117,28 @@ test.describe("Recursion", () -> {
     })
 })
 
+test.describe("Union parameters", () -> {
+    test.it("a plain value is wrapped in the parameter union", () -> {
+        var s := "brix"
+        test.expect(or_none(s)).toBe("brix")
+        test.expect(or_none("lit")).toBe("lit")
+        test.expect(or_none(nil)).toBe("none")
+    })
+
+    test.it("each variant keeps its own tag", () -> {
+        test.expect(show_num(5)).toBe("5")
+        test.expect(show_num(2.5)).toBe("2.5")
+    })
+
+    test.it("a scalar fits a union whose widest variant is a struct", () -> {
+        test.expect(show_c(1)).toBe("1")
+        test.expect(show_c(2.0 + 3.0i)).toBe("2+3im")
+    })
+
+    test.it("generic and variadic calls wrap union arguments too", () -> {
+        test.expect(first_or(1, "g")).toBe("g")
+        test.expect(first_or<int>(1, nil)).toBe("none")
+        test.expect(count_or("v", 1, 2)).toBe("v")
+        test.expect(count_or(nil)).toBe("none")
+    })
+})

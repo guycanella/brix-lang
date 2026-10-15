@@ -27,10 +27,10 @@ Each entry recompiles and re-runs the whole accumulated session through the same
 
 **Run Rust unit tests:**
 ```bash
-cargo test -p lexer -p parser -p codegen  # All unit tests: 322 + 228 + 914 = 1,464 (all passing)
+cargo test -p lexer -p parser -p codegen  # All unit tests: 322 + 228 + 917 = 1,467 (all passing)
 cargo test -p lexer                       # Only lexer (322 tests)
 cargo test -p parser                      # Only parser (228 tests)
-cargo test -p codegen                     # Only codegen (914 tests)
+cargo test -p codegen                     # Only codegen (917 tests)
 cargo test -p codegen json_tests          # Specific test module in codegen
 cargo test <pattern>                      # Tests matching pattern
 cargo test -- --nocapture                 # Show println! output
@@ -38,7 +38,7 @@ cargo test -- --nocapture                 # Show println! output
 
 **Run integration tests (must be sequential):**
 ```bash
-cargo test --test integration_test -- --test-threads=1 # 293 tests passing
+cargo test --test integration_test -- --test-threads=1 # 294 tests passing
 ```
 
 **Run Brix language tests (Test Library):**
@@ -67,7 +67,7 @@ The driver (`src/main.rs`, ~509 lines; REPL in `src/repl.rs`) orchestrates all s
 ```
 brix/
 ├── src/main.rs              # CLI + compilation pipeline driver
-├── runtime.c                # C runtime (~7,182 lines) — must be in project root
+├── runtime.c                # C runtime (~7,638 lines) — must be in project root
 ├── crates/
 │   ├── lexer/src/token.rs   # Token enum (logos)
 │   ├── parser/src/
@@ -76,7 +76,7 @@ brix/
 │   │   ├── closure_analysis.rs  # Capture analysis pass (runs after parse)
 │   │   └── error.rs         # Ariadne-based parse error reporting
 │   └── codegen/src/
-│       ├── lib.rs           # Main compiler (~20,210 lines — post-refactor 11,014, grew with v1.8–v2.0 + rustfmt expansion)
+│       ├── lib.rs           # Main compiler (~20,353 lines — post-refactor 11,014, grew with v1.8–v2.0 + rustfmt expansion)
 │       ├── stmt.rs          # Statement compilation (~1,515 lines)
 │       ├── expr.rs          # Expression compilation + list comprehension (~2,028 lines)
 │       ├── helpers.rs       # LLVM helpers
@@ -88,7 +88,7 @@ brix/
 │                            #   iterator.rs, match_compiler.rs, async_compiler.rs, closure_compiler.rs
 ├── tests/
 │   ├── integration/         # End-to-end .bx files (success/, parser_errors/, codegen_errors/, runtime_errors/, test_library_failures/)
-│   └── brix/                # Language test files (*.test.bx) — 34 files, 569 tests, all passing
+│   └── brix/                # Language test files (*.test.bx) — 34 files, 576 tests, all passing
 ├── benchmarks/              # Informative benchmarks (run.sh + .bx), not CI gates
 └── examples/                # Example .bx programs
 ```
@@ -124,7 +124,7 @@ Flat `HashMap<String, (PointerValue, BrixType)>` with module prefixes. `import m
 
 ### Type System (current: v2.1 in progress — v2.0 complete, Grupo 0 operators done)
 
-Core types: `Int` (i64), `Float` (f64), `String`, `Matrix` (f64, contiguous), `IntMatrix` (i64), `StringMatrix` (array of `BrixString*`, v1.7), `Complex`, `ComplexArray`, `ComplexMatrix`, `Tuple`, `Nil`, `Error`, `Atom` (i64 interned), `Void`, `Struct(String)`, `Optional(Box)` (desugars to Union), `Union(Vec<BrixType>)`, `Intersection(Vec<BrixType>)`, `AsyncFuture`, `FloatPtr`, `Vector(Box<BrixType>)` (v1.8 Grupo C — dynamic `Vector<T>`, `BrixVector*`), `Stack`/`Queue`/`MinHeap`/`MaxHeap(Box<BrixType>)` and `HashMap(Box, Box)` (v1.8 D–F), `DateTime` (v1.9 A), `Json` (v1.9 B), and `Embedding(u32)` (v2.0 Grupo A — `BrixEmbedding*`, dim is a const generic) and `EmbeddingBatch(u32)` (v2.0 Fase 3 — `BrixEmbeddingBatch*`), and `VectorDB` (v2.1 Grupo A — `BrixVectorDB*`, one connection to a Pinecone index).
+Core types: `Int` (i64), `Float` (f64), `String`, `Matrix` (f64, contiguous), `IntMatrix` (i64), `StringMatrix` (array of `BrixString*`, v1.7), `Complex`, `ComplexArray`, `ComplexMatrix`, `Tuple`, `Nil`, `Error`, `Atom` (i64 interned), `Void`, `Struct(String)`, `Optional(Box)` (desugars to Union), `Union(Vec<BrixType>)`, `Intersection(Vec<BrixType>)`, `AsyncFuture`, `FloatPtr`, `Vector(Box<BrixType>)` (v1.8 Grupo C — dynamic `Vector<T>`, `BrixVector*`), `Stack`/`Queue`/`MinHeap`/`MaxHeap(Box<BrixType>)` and `HashMap(Box, Box)` (v1.8 D–F), `DateTime` (v1.9 A), `Json` (v1.9 B), and `Embedding(u32)` (v2.0 Grupo A — `BrixEmbedding*`, dim is a const generic) and `EmbeddingBatch(u32)` (v2.0 Fase 3 — `BrixEmbeddingBatch*`), and `VectorDB` (v2.1 Grupo A — `BrixVectorDB*`, one connection to a Pinecone index or, since Grupo B Fase 1, a Chroma collection).
 
 **Scientific notation (v1.8):** float literals accept exponents — `6.0e23`, `1.5e-10`, `6.02E+23`, and integer-mantissa `1e10`; imaginary too (`1e3i`). Lexer `Float`/`ImaginaryLiteral` regexes; parser converts via `str::parse::<f64>()`.
 
@@ -206,7 +206,7 @@ Jest-style framework. 17 matchers (all support `.not.` — `toEqual`, `toBeClose
 
 **Test baseline at v1.9 completion:** 1,357 unit (317 lexer + 209 parser + 831 codegen) + 264 integration + 517 Test Library (31 `.test.bx` files).
 
-**Current test baseline (v2.1 Grupo A COMPLETE):** 1,464 unit (322 lexer + 228 parser + 914 codegen) + 293 integration + 569 Test Library (34 `.test.bx` files) = 2,326. All green.
+**Current test baseline (v2.1 Grupo B Fase 1):** 1,467 unit (322 lexer + 228 parser + 917 codegen) + 294 integration + 576 Test Library (34 `.test.bx` files) = 2,337. All green.
 
 **Completed in v1.9 (Grupo F):**
 - **Grupo F — `brix repl` — COMPLETE, as a "replay REPL", not the roadmap's original incremental-JIT design:**
@@ -392,7 +392,7 @@ Tests: +19 codegen unit, integration 263–267 (263 dot incl. f64-only precision
 
 ## v2.1 Status (IN PROGRESS) — see `ROADMAP_V2.1.md` (untracked, local only)
 
-Three groups: **0** (embedding operators), **A** (`VectorDB` type system + Pinecone), **B** (Weaviate/Milvus/Chroma). Grupo 0 and Grupo A are done; Grupo B is pending.
+Three groups: **0** (embedding operators), **A** (`VectorDB` type system + Pinecone), **B** (Weaviate/Milvus/Chroma). Grupo 0 and Grupo A are done; Grupo B is in progress (Fase 1 Chroma done; Fase 2 Weaviate and Fase 3 Milvus pending).
 
 **Grupo 0 — COMPLETE** (`66be0c1`, `3f47b1c`) — embedding operators, pure parser sugar, no runtime code:
 - `a @ b` → `a.cosine_similarity(b)`, `a <-> b` → `a.euclidean_distance(b)`, `a <=> b` → `a.dot_product(b)`. Tokens `At` / `LeftRightArrow` / `DoubleArrow` (`lexer/src/token.rs`); logos longest match leaves `<`, `<=`, `->` and `a<-1` unchanged (`<->`/`<=>` were never valid token sequences, and `@` used to be a lexer error).
@@ -452,7 +452,20 @@ Three groups: **0** (embedding operators), **A** (`VectorDB` type system + Pinec
 - **Mock:** keys `flaky-key` (first 2 requests 503 with `Retry-After: 0`), `busy-key` (always 429 without the header; the body counts the requests and says whether the last two were ≥ 40 ms apart, so the backoff is really checked — mutation-checked), `retry1-key` (one 502 with `Retry-After: 1`; a retry sooner than 0.9 s gets 400, so honoring the header is checked — mutation-checked), `slow-key` (1 s delay); the server ignores errors from clients that timed out.
 - Tests: +2 codegen unit, integration 286 (last_status in every case, retries absorbing 503s, giving up on 429 with counted and spaced retries, invalid settings keeping the old value, 502 + Retry-After, timeout shared by a copy), +3 Test Library (offline cases).
 
-**Next — Grupo B** (Weaviate, Milvus, Chroma) in `ROADMAP_V2.1.md`.
+**Grupo B — IN PROGRESS.** The roadmap only sketched it ("v2.1.1 or v2.2", gRPC for Milvus, local Chroma); it was split into 3 phases, one provider each, with these decisions: every provider speaks REST through the same libcurl handle (Milvus via its REST v2 API, not gRPC — no protobuf / extra link dependency); Chroma is its HTTP server, not the in-process local mode (Python-only); filters are each provider's native syntax, sent as-is (no translation layer); a method a provider can't map returns nil/0 with `"<method>: not supported by <provider>"` in `last_error()` (the `VectorDB` type doesn't carry the provider, so it can't be a compile error); positional `connect` args as for Pinecone.
+
+**Fase 1 — COMPLETE** — Chroma (HTTP API v2: `chroma run` 1.x or Chroma Cloud), checked against a real `chromadb/chroma` Docker server:
+- `vectordb.connect("chroma", url, api_key, collection)` — the 4th arg is required (`E104` otherwise); `api_key` `""` = no auth, else sent as both `x-chroma-token` (Cloud) and `Authorization: Bearer` (self-hosted token auth); `collection` is `"name"` (default tenant/database) or `"tenant/database/name"` (`.`/`..` segments rejected). connect does no network I/O.
+- **One connection = one existing collection.** It is never created implicitly (Chroma would choose the distance space / index config). The name is resolved to its id (`GET .../collections/<name>`) on the first operation and cached; a 404 drops the cache (the collection may have been recreated) and `stats()` always resolves again. A missing collection fails every operation with Chroma's 404.
+- Mapping: `stats()` -> `{dimension, totalVectorCount}` (collection + `/count`); `query` -> `/query` with `include: [metadatas, distances]`, matches are `[{id, distance, metadata}]` — **`distance` (lower is closer, in the collection's space), not Pinecone's `score`**; `fetch` -> `/get` by id (missing = nil with `last_error() == ""`); `list([limit[, token]])` -> `/get` `limit`+`offset`, returned in the Pinecone page shape (`{vectors: [{id}], pagination: {next}}`, the token is the next offset; default limit 100; an exact multiple of `limit` ends with one empty page); writes -> `/upsert` / `/delete` in requests of **300 records** (Chroma Cloud's per-write quota; local servers allow more via `/api/v2/pre-flight-checks` — not read), same `(N of M written)` partial-failure message and up-front checks as Pinecone. `delete_namespace` / `reset_index` are not supported (no namespaces). `set_timeout` / `set_retries` / `last_status` / `last_error` are shared.
+- **Behavior differences from Pinecone (real Chroma, not hidden):** `upsert` **merges** metadata into the existing record (null/no metadata keeps it, a key set to null removes that key; Pinecone replaces it); metadata values must be scalars or lists of one scalar type (anything else is Chroma's 422, mirrored by the mock); duplicate ids inside one write are rejected by Chroma; there is no request-size cap besides the 300 records.
+- **Runtime:** `BrixVectorDB` gained `provider` / `db_path` / `coll_path`; `brix_vectordb_connect` takes a leading `long provider`; `vdb_request` became `vdb_request_at(db, prefix, path, ...)` (errors name only `path`, never the tenant/collection-id prefix or the key) with per-provider headers. The public functions run the checks both providers share, then dispatch to `chroma_*`. Helpers `vdb_put_checked` (a refused deep value never silently drops a filter/metadata — shared with Pinecone now) and `vdb_note_written`.
+- **Pre-existing codegen bug fixed (found by test 287):** a non-union argument passed to a union parameter (`fn show(v: json?)` called with a `json`, `5` to `int | float`, `"s"` to `string?`) was passed as a bare value instead of a tagged union — a json object read as nil, other cases segfaulted. `coerce_call_arg` (`lib.rs`) now wraps it (exact variant or int -> float variant) in `prepare_call_arguments` (plain, default and variadic fixed args) and both generic call paths (`coerce_generic_arg`); `is_type_compatible` accepts a union parameter's variant. No retain (the callee borrows its parameters). Still pre-existing: owned temporaries passed as arguments are not released after the call (leak, all types).
+- **Mock:** `tests/integration/mock_chroma.py` (same harness, `MockPinecone::start_chroma()`, env `BRIX_TEST_CHROMA_HOST`) mirrors the real server's routes, shapes, status codes, merge semantics and insertion order; rejects writes over 300 records (proves the splitting), `reject-me` fails its request, a token must be `test-key` in both headers.
+- **Also fixed (CodeRabbit):** a scalar variant in a union whose widest variant is an aggregate (`int | complex`, slot `{f64, f64}`) was inserted as a bare `i64` — invalid IR (the call crashed LLVM; the declaration only worked by luck). `coerce_union_slot` now reinterprets through memory (an entry-block alloca of the wider type) when either side is a struct/array, which covers every store and the print path.
+- Tests: +3 codegen unit, integration 287 (every method, splitting, partial failure, merge, non-scalar metadata 422 vs. a scalar list, unsupported methods, 400/401/404, tenant/database form, auth), +7 Test Library (3 offline Chroma cases in `vectordb.test.bx`, 4 union-argument cases in `functions.test.bx`).
+
+**Next — Grupo B Fase 2** (Weaviate) in `ROADMAP_V2.1.md`.
 
 ## CI (GitHub Actions) — `.github/workflows/ci.yml`
 

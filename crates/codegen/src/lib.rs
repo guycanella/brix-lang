@@ -1750,12 +1750,85 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         }
     }
 
+    /// Pass a non-union argument to a union parameter (`fn f(v: json?)`
+    /// called with a `json`, `5` to an `int | float`): build the tagged union
+    /// for the matching variant (exact, or an int promoted to a float
+    /// variant). Anything else is returned unchanged. No retain: the callee
+    /// borrows its parameters, as for a non-union argument.
+    fn coerce_call_arg(
+        &self,
+        val: BasicValueEnum<'ctx>,
+        val_type: &BrixType,
+        param_type: &BrixType,
+    ) -> CodegenResult<BasicValueEnum<'ctx>> {
+        let BrixType::Union(types) = param_type else {
+            return Ok(val);
+        };
+        if matches!(val_type, BrixType::Union(_)) {
+            return Ok(val);
+        }
+        let err = |op: &str| CodegenError::LLVMError {
+            operation: op.to_string(),
+            details: "Failed to build a union argument".to_string(),
+            span: None,
+        };
+        let (tag, slot) = if let Some(i) = types.iter().position(|t| t == val_type) {
+            (i, val)
+        } else if *val_type == BrixType::Int
+            && let Some(i) = types.iter().position(|t| *t == BrixType::Float)
+        {
+            let f = self
+                .builder
+                .build_signed_int_to_float(val.into_int_value(), self.context.f64_type(), "arg_i2f")
+                .map_err(|_| err("build_signed_int_to_float"))?;
+            (i, f.into())
+        } else {
+            return Ok(val);
+        };
+        let struct_type = self.brix_type_to_llvm(param_type).into_struct_type();
+        let tag_val = self.context.i64_type().const_int(tag as u64, false);
+        let with_tag = self
+            .builder
+            .build_insert_value(struct_type.get_undef(), tag_val, 0, "arg_union_tag")
+            .map_err(|_| err("build_insert_value"))?;
+        let slot_type = struct_type.get_field_type_at_index(1).unwrap();
+        let slot_val = self.coerce_union_slot(slot, slot_type)?;
+        Ok(self
+            .builder
+            .build_insert_value(with_tag, slot_val, 1, "arg_union")
+            .map_err(|_| err("build_insert_value"))?
+            .into_struct_value()
+            .into())
+    }
+
+    /// `coerce_call_arg` for argument `i` of a monomorphized generic call,
+    /// using the specialized function's parameter types.
+    fn coerce_generic_arg(
+        &self,
+        specialized_name: &str,
+        i: usize,
+        val: BasicValueEnum<'ctx>,
+        val_type: &BrixType,
+    ) -> CodegenResult<BasicValueEnum<'ctx>> {
+        match self
+            .function_params
+            .get(specialized_name)
+            .and_then(|ps| ps.get(i))
+        {
+            Some((_, param_type, _, _)) => self.coerce_call_arg(val, val_type, param_type),
+            None => Ok(val),
+        }
+    }
+
     /// Reinterpret a 64-bit scalar as `target`, the LLVM type of a union's
     /// value slot (on store) or of the active variant (on load). The slot is
     /// the widest variant's type, so `int | float` keeps a `double` in an
     /// `i64` slot: without the bitcast the IR is malformed and the bits end up
     /// in the wrong register class on Linux (AArch64/x86_64 pass variadic
-    /// doubles in FP registers). Anything else passes through unchanged.
+    /// doubles in FP registers). When either side is an aggregate (an
+    /// `int | complex` slot is the `{f64, f64}` struct) the value is
+    /// reinterpreted through memory instead: stored into the wider type and
+    /// loaded back as `target`. Anything else passes through unchanged.
     pub(crate) fn coerce_union_slot(
         &self,
         val: BasicValueEnum<'ctx>,
@@ -1768,6 +1841,12 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             BasicTypeEnum::IntType(i) => i.get_bit_width() == 64,
             BasicTypeEnum::FloatType(f) => f == self.context.f64_type(),
             _ => false,
+        };
+        let is_aggregate = |t: BasicTypeEnum<'ctx>| {
+            matches!(
+                t,
+                BasicTypeEnum::StructType(_) | BasicTypeEnum::ArrayType(_)
+            )
         };
         let err = |op: &str| CodegenError::LLVMError {
             operation: op.to_string(),
@@ -1789,6 +1868,22 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 .builder
                 .build_bit_cast(val, target, "union_slot_cast")
                 .map_err(|_| err("build_bit_cast"))?),
+            _ if is_aggregate(target) || is_aggregate(val.get_type()) => {
+                // The slot is the widest variant, so the aggregate side is
+                // the larger one: size the temporary by it.
+                let wide = if is_aggregate(target) {
+                    target
+                } else {
+                    val.get_type()
+                };
+                let tmp = self.create_entry_block_alloca(wide, "union_slot_tmp")?;
+                self.builder
+                    .build_store(tmp, val)
+                    .map_err(|_| err("build_store"))?;
+                self.builder
+                    .build_load(target, tmp, "union_slot_load")
+                    .map_err(|_| err("build_load"))
+            }
             _ => Ok(val),
         }
     }
@@ -1876,6 +1971,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             (BrixType::Int, BrixType::IntMatrix) => true,
             (BrixType::Float, BrixType::Matrix) => true,
             (BrixType::String, BrixType::StringMatrix) => true,
+            // Wrapped by coerce_call_arg.
+            (found, BrixType::Union(ts)) => {
+                ts.contains(found) || (*found == BrixType::Int && ts.contains(&BrixType::Float))
+            }
             _ => false,
         }
     }
@@ -1916,6 +2015,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                 span: Some(args[i].span.clone()),
                             });
                         }
+                        let arg_val = self.coerce_call_arg(arg_val, &arg_type, expected_type)?;
                         llvm_args.push(arg_val.into());
                     } else if let Some(default_expr) = default_opt {
                         let (default_val, default_type) = self.compile_expr(default_expr)?;
@@ -1931,6 +2031,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                 span: Some(span.clone()),
                             });
                         }
+                        let default_val =
+                            self.coerce_call_arg(default_val, &default_type, expected_type)?;
                         llvm_args.push(default_val.into());
                     } else {
                         return Err(CodegenError::InvalidOperation {
@@ -2207,13 +2309,16 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
                 if num_provided < num_required {
                     for i in 0..num_provided {
-                        let (arg_val, _) = self.compile_expr(&args[i])?;
+                        let (arg_val, arg_type) = self.compile_expr(&args[i])?;
+                        let arg_val = self.coerce_call_arg(arg_val, &arg_type, &params[i].1)?;
                         llvm_args.push(arg_val.into());
                     }
                     for i in num_provided..num_required {
-                        let (_param_name, _param_type, default_opt, _) = &params[i];
+                        let (_param_name, param_type, default_opt, _) = &params[i];
                         if let Some(default_expr) = default_opt {
-                            let (default_val, _) = self.compile_expr(default_expr)?;
+                            let (default_val, default_type) = self.compile_expr(default_expr)?;
+                            let default_val =
+                                self.coerce_call_arg(default_val, &default_type, param_type)?;
                             llvm_args.push(default_val.into());
                         } else {
                             return Err(CodegenError::InvalidOperation {
@@ -2237,8 +2342,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         span: Some(span.clone()),
                     });
                 } else {
-                    for arg in args {
-                        let (arg_val, _) = self.compile_expr(arg)?;
+                    for (arg, param) in args.iter().zip(&params) {
+                        let (arg_val, arg_type) = self.compile_expr(arg)?;
+                        let arg_val = self.coerce_call_arg(arg_val, &arg_type, &param.1)?;
                         llvm_args.push(arg_val.into());
                     }
                 }
@@ -9158,6 +9264,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                         .into();
                                 }
                             }
+                            let arg_val =
+                                self.coerce_generic_arg(&specialized_name, i, arg_val, &arg_type)?;
 
                             llvm_args.push(arg_val.into());
                         }
@@ -9515,8 +9623,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
                 // Compile arguments
                 let mut llvm_args: Vec<BasicMetadataValueEnum> = Vec::new();
-                for arg in args {
-                    let (arg_val, _arg_type) = self.compile_expr(arg)?;
+                for (i, arg) in args.iter().enumerate() {
+                    let (arg_val, arg_type) = self.compile_expr(arg)?;
+                    let arg_val =
+                        self.coerce_generic_arg(&specialized_name, i, arg_val, &arg_type)?;
                     llvm_args.push(arg_val.into());
                 }
 
@@ -17131,7 +17241,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     }
 
     /// Compile a `vectordb.*` module call. Only `connect` exists:
-    /// `vectordb.connect("pinecone", host, api_key[, namespace])` -> VectorDB.
+    /// `vectordb.connect("pinecone", host, api_key[, namespace])` or
+    /// `vectordb.connect("chroma", url, api_key, collection)` -> VectorDB.
     /// The provider must be a string literal so an unsupported one is a
     /// compile error; the config itself is validated at runtime (connect
     /// aborts on an empty host/key or plain http:// to a non-loopback host).
@@ -17152,18 +17263,32 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             return Err(CodegenError::InvalidOperation {
                 operation: "vectordb.connect".to_string(),
                 reason: format!(
-                    "expects (provider, host, api_key[, namespace]), got {} argument(s)",
+                    "expects (\"pinecone\", host, api_key[, namespace]) or (\"chroma\", url, api_key, collection), got {} argument(s)",
                     args.len()
                 ),
                 span: Some(expr.span.clone()),
             });
         }
-        match &args[0].kind {
-            ExprKind::Literal(Literal::String(p)) if p == "pinecone" => {}
+        // Provider ids match BRIX_VDB_PINECONE / BRIX_VDB_CHROMA in runtime.c.
+        let provider: u64 = match &args[0].kind {
+            ExprKind::Literal(Literal::String(p)) if p == "pinecone" => 0,
+            ExprKind::Literal(Literal::String(p)) if p == "chroma" => {
+                if args.len() != 4 {
+                    return Err(CodegenError::InvalidOperation {
+                        operation: "vectordb.connect".to_string(),
+                        reason: "chroma expects (\"chroma\", url, api_key, collection)".to_string(),
+                        span: Some(expr.span.clone()),
+                    });
+                }
+                1
+            }
             ExprKind::Literal(Literal::String(p)) => {
                 return Err(CodegenError::InvalidOperation {
                     operation: "vectordb.connect".to_string(),
-                    reason: format!("unknown provider \"{}\" (supported: \"pinecone\")", p),
+                    reason: format!(
+                        "unknown provider \"{}\" (supported: \"pinecone\", \"chroma\")",
+                        p
+                    ),
                     span: Some(args[0].span.clone()),
                 });
             }
@@ -17174,10 +17299,18 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     span: Some(args[0].span.clone()),
                 });
             }
-        }
+        };
 
         let ptr_type = self.context.ptr_type(AddressSpace::default());
-        let names = ["host", "api_key", "namespace"];
+        let names = [
+            "host",
+            "api_key",
+            if provider == 1 {
+                "collection"
+            } else {
+                "namespace"
+            },
+        ];
         let mut compiled = Vec::with_capacity(3);
         for (arg, name) in args[1..].iter().zip(names) {
             let (val, ty) = self.compile_expr(arg)?;
@@ -17191,15 +17324,25 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             }
             compiled.push(val);
         }
+        let i64_type = self.context.i64_type();
         let mut call_args: Vec<BasicMetadataValueEnum<'ctx>> =
-            compiled.iter().map(|v| (*v).into()).collect();
-        if call_args.len() == 2 {
+            vec![i64_type.const_int(provider, false).into()];
+        call_args.extend(compiled.iter().map(|v| BasicMetadataValueEnum::from(*v)));
+        if call_args.len() == 3 {
             call_args.push(ptr_type.const_null().into()); // default namespace
         }
         let db = self
             .call_runtime_fn(
                 "brix_vectordb_connect",
-                ptr_type.fn_type(&[ptr_type.into(), ptr_type.into(), ptr_type.into()], false),
+                ptr_type.fn_type(
+                    &[
+                        i64_type.into(),
+                        ptr_type.into(),
+                        ptr_type.into(),
+                        ptr_type.into(),
+                    ],
+                    false,
+                ),
                 &call_args,
                 expr,
             )?

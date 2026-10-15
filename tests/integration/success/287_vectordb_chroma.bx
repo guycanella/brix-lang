@@ -1,0 +1,120 @@
+// v2.1 Grupo B Fase 1: the "chroma" provider against the mock Chroma server
+// (HTTP API v2). Same VectorDB methods as Pinecone, on one collection.
+import vectordb
+import json
+
+var host := env("BRIX_TEST_CHROMA_HOST") ?: "http://127.0.0.1:1"
+var db := vectordb.connect("chroma", host, "", "docs")
+
+fn show(v: json?) {
+    println(json.stringify(v ?: json.null()))
+}
+
+// stats: dimension + count, resolved from the collection name.
+show(db.stats())
+
+// query: cosine distance, best first; a "where" filter is sent as-is.
+show(db.query(Embedding<3>([1.0, 0.0, 0.0]), 2))
+var news := json.object()
+json.set(news, "genre", json.string("news"))
+show(db.query(Embedding<3>([0.0, 1.0, 0.0]), 3, news))
+
+// fetch: found (no metadata key when null), missing = nil with no error.
+show(db.fetch("b"))
+show(db.fetch("c"))
+show(db.fetch("nope"))
+println(db.last_error())
+
+// list: pages of 2 from /get offsets.
+var page := db.list(2) ?: json.null()
+show(page)
+var pag := page["pagination"]
+var next := json.as_string(pag["next"]) ?: ""
+show(db.list(2, next))
+show(db.list(5, "x"))
+println(db.last_error())
+
+// upsert merges metadata: "genre" stays, "year" is added.
+var year := json.object()
+json.set(year, "year", json.int(2024))
+println(db.upsert("a", Embedding<3>([1.0, 0.0, 0.0]), year))
+show(db.fetch("a"))
+
+// Chroma metadata values are scalars or lists of one scalar type: a nested
+// object is the server's 422, and nothing is written.
+var nested := json.object()
+var inner := json.object()
+json.set(inner, "b", json.int(1))
+json.set(nested, "a", inner)
+println(db.upsert("n", Embedding<3>([1.0, 0.0, 0.0]), nested))
+println(db.last_status())
+show(db.fetch("n"))
+var tags := json.object()
+var list := json.array()
+json.array_push(list, json.string("x"))
+json.array_push(list, json.string("y"))
+json.set(tags, "tags", list)
+println(db.upsert("n", Embedding<3>([1.0, 0.0, 0.0]), tags))
+show(db.fetch("n"))
+println(db.delete("n"))
+
+// upsert_batch: 301 records go out as 300 + 1 (the mock rejects > 300).
+var ids := Vector<string>()
+var vecs := EmbeddingBatch<3>(0)
+var i := 0
+while i < 301 {
+    ids.push(f"r{i}")
+    vecs.add(Embedding<3>([0.0, 0.0, 1.0]))
+    i := i + 1
+}
+println(db.upsert_batch(ids, vecs))
+var st := db.stats() ?: json.object()
+println(json.as_int(st["totalVectorCount"]) ?: -1)
+
+// A failed second request: the first 300 records stay written.
+var bad := Vector<string>()
+var badv := EmbeddingBatch<3>(0)
+i := 0
+while i < 301 {
+    bad.push(i == 300 ? "reject-me" : f"s{i}")
+    badv.add(Embedding<3>([0.0, 0.0, 1.0]))
+    i := i + 1
+}
+println(db.upsert_batch(bad, badv))
+println(db.last_error())
+println(db.last_status())
+
+// delete / delete_batch (301 ids: 2 requests).
+println(db.delete("a"))
+println(db.delete_batch(ids))
+show(db.stats())
+
+// No namespaces in Chroma: not supported, no request sent.
+println(db.delete_namespace("x"))
+println(db.last_error())
+println(db.reset_index())
+println(db.last_error())
+
+// API errors keep the status and Chroma's message.
+println(db.upsert("d", Embedding<4>([1.0, 0.0, 0.0, 0.0])))
+println(db.last_status())
+println(db.last_error())
+
+// A missing collection fails every operation with its 404.
+var missing := vectordb.connect("chroma", host, "", "missing")
+show(missing.query(Embedding<3>([1.0, 0.0, 0.0]), 1))
+println(missing.last_status())
+println(missing.last_error())
+
+// "tenant/database/name" picks another database.
+var acme := vectordb.connect("chroma", host, "", "acme/prod/docs")
+show(acme.list())
+
+// A token goes in x-chroma-token and Authorization: Bearer.
+var authed := vectordb.connect("chroma", host, "test-key", "docs")
+var ast := authed.stats() ?: json.object()
+println(json.as_int(ast["totalVectorCount"]) ?: -1)
+var wrong := vectordb.connect("chroma", host, "wrong-key", "docs")
+show(wrong.stats())
+println(wrong.last_status())
+println(wrong.last_error())
