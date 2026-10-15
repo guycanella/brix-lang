@@ -1,6 +1,6 @@
 # Brix Language (Design Document v1.0)
 
-> 🚧 **Status do Projeto (Out 2026):** v1.6, v1.7, v1.8 e v1.9 **COMPLETOS**. **v2.0 Grupo A (`Embedding<DIM>`) COMPLETO** — Fase 0 (const generics na gramática), Fase 1 (tipo `Embedding<DIM>` + conversões com `Matrix`) e Fase 2 (métodos de similaridade via BLAS) Fase 3 (`EmbeddingBatch<DIM>` + `find_nearest`) e Fase 4 (verificação do BLAS + benchmark informativo) concluídas. **v2.1 em andamento — Grupo 0 (operadores `@` / `<->` / `<=>`) concluído; Grupo A (VectorDB + Pinecone) concluído, Fases 1–5 (`VectorDB`, `vectordb.connect`, `db.stats()`, `env()`; `db.query` / `db.fetch` / `db.list` retornando `json?`; `db.upsert` / `upsert_batch` / `delete` / `delete_batch` e `db.delete_namespace` / `db.reset_index` retornando `int`; `db.set_timeout` / `db.set_retries` / `db.last_status`); Grupo B em andamento — Fase 1 (provider Chroma) concluída.** **1.466 unit tests + 294 integration tests + 575 Test Library = 2.335 tests passando (100%).** Detalhes técnicos por grupo: `CLAUDE.md` (raiz); planejamento: `ROADMAP_V2.0.md`–`ROADMAP_V2.2.md`.
+> 🚧 **Status do Projeto (Out 2026):** v1.6, v1.7, v1.8 e v1.9 **COMPLETOS**. **v2.0 Grupo A (`Embedding<DIM>`) COMPLETO** — Fase 0 (const generics na gramática), Fase 1 (tipo `Embedding<DIM>` + conversões com `Matrix`) e Fase 2 (métodos de similaridade via BLAS) Fase 3 (`EmbeddingBatch<DIM>` + `find_nearest`) e Fase 4 (verificação do BLAS + benchmark informativo) concluídas. **v2.1 em andamento — Grupo 0 (operadores `@` / `<->` / `<=>`) concluído; Grupo A (VectorDB + Pinecone) concluído, Fases 1–5 (`VectorDB`, `vectordb.connect`, `db.stats()`, `env()`; `db.query` / `db.fetch` / `db.list` retornando `json?`; `db.upsert` / `upsert_batch` / `delete` / `delete_batch` e `db.delete_namespace` / `db.reset_index` retornando `int`; `db.set_timeout` / `db.set_retries` / `db.last_status`); Grupo B em andamento — Fase 1 (provider Chroma) concluída.** **1.467 unit tests + 294 integration tests + 576 Test Library = 2.337 tests passando (100%).** Detalhes técnicos por grupo: `CLAUDE.md` (raiz); planejamento: `ROADMAP_V2.0.md`–`ROADMAP_V2.2.md`.
 
 ## Status Atual (Outubro 2026)
 
@@ -4046,7 +4046,7 @@ math.sum(arr), math.mean(arr), math.median(arr), math.std(arr)
 
 - **Linhas de Código (Rust):** ~39.900 linhas (lexer + parser + codegen + driver)
 - **Linhas de Código (C Runtime):** ~6.170 linhas (`runtime.c`)
-- **Testes:** 1.466 unit (322 lexer + 228 parser + 916 codegen) + 294 integration + 575 Test Library (34 arquivos `.test.bx`) = 2.335 total
+- **Testes:** 1.467 unit (322 lexer + 228 parser + 917 codegen) + 294 integration + 576 Test Library (34 arquivos `.test.bx`) = 2.337 total
 - **Versão Atual:** v2.1 🚧 **EM ANDAMENTO** (Grupo 0 ✅ operadores; Grupo A ✅ — VectorDB + `connect`/`stats` + `query`/`fetch`/`list` + `upsert`/`delete` + `delete_namespace`/`reset_index` + timeouts/retry; Grupo B 🚧 — Chroma ✅, Weaviate/Milvus pendentes)
 - **Versão Anterior:** v2.0 ✅ **COMPLETO** (Grupo A, Fases 0–4)
 - **Próximo Passo:** v2.1 Grupo B Fase 2 — Weaviate (`ROADMAP_V2.1.md`)

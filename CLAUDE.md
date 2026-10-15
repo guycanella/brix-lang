@@ -27,10 +27,10 @@ Each entry recompiles and re-runs the whole accumulated session through the same
 
 **Run Rust unit tests:**
 ```bash
-cargo test -p lexer -p parser -p codegen  # All unit tests: 322 + 228 + 916 = 1,466 (all passing)
+cargo test -p lexer -p parser -p codegen  # All unit tests: 322 + 228 + 917 = 1,467 (all passing)
 cargo test -p lexer                       # Only lexer (322 tests)
 cargo test -p parser                      # Only parser (228 tests)
-cargo test -p codegen                     # Only codegen (916 tests)
+cargo test -p codegen                     # Only codegen (917 tests)
 cargo test -p codegen json_tests          # Specific test module in codegen
 cargo test <pattern>                      # Tests matching pattern
 cargo test -- --nocapture                 # Show println! output
@@ -76,7 +76,7 @@ brix/
 │   │   ├── closure_analysis.rs  # Capture analysis pass (runs after parse)
 │   │   └── error.rs         # Ariadne-based parse error reporting
 │   └── codegen/src/
-│       ├── lib.rs           # Main compiler (~20,328 lines — post-refactor 11,014, grew with v1.8–v2.0 + rustfmt expansion)
+│       ├── lib.rs           # Main compiler (~20,353 lines — post-refactor 11,014, grew with v1.8–v2.0 + rustfmt expansion)
 │       ├── stmt.rs          # Statement compilation (~1,515 lines)
 │       ├── expr.rs          # Expression compilation + list comprehension (~2,028 lines)
 │       ├── helpers.rs       # LLVM helpers
@@ -88,7 +88,7 @@ brix/
 │                            #   iterator.rs, match_compiler.rs, async_compiler.rs, closure_compiler.rs
 ├── tests/
 │   ├── integration/         # End-to-end .bx files (success/, parser_errors/, codegen_errors/, runtime_errors/, test_library_failures/)
-│   └── brix/                # Language test files (*.test.bx) — 34 files, 575 tests, all passing
+│   └── brix/                # Language test files (*.test.bx) — 34 files, 576 tests, all passing
 ├── benchmarks/              # Informative benchmarks (run.sh + .bx), not CI gates
 └── examples/                # Example .bx programs
 ```
@@ -206,7 +206,7 @@ Jest-style framework. 17 matchers (all support `.not.` — `toEqual`, `toBeClose
 
 **Test baseline at v1.9 completion:** 1,357 unit (317 lexer + 209 parser + 831 codegen) + 264 integration + 517 Test Library (31 `.test.bx` files).
 
-**Current test baseline (v2.1 Grupo B Fase 1):** 1,466 unit (322 lexer + 228 parser + 916 codegen) + 294 integration + 575 Test Library (34 `.test.bx` files) = 2,335. All green.
+**Current test baseline (v2.1 Grupo B Fase 1):** 1,467 unit (322 lexer + 228 parser + 917 codegen) + 294 integration + 576 Test Library (34 `.test.bx` files) = 2,337. All green.
 
 **Completed in v1.9 (Grupo F):**
 - **Grupo F — `brix repl` — COMPLETE, as a "replay REPL", not the roadmap's original incremental-JIT design:**
@@ -458,11 +458,12 @@ Three groups: **0** (embedding operators), **A** (`VectorDB` type system + Pinec
 - `vectordb.connect("chroma", url, api_key, collection)` — the 4th arg is required (`E104` otherwise); `api_key` `""` = no auth, else sent as both `x-chroma-token` (Cloud) and `Authorization: Bearer` (self-hosted token auth); `collection` is `"name"` (default tenant/database) or `"tenant/database/name"` (`.`/`..` segments rejected). connect does no network I/O.
 - **One connection = one existing collection.** It is never created implicitly (Chroma would choose the distance space / index config). The name is resolved to its id (`GET .../collections/<name>`) on the first operation and cached; a 404 drops the cache (the collection may have been recreated) and `stats()` always resolves again. A missing collection fails every operation with Chroma's 404.
 - Mapping: `stats()` -> `{dimension, totalVectorCount}` (collection + `/count`); `query` -> `/query` with `include: [metadatas, distances]`, matches are `[{id, distance, metadata}]` — **`distance` (lower is closer, in the collection's space), not Pinecone's `score`**; `fetch` -> `/get` by id (missing = nil with `last_error() == ""`); `list([limit[, token]])` -> `/get` `limit`+`offset`, returned in the Pinecone page shape (`{vectors: [{id}], pagination: {next}}`, the token is the next offset; default limit 100; an exact multiple of `limit` ends with one empty page); writes -> `/upsert` / `/delete` in requests of **300 records** (Chroma Cloud's per-write quota; local servers allow more via `/api/v2/pre-flight-checks` — not read), same `(N of M written)` partial-failure message and up-front checks as Pinecone. `delete_namespace` / `reset_index` are not supported (no namespaces). `set_timeout` / `set_retries` / `last_status` / `last_error` are shared.
-- **Behavior differences from Pinecone (real Chroma, not hidden):** `upsert` **merges** metadata into the existing record (null/no metadata keeps it, a key set to null removes that key; Pinecone replaces it); metadata values must be scalars (Chroma's 422); duplicate ids inside one write are rejected by Chroma; there is no request-size cap besides the 300 records.
+- **Behavior differences from Pinecone (real Chroma, not hidden):** `upsert` **merges** metadata into the existing record (null/no metadata keeps it, a key set to null removes that key; Pinecone replaces it); metadata values must be scalars or lists of one scalar type (anything else is Chroma's 422, mirrored by the mock); duplicate ids inside one write are rejected by Chroma; there is no request-size cap besides the 300 records.
 - **Runtime:** `BrixVectorDB` gained `provider` / `db_path` / `coll_path`; `brix_vectordb_connect` takes a leading `long provider`; `vdb_request` became `vdb_request_at(db, prefix, path, ...)` (errors name only `path`, never the tenant/collection-id prefix or the key) with per-provider headers. The public functions run the checks both providers share, then dispatch to `chroma_*`. Helpers `vdb_put_checked` (a refused deep value never silently drops a filter/metadata — shared with Pinecone now) and `vdb_note_written`.
 - **Pre-existing codegen bug fixed (found by test 287):** a non-union argument passed to a union parameter (`fn show(v: json?)` called with a `json`, `5` to `int | float`, `"s"` to `string?`) was passed as a bare value instead of a tagged union — a json object read as nil, other cases segfaulted. `coerce_call_arg` (`lib.rs`) now wraps it (exact variant or int -> float variant) in `prepare_call_arguments` (plain, default and variadic fixed args) and both generic call paths (`coerce_generic_arg`); `is_type_compatible` accepts a union parameter's variant. No retain (the callee borrows its parameters). Still pre-existing: owned temporaries passed as arguments are not released after the call (leak, all types).
 - **Mock:** `tests/integration/mock_chroma.py` (same harness, `MockPinecone::start_chroma()`, env `BRIX_TEST_CHROMA_HOST`) mirrors the real server's routes, shapes, status codes, merge semantics and insertion order; rejects writes over 300 records (proves the splitting), `reject-me` fails its request, a token must be `test-key` in both headers.
-- Tests: +2 codegen unit, integration 287 (every method, splitting, partial failure, merge, unsupported methods, 400/401/404, tenant/database form, auth), +6 Test Library (3 offline Chroma cases in `vectordb.test.bx`, 3 union-argument cases in `functions.test.bx`).
+- **Also fixed (CodeRabbit):** a scalar variant in a union whose widest variant is an aggregate (`int | complex`, slot `{f64, f64}`) was inserted as a bare `i64` — invalid IR (the call crashed LLVM; the declaration only worked by luck). `coerce_union_slot` now reinterprets through memory (an entry-block alloca of the wider type) when either side is a struct/array, which covers every store and the print path.
+- Tests: +3 codegen unit, integration 287 (every method, splitting, partial failure, merge, non-scalar metadata 422 vs. a scalar list, unsupported methods, 400/401/404, tenant/database form, auth), +7 Test Library (3 offline Chroma cases in `vectordb.test.bx`, 4 union-argument cases in `functions.test.bx`).
 
 **Next — Grupo B Fase 2** (Weaviate) in `ROADMAP_V2.1.md`.
 
