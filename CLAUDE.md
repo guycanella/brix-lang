@@ -27,10 +27,10 @@ Each entry recompiles and re-runs the whole accumulated session through the same
 
 **Run Rust unit tests:**
 ```bash
-cargo test -p lexer -p parser -p codegen  # All unit tests: 322 + 228 + 918 = 1,468 (all passing)
+cargo test -p lexer -p parser -p codegen  # All unit tests: 322 + 229 + 919 = 1,470 (all passing)
 cargo test -p lexer                       # Only lexer (322 tests)
-cargo test -p parser                      # Only parser (228 tests)
-cargo test -p codegen                     # Only codegen (918 tests)
+cargo test -p parser                      # Only parser (229 tests)
+cargo test -p codegen                     # Only codegen (919 tests)
 cargo test -p codegen json_tests          # Specific test module in codegen
 cargo test <pattern>                      # Tests matching pattern
 cargo test -- --nocapture                 # Show println! output
@@ -38,12 +38,12 @@ cargo test -- --nocapture                 # Show println! output
 
 **Run integration tests (must be sequential):**
 ```bash
-cargo test --test integration_test -- --test-threads=1 # 296 tests passing
+cargo test --test integration_test -- --test-threads=1 # 298 tests passing
 ```
 
 **Run Brix language tests (Test Library):**
 ```bash
-cargo run -- test                   # All *.test.bx and *.spec.bx (34 suites passing)
+cargo run -- test                   # All *.test.bx and *.spec.bx (34 suites passing, 584 tests)
 cargo run -- test json              # Files matching "json" in path
 ```
 
@@ -67,16 +67,16 @@ The driver (`src/main.rs`, ~509 lines; REPL in `src/repl.rs`) orchestrates all s
 ```
 brix/
 ├── src/main.rs              # CLI + compilation pipeline driver
-├── runtime.c                # C runtime (~8,363 lines) — must be in project root
+├── runtime.c                # C runtime (~8,871 lines) — must be in project root
 ├── crates/
 │   ├── lexer/src/token.rs   # Token enum (logos)
 │   ├── parser/src/
 │   │   ├── ast.rs           # Expr { kind: ExprKind, span }, Stmt { kind: StmtKind, span }
-│   │   ├── parser.rs        # chumsky parser (~2,104 lines)
+│   │   ├── parser.rs        # chumsky parser (~2,111 lines)
 │   │   ├── closure_analysis.rs  # Capture analysis pass (runs after parse)
 │   │   └── error.rs         # Ariadne-based parse error reporting
 │   └── codegen/src/
-│       ├── lib.rs           # Main compiler (~20,354 lines — post-refactor 11,014, grew with v1.8–v2.0 + rustfmt expansion)
+│       ├── lib.rs           # Main compiler (~20,360 lines — post-refactor 11,014, grew with v1.8–v2.0 + rustfmt expansion)
 │       ├── stmt.rs          # Statement compilation (~1,515 lines)
 │       ├── expr.rs          # Expression compilation + list comprehension (~2,028 lines)
 │       ├── helpers.rs       # LLVM helpers
@@ -88,7 +88,7 @@ brix/
 │                            #   iterator.rs, match_compiler.rs, async_compiler.rs, closure_compiler.rs
 ├── tests/
 │   ├── integration/         # End-to-end .bx files (success/, parser_errors/, codegen_errors/, runtime_errors/, test_library_failures/)
-│   └── brix/                # Language test files (*.test.bx) — 34 files, 580 tests, all passing
+│   └── brix/                # Language test files (*.test.bx) — 34 files, 584 tests, all passing
 ├── benchmarks/              # Informative benchmarks (run.sh + .bx), not CI gates
 └── examples/                # Example .bx programs
 ```
@@ -122,9 +122,9 @@ Flat `HashMap<String, (PointerValue, BrixType)>` with module prefixes. `import m
 - **match**: one basic block per arm + PHI in merge block
 - **break/continue**: `Compiler` has `current_break_block` / `current_continue_block` (`Option<BasicBlock>`). Each loop saves the outer blocks, sets its own, restores after body. After emitting the unconditional branch, a dead basic block is appended to keep LLVM IR valid.
 
-### Type System (current: v2.1 in progress — v2.0 complete, Grupo 0 operators done)
+### Type System (current: v2.1 complete)
 
-Core types: `Int` (i64), `Float` (f64), `String`, `Matrix` (f64, contiguous), `IntMatrix` (i64), `StringMatrix` (array of `BrixString*`, v1.7), `Complex`, `ComplexArray`, `ComplexMatrix`, `Tuple`, `Nil`, `Error`, `Atom` (i64 interned), `Void`, `Struct(String)`, `Optional(Box)` (desugars to Union), `Union(Vec<BrixType>)`, `Intersection(Vec<BrixType>)`, `AsyncFuture`, `FloatPtr`, `Vector(Box<BrixType>)` (v1.8 Grupo C — dynamic `Vector<T>`, `BrixVector*`), `Stack`/`Queue`/`MinHeap`/`MaxHeap(Box<BrixType>)` and `HashMap(Box, Box)` (v1.8 D–F), `DateTime` (v1.9 A), `Json` (v1.9 B), and `Embedding(u32)` (v2.0 Grupo A — `BrixEmbedding*`, dim is a const generic) and `EmbeddingBatch(u32)` (v2.0 Fase 3 — `BrixEmbeddingBatch*`), and `VectorDB` (v2.1 Grupo A — `BrixVectorDB*`, one connection to a Pinecone index, a Chroma collection (Grupo B Fase 1) or a Weaviate class (Fase 2)).
+Core types: `Int` (i64), `Float` (f64), `String`, `Matrix` (f64, contiguous), `IntMatrix` (i64), `StringMatrix` (array of `BrixString*`, v1.7), `Complex`, `ComplexArray`, `ComplexMatrix`, `Tuple`, `Nil`, `Error`, `Atom` (i64 interned), `Void`, `Struct(String)`, `Optional(Box)` (desugars to Union), `Union(Vec<BrixType>)`, `Intersection(Vec<BrixType>)`, `AsyncFuture`, `FloatPtr`, `Vector(Box<BrixType>)` (v1.8 Grupo C — dynamic `Vector<T>`, `BrixVector*`), `Stack`/`Queue`/`MinHeap`/`MaxHeap(Box<BrixType>)` and `HashMap(Box, Box)` (v1.8 D–F), `DateTime` (v1.9 A), `Json` (v1.9 B), and `Embedding(u32)` (v2.0 Grupo A — `BrixEmbedding*`, dim is a const generic) and `EmbeddingBatch(u32)` (v2.0 Fase 3 — `BrixEmbeddingBatch*`), and `VectorDB` (v2.1 Grupo A — `BrixVectorDB*`, one connection to a Pinecone index, a Chroma collection (Grupo B Fase 1), a Weaviate class (Fase 2) or a Milvus collection (Fase 3)).
 
 **Scientific notation (v1.8):** float literals accept exponents — `6.0e23`, `1.5e-10`, `6.02E+23`, and integer-mantissa `1e10`; imaginary too (`1e3i`). Lexer `Float`/`ImaginaryLiteral` regexes; parser converts via `str::parse::<f64>()`.
 
@@ -184,7 +184,7 @@ Jest-style framework. 17 matchers (all support `.not.` — `toEqual`, `toBeClose
 
 **New pattern variant (e.g., for `match`):** Add variant to `Pattern` enum in `parser/src/ast.rs` → parse it in the `pattern` recursive block in `parser.rs` (inside `let pattern = recursive(|_pat| { ... })`) → add match arm to `compile_pattern_match()` in `builtins/match_compiler.rs`. For sub-patterns, use `apply_sub_pattern()` helper. Also add the variant's binding names to `collect_pattern_binding_names()` (v1.7 fix — used to scope match-arm bindings so they don't leak into the next arm; see Status & Limitations).
 
-## Status & Limitations (v1.9 complete, v2.0 in progress)
+## Status & Limitations (v2.1 complete)
 
 **Completed in v1.6 (Fases 0–4):**
 - `break` / `continue` (Fase 0a): `Token::Break`/`Token::Continue`, `StmtKind::Break`/`StmtKind::Continue`, save/restore pattern on `Compiler`. Note: `break`/`continue` inside closures (e.g., `.map()` callbacks) is not supported.
@@ -206,7 +206,7 @@ Jest-style framework. 17 matchers (all support `.not.` — `toEqual`, `toBeClose
 
 **Test baseline at v1.9 completion:** 1,357 unit (317 lexer + 209 parser + 831 codegen) + 264 integration + 517 Test Library (31 `.test.bx` files).
 
-**Current test baseline (v2.1 Grupo B Fase 2):** 1,468 unit (322 lexer + 228 parser + 918 codegen) + 296 integration + 580 Test Library (34 `.test.bx` files) = 2,344. All green.
+**Current test baseline (v2.1 complete):** 1,470 unit (322 lexer + 229 parser + 919 codegen) + 298 integration + 584 Test Library (34 `.test.bx` files) = 2,352. All green.
 
 **Completed in v1.9 (Grupo F):**
 - **Grupo F — `brix repl` — COMPLETE, as a "replay REPL", not the roadmap's original incremental-JIT design:**
@@ -390,9 +390,9 @@ Tests: +19 codegen unit, integration 263–267 (263 dot incl. f64-only precision
 
 **Next:** v2.1 (below).
 
-## v2.1 Status (IN PROGRESS) — see `ROADMAP_V2.1.md` (untracked, local only)
+## v2.1 Status (COMPLETE) — see `ROADMAP_V2.1.md` (untracked, local only)
 
-Three groups: **0** (embedding operators), **A** (`VectorDB` type system + Pinecone), **B** (Weaviate/Milvus/Chroma). Grupo 0 and Grupo A are done; Grupo B is in progress (Fase 1 Chroma and Fase 2 Weaviate done; Fase 3 Milvus pending).
+Three groups: **0** (embedding operators), **A** (`VectorDB` type system + Pinecone), **B** (Weaviate/Milvus/Chroma). All three are done (Grupo B: Fase 1 Chroma, Fase 2 Weaviate, Fase 3 Milvus).
 
 **Grupo 0 — COMPLETE** (`66be0c1`, `3f47b1c`) — embedding operators, pure parser sugar, no runtime code:
 - `a @ b` → `a.cosine_similarity(b)`, `a <-> b` → `a.euclidean_distance(b)`, `a <=> b` → `a.dot_product(b)`. Tokens `At` / `LeftRightArrow` / `DoubleArrow` (`lexer/src/token.rs`); logos longest match leaves `<`, `<=`, `->` and `a<-1` unchanged (`<->`/`<=>` were never valid token sequences, and `@` used to be a lexer error).
@@ -452,7 +452,7 @@ Three groups: **0** (embedding operators), **A** (`VectorDB` type system + Pinec
 - **Mock:** keys `flaky-key` (first 2 requests 503 with `Retry-After: 0`), `busy-key` (always 429 without the header; the body counts the requests and says whether the last two were ≥ 40 ms apart, so the backoff is really checked — mutation-checked), `retry1-key` (one 502 with `Retry-After: 1`; a retry sooner than 0.9 s gets 400, so honoring the header is checked — mutation-checked), `slow-key` (1 s delay); the server ignores errors from clients that timed out.
 - Tests: +2 codegen unit, integration 286 (last_status in every case, retries absorbing 503s, giving up on 429 with counted and spaced retries, invalid settings keeping the old value, 502 + Retry-After, timeout shared by a copy), +3 Test Library (offline cases).
 
-**Grupo B — IN PROGRESS.** The roadmap only sketched it ("v2.1.1 or v2.2", gRPC for Milvus, local Chroma); it was split into 3 phases, one provider each, with these decisions: every provider speaks REST through the same libcurl handle (Milvus via its REST v2 API, not gRPC — no protobuf / extra link dependency); Chroma is its HTTP server, not the in-process local mode (Python-only); filters are each provider's native syntax, sent as-is (no translation layer); a method a provider can't map returns nil/0 with `"<method>: not supported by <provider>"` in `last_error()` (the `VectorDB` type doesn't carry the provider, so it can't be a compile error); positional `connect` args as for Pinecone.
+**Grupo B — COMPLETE.** The roadmap only sketched it ("v2.1.1 or v2.2", gRPC for Milvus, local Chroma); it was split into 3 phases, one provider each, with these decisions: every provider speaks REST through the same libcurl handle (Milvus via its REST v2 API, not gRPC — no protobuf / extra link dependency); Chroma is its HTTP server, not the in-process local mode (Python-only); filters are each provider's native syntax, sent as-is (no translation layer); a method a provider can't map returns nil/0 with `"<method>: not supported by <provider>"` in `last_error()` (the `VectorDB` type doesn't carry the provider, so it can't be a compile error); positional `connect` args as for Pinecone.
 
 **Fase 1 — COMPLETE** — Chroma (HTTP API v2: `chroma run` 1.x or Chroma Cloud), checked against a real `chromadb/chroma` Docker server:
 - `vectordb.connect("chroma", url, api_key, collection)` — the 4th arg is required (`E104` otherwise); `api_key` `""` = no auth, else sent as both `x-chroma-token` (Cloud) and `Authorization: Bearer` (self-hosted token auth); `collection` is `"name"` (default tenant/database) or `"tenant/database/name"` (`.`/`..` segments rejected). connect does no network I/O.
@@ -476,7 +476,18 @@ Three groups: **0** (embedding operators), **A** (`VectorDB` type system + Pinec
 - **Mock:** `tests/integration/mock_weaviate.py` (`MockPinecone::start_weaviate()`, env `BRIX_TEST_WEAVIATE_HOST`) really parses the GraphQL text (selections, arguments, input values), does auto-schema like the server, answers batches with per-object errors, 404 with an empty body, capitalizes class names, rejects batches over 100 (proves the splitting) and a selection of a non-scalar property without sub-fields; hooks: `brix_id` `reject-me` fails its object, class `Vanish` disappears once its schema was read (mutation-checked: without the fresh schema read the upsert silently recreated it).
 - Tests: +1 codegen unit (+1 error case), integration 288 (every method, filters incl. `And` and escaping, a property-type mix, splitting 201 = 100+100+1, a failed object mid-request, dimension mismatch, `brix_id` clash, deleted/missing class never recreated, lowercase class name, auth) and 289 (class-name injection aborts), +4 Test Library (3 offline Weaviate cases, 1 empty-batch case for all providers).
 
-**Next — Grupo B Fase 3** (Milvus) in `ROADMAP_V2.1.md`.
+**Fase 3 — COMPLETE** — Milvus (REST API v2, `POST /v2/vectordb/...`), checked against a real Milvus 2.5.10 standalone Docker server (with and without auth):
+- `vectordb.connect("milvus", url, api_key, collection)` — 4th arg required (`E104`); `api_key` `""` = no auth, else `Authorization: Bearer` (`"user:password"` or an API key); `collection` is `"name"` or `"database/name"`, each a name (`[_A-Za-z][_0-9A-Za-z]*`), else connect aborts (test 291).
+- **Schema:** the collection must exist (never created) with a **VarChar primary key without autoID** (Brix ids are strings) and **one FloatVector field**; anything else is an error naming the reason. Both field names come from `collections/describe` on the first operation and are cached (`coll_path` = pk, new `vec_field`); any failed request drops them, and `stats()` always describes again. Field names are whatever the schema says (`doc_id` / `emb` covered by test 290).
+- Mapping: `stats()` -> describe (dimension from the vector field's `dim`) + `entities/query` `count(*)`; `query` -> `entities/search` on the vector field with `outputFields: ["*"]`, matches `[{id, score, metadata}]` — **`score` is Milvus' `distance`, in the collection's metric** (COSINE/IP higher is closer, L2 lower), like Pinecone's metric-dependent score; `fetch` -> `entities/get` (missing = nil, no error); `list` -> `entities/query` with `filter: pk > "<token>"` + `limit` — Milvus returns query results in primary key order, so the token is the last id of the page (a cursor, no offset cap; checked on a real server across sealed and growing segments); `upsert` / `upsert_batch` -> `entities/upsert` through `vdb_post_chunked` (1000 records / 2 MB per request; a Milvus request is all or nothing), **replaces** the whole entity (static fields left out become null); `delete` / `delete_batch` -> `entities/delete` with `filter: pk in [...]`, 1000 ids per request. `delete_namespace` / `reset_index` not supported. Reads use the collection's own consistency level.
+- **Metadata** = every other field (static or dynamic), nulls left out; a search hit also drops `distance` and the `id` copy Milvus adds when the pk has another name (found on the real server, mutation-checked). Metadata holding the pk or vector field name is a local error.
+- **Filters** are Milvus boolean expressions given as a **JSON string** (`json.string("genre == 'news'")`) and sent as-is; any other JSON is a local error. Ids inside generated expressions are their JSON text (Milvus unquotes the same escapes — an id with a quote and a backslash round-trips on the real server).
+- **Errors:** Milvus answers errors with HTTP 200 and a non-zero `code` — checked in `vdb_request_at` for this provider, reported as `<path>: code N: <message>` with `last_status()` 200 (auth failures are HTTP 401). These code errors are **not retried** (`set_retries` covers HTTP 429/502/503/504 only, so Milvus' rate limiting isn't either).
+- **Pre-existing parser bug fixed (found writing test 290):** a string literal ending in an escaped quote lost it — `"a \"b\""` was `a "b\` — because the quotes were stripped with `trim_matches('"')`, which also ate the escaped one. `string_body()` (`parser.rs`) strips only the two delimiters, at all three sites (literals, patterns, `printf`).
+- **Mock:** `tests/integration/mock_milvus.py` (`MockPinecone::start_milvus()`, env `BRIX_TEST_MILVUS_HOST`) mirrors the real routes, shapes, codes and messages (compact sorted JSON, pk-ordered queries, cosine `distance`, the `id` copy, all-or-nothing upserts, 401 with code 1800); field names come from each collection's schema; a small expression parser (`field op literal`, `field in [...]`); rejects requests over 1000 entities/ids (proves the splitting); `reject-me` fails its upsert request.
+- Tests: +1 codegen unit (+1 error case), +1 parser unit, integration 290 (every method, filters incl. a server parse error, replace semantics, quote/backslash id, splitting 1201 = 1000+201, a failed request mid-batch, dimension mismatch, `database/name`, missing collection, autoID Int64 pk rejected, custom field names, auth) and 291 (bad collection spec aborts), +4 Test Library (3 offline Milvus cases in `vectordb.test.bx`, 1 escaped-quote case in `strings.test.bx`; the empty-batch case now covers Milvus too).
+
+**v2.1 is now feature-complete across all 3 groups (0, A, B). Next:** v2.2 (`ROADMAP_V2.2.md`, ONNX Runtime + GPU).
 
 ## CI (GitHub Actions) — `.github/workflows/ci.yml`
 
