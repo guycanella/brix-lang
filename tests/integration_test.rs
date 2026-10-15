@@ -72,7 +72,8 @@ fn run_brix_repl(input: &str) -> (String, String, i32) {
     )
 }
 
-/// The mock Pinecone host (tests/integration/mock_pinecone.py), killed on drop.
+/// A mock vector database host, killed on drop: Pinecone
+/// (tests/integration/mock_pinecone.py) or Chroma (mock_chroma.py).
 struct MockPinecone {
     child: std::process::Child,
     host: String,
@@ -80,8 +81,16 @@ struct MockPinecone {
 
 impl MockPinecone {
     fn start() -> Self {
+        Self::start_script("tests/integration/mock_pinecone.py")
+    }
+
+    fn start_chroma() -> Self {
+        Self::start_script("tests/integration/mock_chroma.py")
+    }
+
+    fn start_script(script: &str) -> Self {
         let mut child = Command::new("python3")
-            .arg("tests/integration/mock_pinecone.py")
+            .arg(script)
             .stdout(Stdio::piped())
             .spawn()
             .expect("python3 is required for the vectordb tests");
@@ -90,18 +99,20 @@ impl MockPinecone {
             &mut std::io::BufReader::new(child.stdout.take().unwrap()),
             &mut port,
         )
-        .expect("mock_pinecone.py must print its port");
+        .expect("the mock must print its port");
         let host = format!("http://127.0.0.1:{}", port.trim());
         MockPinecone { child, host }
     }
 
-    /// Run `file_path` with BRIX_TEST_PINECONE_HOST pointing at the mock and
-    /// assert it succeeds with exactly `expected_stdout`.
+    /// Run `file_path` with BRIX_TEST_PINECONE_HOST (and BRIX_TEST_CHROMA_HOST)
+    /// pointing at the mock and assert it succeeds with exactly
+    /// `expected_stdout`.
     fn assert_success(&self, file_path: &str, expected_stdout: &str) {
         let (stdout, stderr, exit_code) = run_brix_file_env(
             file_path,
             &[
                 ("BRIX_TEST_PINECONE_HOST", &self.host),
+                ("BRIX_TEST_CHROMA_HOST", &self.host),
                 // Plain http to loopback must bypass any proxy: if it
                 // didn't, every request would fail against this one.
                 ("http_proxy", "http://127.0.0.1:9"),
@@ -2786,5 +2797,13 @@ fn test_278_vectordb_userinfo_rejected() {
         "tests/integration/success/278_vectordb_userinfo_rejected.bx",
         1,
         Some("host must not contain credentials"),
+    );
+}
+
+#[test]
+fn test_287_vectordb_chroma() {
+    MockPinecone::start_chroma().assert_success(
+        "tests/integration/success/287_vectordb_chroma.bx",
+        "{\"dimension\":3,\"totalVectorCount\":3}\n[{\"id\":\"a\",\"distance\":0,\"metadata\":{\"genre\":\"news\"}},{\"id\":\"b\",\"distance\":0.4,\"metadata\":{\"genre\":\"blog\"}}]\n[{\"id\":\"a\",\"distance\":1,\"metadata\":{\"genre\":\"news\"}}]\n{\"id\":\"b\",\"values\":[0.6,0.8,0],\"metadata\":{\"genre\":\"blog\"}}\n{\"id\":\"c\",\"values\":[0,1,0]}\nnull\n\n{\"vectors\":[{\"id\":\"a\"},{\"id\":\"b\"}],\"pagination\":{\"next\":\"2\"}}\n{\"vectors\":[{\"id\":\"c\"}]}\nnull\n/get: invalid pagination token\n1\n{\"id\":\"a\",\"values\":[1,0,0],\"metadata\":{\"genre\":\"news\",\"year\":2024}}\n1\n304\n0\n/upsert: HTTP 500: {\"error\": \"InternalError\", \"message\": \"rejected\"} (300 of 301 written)\n500\n1\n1\n{\"dimension\":3,\"totalVectorCount\":302}\n0\ndelete_namespace: not supported by chroma\n0\nreset_index: not supported by chroma\n0\n400\n/upsert: HTTP 400: {\"error\": \"InvalidArgumentError\", \"message\": \"Collection expecting embedding with dimension of 3, got 4\"}\nnull\n404\n/collections/missing: HTTP 404: {\"error\": \"NotFoundError\", \"message\": \"Collection [missing] does not exist\"}\n{\"vectors\":[{\"id\":\"z\"}]}\n302\nnull\n401\n/collections/docs: HTTP 401: {\"error\": \"AuthError\", \"message\": \"Unauthorized\"}",
     );
 }

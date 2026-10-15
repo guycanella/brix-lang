@@ -177,3 +177,28 @@ test.describe("VectorDB settings (v2.1 Grupo A Fase 5)", () -> {
         test.expect(db.last_error().contains("retries")).toBeFalsy()
     })
 })
+
+test.describe("VectorDB on Chroma (v2.1 Grupo B Fase 1)", () -> {
+    test.it("namespaces are not supported, without a request", () -> {
+        var db := vectordb.connect("chroma", "http://127.0.0.1:1", "", "docs")
+        test.expect(db.delete_namespace("x")).toBe(0)
+        test.expect(db.last_error()).toBe("delete_namespace: not supported by chroma")
+        test.expect(db.reset_index()).toBe(0)
+        test.expect(db.last_error()).toBe("reset_index: not supported by chroma")
+        test.expect(db.last_status()).toBe(0)
+    })
+
+    test.it("list checks its token locally", () -> {
+        var db := vectordb.connect("chroma", "http://127.0.0.1:1", "", "docs")
+        test.expect(db.list(2, "-1")).toBeNil()
+        test.expect(db.last_error()).toBe("/get: invalid pagination token")
+        test.expect(db.list(0)).toBeNil()
+        test.expect(db.last_error()).toBe("/get: limit must be >= 1, got 0")
+    })
+
+    test.it("operations on a refused connection fail resolving the collection", () -> {
+        var db := vectordb.connect("chroma", "http://127.0.0.1:1", "", "acme/prod/docs")
+        test.expect(db.upsert("a", Embedding<3>([1.0, 0.0, 0.0]))).toBe(0)
+        test.expect(db.last_error()).toStartWith("/collections/docs: ")
+    })
+})

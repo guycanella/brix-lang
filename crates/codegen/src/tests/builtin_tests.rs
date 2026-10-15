@@ -3855,11 +3855,29 @@ fn test_vectordb_connect_and_release() {
         VDB_PRELUDE
     ));
     // 3 arguments: the namespace defaults to NULL.
-    assert!(ir.contains("call ptr @brix_vectordb_connect(ptr"), "{}", ir);
+    assert!(
+        ir.contains("call ptr @brix_vectordb_connect(i64 0, ptr"),
+        "{}",
+        ir
+    );
     assert!(ir.contains(", ptr null)"), "{}", ir);
     assert!(ir.contains("call ptr @brix_vectordb_stats("), "{}", ir);
     assert!(ir.contains("call ptr @brix_vectordb_last_error("), "{}", ir);
     assert!(ir.contains("call void @brix_vectordb_release("), "{}", ir);
+}
+
+#[test]
+fn test_vectordb_connect_chroma() {
+    let ir = ir_from_source(&format!(
+        "{}var db := vectordb.connect(\"chroma\", \"http://localhost:8000\", \"\", \"docs\")\nvar s := db.stats()\n",
+        VDB_PRELUDE
+    ));
+    assert!(
+        ir.contains("call ptr @brix_vectordb_connect(i64 1, ptr"),
+        "{}",
+        ir
+    );
+    assert!(!ir.contains(", ptr null)"), "{}", ir);
 }
 
 #[test]
@@ -3903,6 +3921,8 @@ fn test_vectordb_provider_errors() {
         "var p := \"pinecone\"\nvar db := vectordb.connect(p, \"h\", \"k\")\n",
         "var db := vectordb.connect(\"pinecone\", \"h\")\n",
         "var db := vectordb.connect(\"pinecone\", \"h\", \"k\", \"ns\", \"x\")\n",
+        // Chroma needs the collection.
+        "var db := vectordb.connect(\"chroma\", \"h\", \"k\")\n",
     ] {
         assert!(
             matches!(
@@ -4445,4 +4465,28 @@ fn test_variable_shadows_module_alias() {
         "import vectordb as db\nvar db := db.connect(\"pinecone\", \"h\", \"k\")\nvar s := db.stats()\n",
     );
     assert!(ir.contains("call ptr @brix_vectordb_stats("), "{}", ir);
+}
+
+#[test]
+fn test_plain_argument_is_wrapped_for_a_union_parameter() {
+    // A `json` passed to a `json?` parameter becomes the tagged union (tag 0 =
+    // the json variant); it used to be passed as a bare pointer.
+    let ir = ir_from_source(
+        "import json\nfn show(v: json?) {\n    println(json.stringify(v ?: json.null()))\n}\nvar o := json.object()\nshow(o)\nshow(nil)\n",
+    );
+    assert!(
+        ir.contains("%arg_union = insertvalue { i64, ptr } { i64 0, ptr undef }, ptr %o"),
+        "{}",
+        ir
+    );
+    assert!(
+        ir.contains("call void @show({ i64, ptr } %arg_union)"),
+        "{}",
+        ir
+    );
+    assert!(
+        ir.contains("call void @show({ i64, ptr } { i64 1, ptr null })"),
+        "{}",
+        ir
+    );
 }
