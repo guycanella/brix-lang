@@ -73,8 +73,8 @@ fn run_brix_repl(input: &str) -> (String, String, i32) {
 }
 
 /// A mock vector database host, killed on drop: Pinecone
-/// (tests/integration/mock_pinecone.py), Chroma (mock_chroma.py) or
-/// Weaviate (mock_weaviate.py).
+/// (tests/integration/mock_pinecone.py), Chroma (mock_chroma.py), Weaviate
+/// (mock_weaviate.py) or Milvus (mock_milvus.py).
 struct MockPinecone {
     child: std::process::Child,
     host: String,
@@ -91,6 +91,10 @@ impl MockPinecone {
 
     fn start_weaviate() -> Self {
         Self::start_script("tests/integration/mock_weaviate.py")
+    }
+
+    fn start_milvus() -> Self {
+        Self::start_script("tests/integration/mock_milvus.py")
     }
 
     fn start_script(script: &str) -> Self {
@@ -110,7 +114,7 @@ impl MockPinecone {
     }
 
     /// Run `file_path` with BRIX_TEST_PINECONE_HOST (and the CHROMA / WEAVIATE
-    /// variants) pointing at the mock and assert it succeeds with exactly
+    /// / MILVUS variants) pointing at the mock and assert it succeeds with exactly
     /// `expected_stdout`.
     fn assert_success(&self, file_path: &str, expected_stdout: &str) {
         let (stdout, stderr, exit_code) = run_brix_file_env(
@@ -119,6 +123,7 @@ impl MockPinecone {
                 ("BRIX_TEST_PINECONE_HOST", &self.host),
                 ("BRIX_TEST_CHROMA_HOST", &self.host),
                 ("BRIX_TEST_WEAVIATE_HOST", &self.host),
+                ("BRIX_TEST_MILVUS_HOST", &self.host),
                 // Plain http to loopback must bypass any proxy: if it
                 // didn't, every request would fail against this one.
                 ("http_proxy", "http://127.0.0.1:9"),
@@ -2828,5 +2833,22 @@ fn test_289_vectordb_weaviate_bad_class() {
         "tests/integration/success/289_vectordb_weaviate_bad_class.bx",
         1,
         Some("the Weaviate class must be a name"),
+    );
+}
+
+#[test]
+fn test_290_vectordb_milvus() {
+    MockPinecone::start_milvus().assert_success(
+        "tests/integration/success/290_vectordb_milvus.bx",
+        "{\"dimension\":3,\"totalVectorCount\":3}\n[{\"id\":\"a\",\"score\":1,\"metadata\":{\"genre\":\"news\",\"year\":2024}},{\"id\":\"b\",\"score\":0.6,\"metadata\":{\"genre\":\"blog\"}}]\n[{\"id\":\"b\",\"score\":0.6,\"metadata\":{\"genre\":\"blog\"}}]\n[{\"id\":\"a\",\"score\":1,\"metadata\":{\"genre\":\"news\",\"year\":2024}}]\n[{\"id\":\"a\",\"score\":1,\"metadata\":{\"genre\":\"news\",\"year\":2024}}]\nnull\n/v2/vectordb/entities/search: filter must be a Milvus filter expression (a JSON string)\nnull\n200\n{\"id\":\"b\",\"values\":[0.6,0.8,0],\"metadata\":{\"genre\":\"blog\"}}\nnull\n\n{\"vectors\":[{\"id\":\"a\"},{\"id\":\"b\"}],\"pagination\":{\"next\":\"b\"}}\n{\"vectors\":[{\"id\":\"c\"}]}\n1\n{\"id\":\"d\",\"values\":[0,0,1],\"metadata\":{\"genre\":\"tech\",\"year\":1999}}\n1\n{\"id\":\"d\",\"values\":[0,0,1]}\n0\n/v2/vectordb/entities/upsert: metadata must not contain \"id\", the primary key or the vector field\n1\n{\"vectors\":[{\"id\":\"q\\\"x\\\\y\"}]}\n1\nnull\n1\n1205\n0\n/v2/vectordb/entities/upsert: code 1100: rejected (1000 of 1100 written)\n200\n0\n200\n/v2/vectordb/entities/upsert: code 1804: fail to deal the insert data, error: []float32 size 4 doesn't equal to vector dimension 3 of FloatVector\n1\n1\n1\n1003\n0\ndelete_namespace: not supported by milvus\n0\nreset_index: not supported by milvus\n1\n[{\"id\":\"x\",\"score\":1,\"metadata\":{\"tag\":\"t\"}}]\n{\"id\":\"x\",\"values\":[1,0,0],\"metadata\":{\"tag\":\"t\"}}\n{\"vectors\":[{\"id\":\"x\"}]}\n0\n/v2/vectordb/entities/upsert: metadata must not contain \"id\", the primary key or the vector field\n1\n{\"dimension\":3,\"totalVectorCount\":0}\n[{\"id\":\"z\",\"score\":0}]\n0\n/v2/vectordb/collections/describe: code 100: can't find collection[database=default][collection=nope]\nnull\nnull\n/v2/vectordb/collections/describe: the primary key must be a VarChar field (Brix ids are strings)\n1003\nnull\n401\n/v2/vectordb/collections/describe: HTTP 401: {\"code\":1800,\"message\":\"user hasn't authenticated\"}",
+    );
+}
+
+#[test]
+fn test_291_vectordb_milvus_bad_collection() {
+    assert_output(
+        "tests/integration/success/291_vectordb_milvus_bad_collection.bx",
+        1,
+        Some("the Milvus collection must be"),
     );
 }

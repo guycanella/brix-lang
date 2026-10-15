@@ -1,0 +1,6 @@
+// The Milvus collection is "name" or "database/name", each a Milvus name;
+// connect aborts on anything else (it also goes into error messages).
+import vectordb
+
+var db := vectordb.connect("milvus", "http://localhost:19530", "", "prod/docs/extra")
+println(db.last_error())

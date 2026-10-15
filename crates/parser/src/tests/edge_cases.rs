@@ -192,6 +192,22 @@ fn test_escaped_string_in_expr() {
 }
 
 #[test]
+fn test_string_ending_in_escaped_quote() {
+    // Only the delimiters are stripped: the escaped quote before the closing
+    // one stays (it used to be trimmed with it, leaving a stray backslash).
+    for (src, want) in [
+        (r#""a \"b\"""#, "a \"b\""),
+        (r#""\"""#, "\""),
+        (r#""\"\"""#, "\"\""),
+    ] {
+        match &parse_expr(src).unwrap().kind {
+            ExprKind::Literal(Literal::String(s)) => assert_eq!(s, want, "{}", src),
+            _ => panic!("Expected string"),
+        }
+    }
+}
+
+#[test]
 fn test_fstring_with_nested_braces() {
     let expr = parse_expr(r#"f"array: {[1, 2, 3]}""#).unwrap();
     match &expr.kind {

@@ -1,0 +1,145 @@
+// v2.1 Grupo B Fase 3: the "milvus" provider against the mock Milvus server
+// (REST API v2). Same VectorDB methods, on one collection.
+import vectordb
+import json
+
+var host := env("BRIX_TEST_MILVUS_HOST") ?: "http://127.0.0.1:1"
+var db := vectordb.connect("milvus", host, "", "docs")
+
+fn show(v: json?) {
+    println(json.stringify(v ?: json.null()))
+}
+
+// stats: the dimension from describe, the count from count(*).
+show(db.stats())
+
+// query: a search on the vector field; "score" is Milvus' distance in the
+// collection's metric (COSINE here: higher is closer). Every other field,
+// static or dynamic, is the metadata (nulls left out).
+show(db.query(Embedding<3>([1.0, 0.0, 0.0]), 2))
+
+// Filters are Milvus expressions, given as a JSON string and sent as-is.
+show(db.query(Embedding<3>([1.0, 0.0, 0.0]), 5, json.string("genre == \"blog\"")))
+show(db.query(Embedding<3>([1.0, 0.0, 0.0]), 5, json.string("year > 2000")))
+show(db.query(Embedding<3>([1.0, 0.0, 0.0]), 5, json.string("genre == 'news'")))
+show(db.query(Embedding<3>([1.0, 0.0, 0.0]), 5, json.object()))
+println(db.last_error())
+show(db.query(Embedding<3>([1.0, 0.0, 0.0]), 5, json.string("genre ==")))
+println(db.last_status())
+
+// fetch: missing = nil with no error.
+show(db.fetch("b"))
+show(db.fetch("nope"))
+println(db.last_error())
+
+// list: pages in primary key order; the token is the last id of the page.
+var page := db.list(2) ?: json.null()
+show(page)
+var pag := page["pagination"]
+show(db.list(2, json.as_string(pag["next"]) ?: ""))
+
+// upsert replaces the whole entity, like Pinecone.
+var meta := json.object()
+json.set(meta, "genre", json.string("tech"))
+json.set(meta, "year", json.int(1999))
+println(db.upsert("d", Embedding<3>([0.0, 0.0, 1.0]), meta))
+show(db.fetch("d"))
+println(db.upsert("d", Embedding<3>([0.0, 0.0, 1.0])))
+show(db.fetch("d"))
+
+// The metadata can't hold the primary key or vector field.
+var clash := json.object()
+json.set(clash, "vector", json.int(1))
+println(db.upsert("d", Embedding<3>([0.0, 0.0, 1.0]), clash))
+println(db.last_error())
+
+// An id with quotes and a backslash survives the filter expressions.
+println(db.upsert("q\"x\\y", Embedding<3>([0.0, 1.0, 0.0])))
+show(db.list(10, "k"))
+println(db.delete("q\"x\\y"))
+show(db.fetch("q\"x\\y"))
+
+// upsert_batch: 1201 entities go out as 1000 + 201 (the mock rejects more
+// than 1000 per request).
+var ids := Vector<string>()
+var vecs := EmbeddingBatch<3>(0)
+var i := 0
+while i < 1201 {
+    ids.push(f"r{i}")
+    vecs.add(Embedding<3>([0.0, 0.0, 1.0]))
+    i := i + 1
+}
+println(db.upsert_batch(ids, vecs))
+var st := db.stats() ?: json.object()
+println(json.as_int(st["totalVectorCount"]) ?: -1)
+
+// A failed request stops the batch; a Milvus request is all or nothing.
+var bad := Vector<string>()
+var badv := EmbeddingBatch<3>(0)
+i := 0
+while i < 1100 {
+    bad.push(i == 1050 ? "reject-me" : f"s{i}")
+    badv.add(Embedding<3>([0.0, 0.0, 1.0]))
+    i := i + 1
+}
+println(db.upsert_batch(bad, badv))
+println(db.last_error())
+println(db.last_status())
+
+// A dimension mismatch is Milvus' error (HTTP 200, a non-zero code).
+println(db.upsert("e", Embedding<4>([1.0, 0.0, 0.0, 0.0])))
+println(db.last_status())
+println(db.last_error())
+
+// delete / delete_batch (1201 ids: 1000 + 201).
+println(db.delete("d"))
+println(db.delete_batch(ids))
+println(db.delete("never-written"))
+var st2 := db.stats() ?: json.object()
+println(json.as_int(st2["totalVectorCount"]) ?: -1)
+
+// No namespaces in Milvus.
+println(db.delete_namespace("x"))
+println(db.last_error())
+println(db.reset_index())
+println(db.last_error())
+
+// Field names come from the schema: primary key "doc_id", vector "emb".
+var custom := vectordb.connect("milvus", host, "", "custom")
+var tag := json.object()
+json.set(tag, "tag", json.string("t"))
+println(custom.upsert("x", Embedding<3>([1.0, 0.0, 0.0]), tag))
+show(custom.query(Embedding<3>([1.0, 0.0, 0.0]), 1))
+show(custom.fetch("x"))
+show(custom.list())
+// "id" can't be metadata: a search hit holds the primary key there.
+var idmeta := json.object()
+json.set(idmeta, "id", json.string("other"))
+println(custom.upsert("y", Embedding<3>([1.0, 0.0, 0.0]), idmeta))
+println(custom.last_error())
+println(custom.delete("x"))
+show(custom.stats())
+
+// "database/collection" names the database.
+var prod := vectordb.connect("milvus", host, "", "prod/docs")
+show(prod.query(Embedding<3>([1.0, 0.0, 0.0]), 5))
+
+// A missing collection fails every operation; it is never created.
+var missing := vectordb.connect("milvus", host, "", "nope")
+println(missing.upsert("x", Embedding<3>([1.0, 0.0, 0.0])))
+println(missing.last_error())
+show(missing.stats())
+
+// Only VarChar primary keys: Brix ids are strings.
+var auto := vectordb.connect("milvus", host, "", "autoid")
+show(auto.fetch("1"))
+println(auto.last_error())
+
+// A token goes in Authorization: Bearer.
+var authed := vectordb.connect("milvus", host, "root:Milvus", "docs")
+var ast := authed.stats() ?: json.object()
+println(json.as_int(ast["totalVectorCount"]) ?: -1)
+var wrong := vectordb.connect("milvus", host, "root:wrong", "docs")
+show(wrong.stats())
+println(wrong.last_status())
+println(wrong.last_error())

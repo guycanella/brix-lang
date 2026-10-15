@@ -14,6 +14,13 @@ enum DestructureItem {
     Rest(String),
 }
 
+/// The text between the quotes of a lexed string literal. Only the two
+/// delimiters go: `trim_matches('"')` also ate an escaped quote at the end
+/// (`"a \"b\""` became `a "b\`).
+fn string_body(s: &str) -> &str {
+    &s[1..s.len() - 1]
+}
+
 /// Process escape sequences in a string (e.g., \n, \t, \\, \")
 fn process_escape_sequences(s: &str) -> String {
     let mut result = String::new();
@@ -559,7 +566,7 @@ fn stmt_parser() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
         let printf_stmt = just(Token::Printf)
             .ignore_then(
                 select! { Token::String(s) => {
-                    let raw = s.trim_matches('"');
+                    let raw = string_body(&s);
                     process_escape_sequences(raw)
                 }}
                 .then(
@@ -904,7 +911,7 @@ where
             Token::Int(n) => Literal::Int(n),
             Token::Float(s) => Literal::Float(s.parse().unwrap()),
             Token::String(s) => {
-                let raw = s.trim_matches('"');
+                let raw = string_body(&s);
                 let processed = process_escape_sequences(raw);
                 Literal::String(processed)
             },
@@ -1096,7 +1103,7 @@ where
             // Non-numeric literals (no range ambiguity)
             let non_numeric_literal = select! {
                 Token::String(s) => {
-                    let raw = s.trim_matches('"');
+                    let raw = string_body(&s);
                     let processed = process_escape_sequences(raw);
                     Pattern::Literal(Literal::String(processed))
                 },
