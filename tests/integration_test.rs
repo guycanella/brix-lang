@@ -2767,6 +2767,19 @@ fn test_285_vectordb_index_management() {
 }
 
 #[test]
+fn test_286_vectordb_resilience() {
+    // v2.1 Grupo A Fase 5: last_status after success / 401 / local error /
+    // refused connection, retries absorbing a 503, giving up on a constant
+    // 429 after spaced-out retries (the mock counts and times them), an
+    // invalid setting keeping the old value, 502 with Retry-After: 1,
+    // per-request timeout (shared by copies), invalid settings.
+    MockPinecone::start().assert_success(
+        "tests/integration/success/286_vectordb_resilience.bx",
+        "0\n1\n200\n1\n401\n1\n0\n1\n0\n1\n1\n503\n/describe_index_stats: HTTP 503: {\"message\": \"Service Unavailable\"}\n1\n1\n200\n1\n1\n1\n429\n/describe_index_stats: HTTP 429 after 2 retries: {\"message\": \"Too Many Requests\", \"requests\": 3, \"spaced\": true}\n0\n1\n/describe_index_stats: HTTP 429 after 2 retries: {\"message\": \"Too Many Requests\", \"requests\": 6, \"spaced\": true}\n1\n1\n/describe_index_stats: HTTP 429 after 1 retry: {\"message\": \"Too Many Requests\", \"requests\": 8, \"spaced\": true}\n1\n200\n1\n1\n0\n1\n1\n1\n0\nset_timeout: ms must be >= 1, got 0\n0\nset_retries: n must be between 0 and 10, got 11\n0\nset_retries: n must be between 0 and 10, got -1",
+    );
+}
+
+#[test]
 fn test_278_vectordb_userinfo_rejected() {
     // Parsed with libcurl's URL parser, so the check sees the real host.
     assert_output(
