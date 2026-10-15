@@ -15,7 +15,7 @@ keys go to the dynamic field). Collections:
                   field; empty. Like Milvus, a search hit also carries the pk
                   under "id" when it has another name
   default/autoid  Int64 autoID pk (unsupported by Brix)
-Filters understand `field op literal` (== != > < >= <=), `field in [...]`
+Filters understand (string literals in either quote style) `field op literal` (== != > < >= <=), `field in [...]`
 and "" (everything); anything else is a parse error. Auth: no token, or
 "root:Milvus". Unlike Milvus, a request of more than 1000 entities (upsert)
 or ids (delete) is rejected, so the batching tests prove the splitting; id
@@ -83,10 +83,20 @@ def cosine(u, v):
     return sum(x * y for x, y in zip(u, v)) / (nu * nv)
 
 
-LITERAL = r'"(?:[^"\\]|\\.)*"|-?[0-9]+(?:\.[0-9]+)?'
+LITERAL = r'"(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\'|-?[0-9]+(?:\.[0-9]+)?'
 
 
 def parse_literal(text):
+    """A number or a string literal in either quote style (Milvus accepts
+    both, with the same escapes; \\' is a quote in a single-quoted one)."""
+    if text.startswith("'"):
+        # Rewrite as a JSON string: \\' becomes ', a bare " gets escaped,
+        # every other escape is kept.
+        def swap(m):
+            if m.group(1) is None:
+                return '\\"'
+            return "'" if m.group(1) == "'" else "\\" + m.group(1)
+        text = '"' + re.sub(r'\\(.)|"', swap, text[1:-1]) + '"'
     return json.loads(text)
 
 

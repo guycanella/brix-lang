@@ -7097,9 +7097,12 @@ static int mv_write(BrixVectorDB *db, int del, long n, BrixString **ids,
   if (!mv_resolve(db)) return 0;
   if (!del) {
     for (long i = 0; metas && i < n; i++) {
-      BrixString *keys[] = {str_new(db->coll_path), str_new(db->vec_field)};
+      // "id" too: a search hit carries the primary key under "id", which
+      // would hide a field of that name from query() but not from fetch().
+      BrixString *keys[] = {str_new(db->coll_path), str_new(db->vec_field),
+                            str_new("id")};
       int clash = 0;
-      for (int k = 0; k < 2; k++) {
+      for (int k = 0; k < 3; k++) {
         JsonValue *v = json_get(metas[i], keys[k]);
         clash |= v != NULL;
         json_release(v);
@@ -7107,8 +7110,8 @@ static int mv_write(BrixVectorDB *db, int del, long n, BrixString **ids,
       }
       if (clash) {
         vdb_record_error(db, path, single ? -1 : i,
-                         "metadata must not contain the primary key or vector "
-                         "field");
+                         "metadata must not contain \"id\", the primary key "
+                         "or the vector field");
         return 0;
       }
     }
