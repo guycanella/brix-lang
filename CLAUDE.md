@@ -27,10 +27,10 @@ Each entry recompiles and re-runs the whole accumulated session through the same
 
 **Run Rust unit tests:**
 ```bash
-cargo test -p lexer -p parser -p codegen  # All unit tests: 322 + 228 + 917 = 1,467 (all passing)
+cargo test -p lexer -p parser -p codegen  # All unit tests: 322 + 228 + 918 = 1,468 (all passing)
 cargo test -p lexer                       # Only lexer (322 tests)
 cargo test -p parser                      # Only parser (228 tests)
-cargo test -p codegen                     # Only codegen (917 tests)
+cargo test -p codegen                     # Only codegen (918 tests)
 cargo test -p codegen json_tests          # Specific test module in codegen
 cargo test <pattern>                      # Tests matching pattern
 cargo test -- --nocapture                 # Show println! output
@@ -38,7 +38,7 @@ cargo test -- --nocapture                 # Show println! output
 
 **Run integration tests (must be sequential):**
 ```bash
-cargo test --test integration_test -- --test-threads=1 # 294 tests passing
+cargo test --test integration_test -- --test-threads=1 # 296 tests passing
 ```
 
 **Run Brix language tests (Test Library):**
@@ -67,7 +67,7 @@ The driver (`src/main.rs`, ~509 lines; REPL in `src/repl.rs`) orchestrates all s
 ```
 brix/
 ├── src/main.rs              # CLI + compilation pipeline driver
-├── runtime.c                # C runtime (~7,638 lines) — must be in project root
+├── runtime.c                # C runtime (~8,363 lines) — must be in project root
 ├── crates/
 │   ├── lexer/src/token.rs   # Token enum (logos)
 │   ├── parser/src/
@@ -76,7 +76,7 @@ brix/
 │   │   ├── closure_analysis.rs  # Capture analysis pass (runs after parse)
 │   │   └── error.rs         # Ariadne-based parse error reporting
 │   └── codegen/src/
-│       ├── lib.rs           # Main compiler (~20,353 lines — post-refactor 11,014, grew with v1.8–v2.0 + rustfmt expansion)
+│       ├── lib.rs           # Main compiler (~20,354 lines — post-refactor 11,014, grew with v1.8–v2.0 + rustfmt expansion)
 │       ├── stmt.rs          # Statement compilation (~1,515 lines)
 │       ├── expr.rs          # Expression compilation + list comprehension (~2,028 lines)
 │       ├── helpers.rs       # LLVM helpers
@@ -88,7 +88,7 @@ brix/
 │                            #   iterator.rs, match_compiler.rs, async_compiler.rs, closure_compiler.rs
 ├── tests/
 │   ├── integration/         # End-to-end .bx files (success/, parser_errors/, codegen_errors/, runtime_errors/, test_library_failures/)
-│   └── brix/                # Language test files (*.test.bx) — 34 files, 576 tests, all passing
+│   └── brix/                # Language test files (*.test.bx) — 34 files, 580 tests, all passing
 ├── benchmarks/              # Informative benchmarks (run.sh + .bx), not CI gates
 └── examples/                # Example .bx programs
 ```
@@ -124,7 +124,7 @@ Flat `HashMap<String, (PointerValue, BrixType)>` with module prefixes. `import m
 
 ### Type System (current: v2.1 in progress — v2.0 complete, Grupo 0 operators done)
 
-Core types: `Int` (i64), `Float` (f64), `String`, `Matrix` (f64, contiguous), `IntMatrix` (i64), `StringMatrix` (array of `BrixString*`, v1.7), `Complex`, `ComplexArray`, `ComplexMatrix`, `Tuple`, `Nil`, `Error`, `Atom` (i64 interned), `Void`, `Struct(String)`, `Optional(Box)` (desugars to Union), `Union(Vec<BrixType>)`, `Intersection(Vec<BrixType>)`, `AsyncFuture`, `FloatPtr`, `Vector(Box<BrixType>)` (v1.8 Grupo C — dynamic `Vector<T>`, `BrixVector*`), `Stack`/`Queue`/`MinHeap`/`MaxHeap(Box<BrixType>)` and `HashMap(Box, Box)` (v1.8 D–F), `DateTime` (v1.9 A), `Json` (v1.9 B), and `Embedding(u32)` (v2.0 Grupo A — `BrixEmbedding*`, dim is a const generic) and `EmbeddingBatch(u32)` (v2.0 Fase 3 — `BrixEmbeddingBatch*`), and `VectorDB` (v2.1 Grupo A — `BrixVectorDB*`, one connection to a Pinecone index or, since Grupo B Fase 1, a Chroma collection).
+Core types: `Int` (i64), `Float` (f64), `String`, `Matrix` (f64, contiguous), `IntMatrix` (i64), `StringMatrix` (array of `BrixString*`, v1.7), `Complex`, `ComplexArray`, `ComplexMatrix`, `Tuple`, `Nil`, `Error`, `Atom` (i64 interned), `Void`, `Struct(String)`, `Optional(Box)` (desugars to Union), `Union(Vec<BrixType>)`, `Intersection(Vec<BrixType>)`, `AsyncFuture`, `FloatPtr`, `Vector(Box<BrixType>)` (v1.8 Grupo C — dynamic `Vector<T>`, `BrixVector*`), `Stack`/`Queue`/`MinHeap`/`MaxHeap(Box<BrixType>)` and `HashMap(Box, Box)` (v1.8 D–F), `DateTime` (v1.9 A), `Json` (v1.9 B), and `Embedding(u32)` (v2.0 Grupo A — `BrixEmbedding*`, dim is a const generic) and `EmbeddingBatch(u32)` (v2.0 Fase 3 — `BrixEmbeddingBatch*`), and `VectorDB` (v2.1 Grupo A — `BrixVectorDB*`, one connection to a Pinecone index, a Chroma collection (Grupo B Fase 1) or a Weaviate class (Fase 2)).
 
 **Scientific notation (v1.8):** float literals accept exponents — `6.0e23`, `1.5e-10`, `6.02E+23`, and integer-mantissa `1e10`; imaginary too (`1e3i`). Lexer `Float`/`ImaginaryLiteral` regexes; parser converts via `str::parse::<f64>()`.
 
@@ -206,7 +206,7 @@ Jest-style framework. 17 matchers (all support `.not.` — `toEqual`, `toBeClose
 
 **Test baseline at v1.9 completion:** 1,357 unit (317 lexer + 209 parser + 831 codegen) + 264 integration + 517 Test Library (31 `.test.bx` files).
 
-**Current test baseline (v2.1 Grupo B Fase 1):** 1,467 unit (322 lexer + 228 parser + 917 codegen) + 294 integration + 576 Test Library (34 `.test.bx` files) = 2,337. All green.
+**Current test baseline (v2.1 Grupo B Fase 2):** 1,468 unit (322 lexer + 228 parser + 918 codegen) + 296 integration + 580 Test Library (34 `.test.bx` files) = 2,344. All green.
 
 **Completed in v1.9 (Grupo F):**
 - **Grupo F — `brix repl` — COMPLETE, as a "replay REPL", not the roadmap's original incremental-JIT design:**
@@ -392,7 +392,7 @@ Tests: +19 codegen unit, integration 263–267 (263 dot incl. f64-only precision
 
 ## v2.1 Status (IN PROGRESS) — see `ROADMAP_V2.1.md` (untracked, local only)
 
-Three groups: **0** (embedding operators), **A** (`VectorDB` type system + Pinecone), **B** (Weaviate/Milvus/Chroma). Grupo 0 and Grupo A are done; Grupo B is in progress (Fase 1 Chroma done; Fase 2 Weaviate and Fase 3 Milvus pending).
+Three groups: **0** (embedding operators), **A** (`VectorDB` type system + Pinecone), **B** (Weaviate/Milvus/Chroma). Grupo 0 and Grupo A are done; Grupo B is in progress (Fase 1 Chroma and Fase 2 Weaviate done; Fase 3 Milvus pending).
 
 **Grupo 0 — COMPLETE** (`66be0c1`, `3f47b1c`) — embedding operators, pure parser sugar, no runtime code:
 - `a @ b` → `a.cosine_similarity(b)`, `a <-> b` → `a.euclidean_distance(b)`, `a <=> b` → `a.dot_product(b)`. Tokens `At` / `LeftRightArrow` / `DoubleArrow` (`lexer/src/token.rs`); logos longest match leaves `<`, `<=`, `->` and `a<-1` unchanged (`<->`/`<=>` were never valid token sequences, and `@` used to be a lexer error).
@@ -465,7 +465,18 @@ Three groups: **0** (embedding operators), **A** (`VectorDB` type system + Pinec
 - **Also fixed (CodeRabbit):** a scalar variant in a union whose widest variant is an aggregate (`int | complex`, slot `{f64, f64}`) was inserted as a bare `i64` — invalid IR (the call crashed LLVM; the declaration only worked by luck). `coerce_union_slot` now reinterprets through memory (an entry-block alloca of the wider type) when either side is a struct/array, which covers every store and the print path.
 - Tests: +3 codegen unit, integration 287 (every method, splitting, partial failure, merge, non-scalar metadata 422 vs. a scalar list, unsupported methods, 400/401/404, tenant/database form, auth), +7 Test Library (3 offline Chroma cases in `vectordb.test.bx`, 4 union-argument cases in `functions.test.bx`).
 
-**Next — Grupo B Fase 2** (Weaviate) in `ROADMAP_V2.1.md`.
+**Fase 2 — COMPLETE** — Weaviate (REST `/v1` + GraphQL), checked against a real Weaviate 1.40 Docker server:
+- `vectordb.connect("weaviate", url, api_key, class)` — 4th arg required (`E104`); `api_key` `""` = anonymous, else `Authorization: Bearer`. The class must be a name (`[_A-Za-z][_0-9A-Za-z]*`, ASCII): it goes verbatim into URL paths and GraphQL, so anything else aborts in connect (test 289 tries a selection injection). Only classes with a single (unnamed) vector.
+- **Ids:** Weaviate ids must be UUIDs, so an id becomes **UUIDv5(NAMESPACE_DNS, id)** — what the Weaviate clients' `generate_uuid5(id)` returns, so Brix and Python share objects (SHA-1 in `runtime.c`, checked against Python's `uuid5`) — and is also stored in a **`brix_id` property**; reads return it as the id (an object without it reports its UUID). Metadata containing `brix_id` is a local error.
+- **Never creates a class:** Weaviate's auto-schema creates a missing class on the first write, so upserts, `query` and `stats` read `GET /v1/schema/<class>` first ("class does not exist" otherwise); `fetch` / `list` / `delete` use the spelling cached on first use (a 404 drops it). The schema's spelling is used (`"docs"` -> `Docs`).
+- Mapping: `stats()` -> GraphQL `Aggregate` count, `{dimension: null, totalVectorCount}` (Weaviate reports no class dimension); `query` -> GraphQL `Get` with `nearVector` / `limit` / `where`, selecting the **scalar** properties listed in the schema (text, int, number, boolean, date, uuid, blob and their arrays — object, geoCoordinates, phoneNumber and references need a sub-selection and are left out of query metadata, though `fetch` returns them), matches `[{id, distance, metadata}]`; `fetch` -> `GET /v1/objects/<class>/<uuid>?include=vector` (404 = nil, no error); `list` -> `GET /v1/objects?class&limit&after` (pages ordered by UUID; the token is the last UUID); writes in batches of **100**: upsert `POST /v1/batch/objects` (**replaces** the whole object, like Pinecone), delete `DELETE /v1/batch/objects` with `where id ContainsAny`. `delete_namespace` / `reset_index` are not supported. Empty batches send no request (now true of every provider).
+- **Filters** are Weaviate `where` objects (`path` / `operator` / `value*`, `And` / `Or` with `operands`) written as JSON and converted to GraphQL input: keys must be names, an `operator` value becomes an enum (must be a name), every other leaf is its JSON literal (GraphQL shares JSON's string escapes, so quotes/braces/newlines stay inside the string). Anything else is a local error.
+- **Errors:** a batch answers 200 with an error per failed object — the first one stops the batch and `"(N of M written)"` counts the objects that did succeed (other objects of the same request are written; Weaviate batches are not transactional), with `last_status()` still 200. GraphQL errors also come back as 200 + `errors`, reported as `/v1/graphql: <message>`. A response that doesn't list every object sent (or a delete without a `results.failed` count) is an error, never counted as success.
+- **Runtime:** `vdb_request_at` gained a `method` parameter (`CURLOPT_CUSTOMREQUEST`, for `DELETE` with a body); `vdb_is_name`, a growable `VdbText` buffer, `vdb_take` / `vdb_take_index` for chained lookups; `wv_*` functions at the end of SECTION 2.12. `codegen_errors/08` now uses `"qdrant"` as the unknown provider.
+- **Mock:** `tests/integration/mock_weaviate.py` (`MockPinecone::start_weaviate()`, env `BRIX_TEST_WEAVIATE_HOST`) really parses the GraphQL text (selections, arguments, input values), does auto-schema like the server, answers batches with per-object errors, 404 with an empty body, capitalizes class names, rejects batches over 100 (proves the splitting) and a selection of a non-scalar property without sub-fields; hooks: `brix_id` `reject-me` fails its object, class `Vanish` disappears once its schema was read (mutation-checked: without the fresh schema read the upsert silently recreated it).
+- Tests: +1 codegen unit (+1 error case), integration 288 (every method, filters incl. `And` and escaping, a property-type mix, splitting 201 = 100+100+1, a failed object mid-request, dimension mismatch, `brix_id` clash, deleted/missing class never recreated, lowercase class name, auth) and 289 (class-name injection aborts), +4 Test Library (3 offline Weaviate cases, 1 empty-batch case for all providers).
+
+**Next — Grupo B Fase 3** (Milvus) in `ROADMAP_V2.1.md`.
 
 ## CI (GitHub Actions) — `.github/workflows/ci.yml`
 
