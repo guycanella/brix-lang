@@ -67,7 +67,7 @@ The driver (`src/main.rs`, ~509 lines; REPL in `src/repl.rs`) orchestrates all s
 ```
 brix/
 ├── src/main.rs              # CLI + compilation pipeline driver
-├── runtime.c                # C runtime (~7,179 lines) — must be in project root
+├── runtime.c                # C runtime (~7,182 lines) — must be in project root
 ├── crates/
 │   ├── lexer/src/token.rs   # Token enum (logos)
 │   ├── parser/src/
@@ -448,8 +448,8 @@ Three groups: **0** (embedding operators), **A** (`VectorDB` type system + Pinec
 - `db.last_status() -> int` — HTTP status of the last response of the last operation, 0 when none (local error, connection failure, timeout). Multi-request operations report their last request (a batch whose second chunk fails locally returns 0 with `last_status()` still 200); settings calls reset it to 0. This is the roadmap's "error types": status + `last_error()` instead of new error codes.
 - **Not bounded by `set_timeout`:** one request can take `(retries + 1) × timeout + retries × 30 s`, and batches / `reset_index` send one request per chunk / namespace. No overall deadline yet.
 - **"Connection pooling"** was already there since Fase 1: one libcurl easy handle per connection, reused with keep-alive. No pool across connections (curl share interface) — not needed so far.
-- Runtime: `vdb_begin()` resets `last_error` / `last_status` at the start of every public operation (and of each request); the retry loop lives in `vdb_request`. The backoff jitter uses the global `rand()` (shared with the user-facing `rand`/`irand`; harmless while there is no seed API).
-- **Mock:** keys `flaky-key` (first 2 requests 503 with `Retry-After: 0`), `busy-key` (always 429 without the header; the body counts the requests and says whether the last two were ≥ 40 ms apart, so the backoff is really checked — mutation-checked), `retry1-key` (one 502 with `Retry-After: 1`), `slow-key` (1 s delay); the server ignores errors from clients that timed out.
+- Runtime: `vdb_begin()` resets `last_error` / `last_status` at the start of every public operation (and of each request); the retry loop lives in `vdb_request`. The sleep between attempts resumes after `EINTR`, so a caught signal can't shorten the delay. The backoff jitter uses the global `rand()` (shared with the user-facing `rand`/`irand`; harmless while there is no seed API).
+- **Mock:** keys `flaky-key` (first 2 requests 503 with `Retry-After: 0`), `busy-key` (always 429 without the header; the body counts the requests and says whether the last two were ≥ 40 ms apart, so the backoff is really checked — mutation-checked), `retry1-key` (one 502 with `Retry-After: 1`; a retry sooner than 0.9 s gets 400, so honoring the header is checked — mutation-checked), `slow-key` (1 s delay); the server ignores errors from clients that timed out.
 - Tests: +2 codegen unit, integration 286 (last_status in every case, retries absorbing 503s, giving up on 429 with counted and spaced retries, invalid settings keeping the old value, 502 + Retry-After, timeout shared by a copy), +3 Test Library (offline cases).
 
 **Next — Grupo B** (Weaviate, Milvus, Chroma) in `ROADMAP_V2.1.md`.
