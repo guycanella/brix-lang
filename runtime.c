@@ -4598,7 +4598,8 @@ IntMatrix *brix_embedding_batch_find_nearest(BrixEmbeddingBatch *b, BrixEmbeddin
 // ==========================================
 //
 // A BrixVectorDB is one connection to one Pinecone index (its data-plane
-// host) or one Chroma collection (Grupo B Fase 1, see the Chroma part below). connect() validates the config locally and does no network I/O.
+// host), one Chroma collection (Grupo B Fase 1) or one Weaviate class (Grupo B
+// Fase 2); see their parts at the end of this section. connect() validates the config locally and does no network I/O.
 // Each operation is one HTTPS request through the connection's own CURL easy
 // handle; reusing it lets libcurl keep the TCP/TLS connection alive between
 // calls. Network and API failures never abort: a read returns NULL (nil in
@@ -4612,16 +4613,19 @@ IntMatrix *brix_embedding_batch_find_nearest(BrixEmbeddingBatch *b, BrixEmbeddin
 
 #define BRIX_VDB_PINECONE 0
 #define BRIX_VDB_CHROMA 1
+#define BRIX_VDB_WEAVIATE 2
 
 typedef struct {
   long ref_count;
-  long provider;    // BRIX_VDB_PINECONE / BRIX_VDB_CHROMA
+  long provider;    // BRIX_VDB_PINECONE / _CHROMA / _WEAVIATE
   char *base_url;   // "https://host[:port]", no trailing '/'
   char *api_key;    // Chroma: "" = no auth
-  char *ns;         // Pinecone: namespace ("" = default); Chroma: collection
+  char *ns;         // Pinecone: namespace ("" = default); Chroma:
+                    // collection; Weaviate: class
   char *db_path;    // Chroma: "/api/v2/tenants/<t>/databases/<d>"
-  char *coll_path;  // Chroma: db_path + "/collections/<uuid>", NULL until
-                    // the collection name is resolved
+  char *coll_path;  // Resolved on first use, NULL until then. Chroma:
+                    // db_path + "/collections/<uuid>"; Weaviate: the
+                    // class name as the schema spells it
   CURL *curl;
   char *last_error; // NULL = the last operation succeeded
   long timeout_ms;  // per request attempt (set_timeout)
@@ -4696,6 +4700,17 @@ static void vdb_check_url(const char *base, int plain_http) {
   curl_url_cleanup(u);
 }
 
+// 1 when `s` is a GraphQL / Weaviate name: [_A-Za-z][_0-9A-Za-z]*.
+// ASCII only (no locale): this check keeps names from breaking out of
+// GraphQL text.
+static int vdb_is_name(const char *s) {
+  for (const char *p = s; *p; p++) {
+    int alpha = (*p >= 'A' && *p <= 'Z') || (*p >= 'a' && *p <= 'z') || *p == '_';
+    if (!alpha && (p == s || *p < '0' || *p > '9')) return 0;
+  }
+  return *s != '\0';
+}
+
 // Chroma: "/api/v2/tenants/<t>/databases/<d>" for `spec` ("name" uses the
 // default tenant and database, "tenant/database/name" names them). Sets
 // *name to the collection name (owned).
@@ -4748,16 +4763,21 @@ BrixVectorDB *brix_vectordb_connect(long provider, BrixString *host,
   const char *k = api_key ? api_key->data : "";
   const char *n = ns ? ns->data : "";
   if (!*h) vdb_config_error("host is empty");
-  if (!*k && provider != BRIX_VDB_CHROMA) vdb_config_error("api_key is empty");
-  if (!*n && provider == BRIX_VDB_CHROMA) vdb_config_error("collection is empty");
+  if (!*k && provider == BRIX_VDB_PINECONE) vdb_config_error("api_key is empty");
+  if (!*n && provider != BRIX_VDB_PINECONE) vdb_config_error("collection is empty");
   if (vdb_has_ctl(h) || strchr(h, ' ')) {
     vdb_config_error("host contains whitespace or control characters");
   }
   if (vdb_has_ctl(k)) vdb_config_error("api_key contains control characters");
   if (vdb_has_ctl(n)) {
-    vdb_config_error(provider == BRIX_VDB_CHROMA
-                         ? "collection contains control characters"
-                         : "namespace contains control characters");
+    vdb_config_error(provider == BRIX_VDB_PINECONE
+                         ? "namespace contains control characters"
+                         : "collection contains control characters");
+  }
+  // The class name goes into URL paths and GraphQL queries verbatim.
+  if (provider == BRIX_VDB_WEAVIATE && !vdb_is_name(n)) {
+    vdb_config_error("the Weaviate class must be a name: a letter, then "
+                     "letters, digits or '_'");
   }
 
   char *base;
@@ -4869,19 +4889,21 @@ static size_t vdb_write_cb(char *ptr, size_t size, size_t nmemb, void *userdata)
 }
 
 // Send one request to base_url + `prefix` + `path`: a POST with `body` (JSON
-// text), or a GET when `body` is NULL. `query` (already URL-encoded, or NULL)
-// is appended after '?'. Returns the parsed JSON response on a 2xx status;
-// otherwise NULL with db->last_error set. Errors name `path` only, never the
-// prefix (tenant, collection id) or the query string.
-static JsonValue *vdb_request_at(BrixVectorDB *db, const char *prefix,
-                                 const char *path, const char *query,
-                                 const char *body) {
+// text), or a GET when `body` is NULL; `method` (NULL = that default)
+// overrides it, e.g. a DELETE with a body. `query` (already URL-encoded, or
+// NULL) is appended after '?'. Returns the parsed JSON response on a 2xx
+// status; otherwise NULL with db->last_error set. Errors name `path` only,
+// never the prefix (tenant, collection id) or the query string.
+static JsonValue *vdb_request_at(BrixVectorDB *db, const char *method,
+                                 const char *prefix, const char *path,
+                                 const char *query, const char *body) {
   vdb_begin(db);
 
   size_t url_len = strlen(db->base_url) + strlen(prefix) + strlen(path) +
                    (query ? strlen(query) + 1 : 0) + 1;
   // Pinecone: "Api-Key: k". Chroma: "x-chroma-token: k" (Chroma Cloud) and
-  // "Authorization: Bearer k" (self-hosted token auth), both sent.
+  // "Authorization: Bearer k" (self-hosted token auth), both sent. Weaviate:
+  // "Authorization: Bearer k". An empty Chroma/Weaviate key sends neither.
   size_t key_len = strlen(db->api_key) + sizeof("Authorization: Bearer ");
   char *url = malloc(url_len);
   char *key_header = malloc(key_len);
@@ -4904,6 +4926,10 @@ static JsonValue *vdb_request_at(BrixVectorDB *db, const char *prefix,
       headers = curl_slist_append(headers, key_header);
       headers = curl_slist_append(headers, bearer);
     }
+  } else if (db->provider == BRIX_VDB_WEAVIATE) {
+    key_header[0] = '\0';
+    snprintf(bearer, key_len, "Authorization: Bearer %s", db->api_key);
+    if (*db->api_key) headers = curl_slist_append(headers, bearer);
   } else {
     snprintf(key_header, key_len, "Api-Key: %s", db->api_key);
     bearer[0] = '\0';
@@ -4926,6 +4952,7 @@ static JsonValue *vdb_request_at(BrixVectorDB *db, const char *prefix,
   } else {
     curl_easy_setopt(c, CURLOPT_HTTPGET, 1L);
   }
+  if (method) curl_easy_setopt(c, CURLOPT_CUSTOMREQUEST, method);
   curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, vdb_write_cb);
   curl_easy_setopt(c, CURLOPT_WRITEDATA, &buf);
   curl_easy_setopt(c, CURLOPT_NOSIGNAL, 1L);
@@ -5019,7 +5046,7 @@ static JsonValue *vdb_request_at(BrixVectorDB *db, const char *prefix,
 
 static JsonValue *vdb_request(BrixVectorDB *db, const char *path,
                               const char *query, const char *body) {
-  return vdb_request_at(db, "", path, query, body);
+  return vdb_request_at(db, NULL, "", path, query, body);
 }
 
 // Chroma implementations (end of this section). The public functions below
@@ -5033,17 +5060,29 @@ static int chroma_write(BrixVectorDB *db, const char *path, long n,
                         BrixString **ids, BrixEmbedding **vecs,
                         JsonValue **metas, int single);
 static long vdb_unsupported(BrixVectorDB *db, const char *method);
+static JsonValue *wv_stats(BrixVectorDB *db);
+static JsonValue *wv_query(BrixVectorDB *db, BrixEmbedding *q, long top_k,
+                           JsonValue *filter);
+static JsonValue *wv_fetch(BrixVectorDB *db, BrixString *id);
+static JsonValue *wv_list(BrixVectorDB *db, long limit, BrixString *token);
+static int wv_write(BrixVectorDB *db, int del, long n, BrixString **ids,
+                    BrixEmbedding **vecs, JsonValue **metas, int single);
 
-#define VDB_UPSERT_PATH(db) \
-  ((db)->provider == BRIX_VDB_CHROMA ? "/upsert" : "/vectors/upsert")
-#define VDB_DELETE_PATH(db) \
-  ((db)->provider == BRIX_VDB_CHROMA ? "/delete" : "/vectors/delete")
+#define VDB_UPSERT_PATH(db)                                                  \
+  ((db)->provider == BRIX_VDB_CHROMA     ? "/upsert"                         \
+   : (db)->provider == BRIX_VDB_WEAVIATE ? "/v1/batch/objects"               \
+                                         : "/vectors/upsert")
+#define VDB_DELETE_PATH(db)                                                  \
+  ((db)->provider == BRIX_VDB_CHROMA     ? "/delete"                         \
+   : (db)->provider == BRIX_VDB_WEAVIATE ? "/v1/batch/objects"               \
+                                         : "/vectors/delete")
 
 // db.stats() -> json? (Pinecone describe_index_stats: dimension,
 // totalVectorCount, indexFullness, namespaces).
 JsonValue *brix_vectordb_stats(BrixVectorDB *db) {
   vdb_begin(db);
   if (db->provider == BRIX_VDB_CHROMA) return chroma_stats(db);
+  if (db->provider == BRIX_VDB_WEAVIATE) return wv_stats(db);
   return vdb_request(db, "/describe_index_stats", NULL, "{}");
 }
 
@@ -5109,6 +5148,7 @@ JsonValue *brix_vectordb_query(BrixVectorDB *db, BrixEmbedding *q, long top_k,
     }
   }
   if (db->provider == BRIX_VDB_CHROMA) return chroma_query(db, q, top_k, filter);
+  if (db->provider == BRIX_VDB_WEAVIATE) return wv_query(db, q, top_k, filter);
   JsonValue *vec = json_array();
   for (long i = 0; i < q->dim; i++) {
     JsonValue *x = json_float(q->data[i]);
@@ -5152,6 +5192,7 @@ JsonValue *brix_vectordb_query(BrixVectorDB *db, BrixEmbedding *q, long top_k,
 JsonValue *brix_vectordb_fetch(BrixVectorDB *db, BrixString *id) {
   vdb_begin(db);
   if (db->provider == BRIX_VDB_CHROMA) return chroma_fetch(db, id);
+  if (db->provider == BRIX_VDB_WEAVIATE) return wv_fetch(db, id);
   char *query = NULL;
   if (!vdb_add_param(db, &query, "ids", id->data) ||
       (*db->ns && !vdb_add_param(db, &query, "namespace", db->ns))) {
@@ -5182,6 +5223,7 @@ JsonValue *brix_vectordb_fetch(BrixVectorDB *db, BrixString *id) {
 JsonValue *brix_vectordb_list(BrixVectorDB *db, long limit, BrixString *token) {
   vdb_begin(db);
   if (db->provider == BRIX_VDB_CHROMA) return chroma_list(db, limit, token);
+  if (db->provider == BRIX_VDB_WEAVIATE) return wv_list(db, limit, token);
   if (limit != LONG_MIN && limit < 1) {
     vdb_set_error(db, "/vectors/list: limit must be >= 1, got %ld", limit);
     return NULL;
@@ -5442,6 +5484,9 @@ long brix_vectordb_upsert(BrixVectorDB *db, BrixString *id, BrixEmbedding *e,
     return chroma_write(db, "/upsert", 1, &id, &e, metadata ? &metadata : NULL,
                         1);
   }
+  if (db->provider == BRIX_VDB_WEAVIATE) {
+    return wv_write(db, 0, 1, &id, &e, metadata ? &metadata : NULL, 1);
+  }
   VdbUpsertCtx c = {&id, &e, metadata ? &metadata : NULL, 1};
   return vdb_send(db, "/vectors/upsert", "{\"vectors\":[", 1, vdb_upsert_item,
                   &c);
@@ -5480,6 +5525,10 @@ long brix_vectordb_upsert_batch(BrixVectorDB *db, BrixVector *ids,
     return chroma_write(db, path, ids->len, (BrixString **)ids->data,
                         vecs->items, metas, 0);
   }
+  if (db->provider == BRIX_VDB_WEAVIATE) {
+    return wv_write(db, 0, ids->len, (BrixString **)ids->data, vecs->items,
+                    metas, 0);
+  }
   VdbUpsertCtx c = {(BrixString **)ids->data, vecs->items, metas, 0};
   return vdb_send(db, "/vectors/upsert", "{\"vectors\":[", ids->len,
                   vdb_upsert_item, &c);
@@ -5491,6 +5540,9 @@ long brix_vectordb_delete(BrixVectorDB *db, BrixString *id) {
   if (!vdb_check_id(db, VDB_DELETE_PATH(db), -1, id)) return 0;
   if (db->provider == BRIX_VDB_CHROMA) {
     return chroma_write(db, "/delete", 1, &id, NULL, NULL, 1);
+  }
+  if (db->provider == BRIX_VDB_WEAVIATE) {
+    return wv_write(db, 1, 1, &id, NULL, NULL, 1);
   }
   return vdb_send(db, "/vectors/delete", "{\"ids\":[", 1, vdb_delete_item, &id);
 }
@@ -5505,6 +5557,9 @@ long brix_vectordb_delete_batch(BrixVectorDB *db, BrixVector *ids) {
   }
   if (db->provider == BRIX_VDB_CHROMA) {
     return chroma_write(db, "/delete", ids->len, id_data, NULL, NULL, 0);
+  }
+  if (db->provider == BRIX_VDB_WEAVIATE) {
+    return wv_write(db, 1, ids->len, id_data, NULL, NULL, 0);
   }
   return vdb_send(db, "/vectors/delete", "{\"ids\":[", ids->len,
                   vdb_delete_item, id_data);
@@ -5530,7 +5585,7 @@ static int vdb_delete_all(BrixVectorDB *db, BrixString *ns) {
 // default namespace). Clearing an empty or missing namespace succeeds.
 long brix_vectordb_delete_namespace(BrixVectorDB *db, BrixString *ns) {
   vdb_begin(db);
-  if (db->provider == BRIX_VDB_CHROMA) {
+  if (db->provider != BRIX_VDB_PINECONE) {
     return vdb_unsupported(db, "delete_namespace");
   }
   return vdb_delete_all(db, ns);
@@ -5541,7 +5596,7 @@ long brix_vectordb_delete_namespace(BrixVectorDB *db, BrixString *ns) {
 // describe_index_stats, then each one is cleared. A failure stops the reset
 // and last_error says how many namespaces were already cleared.
 long brix_vectordb_reset_index(BrixVectorDB *db) {
-  if (db->provider == BRIX_VDB_CHROMA) {
+  if (db->provider != BRIX_VDB_PINECONE) {
     vdb_begin(db);
     return vdb_unsupported(db, "reset_index");
   }
@@ -5630,7 +5685,8 @@ long brix_vectordb_last_status(BrixVectorDB *db) { return db->last_status; }
 #define BRIX_CHROMA_MAX_BATCH 300
 
 static long vdb_unsupported(BrixVectorDB *db, const char *method) {
-  vdb_set_error(db, "%s: not supported by chroma", method);
+  vdb_set_error(db, "%s: not supported by %s", method,
+                db->provider == BRIX_VDB_CHROMA ? "chroma" : "weaviate");
   return 0;
 }
 
@@ -5665,7 +5721,7 @@ static JsonValue *chroma_collection(BrixVectorDB *db) {
     vdb_set_error(db, "out of memory");
     return NULL;
   }
-  JsonValue *coll = vdb_request_at(db, db->db_path, path, NULL, NULL);
+  JsonValue *coll = vdb_request_at(db, NULL, db->db_path, path, NULL, NULL);
   if (!coll) {
     free(path);
     return NULL;
@@ -5704,7 +5760,7 @@ static JsonValue *chroma_post(BrixVectorDB *db, const char *path,
   }
   BrixString *body = json_stringify(req);
   json_release(req);
-  JsonValue *resp = vdb_request_at(db, db->coll_path, path, NULL, body->data);
+  JsonValue *resp = vdb_request_at(db, NULL, db->coll_path, path, NULL, body->data);
   string_release(body);
   if (!resp && db->last_status == 404) {
     // The collection may have been recreated under a new id: resolve the
@@ -5719,7 +5775,7 @@ static JsonValue *chroma_post(BrixVectorDB *db, const char *path,
 static JsonValue *chroma_stats(BrixVectorDB *db) {
   JsonValue *coll = chroma_collection(db);
   if (!coll) return NULL;
-  JsonValue *count = vdb_request_at(db, db->coll_path, "/count", NULL, NULL);
+  JsonValue *count = vdb_request_at(db, NULL, db->coll_path, "/count", NULL, NULL);
   if (!count || count->tag != JSON_INT) {
     if (count) vdb_set_error(db, "/count: response is not an integer");
     json_release(count);
@@ -5927,6 +5983,675 @@ static int chroma_write(BrixVectorDB *db, const char *path, long n,
     }
     json_release(resp);
     done += count;
+  }
+  if (!ok && n > 1) vdb_note_written(db, done, n);
+  return ok;
+}
+
+// ---- Grupo B Fase 2: Weaviate (REST /v1 + GraphQL). One connection is one
+// existing class with a single (unnamed) vector: it is never created
+// implicitly (a write to a missing class would create one through
+// auto-schema), so upserts, query and stats read the schema first; fetch,
+// list and delete use the class spelling cached on first use (a 404 drops
+// it). Weaviate ids must be UUIDs, so a
+// Brix id becomes UUIDv5(NAMESPACE_DNS, id) -- what the Weaviate clients'
+// generate_uuid5(id) returns -- and is also stored in the "brix_id" property,
+// which reads turn back into the id (objects without it report their UUID).
+// Metadata is the object's other properties. Results keep the Pinecone
+// shapes; a query match has "distance" like Chroma. Filters are Weaviate
+// "where" objects (path / operator / value*), sent as GraphQL input. No
+// namespaces: delete_namespace and reset_index are not supported.
+
+// ponytail: the batch size Weaviate recommends; no request-size cap.
+#define BRIX_WEAVIATE_MAX_BATCH 100
+
+typedef struct {
+  char *data;
+  size_t len, cap;
+  int oom;
+} VdbText;
+
+static void vt_add(VdbText *t, const char *s) {
+  size_t n = strlen(s);
+  if (t->oom) return;
+  if (!vdb_reserve(&t->data, &t->cap, t->len + n + 1)) {
+    t->oom = 1;
+    return;
+  }
+  memcpy(t->data + t->len, s, n + 1);
+  t->len += n;
+}
+
+static void vt_json(VdbText *t, JsonValue *v) {
+  BrixString *s = json_stringify(v);
+  if (!s) {
+    t->oom = 1;
+    return;
+  }
+  vt_add(t, s->data);
+  string_release(s);
+}
+
+// `obj[key]` (owned) with `obj` released: lets lookups chain.
+static JsonValue *vdb_take(JsonValue *obj, const char *key) {
+  JsonValue *v = vdb_field(obj, key);
+  json_release(obj);
+  return v;
+}
+
+static JsonValue *vdb_take_index(JsonValue *arr, long i) {
+  JsonValue *v = json_index(arr, i);
+  json_release(arr);
+  return v;
+}
+
+static uint32_t vdb_rol(uint32_t x, int n) { return (x << n) | (x >> (32 - n)); }
+
+// SHA-1 (RFC 3174), only to derive UUIDv5 ids. 0 on out of memory.
+static int vdb_sha1(const unsigned char *msg, size_t len, unsigned char out[20]) {
+  uint32_t h[5] = {0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0};
+  size_t total = ((len + 8) / 64 + 1) * 64;
+  unsigned char *m = calloc(total, 1);
+  if (!m) return 0;
+  memcpy(m, msg, len);
+  m[len] = 0x80;
+  uint64_t bits = (uint64_t)len * 8;
+  for (int i = 0; i < 8; i++) m[total - 1 - i] = (unsigned char)(bits >> (8 * i));
+  for (size_t off = 0; off < total; off += 64) {
+    uint32_t w[80];
+    for (int i = 0; i < 16; i++) {
+      const unsigned char *p = m + off + 4 * i;
+      w[i] = (uint32_t)p[0] << 24 | (uint32_t)p[1] << 16 | (uint32_t)p[2] << 8 | p[3];
+    }
+    for (int i = 16; i < 80; i++) {
+      w[i] = vdb_rol(w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16], 1);
+    }
+    uint32_t a = h[0], b = h[1], c = h[2], d = h[3], e = h[4];
+    for (int i = 0; i < 80; i++) {
+      uint32_t f, k;
+      if (i < 20) {
+        f = (b & c) | (~b & d);
+        k = 0x5A827999;
+      } else if (i < 40) {
+        f = b ^ c ^ d;
+        k = 0x6ED9EBA1;
+      } else if (i < 60) {
+        f = (b & c) | (b & d) | (c & d);
+        k = 0x8F1BBCDC;
+      } else {
+        f = b ^ c ^ d;
+        k = 0xCA62C1D6;
+      }
+      uint32_t t = vdb_rol(a, 5) + f + e + k + w[i];
+      e = d;
+      d = c;
+      c = vdb_rol(b, 30);
+      b = a;
+      a = t;
+    }
+    h[0] += a;
+    h[1] += b;
+    h[2] += c;
+    h[3] += d;
+    h[4] += e;
+  }
+  free(m);
+  for (int i = 0; i < 5; i++) {
+    out[4 * i] = (unsigned char)(h[i] >> 24);
+    out[4 * i + 1] = (unsigned char)(h[i] >> 16);
+    out[4 * i + 2] = (unsigned char)(h[i] >> 8);
+    out[4 * i + 3] = (unsigned char)h[i];
+  }
+  return 1;
+}
+
+// UUIDv5(NAMESPACE_DNS, id) as text. 0 on out of memory.
+static int wv_uuid(BrixString *id, char out[37]) {
+  static const unsigned char ns[16] = {0x6b, 0xa7, 0xb8, 0x10, 0x9d, 0xad,
+                                       0x11, 0xd1, 0x80, 0xb4, 0x00, 0xc0,
+                                       0x4f, 0xd4, 0x30, 0xc8};
+  size_t n = 16 + (size_t)id->len;
+  unsigned char *m = malloc(n);
+  if (!m) return 0;
+  memcpy(m, ns, 16);
+  memcpy(m + 16, id->data, id->len);
+  unsigned char h[20];
+  int ok = vdb_sha1(m, n, h);
+  free(m);
+  if (!ok) return 0;
+  h[6] = (h[6] & 0x0f) | 0x50;
+  h[8] = (h[8] & 0x3f) | 0x80;
+  snprintf(out, 37,
+           "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
+           h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7], h[8], h[9], h[10],
+           h[11], h[12], h[13], h[14], h[15]);
+  return 1;
+}
+
+// GET /v1/schema/<class>. Caches the class spelling in coll_path. Returns
+// the class schema (owned), or NULL with last_error set.
+static JsonValue *wv_schema(BrixVectorDB *db) {
+  char *path = vdb_concat("/v1/schema/", db->ns, "");
+  if (!path) {
+    vdb_set_error(db, "out of memory");
+    return NULL;
+  }
+  JsonValue *schema = vdb_request_at(db, NULL, "", path, NULL, NULL);
+  if (!schema && db->last_status == 404) {
+    vdb_set_error(db, "%s: class does not exist", path);
+  }
+  JsonValue *cls = schema ? vdb_field(schema, "class") : NULL;
+  if (schema && !(cls && cls->tag == JSON_STRING &&
+                  vdb_is_name(cls->data.as_string->data))) {
+    vdb_set_error(db, "%s: response has no \"class\" name", path);
+    json_release(schema);
+    schema = NULL;
+  }
+  if (schema) {
+    char *name = strdup(cls->data.as_string->data);
+    if (!name) {
+      vdb_set_error(db, "out of memory");
+      json_release(schema);
+      schema = NULL;
+    } else {
+      free(db->coll_path);
+      db->coll_path = name;
+    }
+  }
+  json_release(cls);
+  free(path);
+  return schema;
+}
+
+static int wv_resolve(BrixVectorDB *db) {
+  if (db->coll_path) return 1;
+  JsonValue *schema = wv_schema(db);
+  json_release(schema);
+  return schema != NULL;
+}
+
+// A request on the resolved class: a 404 drops the cached class (it may have
+// been deleted).
+static JsonValue *wv_request(BrixVectorDB *db, const char *method,
+                             const char *path, const char *query,
+                             const char *body) {
+  JsonValue *resp = vdb_request_at(db, method, "", path, query, body);
+  if (!resp && db->last_status == 404) {
+    free(db->coll_path);
+    db->coll_path = NULL;
+  }
+  return resp;
+}
+
+// POST /v1/graphql. Returns "data" (owned), or NULL with last_error set; a
+// GraphQL error comes back with HTTP 200 and an "errors" array.
+static JsonValue *wv_graphql(BrixVectorDB *db, VdbText *query) {
+  if (query->oom) {
+    free(query->data);
+    vdb_set_error(db, "/v1/graphql: out of memory");
+    return NULL;
+  }
+  BrixString *q = str_new(query->data);
+  free(query->data);
+  JsonValue *req = json_object();
+  vdb_put(req, "query", json_string(q));
+  string_release(q);
+  BrixString *body = json_stringify(req);
+  json_release(req);
+  JsonValue *resp = vdb_request_at(db, NULL, "", "/v1/graphql", NULL, body->data);
+  string_release(body);
+  if (!resp) return NULL;
+  JsonValue *msg = vdb_take(vdb_take_index(vdb_field(resp, "errors"), 0), "message");
+  if (msg) {
+    vdb_set_error(db, "/v1/graphql: %s",
+                  msg->tag == JSON_STRING ? msg->data.as_string->data : "error");
+    json_release(msg);
+    json_release(resp);
+    return NULL;
+  }
+  return vdb_take(resp, "data");
+}
+
+// The properties of `props` but "brix_id", "_additional" and nulls; NULL when
+// none remain.
+static JsonValue *wv_meta(JsonValue *props) {
+  if (!props || props->tag != JSON_OBJECT) return NULL;
+  JsonValue *meta = NULL;
+  for (JsonObjectEntry *e = props->data.as_object->head; e; e = e->next) {
+    if (!e->val || e->val->tag == JSON_NULL ||
+        strcmp(e->key->data, "brix_id") == 0 ||
+        strcmp(e->key->data, "_additional") == 0) {
+      continue;
+    }
+    if (!meta) meta = json_object();
+    json_set(meta, e->key, e->val);
+  }
+  return meta;
+}
+
+// The Brix id of an object: its "brix_id" property, else its UUID.
+static JsonValue *wv_id(JsonValue *props, JsonValue *uuid) {
+  JsonValue *id = vdb_field(props, "brix_id");
+  if (id && id->tag == JSON_STRING) return id;
+  json_release(id);
+  return json_retain(uuid);
+}
+
+// A REST object {id, properties, vector} as {id, values[, metadata]}.
+static JsonValue *wv_record(JsonValue *obj) {
+  JsonValue *props = vdb_field(obj, "properties");
+  JsonValue *uuid = vdb_field(obj, "id");
+  JsonValue *rec = json_object();
+  vdb_put(rec, "id", wv_id(props, uuid));
+  vdb_put(rec, "values", vdb_field(obj, "vector"));
+  vdb_put(rec, "metadata", wv_meta(props));
+  json_release(props);
+  json_release(uuid);
+  return rec;
+}
+
+// stats() -> {"dimension": null, "totalVectorCount": int} (Aggregate count;
+// Weaviate does not report a class dimension).
+static JsonValue *wv_stats(BrixVectorDB *db) {
+  JsonValue *schema = wv_schema(db);
+  if (!schema) return NULL;
+  json_release(schema);
+  VdbText q = {0};
+  vt_add(&q, "{ Aggregate { ");
+  vt_add(&q, db->coll_path);
+  vt_add(&q, " { meta { count } } } }");
+  JsonValue *data = wv_graphql(db, &q);
+  if (!data) return NULL;
+  JsonValue *agg = vdb_take(vdb_take(data, "Aggregate"), db->coll_path);
+  JsonValue *count = vdb_take(vdb_take(vdb_take_index(agg, 0), "meta"), "count");
+  if (!count || count->tag != JSON_INT) {
+    json_release(count);
+    vdb_set_error(db, "/v1/graphql: response has no count");
+    return NULL;
+  }
+  JsonValue *out = json_object();
+  vdb_put(out, "dimension", json_null());
+  vdb_put(out, "totalVectorCount", count);
+  return out;
+}
+
+// A JSON filter as GraphQL input: names as keys, an "operator" value as an
+// enum, everything else as its JSON literal (GraphQL shares JSON's string
+// escapes). 0 when it is not expressible.
+static int wv_gql_value(VdbText *t, JsonValue *v, int is_enum, int depth) {
+  if (!v || depth > 32) return 0;
+  if (is_enum) {
+    if (v->tag != JSON_STRING || !vdb_is_name(v->data.as_string->data)) return 0;
+    vt_add(t, v->data.as_string->data);
+    return 1;
+  }
+  if (v->tag == JSON_OBJECT) {
+    vt_add(t, "{");
+    for (JsonObjectEntry *e = v->data.as_object->head; e; e = e->next) {
+      if (!vdb_is_name(e->key->data)) return 0;
+      vt_add(t, e->key->data);
+      vt_add(t, ": ");
+      if (!wv_gql_value(t, e->val, strcmp(e->key->data, "operator") == 0,
+                        depth + 1)) {
+        return 0;
+      }
+      if (e->next) vt_add(t, ", ");
+    }
+    vt_add(t, "}");
+    return 1;
+  }
+  if (v->tag == JSON_ARRAY) {
+    vt_add(t, "[");
+    JsonArray *a = v->data.as_array;
+    for (size_t i = 0; i < a->len; i++) {
+      if (i) vt_add(t, ", ");
+      if (!wv_gql_value(t, a->items[i], 0, depth + 1)) return 0;
+    }
+    vt_add(t, "]");
+    return 1;
+  }
+  vt_json(t, v);
+  return 1;
+}
+
+static int wv_scalar_type(const char *t) {
+  static const char *const scalars[] = {"text", "int", "number", "boolean",
+                                        "date", "uuid", "blob"};
+  size_t n = strlen(t);
+  if (n > 2 && strcmp(t + n - 2, "[]") == 0) n -= 2; // arrays of a scalar
+  for (size_t i = 0; i < sizeof(scalars) / sizeof(scalars[0]); i++) {
+    if (strlen(scalars[i]) == n && strncmp(t, scalars[i], n) == 0) return 1;
+  }
+  return 0;
+}
+
+static JsonValue *wv_query(BrixVectorDB *db, BrixEmbedding *q, long top_k,
+                           JsonValue *filter) {
+  if (filter && filter->tag != JSON_OBJECT) {
+    vdb_set_error(db, "/v1/graphql: filter must be a Weaviate where object");
+    return NULL;
+  }
+  // The schema names the properties to select (GraphQL has no wildcard); it
+  // is read on every query since auto-schema adds properties on writes.
+  JsonValue *schema = wv_schema(db);
+  if (!schema) return NULL;
+  VdbText t = {0};
+  char num[48];
+  vt_add(&t, "{ Get { ");
+  vt_add(&t, db->coll_path);
+  vt_add(&t, "(nearVector: {vector: [");
+  for (long i = 0; i < q->dim; i++) {
+    snprintf(num, sizeof(num), "%s%.17g", i ? ", " : "", q->data[i]);
+    vt_add(&t, num);
+  }
+  snprintf(num, sizeof(num), "]}, limit: %ld", top_k);
+  vt_add(&t, num);
+  if (filter) {
+    vt_add(&t, ", where: ");
+    if (!wv_gql_value(&t, filter, 0, 0)) {
+      free(t.data);
+      json_release(schema);
+      vdb_set_error(db, "/v1/graphql: filter must be a Weaviate where object "
+                    "(names as keys, \"operator\" a name)");
+      return NULL;
+    }
+  }
+  vt_add(&t, ") { ");
+  // Scalar types only: object, geoCoordinates, phoneNumber and references
+  // need a sub-selection.
+  JsonValue *props = vdb_take(schema, "properties");
+  for (long i = 0; i < json_array_len(props); i++) {
+    JsonValue *p = json_index(props, i);
+    JsonValue *name = vdb_field(p, "name");
+    JsonValue *type = vdb_take_index(vdb_field(p, "dataType"), 0);
+    if (name && name->tag == JSON_STRING && type && type->tag == JSON_STRING &&
+        vdb_is_name(name->data.as_string->data) &&
+        wv_scalar_type(type->data.as_string->data)) {
+      vt_add(&t, name->data.as_string->data);
+      vt_add(&t, " ");
+    }
+    json_release(type);
+    json_release(name);
+    json_release(p);
+  }
+  json_release(props);
+  vt_add(&t, "_additional { id distance } } } }");
+
+  JsonValue *hits = vdb_take(vdb_take(wv_graphql(db, &t), "Get"), db->coll_path);
+  if (!hits || hits->tag != JSON_ARRAY) {
+    json_release(hits);
+    if (!db->last_error) vdb_set_error(db, "/v1/graphql: response has no hits");
+    return NULL;
+  }
+  JsonValue *matches = json_array();
+  for (long i = 0; i < json_array_len(hits); i++) {
+    JsonValue *hit = json_index(hits, i);
+    JsonValue *add = vdb_field(hit, "_additional");
+    JsonValue *uuid = vdb_field(add, "id");
+    JsonValue *m = json_object();
+    vdb_put(m, "id", wv_id(hit, uuid));
+    vdb_put(m, "distance", vdb_field(add, "distance"));
+    vdb_put(m, "metadata", wv_meta(hit));
+    vdb_push(matches, m);
+    json_release(uuid);
+    json_release(add);
+    json_release(hit);
+  }
+  json_release(hits);
+  return matches;
+}
+
+// "/v1/objects/<class>/<uuid of id>" (owned), or NULL on out of memory.
+static char *wv_object_path(BrixVectorDB *db, BrixString *id) {
+  char uuid[37];
+  if (!wv_uuid(id, uuid)) return NULL;
+  size_t n = strlen(db->coll_path) + 64;
+  char *path = malloc(n);
+  if (path) snprintf(path, n, "/v1/objects/%s/%s", db->coll_path, uuid);
+  return path;
+}
+
+// fetch(id) -> {id, values, metadata}; nil with last_error "" when missing.
+static JsonValue *wv_fetch(BrixVectorDB *db, BrixString *id) {
+  if (!wv_resolve(db)) return NULL;
+  char *path = wv_object_path(db, id);
+  if (!path) {
+    vdb_set_error(db, "out of memory");
+    return NULL;
+  }
+  JsonValue *obj = wv_request(db, NULL, path, "include=vector", NULL);
+  free(path);
+  if (!obj) {
+    if (db->last_status == 404) {
+      free(db->last_error); // not found is not an error
+      db->last_error = NULL;
+    }
+    return NULL;
+  }
+  JsonValue *rec = wv_record(obj);
+  json_release(obj);
+  return rec;
+}
+
+// list([limit[, token]]) -> {vectors: [{id}], pagination: {next}}: GET
+// /v1/objects with the class, a limit and the `after` cursor (the last UUID
+// of the previous page, which is the token).
+static JsonValue *wv_list(BrixVectorDB *db, long limit, BrixString *token) {
+  if (limit == LONG_MIN) limit = 100; // Pinecone's default page size
+  if (limit < 1) {
+    vdb_set_error(db, "/v1/objects: limit must be >= 1, got %ld", limit);
+    return NULL;
+  }
+  if (!wv_resolve(db)) return NULL;
+  char num[32];
+  snprintf(num, sizeof(num), "%ld", limit);
+  char *query = NULL;
+  int ok = vdb_add_param(db, &query, "class", db->coll_path) &&
+           vdb_add_param(db, &query, "limit", num);
+  if (ok && token && token->len > 0) {
+    ok = vdb_add_param(db, &query, "after", token->data);
+  }
+  if (!ok) {
+    free(query);
+    vdb_set_error(db, "/v1/objects: out of memory");
+    return NULL;
+  }
+  JsonValue *resp = wv_request(db, NULL, "/v1/objects", query, NULL);
+  free(query);
+  JsonValue *objs = vdb_take(resp, "objects");
+  if (!objs || objs->tag != JSON_ARRAY) {
+    json_release(objs);
+    if (!db->last_error) {
+      vdb_set_error(db, "/v1/objects: response has no \"objects\" array");
+    }
+    return NULL;
+  }
+  long n = json_array_len(objs);
+  JsonValue *vectors = json_array();
+  JsonValue *last = NULL;
+  for (long i = 0; i < n; i++) {
+    JsonValue *obj = json_index(objs, i);
+    JsonValue *props = vdb_field(obj, "properties");
+    json_release(last);
+    last = vdb_field(obj, "id");
+    JsonValue *rec = json_object();
+    vdb_put(rec, "id", wv_id(props, last));
+    vdb_push(vectors, rec);
+    json_release(props);
+    json_release(obj);
+  }
+  json_release(objs);
+  JsonValue *page = json_object();
+  vdb_put(page, "vectors", vectors);
+  if (n == limit && last && last->tag == JSON_STRING) {
+    JsonValue *pag = json_object();
+    vdb_put(pag, "next", json_retain(last));
+    vdb_put(page, "pagination", pag);
+  }
+  json_release(last);
+  return page;
+}
+
+// One batch object {class, id, properties: {brix_id, ...metadata}, vector}.
+static JsonValue *wv_object(BrixVectorDB *db, BrixString *id, BrixEmbedding *e,
+                            JsonValue *meta, const char *uuid) {
+  JsonValue *props = json_object();
+  vdb_put(props, "brix_id", json_string(id));
+  size_t want = 1;
+  if (meta && meta->tag == JSON_OBJECT) {
+    for (JsonObjectEntry *x = meta->data.as_object->head; x; x = x->next) {
+      json_set(props, x->key, x->val); // refuses values nested too deeply
+      want++;
+    }
+  }
+  JsonValue *obj = json_object();
+  BrixString *cls = str_new(db->coll_path);
+  BrixString *u = str_new((char *)uuid);
+  vdb_put(obj, "class", json_string(cls));
+  vdb_put(obj, "id", json_string(u));
+  string_release(cls);
+  string_release(u);
+  vdb_put(obj, "vector", vdb_embedding_json(e));
+  int ok = props->data.as_object->count == want &&
+           vdb_put_checked(obj, "properties", props);
+  json_release(props);
+  if (!ok) {
+    json_release(obj);
+    return NULL;
+  }
+  return obj;
+}
+
+// The error of item `i` of a batch response, or NULL (borrowed text in *buf).
+static const char *wv_item_error(JsonValue *resp, long i, char *buf, size_t n) {
+  JsonValue *msg = vdb_take(
+      vdb_take_index(
+          vdb_take(vdb_take(vdb_take(json_index(resp, i), "result"), "errors"),
+                   "error"),
+          0),
+      "message");
+  if (!msg) return NULL;
+  snprintf(buf, n, "%s",
+           msg->tag == JSON_STRING ? msg->data.as_string->data : "failed");
+  json_release(msg);
+  return buf;
+}
+
+// Upsert (POST /v1/batch/objects, which replaces whole objects) or delete
+// (DELETE /v1/batch/objects matching the ids) ids[0..n), in requests of
+// BRIX_WEAVIATE_MAX_BATCH. Weaviate answers a batch with 200 and an error
+// per failed object: the first one stops the batch, and "(N of M written)"
+// counts the objects that did succeed.
+static int wv_write(BrixVectorDB *db, int del, long n, BrixString **ids,
+                    BrixEmbedding **vecs, JsonValue **metas, int single) {
+  const char *path = "/v1/batch/objects";
+  if (metas) {
+    BrixString *key = str_new("brix_id");
+    for (long i = 0; i < n; i++) {
+      JsonValue *clash = json_get(metas[i], key);
+      json_release(clash);
+      if (clash) {
+        string_release(key);
+        vdb_record_error(db, path, single ? -1 : i,
+                         "metadata must not contain \"brix_id\" (it holds the id)");
+        return 0;
+      }
+    }
+    string_release(key);
+  }
+  if (n == 0) return 1;
+  long done = 0;
+  // An upsert reads the schema fresh: the class may have been deleted since
+  // it was cached, and auto-schema would silently recreate it.
+  int ok;
+  if (del) {
+    ok = wv_resolve(db);
+  } else {
+    JsonValue *schema = wv_schema(db);
+    ok = schema != NULL;
+    json_release(schema);
+  }
+  while (ok && done < n) {
+    long count = n - done < BRIX_WEAVIATE_MAX_BATCH ? n - done
+                                                     : BRIX_WEAVIATE_MAX_BATCH;
+    JsonValue *items = json_array();
+    for (long i = done; ok && i < done + count; i++) {
+      char uuid[37];
+      if (!wv_uuid(ids[i], uuid)) {
+        vdb_set_error(db, "%s: out of memory", path);
+        ok = 0;
+      } else if (del) {
+        BrixString *u = str_new(uuid);
+        vdb_push(items, json_string(u));
+        string_release(u);
+      } else {
+        JsonValue *obj =
+            wv_object(db, ids[i], vecs[i], metas ? metas[i] : NULL, uuid);
+        if (!obj || !vdb_push(items, obj)) {
+          vdb_record_error(db, path, single ? -1 : i,
+                           "metadata is nested too deeply");
+          ok = 0;
+        }
+      }
+    }
+    JsonValue *req = json_object();
+    if (ok && del) {
+      JsonValue *where = vdb_json_text("{\"path\":[\"id\"],\"operator\":\"ContainsAny\"}");
+      vdb_put(where, "valueTextArray", json_retain(items));
+      JsonValue *match = json_object();
+      BrixString *cls = str_new(db->coll_path);
+      vdb_put(match, "class", json_string(cls));
+      string_release(cls);
+      vdb_put(match, "where", where);
+      vdb_put(req, "match", match);
+    } else if (ok && !vdb_put_checked(req, "objects", items)) {
+      vdb_record_error(db, path, -1, "metadata is nested too deeply");
+      ok = 0;
+    }
+    json_release(items);
+    if (!ok) {
+      json_release(req);
+      break;
+    }
+    BrixString *body = json_stringify(req);
+    json_release(req);
+    JsonValue *resp = wv_request(db, del ? "DELETE" : NULL, path, NULL, body->data);
+    string_release(body);
+    if (!resp) {
+      ok = 0;
+      break;
+    }
+    if (del) {
+      JsonValue *failed = vdb_take(vdb_field(resp, "results"), "failed");
+      if (!failed || failed->tag != JSON_INT) {
+        vdb_set_error(db, "%s: response has no \"results.failed\" count", path);
+        ok = 0;
+      } else if (failed->data.as_int > 0) {
+        vdb_set_error(db, "%s: %ld objects failed to delete", path,
+                      failed->data.as_int);
+        ok = 0;
+      } else {
+        done += count;
+      }
+      json_release(failed);
+    } else if (resp->tag != JSON_ARRAY || json_array_len(resp) != count) {
+      vdb_set_error(db, "%s: response does not list the %ld objects sent", path,
+                    count);
+      ok = 0;
+    } else {
+      char msg[400];
+      long written = 0;
+      for (long i = 0; i < count; i++) {
+        if (!wv_item_error(resp, i, msg, sizeof(msg))) {
+          written++;
+        } else if (ok) {
+          vdb_record_error(db, path, single ? -1 : done + i, msg);
+          ok = 0;
+        }
+      }
+      done += written;
+    }
+    json_release(resp);
   }
   if (!ok && n > 1) vdb_note_written(db, done, n);
   return ok;

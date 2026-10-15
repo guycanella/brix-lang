@@ -1,0 +1,6 @@
+// The Weaviate class goes into URL paths and GraphQL queries verbatim, so
+// connect aborts on anything but a name: this one would inject a selection.
+import vectordb
+
+var db := vectordb.connect("weaviate", "http://localhost:8080", "", "Docs { secret }")
+println(db.last_error())
