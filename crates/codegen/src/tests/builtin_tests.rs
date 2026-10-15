@@ -3917,12 +3917,13 @@ fn test_vectordb_copy_retains() {
 #[test]
 fn test_vectordb_provider_errors() {
     for src in [
-        "var db := vectordb.connect(\"weaviate\", \"h\", \"k\")\n",
+        "var db := vectordb.connect(\"qdrant\", \"h\", \"k\")\n",
         "var p := \"pinecone\"\nvar db := vectordb.connect(p, \"h\", \"k\")\n",
         "var db := vectordb.connect(\"pinecone\", \"h\")\n",
         "var db := vectordb.connect(\"pinecone\", \"h\", \"k\", \"ns\", \"x\")\n",
         // Chroma needs the collection.
         "var db := vectordb.connect(\"chroma\", \"h\", \"k\")\n",
+        "var db := vectordb.connect(\"weaviate\", \"h\", \"k\")\n",
     ] {
         assert!(
             matches!(
@@ -4511,6 +4512,19 @@ println(y)
     );
     assert!(
         ir.contains("%union_slot_load = load { double, double }"),
+        "{}",
+        ir
+    );
+}
+
+#[test]
+fn test_vectordb_connect_weaviate() {
+    let ir = ir_from_source(&format!(
+        "{}var db := vectordb.connect(\"weaviate\", \"http://localhost:8080\", \"\", \"Docs\")\nvar s := db.stats()\n",
+        VDB_PRELUDE
+    ));
+    assert!(
+        ir.contains("call ptr @brix_vectordb_connect(i64 2, ptr"),
         "{}",
         ir
     );

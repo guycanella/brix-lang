@@ -1,0 +1,138 @@
+// v2.1 Grupo B Fase 2: the "weaviate" provider against the mock Weaviate
+// server (REST /v1 + GraphQL). Same VectorDB methods, on one class.
+import vectordb
+import json
+
+var host := env("BRIX_TEST_WEAVIATE_HOST") ?: "http://127.0.0.1:1"
+var db := vectordb.connect("weaviate", host, "", "Docs")
+
+fn show(v: json?) {
+    println(json.stringify(v ?: json.null()))
+}
+
+// stats: Aggregate count; Weaviate reports no dimension.
+show(db.stats())
+
+// query: GraphQL nearVector, cosine distance; scalar properties become the
+// metadata (object, geoCoordinates, phoneNumber and reference properties are
+// not selected); an object without brix_id reports its UUID.
+show(db.query(Embedding<3>([1.0, 0.0, 0.0]), 2))
+show(db.query(Embedding<3>([0.0, 0.0, 1.0]), 1))
+var news := json.object()
+json.set(news, "path", json.parse("[\"genre\"]") ?: json.null())
+json.set(news, "operator", json.string("Equal"))
+json.set(news, "valueText", json.string("news"))
+show(db.query(Embedding<3>([1.0, 0.0, 0.0]), 5, news))
+var both := json.parse("{\"operator\": \"And\", \"operands\": [{\"path\": [\"genre\"], \"operator\": \"Equal\", \"valueText\": \"news\"}, {\"path\": [\"year\"], \"operator\": \"GreaterThan\", \"valueInt\": 2000}]}") ?: json.null()
+show(db.query(Embedding<3>([0.0, 0.0, 1.0]), 5, both))
+
+// A filter string is escaped: quotes, braces and newlines stay inside it.
+var tricky := json.object()
+json.set(tricky, "path", json.parse("[\"genre\"]") ?: json.null())
+json.set(tricky, "operator", json.string("Equal"))
+json.set(tricky, "valueText", json.string("x\") { secret }\n\""))
+show(db.query(Embedding<3>([1.0, 0.0, 0.0]), 5, tricky))
+println(db.last_error())
+
+// The class name is resolved the way Weaviate spells it: "docs" is Docs.
+var lower := vectordb.connect("weaviate", host, "", "docs")
+show(lower.query(Embedding<3>([1.0, 0.0, 0.0]), 1))
+
+// Filters that are not Weaviate where objects fail locally or at the server.
+var notname := json.parse("{\"path\": [\"genre\"], \"operator\": \"Not Equal\", \"valueText\": \"x\"}") ?: json.null()
+show(db.query(Embedding<3>([1.0, 0.0, 0.0]), 1, notname))
+println(db.last_error())
+var noprop := json.parse("{\"path\": [\"nope\"], \"operator\": \"Equal\", \"valueText\": \"x\"}") ?: json.null()
+show(db.query(Embedding<3>([1.0, 0.0, 0.0]), 1, noprop))
+println(db.last_status())
+println(db.last_error())
+
+// fetch: by the UUIDv5 of the id; missing = nil with no error.
+show(db.fetch("b"))
+show(db.fetch("nope"))
+println(db.last_error())
+
+// list: pages ordered by UUID, the token is the last UUID of the page.
+var page := db.list(2) ?: json.null()
+show(page)
+var pag := page["pagination"]
+show(db.list(2, json.as_string(pag["next"]) ?: ""))
+
+// upsert replaces the whole object, like Pinecone.
+var year := json.object()
+json.set(year, "year", json.int(1999))
+println(db.upsert("a", Embedding<3>([1.0, 0.0, 0.0]), year))
+show(db.fetch("a"))
+var clash := json.object()
+json.set(clash, "brix_id", json.string("x"))
+println(db.upsert("a", Embedding<3>([1.0, 0.0, 0.0]), clash))
+println(db.last_error())
+
+// upsert_batch: 201 objects go out as 100 + 100 + 1 (the mock rejects > 100).
+var ids := Vector<string>()
+var vecs := EmbeddingBatch<3>(0)
+var i := 0
+while i < 201 {
+    ids.push(f"r{i}")
+    vecs.add(Embedding<3>([0.0, 0.0, 1.0]))
+    i := i + 1
+}
+println(db.upsert_batch(ids, vecs))
+var st := db.stats() ?: json.object()
+println(json.as_int(st["totalVectorCount"]) ?: -1)
+
+// One failed object in the second request: Weaviate answers 200 with a
+// per-object error; the 99 others of that request are written too.
+var bad := Vector<string>()
+var badv := EmbeddingBatch<3>(0)
+i := 0
+while i < 150 {
+    bad.push(i == 120 ? "reject-me" : f"s{i}")
+    badv.add(Embedding<3>([0.0, 0.0, 1.0]))
+    i := i + 1
+}
+println(db.upsert_batch(bad, badv))
+println(db.last_error())
+println(db.last_status())
+
+// A dimension mismatch is a per-object error too.
+println(db.upsert("d", Embedding<4>([1.0, 0.0, 0.0, 0.0])))
+println(db.last_error())
+
+// delete / delete_batch (201 ids: 3 requests).
+println(db.delete("a"))
+println(db.delete_batch(ids))
+println(db.delete("never-written"))
+var st2 := db.stats() ?: json.object()
+println(json.as_int(st2["totalVectorCount"]) ?: -1)
+
+// No namespaces in Weaviate.
+println(db.delete_namespace("x"))
+println(db.last_error())
+println(db.reset_index())
+println(db.last_error())
+
+// A missing class is never created by a write (auto-schema would): the
+// write fails resolving it, and the class still does not exist after.
+var missing := vectordb.connect("weaviate", host, "", "Nope")
+println(missing.upsert("x", Embedding<3>([1.0, 0.0, 0.0])))
+println(missing.last_error())
+show(missing.stats())
+println(missing.last_error())
+
+// A class deleted after it was resolved: an upsert reads the schema again
+// instead of letting auto-schema recreate the class.
+var vanish := vectordb.connect("weaviate", host, "", "Vanish")
+println(vanish.delete("x"))
+println(vanish.upsert("x", Embedding<3>([1.0, 0.0, 0.0])))
+println(vanish.last_error())
+show(vanish.stats())
+
+// A token goes in Authorization: Bearer.
+var authed := vectordb.connect("weaviate", host, "test-key", "Docs")
+var ast := authed.stats() ?: json.object()
+println(json.as_int(ast["totalVectorCount"]) ?: -1)
+var wrong := vectordb.connect("weaviate", host, "wrong-key", "Docs")
+show(wrong.stats())
+println(wrong.last_status())
+println(wrong.last_error())

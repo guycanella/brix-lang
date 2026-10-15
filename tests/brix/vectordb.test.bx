@@ -202,3 +202,48 @@ test.describe("VectorDB on Chroma (v2.1 Grupo B Fase 1)", () -> {
         test.expect(db.last_error()).toStartWith("/collections/docs: ")
     })
 })
+
+test.describe("VectorDB on Weaviate (v2.1 Grupo B Fase 2)", () -> {
+    test.it("namespaces are not supported, without a request", () -> {
+        var db := vectordb.connect("weaviate", "http://127.0.0.1:1", "", "Docs")
+        test.expect(db.delete_namespace("x")).toBe(0)
+        test.expect(db.last_error()).toBe("delete_namespace: not supported by weaviate")
+        test.expect(db.reset_index()).toBe(0)
+        test.expect(db.last_error()).toBe("reset_index: not supported by weaviate")
+    })
+
+    test.it("local checks run before any request", () -> {
+        var db := vectordb.connect("weaviate", "http://127.0.0.1:1", "", "Docs")
+        test.expect(db.list(0)).toBeNil()
+        test.expect(db.last_error()).toBe("/v1/objects: limit must be >= 1, got 0")
+        test.expect(db.query(Embedding<3>([1.0, 0.0, 0.0]), 1, json.int(1))).toBeNil()
+        test.expect(db.last_error()).toBe("/v1/graphql: filter must be a Weaviate where object")
+        var m := json.object()
+        json.set(m, "brix_id", json.string("x"))
+        test.expect(db.upsert("a", Embedding<3>([1.0, 0.0, 0.0]), m)).toBe(0)
+        test.expect(db.last_error()).toBe("/v1/batch/objects: metadata must not contain \"brix_id\" (it holds the id)")
+    })
+
+    test.it("operations on a refused connection fail resolving the class", () -> {
+        var db := vectordb.connect("weaviate", "http://127.0.0.1:1", "", "Docs")
+        test.expect(db.fetch("a")).toBeNil()
+        test.expect(db.last_error()).toStartWith("/v1/schema/Docs: ")
+        test.expect(db.last_status()).toBe(0)
+    })
+})
+
+test.describe("VectorDB empty batches (v2.1 Grupo B Fase 2)", () -> {
+    test.it("succeed without a request on every provider", () -> {
+        var ids := Vector<string>()
+        var vecs := EmbeddingBatch<3>(0)
+        var pc := vectordb.connect("pinecone", "http://127.0.0.1:1", "key")
+        var ch := vectordb.connect("chroma", "http://127.0.0.1:1", "", "docs")
+        var wv := vectordb.connect("weaviate", "http://127.0.0.1:1", "", "Docs")
+        test.expect(pc.upsert_batch(ids, vecs)).toBe(1)
+        test.expect(pc.delete_batch(ids)).toBe(1)
+        test.expect(ch.upsert_batch(ids, vecs)).toBe(1)
+        test.expect(ch.delete_batch(ids)).toBe(1)
+        test.expect(wv.upsert_batch(ids, vecs)).toBe(1)
+        test.expect(wv.delete_batch(ids)).toBe(1)
+    })
+})

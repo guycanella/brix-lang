@@ -73,7 +73,8 @@ fn run_brix_repl(input: &str) -> (String, String, i32) {
 }
 
 /// A mock vector database host, killed on drop: Pinecone
-/// (tests/integration/mock_pinecone.py) or Chroma (mock_chroma.py).
+/// (tests/integration/mock_pinecone.py), Chroma (mock_chroma.py) or
+/// Weaviate (mock_weaviate.py).
 struct MockPinecone {
     child: std::process::Child,
     host: String,
@@ -86,6 +87,10 @@ impl MockPinecone {
 
     fn start_chroma() -> Self {
         Self::start_script("tests/integration/mock_chroma.py")
+    }
+
+    fn start_weaviate() -> Self {
+        Self::start_script("tests/integration/mock_weaviate.py")
     }
 
     fn start_script(script: &str) -> Self {
@@ -104,8 +109,8 @@ impl MockPinecone {
         MockPinecone { child, host }
     }
 
-    /// Run `file_path` with BRIX_TEST_PINECONE_HOST (and BRIX_TEST_CHROMA_HOST)
-    /// pointing at the mock and assert it succeeds with exactly
+    /// Run `file_path` with BRIX_TEST_PINECONE_HOST (and the CHROMA / WEAVIATE
+    /// variants) pointing at the mock and assert it succeeds with exactly
     /// `expected_stdout`.
     fn assert_success(&self, file_path: &str, expected_stdout: &str) {
         let (stdout, stderr, exit_code) = run_brix_file_env(
@@ -113,6 +118,7 @@ impl MockPinecone {
             &[
                 ("BRIX_TEST_PINECONE_HOST", &self.host),
                 ("BRIX_TEST_CHROMA_HOST", &self.host),
+                ("BRIX_TEST_WEAVIATE_HOST", &self.host),
                 // Plain http to loopback must bypass any proxy: if it
                 // didn't, every request would fail against this one.
                 ("http_proxy", "http://127.0.0.1:9"),
@@ -1047,7 +1053,7 @@ fn test_codegen_vectordb_unknown_provider() {
     assert_output(
         "tests/integration/codegen_errors/08_vectordb_unknown_provider.bx",
         104, // InvalidOperation
-        Some("unknown provider \"weaviate\""),
+        Some("unknown provider \"qdrant\""),
     );
 }
 
@@ -2805,5 +2811,22 @@ fn test_287_vectordb_chroma() {
     MockPinecone::start_chroma().assert_success(
         "tests/integration/success/287_vectordb_chroma.bx",
         "{\"dimension\":3,\"totalVectorCount\":3}\n[{\"id\":\"a\",\"distance\":0,\"metadata\":{\"genre\":\"news\"}},{\"id\":\"b\",\"distance\":0.4,\"metadata\":{\"genre\":\"blog\"}}]\n[{\"id\":\"a\",\"distance\":1,\"metadata\":{\"genre\":\"news\"}}]\n{\"id\":\"b\",\"values\":[0.6,0.8,0],\"metadata\":{\"genre\":\"blog\"}}\n{\"id\":\"c\",\"values\":[0,1,0]}\nnull\n\n{\"vectors\":[{\"id\":\"a\"},{\"id\":\"b\"}],\"pagination\":{\"next\":\"2\"}}\n{\"vectors\":[{\"id\":\"c\"}]}\nnull\n/get: invalid pagination token\n1\n{\"id\":\"a\",\"values\":[1,0,0],\"metadata\":{\"genre\":\"news\",\"year\":2024}}\n0\n422\nnull\n1\n{\"id\":\"n\",\"values\":[1,0,0],\"metadata\":{\"tags\":[\"x\",\"y\"]}}\n1\n1\n304\n0\n/upsert: HTTP 500: {\"error\": \"InternalError\", \"message\": \"rejected\"} (300 of 301 written)\n500\n1\n1\n{\"dimension\":3,\"totalVectorCount\":302}\n0\ndelete_namespace: not supported by chroma\n0\nreset_index: not supported by chroma\n0\n400\n/upsert: HTTP 400: {\"error\": \"InvalidArgumentError\", \"message\": \"Collection expecting embedding with dimension of 3, got 4\"}\nnull\n404\n/collections/missing: HTTP 404: {\"error\": \"NotFoundError\", \"message\": \"Collection [missing] does not exist\"}\n{\"vectors\":[{\"id\":\"z\"}]}\n302\nnull\n401\n/collections/docs: HTTP 401: {\"error\": \"AuthError\", \"message\": \"Unauthorized\"}",
+    );
+}
+
+#[test]
+fn test_288_vectordb_weaviate() {
+    MockPinecone::start_weaviate().assert_success(
+        "tests/integration/success/288_vectordb_weaviate.bx",
+        "{\"dimension\":null,\"totalVectorCount\":4}\n[{\"id\":\"a\",\"distance\":0,\"metadata\":{\"genre\":\"news\",\"year\":2024}},{\"id\":\"b\",\"distance\":0.4,\"metadata\":{\"genre\":\"blog\"}}]\n[{\"id\":\"11111111-2222-4333-8444-555555555555\",\"distance\":0,\"metadata\":{\"genre\":\"news\"}}]\n[{\"id\":\"a\",\"distance\":0,\"metadata\":{\"genre\":\"news\",\"year\":2024}},{\"id\":\"11111111-2222-4333-8444-555555555555\",\"distance\":1,\"metadata\":{\"genre\":\"news\"}}]\n[{\"id\":\"a\",\"distance\":1,\"metadata\":{\"genre\":\"news\",\"year\":2024}}]\n[]\n\n[{\"id\":\"a\",\"distance\":0,\"metadata\":{\"genre\":\"news\",\"year\":2024}}]\nnull\n/v1/graphql: filter must be a Weaviate where object (names as keys, \"operator\" a name)\nnull\n200\n/v1/graphql: invalid 'where' filter: no such prop with name 'nope' found in class in the schema\n{\"id\":\"b\",\"values\":[0.6,0.8,0],\"metadata\":{\"genre\":\"blog\",\"loc\":{\"x\":1}}}\nnull\n\n{\"vectors\":[{\"id\":\"11111111-2222-4333-8444-555555555555\"},{\"id\":\"b\"}],\"pagination\":{\"next\":\"3f10dbe8-4cbd-5e31-9b1f-af0cb9dda9cf\"}}\n{\"vectors\":[{\"id\":\"a\"},{\"id\":\"c\"}],\"pagination\":{\"next\":\"b72f1bcd-e229-57e2-bb24-d01077785f16\"}}\n1\n{\"id\":\"a\",\"values\":[1,0,0],\"metadata\":{\"year\":1999}}\n0\n/v1/batch/objects: metadata must not contain \"brix_id\" (it holds the id)\n1\n205\n0\n/v1/batch/objects: record 120: rejected (149 of 150 written)\n200\n0\n/v1/batch/objects: Validate vector index for 95d46420-03c2-5289-8d90-cd5fb2f7378c: new node has a vector with length 4. Existing nodes have vectors with length 3: vector dimensions do not match the index dimensions\n1\n1\n1\n152\n0\ndelete_namespace: not supported by weaviate\n0\nreset_index: not supported by weaviate\n0\n/v1/schema/Nope: class does not exist\nnull\n/v1/schema/Nope: class does not exist\n1\n0\n/v1/schema/Vanish: class does not exist\nnull\n152\nnull\n401\n/v1/schema/Docs: HTTP 401: {\"code\": 401, \"message\": \"anonymous access not enabled, please provide an auth scheme\"}",
+    );
+}
+
+#[test]
+fn test_289_vectordb_weaviate_bad_class() {
+    assert_output(
+        "tests/integration/success/289_vectordb_weaviate_bad_class.bx",
+        1,
+        Some("the Weaviate class must be a name"),
     );
 }

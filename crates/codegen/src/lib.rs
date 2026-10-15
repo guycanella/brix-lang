@@ -17242,7 +17242,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
     /// Compile a `vectordb.*` module call. Only `connect` exists:
     /// `vectordb.connect("pinecone", host, api_key[, namespace])` or
-    /// `vectordb.connect("chroma", url, api_key, collection)` -> VectorDB.
+    /// `vectordb.connect("chroma" | "weaviate", url, api_key, collection)` ->
+    /// VectorDB.
     /// The provider must be a string literal so an unsupported one is a
     /// compile error; the config itself is validated at runtime (connect
     /// aborts on an empty host/key or plain http:// to a non-loopback host).
@@ -17263,7 +17264,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             return Err(CodegenError::InvalidOperation {
                 operation: "vectordb.connect".to_string(),
                 reason: format!(
-                    "expects (\"pinecone\", host, api_key[, namespace]) or (\"chroma\", url, api_key, collection), got {} argument(s)",
+                    "expects (\"pinecone\", host, api_key[, namespace]) or (\"chroma\" | \"weaviate\", url, api_key, collection), got {} argument(s)",
                     args.len()
                 ),
                 span: Some(expr.span.clone()),
@@ -17272,21 +17273,21 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         // Provider ids match BRIX_VDB_PINECONE / BRIX_VDB_CHROMA in runtime.c.
         let provider: u64 = match &args[0].kind {
             ExprKind::Literal(Literal::String(p)) if p == "pinecone" => 0,
-            ExprKind::Literal(Literal::String(p)) if p == "chroma" => {
+            ExprKind::Literal(Literal::String(p)) if p == "chroma" || p == "weaviate" => {
                 if args.len() != 4 {
                     return Err(CodegenError::InvalidOperation {
                         operation: "vectordb.connect".to_string(),
-                        reason: "chroma expects (\"chroma\", url, api_key, collection)".to_string(),
+                        reason: format!("{} expects (\"{}\", url, api_key, collection)", p, p),
                         span: Some(expr.span.clone()),
                     });
                 }
-                1
+                if p == "chroma" { 1 } else { 2 }
             }
             ExprKind::Literal(Literal::String(p)) => {
                 return Err(CodegenError::InvalidOperation {
                     operation: "vectordb.connect".to_string(),
                     reason: format!(
-                        "unknown provider \"{}\" (supported: \"pinecone\", \"chroma\")",
+                        "unknown provider \"{}\" (supported: \"pinecone\", \"chroma\", \"weaviate\")",
                         p
                     ),
                     span: Some(args[0].span.clone()),
@@ -17305,10 +17306,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         let names = [
             "host",
             "api_key",
-            if provider == 1 {
-                "collection"
-            } else {
+            if provider == 0 {
                 "namespace"
+            } else {
+                "collection"
             },
         ];
         let mut compiled = Vec::with_capacity(3);
