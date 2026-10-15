@@ -7,6 +7,7 @@
 #include <stdarg.h>
 #include <curl/curl.h>
 #include <time.h>
+#include <errno.h>
 #include <setjmp.h>
 #include <unistd.h>
 #include <sys/wait.h>
@@ -4888,7 +4889,9 @@ static JsonValue *vdb_request(BrixVectorDB *db, const char *path,
     free(buf.data);
     buf = (VdbBuf){NULL, 0, 0, 0};
     struct timespec ts = {delay_ms / 1000, (delay_ms % 1000) * 1000000L};
-    nanosleep(&ts, NULL);
+    // A caught signal cuts the sleep short; finish the remaining delay.
+    while (nanosleep(&ts, &ts) == -1 && errno == EINTR) {
+    }
     attempt++;
   }
   db->last_status = rc == CURLE_OK ? status : 0;

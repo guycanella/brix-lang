@@ -15,7 +15,7 @@ API keys:
   flaky-key     -> the first 2 requests get 503 (Retry-After: 0), then normal
   busy-key      -> always 429, without Retry-After; the body counts the
                    requests and says whether the last two were >= 40 ms apart
-  retry1-key    -> the first request gets 502 with Retry-After: 1, then normal
+  retry1-key    -> the first request gets 502 with Retry-After: 1, then normal; a retry sooner than 0.9 s gets 400
   slow-key      -> normal responses after a 1 s delay
   anything else -> 401, like Pinecone
 """
@@ -111,8 +111,14 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(429, {"message": "Too Many Requests", "requests": len(t),
                              "spaced": spaced})
             return None
+        if key == "retry1-key" and "at" in RETRY1:
+            # The retry must honor Retry-After: 1 (small margin for clocks).
+            if time.monotonic() - RETRY1.pop("at") < 0.9:
+                self.reply(400, {"message": "retried before Retry-After"})
+                return None
         if key == "retry1-key" and RETRY1["left"] > 0:
             RETRY1["left"] -= 1
+            RETRY1["at"] = time.monotonic()
             self.reply(502, {"message": "Bad Gateway"}, [("Retry-After", "1")])
             return None
         if key == "slow-key":
