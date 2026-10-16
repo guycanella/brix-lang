@@ -670,6 +670,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             "datetime" | "DateTime" => BrixType::DateTime,
             "json" | "Json" => BrixType::Json,
             "VectorDB" => BrixType::VectorDB,
+            "ONNXModel" => BrixType::OnnxModel,
             "nil" => BrixType::Nil,
             "error" => BrixType::Error,
             "atom" => BrixType::Atom,
@@ -762,8 +763,11 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 // Json is a pointer to the heap JsonValue struct.
                 self.context.ptr_type(AddressSpace::default()).into()
             }
-            BrixType::Embedding(_) | BrixType::EmbeddingBatch(_) | BrixType::VectorDB => {
-                // Embedding<DIM>/EmbeddingBatch<DIM>/VectorDB point to their heap structs.
+            BrixType::Embedding(_)
+            | BrixType::EmbeddingBatch(_)
+            | BrixType::VectorDB
+            | BrixType::OnnxModel => {
+                // Embedding<DIM>/EmbeddingBatch<DIM>/VectorDB/ONNXModel point to their heap structs.
                 self.context.ptr_type(AddressSpace::default()).into()
             }
             BrixType::Void => self.context.i64_type().into(), // Placeholder (shouldn't be used)
@@ -1407,6 +1411,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 | BrixType::Embedding(_)
                 | BrixType::EmbeddingBatch(_)
                 | BrixType::VectorDB
+                | BrixType::OnnxModel
         )
     }
 
@@ -1471,6 +1476,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             BrixType::Embedding(_) => "brix_embedding_retain",
             BrixType::EmbeddingBatch(_) => "brix_embedding_batch_retain",
             BrixType::VectorDB => "brix_vectordb_retain",
+            BrixType::OnnxModel => "brix_onnx_retain",
             _ => unreachable!("is_ref_counted should have filtered this"),
         };
 
@@ -1534,6 +1540,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             BrixType::Embedding(_) => "brix_embedding_release",
             BrixType::EmbeddingBatch(_) => "brix_embedding_batch_release",
             BrixType::VectorDB => "brix_vectordb_release",
+            BrixType::OnnxModel => "brix_onnx_release",
             _ => unreachable!("is_ref_counted should have filtered this"),
         };
 
@@ -5111,7 +5118,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         | BrixType::Json
                         | BrixType::Embedding(_)
                         | BrixType::EmbeddingBatch(_)
-                        | BrixType::VectorDB => {
+                        | BrixType::VectorDB
+                        | BrixType::OnnxModel => {
                             // Vector<T>/Stack<T>/Queue<T>/MinHeap<T>/MaxHeap<T>/
                             // HashMap<K,V>/DateTime/Embedding<DIM>/EmbeddingBatch<DIM>
                             // are stored as an opaque heap-struct pointer.
@@ -6972,6 +6980,16 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             return self.compile_vectordb_call(fn_name, args, expr);
                         }
 
+                        // onnx module (v2.2 Grupo A).
+                        let is_onnx = !receiver_is_variable
+                            && self
+                                .imported_modules
+                                .iter()
+                                .any(|(m, p)| m == "onnx" && p == _module_name);
+                        if is_onnx {
+                            return self.compile_onnx_call(fn_name, args, expr);
+                        }
+
                         // Check for brix_ prefixed functions (stats/linalg/utility wrappers)
                         let brix_fn_name = format!("brix_{}", fn_name);
                         let lookup_name = if self.module.get_function(&brix_fn_name).is_some() {
@@ -7163,6 +7181,16 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                 | "set_retries"
                                 | "last_status"
                         );
+                        // ONNXModel methods (v2.2 Grupo A).
+                        let is_onnx_method = matches!(
+                            field.as_str(),
+                            "num_inputs"
+                                | "num_outputs"
+                                | "input_name"
+                                | "output_name"
+                                | "input_shape"
+                                | "output_shape"
+                        );
                         // A receiver compiled by the guard below that matched no
                         // builtin dispatch is reused by the arbitrary-expression
                         // fall-through instead of being compiled (evaluated) twice.
@@ -7177,8 +7205,18 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             || is_embedding_method
                             || is_embedding_batch_method
                             || is_vectordb_method
+                            || is_onnx_method
                         {
                             let (receiver_val, receiver_type) = self.compile_expr(target)?;
+                            if is_onnx_method && receiver_type == BrixType::OnnxModel {
+                                return self.compile_onnx_method(
+                                    receiver_val,
+                                    field,
+                                    target,
+                                    args,
+                                    expr,
+                                );
+                            }
                             if is_vectordb_method && receiver_type == BrixType::VectorDB {
                                 return self.compile_vectordb_method(
                                     receiver_val,
@@ -7648,6 +7686,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             BrixType::Embedding(dim) => format!("Embedding<{}>", dim),
                             BrixType::EmbeddingBatch(dim) => format!("EmbeddingBatch<{}>", dim),
                             BrixType::VectorDB => "VectorDB".to_string(),
+                            BrixType::OnnxModel => "ONNXModel".to_string(),
                         };
 
                         return self.compile_expr(&Expr::dummy(ExprKind::Literal(
@@ -17568,6 +17607,127 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         Ok(result)
     }
 
+    /// Compile an `onnx.*` module call. Only `load(path)` -> ONNXModel exists
+    /// so far; it aborts at runtime when ONNX Runtime is missing or the model
+    /// can't be loaded (libonnxruntime is dlopen'ed by the runtime, nothing
+    /// links it).
+    fn compile_onnx_call(
+        &mut self,
+        fn_name: &str,
+        args: &[Expr],
+        expr: &Expr,
+    ) -> CodegenResult<(BasicValueEnum<'ctx>, BrixType)> {
+        if fn_name != "load" {
+            return Err(CodegenError::UndefinedSymbol {
+                name: format!("onnx.{}", fn_name),
+                context: "onnx module call".to_string(),
+                span: Some(expr.span.clone()),
+            });
+        }
+        if args.len() != 1 {
+            return Err(CodegenError::InvalidOperation {
+                operation: "onnx.load".to_string(),
+                reason: format!("expects (path), got {} argument(s)", args.len()),
+                span: Some(expr.span.clone()),
+            });
+        }
+        let (path, ty) = self.compile_expr(&args[0])?;
+        if ty != BrixType::String {
+            return Err(CodegenError::TypeError {
+                expected: "string".to_string(),
+                found: crate::types::format_brix_type(&ty),
+                context: "onnx.load path".to_string(),
+                span: Some(args[0].span.clone()),
+            });
+        }
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let model = self
+            .call_runtime_fn(
+                "brix_onnx_load",
+                ptr_type.fn_type(&[ptr_type.into()], false),
+                &[path.into()],
+                expr,
+            )?
+            .ok_or_else(|| CodegenError::MissingValue {
+                what: "brix_onnx_load result".to_string(),
+                context: "onnx.load".to_string(),
+                span: Some(expr.span.clone()),
+            })?;
+        if !self.is_borrowed_ref_expr(&args[0]) {
+            self.insert_release(path.into_pointer_value(), &BrixType::String)?;
+        }
+        Ok((model, BrixType::OnnxModel))
+    }
+
+    /// Compile a method on an `ONNXModel`: `num_inputs()` / `num_outputs()`
+    /// -> int, `input_name(i)` / `output_name(i)` -> string and
+    /// `input_shape(i)` / `output_shape(i)` -> int[] (1×rank, -1 for a dynamic
+    /// dimension). An index out of range aborts at runtime. An owned temporary
+    /// receiver is released after the call.
+    fn compile_onnx_method(
+        &mut self,
+        receiver_val: BasicValueEnum<'ctx>,
+        method: &str,
+        receiver_expr: &Expr,
+        args: &[Expr],
+        expr: &Expr,
+    ) -> CodegenResult<(BasicValueEnum<'ctx>, BrixType)> {
+        let indexed = !matches!(method, "num_inputs" | "num_outputs");
+        let want = usize::from(indexed);
+        if args.len() != want {
+            return Err(CodegenError::InvalidOperation {
+                operation: format!("ONNXModel.{}", method),
+                reason: format!(
+                    "expects {}{}, got {} argument(s)",
+                    method,
+                    if indexed { "(index)" } else { "()" },
+                    args.len()
+                ),
+                span: Some(expr.span.clone()),
+            });
+        }
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let i64_type = self.context.i64_type();
+        let mut call_args: Vec<BasicMetadataValueEnum<'ctx>> = vec![receiver_val.into()];
+        let mut param_types: Vec<inkwell::types::BasicMetadataTypeEnum<'ctx>> =
+            vec![ptr_type.into()];
+        if indexed {
+            let (val, ty) = self.compile_expr(&args[0])?;
+            if ty != BrixType::Int {
+                return Err(CodegenError::TypeError {
+                    expected: "int".to_string(),
+                    found: crate::types::format_brix_type(&ty),
+                    context: format!("ONNXModel.{} index", method),
+                    span: Some(args[0].span.clone()),
+                });
+            }
+            call_args.push(val.into());
+            param_types.push(i64_type.into());
+        }
+        let result_type = match method {
+            "num_inputs" | "num_outputs" => BrixType::Int,
+            "input_name" | "output_name" => BrixType::String,
+            _ => BrixType::IntMatrix,
+        };
+        let fn_type = if result_type == BrixType::Int {
+            i64_type.fn_type(&param_types, false)
+        } else {
+            ptr_type.fn_type(&param_types, false)
+        };
+        let rt_name = format!("brix_onnx_{}", method);
+        let val = self
+            .call_runtime_fn(&rt_name, fn_type, &call_args, expr)?
+            .ok_or_else(|| CodegenError::MissingValue {
+                what: format!("{} result", rt_name),
+                context: format!("ONNXModel.{}", method),
+                span: Some(expr.span.clone()),
+            })?;
+        if !self.is_borrowed_ref_expr(receiver_expr) {
+            self.insert_release(receiver_val.into_pointer_value(), &BrixType::OnnxModel)?;
+        }
+        Ok((val, result_type))
+    }
+
     /// Compile `HashMap<K,V>()` -> a fresh, empty BrixHashMap* (ref_count = 1).
     /// K in {Int, String}, V in {Int, Float, String}. The runtime reuses the
     /// same elem-kind codes as Vector (1=int, 2=float, 3=string) for both the
@@ -19179,6 +19339,15 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             return Some(BrixType::VectorDB);
                         }
 
+                        if field == "load"
+                            && self
+                                .imported_modules
+                                .iter()
+                                .any(|(m, p)| m == "onnx" && p == module_name)
+                        {
+                            return Some(BrixType::OnnxModel);
+                        }
+
                         let is_json = self
                             .imported_modules
                             .iter()
@@ -19275,6 +19444,14 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                 | "delete_namespace" | "reset_index" | "set_timeout"
                                 | "set_retries" | "last_status" => {
                                     return Some(BrixType::Int);
+                                }
+                                _ => {}
+                            },
+                            BrixType::OnnxModel => match field.as_str() {
+                                "num_inputs" | "num_outputs" => return Some(BrixType::Int),
+                                "input_name" | "output_name" => return Some(BrixType::String),
+                                "input_shape" | "output_shape" => {
+                                    return Some(BrixType::IntMatrix);
                                 }
                                 _ => {}
                             },

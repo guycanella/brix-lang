@@ -1,0 +1,43 @@
+// v2.2 Grupo A Fase 1: load an ONNX model and inspect its inputs and outputs
+// (tests/integration/models/multi.onnx, written by make_models.py).
+import onnx
+
+var model := onnx.load("tests/integration/models/multi.onnx")
+println(model.num_inputs())
+println(model.num_outputs())
+
+// A dynamic dimension is -1; a scalar has rank 0.
+var i := 0
+while i < model.num_inputs() {
+    println(f"input {i}: {model.input_name(i)} {model.input_shape(i)}")
+    i := i + 1
+}
+i := 0
+while i < model.num_outputs() {
+    println(f"output {i}: {model.output_name(i)} {model.output_shape(i)}")
+    i := i + 1
+}
+
+// A shape is an int[]: its rank is .cols, its dims index normally.
+var shape := model.input_shape(0)
+println(shape.cols)
+println(shape[1])
+println(model.input_shape(2).cols)
+
+// Copies share the model; a model can be passed around and returned.
+fn first_input(m: ONNXModel) -> string {
+    return m.input_name(0)
+}
+fn keep(m: ONNXModel) -> ONNXModel {
+    return m
+}
+var copy := model
+println(first_input(copy))
+println(keep(copy).num_outputs())
+var kept := keep(onnx.load("tests/integration/models/multi.onnx"))
+println(kept.input_name(1))
+println(typeof(model))
+
+// Two loads are two independent sessions.
+var again := onnx.load("tests/integration/models/multi.onnx")
+println(again.output_name(1))

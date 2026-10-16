@@ -1,0 +1,8 @@
+// libonnxruntime is loaded on the first onnx.load; the test points
+// BRIX_ONNXRUNTIME_LIB at a missing file, so the load aborts with how to
+// install it. Programs that never call onnx.load don't need it at all.
+import onnx
+
+println("no ONNX Runtime needed yet")
+var model := onnx.load("tests/integration/models/multi.onnx")
+println(model.num_inputs())

@@ -2852,3 +2852,65 @@ fn test_291_vectordb_milvus_bad_collection() {
         Some("the Milvus collection must be"),
     );
 }
+
+#[test]
+fn test_292_onnx_model_info() {
+    assert_output(
+        "tests/integration/success/292_onnx_model_info.bx",
+        0,
+        Some(
+            "3\n2\ninput 0: x [-1, 3]\ninput 1: y [1, 3]\ninput 2: scale []\noutput 0: sum [-1, 3]\noutput 1: scaled [-1, 3]\n2\n3\n0\nx\n2\ny\nONNXModel\nscaled",
+        ),
+    );
+}
+
+#[test]
+fn test_293_onnx_load_missing() {
+    let (stdout, stderr, exit_code) =
+        run_brix_file("tests/integration/success/293_onnx_load_missing.bx");
+    assert_eq!(exit_code, 1, "Stdout: {}\nStderr: {}", stdout, stderr);
+    assert_eq!(stdout.trim(), "before");
+    assert!(
+        stderr.contains("Error: onnx.load(\"tests/integration/models/nope.onnx\"): ")
+            && stderr.contains("File doesn't exist"),
+        "Stderr: {}",
+        stderr
+    );
+}
+
+#[test]
+fn test_294_onnx_load_broken() {
+    assert_output(
+        "tests/integration/success/294_onnx_load_broken.bx",
+        1,
+        Some("Protobuf parsing failed"),
+    );
+}
+
+#[test]
+fn test_295_onnx_runtime_missing() {
+    let (stdout, stderr, exit_code) = run_brix_file_env(
+        "tests/integration/success/295_onnx_runtime_missing.bx",
+        &[("BRIX_ONNXRUNTIME_LIB", "/nonexistent/libonnxruntime")],
+    );
+    assert_eq!(exit_code, 1, "Stdout: {}\nStderr: {}", stdout, stderr);
+    assert_eq!(stdout.trim(), "no ONNX Runtime needed yet");
+    assert!(
+        stderr.contains("ONNX Runtime not found") && stderr.contains("BRIX_ONNXRUNTIME_LIB"),
+        "Stderr: {}",
+        stderr
+    );
+}
+
+#[test]
+fn test_296_onnx_index_out_of_range() {
+    let (stdout, stderr, exit_code) =
+        run_brix_file("tests/integration/success/296_onnx_index_out_of_range.bx");
+    assert_eq!(exit_code, 1, "Stdout: {}\nStderr: {}", stdout, stderr);
+    assert_eq!(stdout.trim(), "scale");
+    assert!(
+        stderr.contains("Error: ONNXModel.input_name(3): index out of range (3 inputs)"),
+        "Stderr: {}",
+        stderr
+    );
+}

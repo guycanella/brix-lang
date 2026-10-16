@@ -17,6 +17,15 @@ use std::process::{Command, exit};
 mod repl;
 
 /// Maps optimization level number to inkwell OptimizationLevel
+
+/// runtime.c dlopens libonnxruntime (v2.2): glibc before 2.34 keeps dlopen in
+/// libdl. macOS has it in libSystem.
+const LINK_DL: &[&str] = if cfg!(target_os = "linux") {
+    &["-ldl"]
+} else {
+    &[]
+};
+
 fn get_optimization_level(level: u8) -> OptimizationLevel {
     match level {
         0 => OptimizationLevel::None,
@@ -199,6 +208,7 @@ fn compile_and_run_isolated(
         .arg("-llapack")
         .arg("-lblas")
         .arg("-lcurl")
+        .args(LINK_DL)
         .arg("-o")
         .arg(&exe_path)
         .output()
@@ -353,6 +363,7 @@ fn compile_to_exe(file_path: &str, opt_level: u8, verbose: bool) -> String {
         .arg("-llapack")
         .arg("-lblas")
         .arg("-lcurl")
+        .args(LINK_DL)
         .arg("-o")
         .arg(&exe_name)
         .output()
