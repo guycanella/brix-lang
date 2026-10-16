@@ -27,10 +27,10 @@ Each entry recompiles and re-runs the whole accumulated session through the same
 
 **Run Rust unit tests:**
 ```bash
-cargo test -p lexer -p parser -p codegen  # All unit tests: 322 + 229 + 919 = 1,470 (all passing)
+cargo test -p lexer -p parser -p codegen  # All unit tests: 322 + 229 + 925 = 1,476 (all passing)
 cargo test -p lexer                       # Only lexer (322 tests)
 cargo test -p parser                      # Only parser (229 tests)
-cargo test -p codegen                     # Only codegen (919 tests)
+cargo test -p codegen                     # Only codegen (925 tests)
 cargo test -p codegen json_tests          # Specific test module in codegen
 cargo test <pattern>                      # Tests matching pattern
 cargo test -- --nocapture                 # Show println! output
@@ -38,12 +38,12 @@ cargo test -- --nocapture                 # Show println! output
 
 **Run integration tests (must be sequential):**
 ```bash
-cargo test --test integration_test -- --test-threads=1 # 298 tests passing
+cargo test --test integration_test -- --test-threads=1 # 303 tests passing
 ```
 
 **Run Brix language tests (Test Library):**
 ```bash
-cargo run -- test                   # All *.test.bx and *.spec.bx (34 suites passing, 584 tests)
+cargo run -- test                   # All *.test.bx and *.spec.bx (35 suites passing, 588 tests)
 cargo run -- test json              # Files matching "json" in path
 ```
 
@@ -60,14 +60,14 @@ rm -f runtime.o output.o program && cargo clean && cargo run <file.bx>
 .bx source → Lexer (logos) → Parser (chumsky) → AST → Codegen (inkwell/LLVM 18) → Object + runtime.o → Native Binary
 ```
 
-The driver (`src/main.rs`, ~509 lines; REPL in `src/repl.rs`) orchestrates all stages: lexing, parsing, closure analysis, codegen, `cc`-compiling `runtime.c`, LLVM object emission, and linking with `-lm -llapack -lblas -lcurl`.
+The driver (`src/main.rs`, ~520 lines; REPL in `src/repl.rs`) orchestrates all stages: lexing, parsing, closure analysis, codegen, `cc`-compiling `runtime.c`, LLVM object emission, and linking with `-lm -llapack -lblas -lcurl` (plus `-ldl` on Linux).
 
 ### Workspace Structure
 
 ```
 brix/
 ├── src/main.rs              # CLI + compilation pipeline driver
-├── runtime.c                # C runtime (~8,874 lines) — must be in project root
+├── runtime.c                # C runtime (~9,125 lines) — must be in project root
 ├── crates/
 │   ├── lexer/src/token.rs   # Token enum (logos)
 │   ├── parser/src/
@@ -76,8 +76,8 @@ brix/
 │   │   ├── closure_analysis.rs  # Capture analysis pass (runs after parse)
 │   │   └── error.rs         # Ariadne-based parse error reporting
 │   └── codegen/src/
-│       ├── lib.rs           # Main compiler (~20,360 lines — post-refactor 11,014, grew with v1.8–v2.0 + rustfmt expansion)
-│       ├── stmt.rs          # Statement compilation (~1,515 lines)
+│       ├── lib.rs           # Main compiler (~20,537 lines — post-refactor 11,014, grew with v1.8–v2.0 + rustfmt expansion)
+│       ├── stmt.rs          # Statement compilation (~1,516 lines)
 │       ├── expr.rs          # Expression compilation + list comprehension (~2,028 lines)
 │       ├── helpers.rs       # LLVM helpers
 │       ├── error.rs         # CodegenError enum + CodegenResult<T>
@@ -88,7 +88,7 @@ brix/
 │                            #   iterator.rs, match_compiler.rs, async_compiler.rs, closure_compiler.rs
 ├── tests/
 │   ├── integration/         # End-to-end .bx files (success/, parser_errors/, codegen_errors/, runtime_errors/, test_library_failures/)
-│   └── brix/                # Language test files (*.test.bx) — 34 files, 584 tests, all passing
+│   └── brix/                # Language test files (*.test.bx) — 35 files, 588 tests, all passing
 ├── benchmarks/              # Informative benchmarks (run.sh + .bx), not CI gates
 └── examples/                # Example .bx programs
 ```
@@ -122,9 +122,9 @@ Flat `HashMap<String, (PointerValue, BrixType)>` with module prefixes. `import m
 - **match**: one basic block per arm + PHI in merge block
 - **break/continue**: `Compiler` has `current_break_block` / `current_continue_block` (`Option<BasicBlock>`). Each loop saves the outer blocks, sets its own, restores after body. After emitting the unconditional branch, a dead basic block is appended to keep LLVM IR valid.
 
-### Type System (current: v2.1 complete)
+### Type System (current: v2.2 in progress — v2.1 complete)
 
-Core types: `Int` (i64), `Float` (f64), `String`, `Matrix` (f64, contiguous), `IntMatrix` (i64), `StringMatrix` (array of `BrixString*`, v1.7), `Complex`, `ComplexArray`, `ComplexMatrix`, `Tuple`, `Nil`, `Error`, `Atom` (i64 interned), `Void`, `Struct(String)`, `Optional(Box)` (desugars to Union), `Union(Vec<BrixType>)`, `Intersection(Vec<BrixType>)`, `AsyncFuture`, `FloatPtr`, `Vector(Box<BrixType>)` (v1.8 Grupo C — dynamic `Vector<T>`, `BrixVector*`), `Stack`/`Queue`/`MinHeap`/`MaxHeap(Box<BrixType>)` and `HashMap(Box, Box)` (v1.8 D–F), `DateTime` (v1.9 A), `Json` (v1.9 B), and `Embedding(u32)` (v2.0 Grupo A — `BrixEmbedding*`, dim is a const generic) and `EmbeddingBatch(u32)` (v2.0 Fase 3 — `BrixEmbeddingBatch*`), and `VectorDB` (v2.1 Grupo A — `BrixVectorDB*`, one connection to a Pinecone index, a Chroma collection (Grupo B Fase 1), a Weaviate class (Fase 2) or a Milvus collection (Fase 3)).
+Core types: `Int` (i64), `Float` (f64), `String`, `Matrix` (f64, contiguous), `IntMatrix` (i64), `StringMatrix` (array of `BrixString*`, v1.7), `Complex`, `ComplexArray`, `ComplexMatrix`, `Tuple`, `Nil`, `Error`, `Atom` (i64 interned), `Void`, `Struct(String)`, `Optional(Box)` (desugars to Union), `Union(Vec<BrixType>)`, `Intersection(Vec<BrixType>)`, `AsyncFuture`, `FloatPtr`, `Vector(Box<BrixType>)` (v1.8 Grupo C — dynamic `Vector<T>`, `BrixVector*`), `Stack`/`Queue`/`MinHeap`/`MaxHeap(Box<BrixType>)` and `HashMap(Box, Box)` (v1.8 D–F), `DateTime` (v1.9 A), `Json` (v1.9 B), and `Embedding(u32)` (v2.0 Grupo A — `BrixEmbedding*`, dim is a const generic) and `EmbeddingBatch(u32)` (v2.0 Fase 3 — `BrixEmbeddingBatch*`), and `VectorDB` (v2.1 Grupo A — `BrixVectorDB*`, one connection to a Pinecone index, a Chroma collection (Grupo B Fase 1), a Weaviate class (Fase 2) or a Milvus collection (Fase 3)), and `OnnxModel` (v2.2 Grupo A — `BrixOnnxModel*`, a loaded ONNX model, spelled `ONNXModel` in Brix).
 
 **Scientific notation (v1.8):** float literals accept exponents — `6.0e23`, `1.5e-10`, `6.02E+23`, and integer-mantissa `1e10`; imaginary too (`1e3i`). Lexer `Float`/`ImaginaryLiteral` regexes; parser converts via `str::parse::<f64>()`.
 
@@ -184,7 +184,7 @@ Jest-style framework. 17 matchers (all support `.not.` — `toEqual`, `toBeClose
 
 **New pattern variant (e.g., for `match`):** Add variant to `Pattern` enum in `parser/src/ast.rs` → parse it in the `pattern` recursive block in `parser.rs` (inside `let pattern = recursive(|_pat| { ... })`) → add match arm to `compile_pattern_match()` in `builtins/match_compiler.rs`. For sub-patterns, use `apply_sub_pattern()` helper. Also add the variant's binding names to `collect_pattern_binding_names()` (v1.7 fix — used to scope match-arm bindings so they don't leak into the next arm; see Status & Limitations).
 
-## Status & Limitations (v2.1 complete)
+## Status & Limitations (v2.1 complete, v2.2 in progress)
 
 **Completed in v1.6 (Fases 0–4):**
 - `break` / `continue` (Fase 0a): `Token::Break`/`Token::Continue`, `StmtKind::Break`/`StmtKind::Continue`, save/restore pattern on `Compiler`. Note: `break`/`continue` inside closures (e.g., `.map()` callbacks) is not supported.
@@ -206,7 +206,7 @@ Jest-style framework. 17 matchers (all support `.not.` — `toEqual`, `toBeClose
 
 **Test baseline at v1.9 completion:** 1,357 unit (317 lexer + 209 parser + 831 codegen) + 264 integration + 517 Test Library (31 `.test.bx` files).
 
-**Current test baseline (v2.1 complete):** 1,470 unit (322 lexer + 229 parser + 919 codegen) + 298 integration + 584 Test Library (34 `.test.bx` files) = 2,352. All green.
+**Current test baseline (v2.2 Grupo A Fase 1):** 1,476 unit (322 lexer + 229 parser + 925 codegen) + 303 integration + 588 Test Library (35 `.test.bx` files) = 2,367. All green.
 
 **Completed in v1.9 (Grupo F):**
 - **Grupo F — `brix repl` — COMPLETE, as a "replay REPL", not the roadmap's original incremental-JIT design:**
@@ -489,10 +489,27 @@ Three groups: **0** (embedding operators), **A** (`VectorDB` type system + Pinec
 
 **v2.1 is now feature-complete across all 3 groups (0, A, B). Next:** v2.2 (`ROADMAP_V2.2.md`, ONNX Runtime + GPU).
 
+## v2.2 Status (IN PROGRESS) — see `ROADMAP_V2.2.md` (untracked, local only)
+
+Two groups: **A** (ONNX models, CPU inference) and **B** (GPU: CUDA + Metal).
+
+**Grupo A Fase 1 — COMPLETE** — `ONNXModel`, `onnx.load`, model inspection:
+- `import onnx`; `onnx.load(path) -> ONNXModel` (CPU session); `model.num_inputs()` / `num_outputs()` -> `int`, `input_name(i)` / `output_name(i)` -> `string`, `input_shape(i)` / `output_shape(i)` -> `int[]` (1×rank; **-1 = a dynamic dimension**, a scalar is 1×0). Names and shapes are read once at load and copied into the model.
+- **Deviation from the roadmap — no `-lonnxruntime`:** linking it would make *every* compiled Brix program require ONNX Runtime installed. Instead `runtime.c` (SECTION 2.13) `dlopen`s it on the first `onnx.load`: `BRIX_ONNXRUNTIME_LIB` (exact path) if set; else on Linux the loader's default search (`LD_LIBRARY_PATH`, ldconfig) and on macOS only the absolute `/opt/homebrew/lib` / `/usr/local/lib` paths (a bare name would also search the current directory, letting a planted library load). Every program links `-ldl` on Linux (glibc < 2.34 keeps `dlopen` there; a no-op stub on newer glibc). A program that never calls `onnx.load` doesn't need it (no ORT symbol in the IR — a unit test checks it).
+- **No vendored header:** the only symbol resolved is `OrtGetApiBase`; the `OrtApi` function table is called **by slot index** (`ORT_*` enum in SECTION 2.13), which the ORT ABI guarantees is append-only and never reordered. Indices come from `offsetof(OrtApi, X)` on the official 1.31 header; every slot used exists since API version 1, the version requested (older installs work). Adding a method means adding its slot (compute it the same way) and its exact C signature in the `ORT_FN` cast.
+- **Errors abort** (like `read_csv` on a missing file): ONNX Runtime not found (with how to install it), a model ORT can't load (ORT's own message: missing file, protobuf parse error...), an input/output index out of range, the shape of a non-tensor input. Graceful handling is Fase 4.
+- One `OrtEnv` is shared by every model and lives for the process (never released). `ONNXModel` is ref-counted (`brix_onnx_retain` / `brix_onnx_release`, which releases the session); an owned temporary receiver is released after a method call. Wired through the new-type checklist (incl. the two non-exhaustive sites); `println(model)`, `model == nil` and a model as a `match` result are unsupported, as for `VectorDB`. `info()` (metadata) from the roadmap's syntax section isn't built yet.
+- **Install:** macOS `brew install onnxruntime`; Linux the official release tarball (`onnxruntime-linux-<arch>-1.31.0.tgz`) with its `lib/` on `LD_LIBRARY_PATH` (Ubuntu has no package). CI does both. Checked on macOS arm64 (Homebrew 1.31) and an Ubuntu 24.04 aarch64 container.
+- **Test model:** `tests/integration/models/multi.onnx`, a hand-encoded protobuf written by `tests/integration/models/make_models.py` (stdlib only — no `onnx` package): inputs `x [batch, 3]`, `y [1, 3]`, `scale []`; outputs `sum = Add(x, y)`, `scaled = Mul(sum, scale)`. `broken.onnx` is not a model.
+- Tests: +6 codegen unit, integration 292 (inspection, copies, a function parameter and return, `typeof`, two sessions), 293 (missing file), 294 (not a model), 295 (`BRIX_ONNXRUNTIME_LIB` pointing nowhere: earlier output kept, install hint), 296 (index out of range); +4 Test Library (`onnx.test.bx`). ARC checked with `leaks --atExit` (0 leaks over a load/copy/pass/temporary loop).
+
+**Next — Grupo A Fase 2** (`model.infer(input)`) in `ROADMAP_V2.2.md`.
+
 ## CI (GitHub Actions) — `.github/workflows/ci.yml`
 
 Runs on PRs to `main`, pushes to `main` and `workflow_dispatch`. Work now goes through feature branches + PRs, not direct pushes to `main`. Jobs: `rustfmt` (`cargo fmt --all --check`) and `test` on a matrix of `ubuntu-24.04` + `macos-14` (build, unit tests, integration `--test-threads=1`, `cargo run -- test`, then the informative embedding benchmark — `continue-on-error`, report goes to the job summary). Token is `contents: read`; checkouts use `persist-credentials: false`.
 
+- **ONNX Runtime** (v2.2, only for the onnx tests — programs `dlopen` it): `brew install onnxruntime` on macOS; on Linux the official `onnxruntime-linux-x64-1.31.0.tgz`, its `lib/` exported as `LD_LIBRARY_PATH`.
 - **Env:** `LLVM_SYS_180_PREFIX` (`/usr/lib/llvm-18` on Linux, `brew --prefix llvm@18` on macOS). Linux installs `llvm-18-dev libpolly-18-dev libzstd-dev zlib1g-dev liblapack-dev libblas-dev libcurl4-openssl-dev`; macOS uses Accelerate and needs `LIBRARY_PATH=$(brew --prefix)/lib` so `-lzstd` resolves.
 - **Portability bugs found by the first Linux runs (all fixed):** (1) `matrix_new` used `malloc`, so `zeros()` was only zero on macOS — now `calloc`. (2) A union's value slot has the widest variant's LLVM type (`int | float` = `{i64, i64}`); the double was stored without a bitcast, and printing passed integer bits to `sprintf("%g")` — macOS arm64 passes variadic args on the stack, Linux passes doubles in FP registers. `coerce_union_slot()` (`lib.rs`) now bitcasts at the union store sites (`stmt.rs` declaration/assignment) and the union print path. (3) Objects were emitted with `RelocMode::Default`, which the Ubuntu x86_64 PIE linker rejects (`R_X86_64_32`); `src/main.rs` now uses `RelocMode::PIC` in both emit sites.
 - **Still open (pre-existing, not fixed):** unions whose pointer variant isn't the slot type (e.g. `int | string`) skip retain/release for non-pointer slots — leaks, no corruption.
@@ -504,4 +521,6 @@ Runs on PRs to `main`, pushes to `main` and `workflow_dispatch`. Work now goes t
 - **LLVM errors**: requires LLVM 18 — `brew install llvm@18`
 - **Panic on unwrap()**: remaining `unwrap()` calls are isolated in Option-returning I/O helpers; check stack trace location
 - **Parser errors with valid code**: Brix uses **newlines** as statement separators, not semicolons
+- **The test suite needs ONNX Runtime installed** (v2.2): integration 292–294/296 and `tests/brix/onnx.test.bx` load a model; without it they fail with "ONNX Runtime not found" (there is no skip)
 - **Integration tests must be sequential**: `--test-threads=1` required (all tests compile to the same directory)
+- **"ONNX Runtime not found"** (`onnx.load`): install it (`brew install onnxruntime`; Linux: the GitHub release, its `lib/` on `LD_LIBRARY_PATH`) or set `BRIX_ONNXRUNTIME_LIB` to the library's path

@@ -1,6 +1,6 @@
 # Brix Language (Design Document v1.0)
 
-> 🚧 **Status do Projeto (Out 2026):** v1.6, v1.7, v1.8 e v1.9 **COMPLETOS**. **v2.0 Grupo A (`Embedding<DIM>`) COMPLETO** — Fase 0 (const generics na gramática), Fase 1 (tipo `Embedding<DIM>` + conversões com `Matrix`) e Fase 2 (métodos de similaridade via BLAS) Fase 3 (`EmbeddingBatch<DIM>` + `find_nearest`) e Fase 4 (verificação do BLAS + benchmark informativo) concluídas. **v2.1 COMPLETO — Grupo 0 (operadores `@` / `<->` / `<=>`) concluído; Grupo A (VectorDB + Pinecone) concluído, Fases 1–5 (`VectorDB`, `vectordb.connect`, `db.stats()`, `env()`; `db.query` / `db.fetch` / `db.list` retornando `json?`; `db.upsert` / `upsert_batch` / `delete` / `delete_batch` e `db.delete_namespace` / `db.reset_index` retornando `int`; `db.set_timeout` / `db.set_retries` / `db.last_status`); Grupo B (providers) concluído — Fases 1 (Chroma), 2 (Weaviate) e 3 (Milvus).** **1.470 unit tests + 298 integration tests + 584 Test Library = 2.352 tests passando (100%).** Detalhes técnicos por grupo: `CLAUDE.md` (raiz); planejamento: `ROADMAP_V2.0.md`–`ROADMAP_V2.2.md`.
+> 🚧 **Status do Projeto (Out 2026):** v1.6, v1.7, v1.8 e v1.9 **COMPLETOS**. **v2.0 Grupo A (`Embedding<DIM>`) COMPLETO** — Fase 0 (const generics na gramática), Fase 1 (tipo `Embedding<DIM>` + conversões com `Matrix`) e Fase 2 (métodos de similaridade via BLAS) Fase 3 (`EmbeddingBatch<DIM>` + `find_nearest`) e Fase 4 (verificação do BLAS + benchmark informativo) concluídas. **v2.1 COMPLETO — Grupo 0 (operadores `@` / `<->` / `<=>`) concluído; Grupo A (VectorDB + Pinecone) concluído, Fases 1–5 (`VectorDB`, `vectordb.connect`, `db.stats()`, `env()`; `db.query` / `db.fetch` / `db.list` retornando `json?`; `db.upsert` / `upsert_batch` / `delete` / `delete_batch` e `db.delete_namespace` / `db.reset_index` retornando `int`; `db.set_timeout` / `db.set_retries` / `db.last_status`); Grupo B (providers) concluído — Fases 1 (Chroma), 2 (Weaviate) e 3 (Milvus).** **v2.2 em andamento — Grupo A Fase 1 (`ONNXModel`, `onnx.load` e inspeção do modelo) concluída.** **1.476 unit tests + 303 integration tests + 588 Test Library = 2.367 tests passando (100%).** Detalhes técnicos por grupo: `CLAUDE.md` (raiz); planejamento: `ROADMAP_V2.0.md`–`ROADMAP_V2.2.md`.
 
 ## Status Atual (Outubro 2026)
 
@@ -241,6 +241,7 @@
 
 ### 🔮 **Planejado (v2.1+):**
 - **v2.1** — ✅ Grupo 0: operadores `@` / `<->` / `<=>` como açúcar sobre os métodos de v2.0 (`a @ b` = `a.cosine_similarity(b)`, `a <-> b` = `a.euclidean_distance(b)`, `a <=> b` = `a.dot_product(b)`; um nível de precedência acima de unário/`**`, então `-a @ b` = `-(a @ b)`). ✅ Grupo A Fase 1: tipo `VectorDB` + `vectordb.connect("pinecone", host, api_key[, namespace])` + `db.stats()` / `db.last_error()` via libcurl + builtin `env()`. ✅ Grupo A Fase 2: `db.query(embedding, top_k[, filter])` (array de matches), `db.fetch(id)` (o record; nil com `last_error() == ""` quando não existe) e `db.list([limit[, token]])` (a página com `pagination.next`), todos `json?`. ✅ Grupo A Fase 3: `db.upsert(id, embedding[, metadata])`, `db.upsert_batch(ids, embeddings[, metadata])` (lotes divididos nos limites do Pinecone: 1000 registros / 2 MB por requisição), `db.delete(id)` e `db.delete_batch(ids)`, todos `int` (1 = sucesso, 0 = falha). ✅ Grupo A Fase 4: `db.delete_namespace(ns)` e `db.reset_index()` (limpa todos os namespaces listados por `stats`), também `int`. ✅ Grupo A Fase 5: `db.set_timeout(ms)` (por tentativa), `db.set_retries(n)` (429/502/503/504 com `Retry-After` ou backoff exponencial com jitter; falhas de conexão não são repetidas) e `db.last_status()` (status HTTP da última resposta). ✅ Grupo B Fase 1: provider Chroma (`vectordb.connect("chroma", url, api_key, collection)`, API HTTP v2) com os mesmos métodos; `query` devolve `distance` em vez de `score`, `upsert` mescla os metadados, e `delete_namespace` / `reset_index` não são suportados. ✅ Grupo B Fase 2: provider Weaviate (`vectordb.connect("weaviate", url, api_key, classe)`, REST + GraphQL), com ids convertidos em UUIDv5 e guardados na propriedade `brix_id`; a classe nunca é criada implicitamente. ✅ Grupo B Fase 3: provider Milvus (`vectordb.connect("milvus", url, api_key, "colecao" | "banco/colecao")`, API REST v2), com chave primária VarChar e um campo FloatVector lidos do schema; filtros são expressões Milvus passadas como string JSON, `query` devolve o `score` na métrica da coleção e `list` pagina por cursor da chave primária. v2.1 completo.
+- **v2.2** — ✅ Grupo A Fase 1: tipo `ONNXModel` + `onnx.load(path)` (sessão de CPU do ONNX Runtime) + inspeção: `num_inputs()` / `num_outputs()`, `input_name(i)` / `output_name(i)` e `input_shape(i)` / `output_shape(i)` (`int[]`, -1 numa dimensão dinâmica). A libonnxruntime é carregada com `dlopen` no primeiro `onnx.load`, então programas que não usam ONNX não dependem dela (`brew install onnxruntime`; no Linux, o release oficial no `LD_LIBRARY_PATH`, ou `BRIX_ONNXRUNTIME_LIB`). Pendente: Fase 2 (`model.infer`) — `ROADMAP_V2.2.md`
 - **v2.2** — ONNX Runtime (CPU) + GPU (CUDA, Metal) — `ROADMAP_V2.2.md`
 - **v2.3+** — Tensores type-safe, prompt engineering, JIT incremental no REPL
 - Sem versão definida: LTO / PGO / SIMD, `StringMatrix` em anotações de tipo (`string[]`), ranges abertos em slicing
@@ -3821,6 +3822,7 @@ v1.8 ████████████████████ 100% ✅ Vecto
 v1.9 ████████████████████ 100% ✅ datetime, json, variadics, mut arrays, REPL
 v2.0 ████████████████████ 100% ✅ Embedding<DIM> (Fases 0–4)
 v2.1 ████████████████████ 100% ✅ Operadores, VectorDB (Pinecone, Chroma, Weaviate, Milvus)
+v2.2 ██░░░░░░░░░░░░░░░░░░  12% 🚧 ONNXModel + onnx.load + inspeção ✅; infer, batch, erros, GPU pendentes
 ```
 
 **Legenda:**
@@ -4045,11 +4047,12 @@ math.sum(arr), math.mean(arr), math.median(arr), math.std(arr)
 ### 📊 Estatísticas do Projeto:
 
 - **Linhas de Código (Rust):** ~39.900 linhas (lexer + parser + codegen + driver)
-- **Linhas de Código (C Runtime):** ~8.870 linhas (`runtime.c`)
-- **Testes:** 1.470 unit (322 lexer + 229 parser + 919 codegen) + 298 integration + 584 Test Library (34 arquivos `.test.bx`) = 2.352 total
-- **Versão Atual:** v2.1 ✅ **COMPLETO** (Grupo 0 ✅ operadores; Grupo A ✅ — VectorDB + `connect`/`stats` + `query`/`fetch`/`list` + `upsert`/`delete` + `delete_namespace`/`reset_index` + timeouts/retry; Grupo B ✅ — Chroma, Weaviate, Milvus)
+- **Linhas de Código (C Runtime):** ~9.125 linhas (`runtime.c`)
+- **Testes:** 1.476 unit (322 lexer + 229 parser + 925 codegen) + 303 integration + 588 Test Library (35 arquivos `.test.bx`) = 2.367 total
+- **Versão Atual:** v2.2 🚧 **EM ANDAMENTO** (Grupo A Fase 1 ✅ — `ONNXModel` + `onnx.load` + inspeção)
+- **Versão Concluída Mais Recente:** v2.1 ✅ **COMPLETO** (Grupo 0 ✅ operadores; Grupo A ✅ — VectorDB + `connect`/`stats` + `query`/`fetch`/`list` + `upsert`/`delete` + `delete_namespace`/`reset_index` + timeouts/retry; Grupo B ✅ — Chroma, Weaviate, Milvus)
 - **Versão Anterior:** v2.0 ✅ **COMPLETO** (Grupo A, Fases 0–4)
-- **Próximo Passo:** v2.2 — ONNX Runtime + GPU (`ROADMAP_V2.2.md`)
+- **Próximo Passo:** v2.2 Grupo A Fase 2 — `model.infer(input)` (`ROADMAP_V2.2.md`)
 - **Última Atualização:** Out 2026
 
 ---
