@@ -4543,3 +4543,121 @@ fn test_vectordb_connect_weaviate() {
         ir
     );
 }
+
+// ==================== ONNXModel (v2.2 Grupo A Fase 1) ====================
+
+const ONNX_PRELUDE: &str = "import onnx\n";
+
+fn onnx_error(src: &str) -> crate::error::CodegenError {
+    error_from_source(&format!("{}{}", ONNX_PRELUDE, src))
+}
+
+#[test]
+fn test_onnx_load_and_inspect() {
+    let ir = ir_from_source(&format!(
+        "{}var m := onnx.load(\"m.onnx\")\nvar n := m.num_inputs()\nvar o := m.num_outputs()\nvar a := m.input_name(0)\nvar b := m.output_name(n - 1)\nvar s := m.input_shape(1)\nvar t := m.output_shape(0)\n",
+        ONNX_PRELUDE
+    ));
+    for call in [
+        "call ptr @brix_onnx_load(ptr",
+        "call i64 @brix_onnx_num_inputs(ptr",
+        "call i64 @brix_onnx_num_outputs(ptr",
+        "call ptr @brix_onnx_input_name(ptr",
+        "call ptr @brix_onnx_output_name(ptr",
+        "call ptr @brix_onnx_input_shape(ptr",
+        "call ptr @brix_onnx_output_shape(ptr",
+        "call void @brix_onnx_release(ptr %m_release_load)",
+    ] {
+        assert!(ir.contains(call), "{}\n{}", call, ir);
+    }
+    // Nothing links libonnxruntime: no ORT symbol is referenced directly.
+    assert!(!ir.contains("Ort"), "{}", ir);
+}
+
+#[test]
+fn test_onnx_temporary_receiver_is_released() {
+    let ir = ir_from_source(&format!(
+        "{}var n := onnx.load(\"m.onnx\").num_inputs()\n",
+        ONNX_PRELUDE
+    ));
+    assert_eq!(
+        ir.matches("call void @brix_onnx_release(").count(),
+        1,
+        "{}",
+        ir
+    );
+}
+
+#[test]
+fn test_onnx_copy_and_parameter() {
+    let ir = ir_from_source(&format!(
+        "{}fn first(m: ONNXModel) -> string {{\n    return m.input_name(0)\n}}\nvar m := onnx.load(\"m.onnx\")\nvar alias := m\nvar s := first(alias)\nprintln(typeof(m))\n",
+        ONNX_PRELUDE
+    ));
+    assert!(ir.contains("@brix_onnx_retain("), "{}", ir);
+    assert!(
+        ir.contains("@brix_onnx_release(ptr %m_release_load)"),
+        "{}",
+        ir
+    );
+    assert!(
+        ir.contains("@brix_onnx_release(ptr %alias_release_load)"),
+        "{}",
+        ir
+    );
+    assert!(ir.contains("c\"ONNXModel\\00\""), "{}", ir);
+}
+
+#[test]
+fn test_onnx_load_errors() {
+    use crate::error::CodegenError;
+    assert!(matches!(
+        onnx_error("var m := onnx.load()\n"),
+        CodegenError::InvalidOperation { .. }
+    ));
+    assert!(matches!(
+        onnx_error("var m := onnx.load(\"a\", \"b\")\n"),
+        CodegenError::InvalidOperation { .. }
+    ));
+    assert!(matches!(
+        onnx_error("var m := onnx.load(1)\n"),
+        CodegenError::TypeError { .. }
+    ));
+    assert!(matches!(
+        onnx_error("var m := onnx.open(\"m.onnx\")\n"),
+        CodegenError::UndefinedSymbol { .. }
+    ));
+}
+
+#[test]
+fn test_onnx_method_errors() {
+    use crate::error::CodegenError;
+    let load = "var m := onnx.load(\"m.onnx\")\n";
+    for (src, want_type_error) in [
+        ("var n := m.num_inputs(0)\n", false),
+        ("var s := m.input_name()\n", false),
+        ("var s := m.output_shape(0, 1)\n", false),
+        ("var s := m.input_name(\"x\")\n", true),
+        ("var s := m.output_shape(1.5)\n", true),
+    ] {
+        let err = onnx_error(&format!("{}{}", load, src));
+        let ok = if want_type_error {
+            matches!(err, CodegenError::TypeError { .. })
+        } else {
+            matches!(err, CodegenError::InvalidOperation { .. })
+        };
+        assert!(ok, "{}: {:?}", src, err);
+    }
+}
+
+#[test]
+fn test_onnx_annotation_and_struct_method_name() {
+    // The type name works in annotations, and a user struct method with the
+    // same name as an ONNXModel method still dispatches to the struct.
+    let ir = ir_from_source(&format!(
+        "{}struct Net {{\n    n: int\n}}\nfn (s: Net) num_inputs() -> int {{\n    return s.n\n}}\nvar m: ONNXModel := onnx.load(\"m.onnx\")\nvar net := Net {{ n: 4 }}\nvar k := net.num_inputs()\n",
+        ONNX_PRELUDE
+    ));
+    assert!(ir.contains("call ptr @brix_onnx_load("), "{}", ir);
+    assert!(!ir.contains("@brix_onnx_num_inputs("), "{}", ir);
+}

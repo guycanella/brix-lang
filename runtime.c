@@ -7174,6 +7174,257 @@ BrixString *brix_vectordb_last_error(BrixVectorDB *db) {
 }
 
 // ==========================================
+// SECTION 2.13: ONNX MODELS (v2.2 Grupo A)
+// ==========================================
+//
+// onnx.load(path) opens a model with the ONNX Runtime C API on the CPU.
+// libonnxruntime is loaded with dlopen on the first load, so a program that
+// never calls onnx.load does not need it installed (nothing links
+// -lonnxruntime). Its only exported symbol, OrtGetApiBase, hands out the
+// OrtApi function table; the ORT ABI guarantees that table is append-only and
+// never reordered, so the few slots used here are called by index instead of
+// vendoring the 9k-line header. Indices come from offsetof(OrtApi, X) on
+// onnxruntime_c_api.h 1.31; every slot used exists since API version 1,
+// which is the version requested (so older installs work too).
+
+#include <dlfcn.h>
+
+#define BRIX_ORT_API_VERSION 1
+
+enum {
+  ORT_GET_ERROR_MESSAGE = 2,
+  ORT_CREATE_ENV = 3,
+  ORT_CREATE_SESSION = 7,
+  ORT_CREATE_SESSION_OPTIONS = 10,
+  ORT_SESSION_GET_INPUT_COUNT = 30,
+  ORT_SESSION_GET_OUTPUT_COUNT = 31,
+  ORT_SESSION_GET_INPUT_TYPE_INFO = 33,
+  ORT_SESSION_GET_OUTPUT_TYPE_INFO = 34,
+  ORT_SESSION_GET_INPUT_NAME = 36,
+  ORT_SESSION_GET_OUTPUT_NAME = 37,
+  ORT_CAST_TYPE_INFO_TO_TENSOR_INFO = 55,
+  ORT_GET_DIMENSIONS_COUNT = 61,
+  ORT_GET_DIMENSIONS = 62,
+  ORT_ALLOCATOR_FREE = 76,
+  ORT_GET_ALLOCATOR_WITH_DEFAULT_OPTIONS = 78,
+  ORT_RELEASE_SESSION = 95,
+  ORT_RELEASE_TYPE_INFO = 98,
+  ORT_RELEASE_SESSION_OPTIONS = 100,
+};
+#define BRIX_ORT_LOGGING_LEVEL_ERROR 3
+
+typedef void OrtStatusPtr; // OrtStatus*: NULL = success
+typedef struct {
+  const void *(*GetApi)(uint32_t version);
+  const char *(*GetVersionString)(void);
+} BrixOrtApiBase;
+
+static void *const *brix_ort; // the OrtApi table, NULL until loaded
+static void *brix_ort_env;    // OrtEnv*, shared by every model
+
+#define ORT_FN(slot, type) ((type)brix_ort[slot])
+
+typedef struct {
+  long ref_count;
+  void *session;   // OrtSession*
+  long num_inputs;
+  long num_outputs;
+  char **names;    // inputs, then outputs
+  long **shapes;   // per input/output; -1 = a dynamic dimension, NULL = not a tensor
+  long *ranks;
+} BrixOnnxModel;
+
+static void onnx_fail(const char *path, const char *msg) {
+  fprintf(stderr, "Error: onnx.load(\"%s\"): %s\n", path, msg);
+  exit(1);
+}
+
+// Abort with the message of a failed ORT call.
+static void onnx_check(const char *path, OrtStatusPtr *st) {
+  if (!st) return;
+  const char *msg = ORT_FN(ORT_GET_ERROR_MESSAGE, const char *(*)(OrtStatusPtr *))(st);
+  onnx_fail(path, msg ? msg : "ONNX Runtime error");
+}
+
+// dlopen libonnxruntime and create the shared OrtEnv, once.
+static void onnx_init(const char *path) {
+  if (brix_ort) return;
+  const char *env = getenv("BRIX_ONNXRUNTIME_LIB");
+  // ponytail: fixed search list (env; Linux: the loader's path; macOS:
+  // Homebrew); add a
+  // config option if installs elsewhere get common.
+  const char *candidates[] = {
+#ifdef __APPLE__
+      // Absolute paths only: for a bare name, macOS dlopen also searches the
+      // current directory, so a planted library there would be loaded.
+      "/opt/homebrew/lib/libonnxruntime.dylib",
+      "/usr/local/lib/libonnxruntime.dylib",
+#else
+      "libonnxruntime.so", "libonnxruntime.so.1",
+#endif
+  };
+  void *lib = NULL;
+  if (env && *env) {
+    lib = dlopen(env, RTLD_NOW | RTLD_LOCAL);
+  } else {
+    for (size_t i = 0; !lib && i < sizeof(candidates) / sizeof(candidates[0]); i++) {
+      lib = dlopen(candidates[i], RTLD_NOW | RTLD_LOCAL);
+    }
+  }
+  if (!lib) {
+    char msg[600];
+    snprintf(msg, sizeof(msg),
+             "ONNX Runtime not found (%s); install it (macOS: brew install "
+             "onnxruntime; Linux: the onnxruntime release from GitHub) or set "
+             "BRIX_ONNXRUNTIME_LIB to the path of libonnxruntime",
+             dlerror());
+    onnx_fail(path, msg);
+  }
+  const BrixOrtApiBase *(*get_base)(void) =
+      (const BrixOrtApiBase *(*)(void))dlsym(lib, "OrtGetApiBase");
+  const BrixOrtApiBase *base = get_base ? get_base() : NULL;
+  void *const *api = base ? (void *const *)base->GetApi(BRIX_ORT_API_VERSION) : NULL;
+  if (!api) onnx_fail(path, "the library found is not a usable ONNX Runtime");
+  brix_ort = api;
+  onnx_check(path, ORT_FN(ORT_CREATE_ENV, OrtStatusPtr *(*)(int, const char *, void **))(
+                       BRIX_ORT_LOGGING_LEVEL_ERROR, "brix", &brix_ort_env));
+}
+
+// Name and shape of input/output `i` (`output` selects which), copied into
+// the model.
+static void onnx_read_io(BrixOnnxModel *m, const char *path, void *alloc,
+                         int output, long i) {
+  long slot = output ? m->num_inputs + i : i;
+  char *name = NULL;
+  onnx_check(path, ORT_FN(output ? ORT_SESSION_GET_OUTPUT_NAME : ORT_SESSION_GET_INPUT_NAME,
+                          OrtStatusPtr *(*)(void *, size_t, void *, char **))(
+                       m->session, (size_t)i, alloc, &name));
+  m->names[slot] = strdup(name);
+  ORT_FN(ORT_ALLOCATOR_FREE, OrtStatusPtr *(*)(void *, void *))(alloc, name);
+
+  void *type_info = NULL;
+  onnx_check(path, ORT_FN(output ? ORT_SESSION_GET_OUTPUT_TYPE_INFO
+                                 : ORT_SESSION_GET_INPUT_TYPE_INFO,
+                          OrtStatusPtr *(*)(void *, size_t, void **))(
+                       m->session, (size_t)i, &type_info));
+  const void *tensor = NULL; // NULL when the value is not a tensor
+  onnx_check(path, ORT_FN(ORT_CAST_TYPE_INFO_TO_TENSOR_INFO,
+                          OrtStatusPtr *(*)(const void *, const void **))(type_info, &tensor));
+  if (tensor) {
+    size_t rank = 0;
+    onnx_check(path, ORT_FN(ORT_GET_DIMENSIONS_COUNT, OrtStatusPtr *(*)(const void *, size_t *))(
+                         tensor, &rank));
+    int64_t *dims = calloc(rank ? rank : 1, sizeof(int64_t));
+    m->shapes[slot] = calloc(rank ? rank : 1, sizeof(long));
+    if (!dims || !m->shapes[slot]) onnx_fail(path, "out of memory");
+    onnx_check(path, ORT_FN(ORT_GET_DIMENSIONS,
+                            OrtStatusPtr *(*)(const void *, int64_t *, size_t))(tensor, dims, rank));
+    for (size_t d = 0; d < rank; d++) m->shapes[slot][d] = dims[d] < 0 ? -1 : (long)dims[d];
+    m->ranks[slot] = (long)rank;
+    free(dims);
+  }
+  ORT_FN(ORT_RELEASE_TYPE_INFO, void (*)(void *))(type_info);
+  if (!m->names[slot]) onnx_fail(path, "out of memory");
+}
+
+// onnx.load(path) -> ONNXModel. Aborts when ONNX Runtime is missing or the
+// model can't be loaded (the message is ONNX Runtime's).
+BrixOnnxModel *brix_onnx_load(BrixString *path_str) {
+  const char *path = path_str ? path_str->data : "";
+  onnx_init(path);
+  void *opts = NULL;
+  onnx_check(path, ORT_FN(ORT_CREATE_SESSION_OPTIONS, OrtStatusPtr *(*)(void **))(&opts));
+  BrixOnnxModel *m = calloc(1, sizeof(BrixOnnxModel));
+  if (!m) onnx_fail(path, "out of memory");
+  m->ref_count = 1;
+  OrtStatusPtr *st = ORT_FN(ORT_CREATE_SESSION,
+                            OrtStatusPtr *(*)(const void *, const char *, const void *, void **))(
+      brix_ort_env, path, opts, &m->session);
+  ORT_FN(ORT_RELEASE_SESSION_OPTIONS, void (*)(void *))(opts);
+  onnx_check(path, st);
+
+  size_t n_in = 0, n_out = 0;
+  onnx_check(path, ORT_FN(ORT_SESSION_GET_INPUT_COUNT, OrtStatusPtr *(*)(const void *, size_t *))(
+                       m->session, &n_in));
+  onnx_check(path, ORT_FN(ORT_SESSION_GET_OUTPUT_COUNT, OrtStatusPtr *(*)(const void *, size_t *))(
+                       m->session, &n_out));
+  m->num_inputs = (long)n_in;
+  m->num_outputs = (long)n_out;
+  size_t n = n_in + n_out;
+  m->names = calloc(n ? n : 1, sizeof(char *));
+  m->shapes = calloc(n ? n : 1, sizeof(long *));
+  m->ranks = calloc(n ? n : 1, sizeof(long));
+  if (!m->names || !m->shapes || !m->ranks) onnx_fail(path, "out of memory");
+  void *alloc = NULL;
+  onnx_check(path, ORT_FN(ORT_GET_ALLOCATOR_WITH_DEFAULT_OPTIONS, OrtStatusPtr *(*)(void **))(&alloc));
+  for (long i = 0; i < m->num_inputs; i++) onnx_read_io(m, path, alloc, 0, i);
+  for (long i = 0; i < m->num_outputs; i++) onnx_read_io(m, path, alloc, 1, i);
+  return m;
+}
+
+BrixOnnxModel *brix_onnx_retain(BrixOnnxModel *m) {
+  if (m) m->ref_count++;
+  return m;
+}
+
+void brix_onnx_release(BrixOnnxModel *m) {
+  if (!m || --m->ref_count > 0) return;
+  ORT_FN(ORT_RELEASE_SESSION, void (*)(void *))(m->session);
+  for (long i = 0; i < m->num_inputs + m->num_outputs; i++) {
+    free(m->names[i]);
+    free(m->shapes[i]);
+  }
+  free(m->names);
+  free(m->shapes);
+  free(m->ranks);
+  free(m);
+}
+
+long brix_onnx_num_inputs(BrixOnnxModel *m) { return m->num_inputs; }
+long brix_onnx_num_outputs(BrixOnnxModel *m) { return m->num_outputs; }
+
+// Slot of input/output `i`; aborts when out of range.
+static long onnx_slot(BrixOnnxModel *m, const char *method, int output, long i) {
+  long count = output ? m->num_outputs : m->num_inputs;
+  if (i < 0 || i >= count) {
+    fprintf(stderr, "Error: ONNXModel.%s(%ld): index out of range (%ld %s)\n",
+            method, i, count, output ? "outputs" : "inputs");
+    exit(1);
+  }
+  return output ? m->num_inputs + i : i;
+}
+
+static BrixString *onnx_name(BrixOnnxModel *m, const char *method, int output, long i) {
+  return str_new(m->names[onnx_slot(m, method, output, i)]);
+}
+
+// 1×rank IntMatrix; -1 marks a dynamic dimension (a scalar is 1×0).
+static IntMatrix *onnx_shape(BrixOnnxModel *m, const char *method, int output, long i) {
+  long slot = onnx_slot(m, method, output, i);
+  if (!m->shapes[slot]) {
+    fprintf(stderr, "Error: ONNXModel.%s(%ld): %s %ld is not a tensor\n", method,
+            i, output ? "output" : "input", i);
+    exit(1);
+  }
+  IntMatrix *out = intmatrix_new(1, m->ranks[slot]);
+  for (long d = 0; d < m->ranks[slot]; d++) out->data[d] = m->shapes[slot][d];
+  return out;
+}
+
+BrixString *brix_onnx_input_name(BrixOnnxModel *m, long i) {
+  return onnx_name(m, "input_name", 0, i);
+}
+BrixString *brix_onnx_output_name(BrixOnnxModel *m, long i) {
+  return onnx_name(m, "output_name", 1, i);
+}
+IntMatrix *brix_onnx_input_shape(BrixOnnxModel *m, long i) {
+  return onnx_shape(m, "input_shape", 0, i);
+}
+IntMatrix *brix_onnx_output_shape(BrixOnnxModel *m, long i) {
+  return onnx_shape(m, "output_shape", 1, i);
+}
+
+// ==========================================
 // SECTION 3: STATISTICS (v0.7)
 // ==========================================
 

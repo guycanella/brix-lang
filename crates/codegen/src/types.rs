@@ -43,6 +43,7 @@ pub enum BrixType {
     Embedding(u32), // Embedding<DIM> — fixed-dimension f64 vector (BrixEmbedding*), v2.0 Grupo A Fase 1.
     EmbeddingBatch(u32), // EmbeddingBatch<DIM> — growable array of Embedding<DIM> (BrixEmbeddingBatch*), v2.0 Grupo A Fase 3.
     VectorDB,            // Connection to one Pinecone index (BrixVectorDB*), v2.1 Grupo A.
+    OnnxModel,           // A loaded ONNX model, `ONNXModel` in Brix (BrixOnnxModel*), v2.2 Grupo A.
 }
 
 // Type-related helper functions will be implemented as methods on Compiler
@@ -107,5 +108,6 @@ pub fn format_brix_type(ty: &BrixType) -> String {
         BrixType::Embedding(dim) => format!("Embedding<{}>", dim),
         BrixType::EmbeddingBatch(dim) => format!("EmbeddingBatch<{}>", dim),
         BrixType::VectorDB => "VectorDB".to_string(),
+        BrixType::OnnxModel => "ONNXModel".to_string(),
     }
 }

@@ -1,0 +1,6 @@
+// An input/output index out of range aborts, like Vector.get.
+import onnx
+
+var model := onnx.load("tests/integration/models/multi.onnx")
+println(model.input_name(2))
+println(model.input_name(3))

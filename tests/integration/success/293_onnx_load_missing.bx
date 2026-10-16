@@ -1,0 +1,7 @@
+// onnx.load aborts when the model can't be loaded: the message is ONNX
+// Runtime's, after the path. Output printed before is kept.
+import onnx
+
+println("before")
+var model := onnx.load("tests/integration/models/nope.onnx")
+println(model.num_inputs())
