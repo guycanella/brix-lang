@@ -1,0 +1,6 @@
+// infer_output with a name the model doesn't have aborts.
+import onnx
+
+var model := onnx.load("tests/integration/models/multi.onnx")
+println(model.output_name(1))
+println(model.infer_output("logits", [1.0, 2.0, 3.0], [1.0, 2.0, 3.0], [1.0]))
