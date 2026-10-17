@@ -27,10 +27,10 @@ Each entry recompiles and re-runs the whole accumulated session through the same
 
 **Run Rust unit tests:**
 ```bash
-cargo test -p lexer -p parser -p codegen  # All unit tests: 322 + 229 + 930 = 1,481 (all passing)
+cargo test -p lexer -p parser -p codegen  # All unit tests: 322 + 229 + 934 = 1,485 (all passing)
 cargo test -p lexer                       # Only lexer (322 tests)
 cargo test -p parser                      # Only parser (229 tests)
-cargo test -p codegen                     # Only codegen (930 tests)
+cargo test -p codegen                     # Only codegen (934 tests)
 cargo test -p codegen json_tests          # Specific test module in codegen
 cargo test <pattern>                      # Tests matching pattern
 cargo test -- --nocapture                 # Show println! output
@@ -38,12 +38,12 @@ cargo test -- --nocapture                 # Show println! output
 
 **Run integration tests (must be sequential):**
 ```bash
-cargo test --test integration_test -- --test-threads=1 # 309 tests passing
+cargo test --test integration_test -- --test-threads=1 # 313 tests passing
 ```
 
 **Run Brix language tests (Test Library):**
 ```bash
-cargo run -- test                   # All *.test.bx and *.spec.bx (35 suites passing, 592 tests)
+cargo run -- test                   # All *.test.bx and *.spec.bx (35 suites passing, 595 tests)
 cargo run -- test json              # Files matching "json" in path
 ```
 
@@ -67,7 +67,7 @@ The driver (`src/main.rs`, ~520 lines; REPL in `src/repl.rs`) orchestrates all s
 ```
 brix/
 ├── src/main.rs              # CLI + compilation pipeline driver
-├── runtime.c                # C runtime (~9,386 lines) — must be in project root
+├── runtime.c                # C runtime (~9,528 lines) — must be in project root
 ├── crates/
 │   ├── lexer/src/token.rs   # Token enum (logos)
 │   ├── parser/src/
@@ -76,7 +76,7 @@ brix/
 │   │   ├── closure_analysis.rs  # Capture analysis pass (runs after parse)
 │   │   └── error.rs         # Ariadne-based parse error reporting
 │   └── codegen/src/
-│       ├── lib.rs           # Main compiler (~20,706 lines — post-refactor 11,014, grew with v1.8–v2.0 + rustfmt expansion)
+│       ├── lib.rs           # Main compiler (~20,734 lines — post-refactor 11,014, grew with v1.8–v2.0 + rustfmt expansion)
 │       ├── stmt.rs          # Statement compilation (~1,516 lines)
 │       ├── expr.rs          # Expression compilation + list comprehension (~2,028 lines)
 │       ├── helpers.rs       # LLVM helpers
@@ -88,7 +88,7 @@ brix/
 │                            #   iterator.rs, match_compiler.rs, async_compiler.rs, closure_compiler.rs
 ├── tests/
 │   ├── integration/         # End-to-end .bx files (success/, parser_errors/, codegen_errors/, runtime_errors/, test_library_failures/)
-│   └── brix/                # Language test files (*.test.bx) — 35 files, 592 tests, all passing
+│   └── brix/                # Language test files (*.test.bx) — 35 files, 595 tests, all passing
 ├── benchmarks/              # Informative benchmarks (run.sh + .bx), not CI gates
 └── examples/                # Example .bx programs
 ```
@@ -206,7 +206,7 @@ Jest-style framework. 17 matchers (all support `.not.` — `toEqual`, `toBeClose
 
 **Test baseline at v1.9 completion:** 1,357 unit (317 lexer + 209 parser + 831 codegen) + 264 integration + 517 Test Library (31 `.test.bx` files).
 
-**Current test baseline (v2.2 Grupo A Fase 2):** 1,481 unit (322 lexer + 229 parser + 930 codegen) + 309 integration + 592 Test Library (35 `.test.bx` files) = 2,382. All green.
+**Current test baseline (v2.2 Grupo A Fase 3):** 1,485 unit (322 lexer + 229 parser + 934 codegen) + 313 integration + 595 Test Library (35 `.test.bx` files) = 2,393. All green.
 
 **Completed in v1.9 (Grupo F):**
 - **Grupo F — `brix repl` — COMPLETE, as a "replay REPL", not the roadmap's original incremental-JIT design:**
@@ -515,7 +515,19 @@ Two groups: **A** (ONNX models, CPU inference) and **B** (GPU: CUDA + Metal).
 - Tests: +5 codegen unit, integration 297 (`infer` / `infer_output`, int[] promotion, temporary receiver, copy), 298 (element types, rank 3, truncation), 299 (input count), 300 (shape mismatch), 301 (unknown output), 302 (integer overflow), +4 Test Library (`onnx.test.bx`). ARC checked with `leaks --atExit` (0 leaks).
 - **Known, not fixed (pre-existing):** a nested array literal (`[[1.0, 2.0], [3.0, 4.0]]`) panics the compiler (`lib.rs`, array-literal path) instead of reporting an error — build 2-D matrices with `zeros(r, c)` and assignments.
 
-**Next — Grupo A Fase 3** (`model.batch_infer(batch)`) in `ROADMAP_V2.2.md`.
+**Grupo A Fase 3 — COMPLETE** — batch inference:
+- `model.batch_infer(batch, ...)` -> `Matrix` and `model.batch_infer_output(out, batch, ...)` (`out` an `int` index or a `string` name), same extra-input rules as `infer`. **The batch is input 0, an N x K matrix with one sample per row**; each row fills one sample's shape (the dimensions after the batch dimension) in order, with at most one of them dynamic, deduced from K. The other inputs are converted once and passed unchanged to every run.
+- **Why a separate method:** `infer` already runs a dynamic batch dimension in one `Run`, parallelized by ONNX Runtime's own thread pool. What was missing is **fixed-batch models** (common in exports, e.g. `[1, 3, 224, 224]`), which `infer` only accepted for exactly one sample. No threads of our own were added.
+- **Dynamic batch dimension:** one `Run` with batch = N (same result as `infer`). **Fixed batch dimension b:** the rows run in chunks of b; the last chunk is zero-padded and the padded rows' outputs are dropped. **Output:** N x (output elements per sample); its first dimension must be the batch (`[n]` becomes n x 1).
+- **Empty batch** (N = 0) returns a 0x0 matrix without running the model, but its row width is still checked first (a `0xK` batch with the wrong K aborts like a non-empty one — found in review).
+- **Errors abort:** rows that don't fill a sample (the message shows the full shape and the per-sample shape), input 0 without a batch dimension, an output without one, wrong input count, unknown output name or index.
+- **Runtime (SECTION 2.13):** `brix_onnx_batch_infer`; the Fase 2 code was split into shared helpers (`onnx_check_call`, `onnx_allocator`, `onnx_run`, `onnx_release_values`); `onnx_make_input` takes an optional precomputed shape and `onnx_output_matrix` a batch mode; `brix_onnx_output_index` gained a flag that only picks the method name in its error message.
+- **Codegen:** `compile_onnx_infer` (`lib.rs`) now serves all four methods (the batch argument is required) and picks `brix_onnx_batch_infer` or `brix_onnx_infer`; dispatch guard and `infer_expr_type_static` extended.
+- **Test model:** `make_models.py` also writes `fixed.onnx` (`x [2, 2, 2]`; `sq = x * x`, `neg = -x`); the other models are byte-identical.
+- Tests: +4 codegen unit, integration 303 (fixed batch, 5 samples as chunks 2+2+1, by name/index, `int[]` batch, empty batch), 304 (dynamic batch vs `infer`, rank-3 `typed.onnx`), 305 (sample-size mismatch), 306 (empty batch with the wrong width), +3 Test Library (`onnx.test.bx`). ARC checked with `leaks --atExit` (0 leaks).
+- **Note:** matrices have no `==` in Brix (`E102`), so tests compare printed output or `toEqual`.
+
+**Next — Grupo A Fase 4** (error handling and robustness: graceful failures instead of aborts) in `ROADMAP_V2.2.md`.
 
 ## CI (GitHub Actions) — `.github/workflows/ci.yml`
 
