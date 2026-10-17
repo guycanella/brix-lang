@@ -4661,3 +4661,111 @@ fn test_onnx_annotation_and_struct_method_name() {
     assert!(ir.contains("call ptr @brix_onnx_load("), "{}", ir);
     assert!(!ir.contains("@brix_onnx_num_inputs("), "{}", ir);
 }
+
+#[test]
+fn test_onnx_infer_calls() {
+    // Inputs go as a stack array of Matrix*; infer asks for output 0,
+    // infer_output takes an index or resolves a name first.
+    let ir = ir_from_source(&format!(
+        "{}var m := onnx.load(\"m.onnx\")\nvar x := [1.0, 2.0]\nvar a := m.infer(x, [3.0])\nvar b := m.infer_output(1, x, x)\nvar c := m.infer_output(\"out\", x)\n",
+        ONNX_PRELUDE
+    ));
+    for call in [
+        "alloca [2 x ptr]",
+        "i64 2, i64 0, i64 0)",
+        "i64 2, i64 1, i64 1)",
+        "i64 1, i64 %brix_onnx_output_index, i64 1)",
+        "call i64 @brix_onnx_output_index(ptr",
+        "alloca [1 x ptr]",
+    ] {
+        assert!(ir.contains(call), "{}\n{}", call, ir);
+    }
+    assert!(!ir.contains("Ort"), "{}", ir);
+}
+
+#[test]
+fn test_onnx_infer_releases_temporaries() {
+    // The [3.0] literal, the promoted copy of [1, 2] (the int[] literal too)
+    // and the "out" literal are released; the borrowed x is not.
+    let ir = ir_from_source(&format!(
+        "{}var m := onnx.load(\"m.onnx\")\nvar x := [1.0, 2.0]\nvar a := m.infer_output(\"out\", x, [1, 2], [3.0])\n",
+        ONNX_PRELUDE
+    ));
+    let body = function_body(&ir, "main");
+    let after = &body[body.find("@brix_onnx_infer(").expect("infer call")..];
+    let before_decl_end = after.find("_old_release").unwrap_or(after.len());
+    let releases = &after[..before_decl_end];
+    assert_eq!(
+        releases.matches("@matrix_release(").count(),
+        2,
+        "{}",
+        releases
+    );
+    assert_eq!(
+        releases.matches("@intmatrix_release(").count(),
+        1,
+        "{}",
+        releases
+    );
+    assert_eq!(
+        releases.matches("@string_release(").count(),
+        1,
+        "{}",
+        releases
+    );
+}
+
+#[test]
+fn test_onnx_infer_temporary_receiver_is_released() {
+    let ir = ir_from_source(&format!(
+        "{}var r := onnx.load(\"m.onnx\").infer([1.0])\n",
+        ONNX_PRELUDE
+    ));
+    assert_eq!(
+        ir.matches("call void @brix_onnx_release(").count(),
+        1,
+        "{}",
+        ir
+    );
+}
+
+#[test]
+fn test_onnx_infer_errors() {
+    use crate::error::CodegenError;
+    let load = "var m := onnx.load(\"m.onnx\")\n";
+    for (src, want_type_error) in [
+        ("var r := m.infer_output()\n", false),
+        ("var r := m.infer(5)\n", true),
+        ("var r := m.infer(\"x\")\n", true),
+        ("var r := m.infer_output(1.5, [1.0])\n", true),
+        ("var r := m.infer_output([1.0], [1.0])\n", true),
+    ] {
+        let err = onnx_error(&format!("{}{}", load, src));
+        let ok = if want_type_error {
+            matches!(err, CodegenError::TypeError { .. })
+        } else {
+            matches!(err, CodegenError::InvalidOperation { .. })
+        };
+        assert!(ok, "{}: {:?}", src, err);
+    }
+}
+
+#[test]
+fn test_onnx_infer_result_is_matrix() {
+    // The result is a Matrix: Matrix methods/fields work on it, and :type
+    // reports it without running the model.
+    let ir = ir_from_source(&format!(
+        "{}var m := onnx.load(\"m.onnx\")\nvar r := m.infer([1.0])\nvar n := r.rows * r.cols\nprintln(typeof(r))\n",
+        ONNX_PRELUDE
+    ));
+    assert!(ir.contains("@brix_onnx_infer("), "{}", ir);
+    let history = "import onnx\nvar m := onnx.load(\"m.onnx\")\n";
+    for expr in ["m.infer([1.0])", "m.infer_output(\"y\", [1.0])"] {
+        assert_eq!(
+            crate::infer_type_of_expr_in_context(history, expr),
+            Ok(crate::types::BrixType::Matrix),
+            "{}",
+            expr
+        );
+    }
+}

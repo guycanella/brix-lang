@@ -1,0 +1,6 @@
+// An input that doesn't fit the model's shape aborts before running it.
+import onnx
+
+var model := onnx.load("tests/integration/models/multi.onnx")
+println(model.infer([1.0, 2.0, 3.0], [1.0, 2.0, 3.0], [1.0]))
+println(model.infer([1.0, 2.0, 3.0, 4.0], [1.0, 2.0, 3.0], [1.0]))

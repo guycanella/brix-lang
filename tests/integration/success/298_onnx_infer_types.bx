@@ -1,0 +1,15 @@
+// v2.2 Grupo A Fase 2: element types and ranks (typed.onnx: a int64
+// [n, 2, 3], w double []; relu float, wd double, trunc int32, all [n, 2, 3]).
+import onnx
+
+var model := onnx.load("tests/integration/models/typed.onnx")
+// A rank-3 input is filled in order; n is deduced from the 12 elements.
+var a := [-1, 2, -3, 4, 5, -6, 7, 8, 9, 10, 11, 12]
+var relu := model.infer(a, [1.5])
+println(relu)
+// A rank-3 output [2, 2, 3] becomes a 2x6 matrix.
+println(f"{relu.rows}x{relu.cols}")
+println(model.infer_output("wd", a, [1.5]))
+println(model.infer_output("trunc", a, [1.5]))
+// Non-integral values sent to an int64 input are truncated.
+println(model.infer([1.9, -2.9, 3.0, 4.0, 5.0, 6.0], [1.0]))

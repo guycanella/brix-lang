@@ -2914,3 +2914,66 @@ fn test_296_onnx_index_out_of_range() {
         stderr
     );
 }
+
+#[test]
+fn test_297_onnx_infer() {
+    assert_output(
+        "tests/integration/success/297_onnx_infer.bx",
+        0,
+        Some(
+            "[11, 22, 33, 14, 25, 36]\n2x3\n[22, 44, 66, 28, 50, 72]\n[5.75, 11.25, 16.75]\n[11, 21, 31]\n[1, 2, 3]\n[33, 63, 93]\nsum\n6",
+        ),
+    );
+}
+
+#[test]
+fn test_298_onnx_infer_types() {
+    assert_output(
+        "tests/integration/success/298_onnx_infer_types.bx",
+        0,
+        Some(
+            "[0, 2, 0, 4, 5, 0, 7, 8, 9, 10, 11, 12]\n2x6\n[0, 3, 0, 6, 7.5, 0, 10.5, 12, 13.5, 15, 16.5, 18]\n[0, 3, 0, 6, 7, 0, 10, 12, 13, 15, 16, 18]\n[1, 0, 3, 4, 5, 6]",
+        ),
+    );
+}
+
+#[test]
+fn test_299_onnx_infer_input_count() {
+    let (stdout, stderr, exit_code) =
+        run_brix_file("tests/integration/success/299_onnx_infer_input_count.bx");
+    assert_eq!(exit_code, 1, "Stdout: {}\nStderr: {}", stdout, stderr);
+    assert_eq!(stdout.trim(), "before");
+    assert!(
+        stderr.contains("Error: ONNXModel.infer: the model takes 3 input(s) (x, y, scale), got 2"),
+        "Stderr: {}",
+        stderr
+    );
+}
+
+#[test]
+fn test_300_onnx_infer_shape_mismatch() {
+    let (stdout, stderr, exit_code) =
+        run_brix_file("tests/integration/success/300_onnx_infer_shape_mismatch.bx");
+    assert_eq!(exit_code, 1, "Stdout: {}\nStderr: {}", stdout, stderr);
+    assert_eq!(stdout.trim(), "[2, 4, 6]");
+    assert!(
+        stderr.contains(
+            "Error: ONNXModel.infer: input 0 (\"x\") expects shape [-1, 3], got a 1x4 matrix"
+        ),
+        "Stderr: {}",
+        stderr
+    );
+}
+
+#[test]
+fn test_301_onnx_infer_unknown_output() {
+    let (stdout, stderr, exit_code) =
+        run_brix_file("tests/integration/success/301_onnx_infer_unknown_output.bx");
+    assert_eq!(exit_code, 1, "Stdout: {}\nStderr: {}", stdout, stderr);
+    assert_eq!(stdout.trim(), "scaled");
+    assert!(
+        stderr.contains("Error: ONNXModel.infer_output: the model has no output named \"logits\""),
+        "Stderr: {}",
+        stderr
+    );
+}

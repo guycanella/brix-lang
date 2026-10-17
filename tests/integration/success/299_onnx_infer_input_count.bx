@@ -1,0 +1,6 @@
+// Calling a model with the wrong number of inputs aborts.
+import onnx
+
+var model := onnx.load("tests/integration/models/multi.onnx")
+println("before")
+println(model.infer([1.0, 2.0, 3.0], [1.0, 2.0, 3.0]))

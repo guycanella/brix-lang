@@ -7190,6 +7190,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                 | "output_name"
                                 | "input_shape"
                                 | "output_shape"
+                                | "infer"
+                                | "infer_output"
                         );
                         // A receiver compiled by the guard below that matched no
                         // builtin dispatch is reused by the arbitrary-expression
@@ -17672,6 +17674,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         args: &[Expr],
         expr: &Expr,
     ) -> CodegenResult<(BasicValueEnum<'ctx>, BrixType)> {
+        if matches!(method, "infer" | "infer_output") {
+            return self.compile_onnx_infer(receiver_val, method, receiver_expr, args, expr);
+        }
         let indexed = !matches!(method, "num_inputs" | "num_outputs");
         let want = usize::from(indexed);
         if args.len() != want {
@@ -17726,6 +17731,169 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             self.insert_release(receiver_val.into_pointer_value(), &BrixType::OnnxModel)?;
         }
         Ok((val, result_type))
+    }
+
+    /// Compile `model.infer(x, ...)` / `model.infer_output(out, x, ...)` ->
+    /// Matrix. One `Matrix` (or `int[]`, promoted) per model input; the input
+    /// count, shapes and element types are checked at runtime (the model is
+    /// only known once loaded) and abort on a mismatch. `out` is an output
+    /// index (`int`) or name (`string`); `infer` returns output 0. The inputs
+    /// go to the runtime as a stack array of `Matrix*`. Owned temporaries
+    /// (inputs, promoted copies, the name, the receiver) are released after
+    /// the call.
+    fn compile_onnx_infer(
+        &mut self,
+        receiver_val: BasicValueEnum<'ctx>,
+        method: &str,
+        receiver_expr: &Expr,
+        args: &[Expr],
+        expr: &Expr,
+    ) -> CodegenResult<(BasicValueEnum<'ctx>, BrixType)> {
+        let via_output = method == "infer_output";
+        if via_output && args.is_empty() {
+            return Err(CodegenError::InvalidOperation {
+                operation: "ONNXModel.infer_output".to_string(),
+                reason: "expects infer_output(output, inputs...), got 0 arguments".to_string(),
+                span: Some(expr.span.clone()),
+            });
+        }
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let i64_type = self.context.i64_type();
+        let mut temps: Vec<(PointerValue<'ctx>, BrixType)> = Vec::new();
+
+        let output = if via_output {
+            let (val, ty) = self.compile_expr(&args[0])?;
+            match ty {
+                BrixType::Int => val,
+                BrixType::String => {
+                    let index = self
+                        .call_runtime_fn(
+                            "brix_onnx_output_index",
+                            i64_type.fn_type(&[ptr_type.into(), ptr_type.into()], false),
+                            &[receiver_val.into(), val.into()],
+                            expr,
+                        )?
+                        .ok_or_else(|| CodegenError::MissingValue {
+                            what: "brix_onnx_output_index result".to_string(),
+                            context: "ONNXModel.infer_output".to_string(),
+                            span: Some(expr.span.clone()),
+                        })?;
+                    if !self.is_borrowed_ref_expr(&args[0]) {
+                        temps.push((val.into_pointer_value(), BrixType::String));
+                    }
+                    index
+                }
+                other => {
+                    return Err(CodegenError::TypeError {
+                        expected: "int (output index) or string (output name)".to_string(),
+                        found: crate::types::format_brix_type(&other),
+                        context: "ONNXModel.infer_output output".to_string(),
+                        span: Some(args[0].span.clone()),
+                    });
+                }
+            }
+        } else {
+            i64_type.const_zero().into()
+        };
+
+        let inputs = &args[usize::from(via_output)..];
+        let mut input_ptrs = Vec::with_capacity(inputs.len());
+        for arg in inputs {
+            let (val, ty) = self.compile_expr(arg)?;
+            let owned = !self.is_borrowed_ref_expr(arg);
+            let matrix = match ty {
+                BrixType::Matrix => val,
+                BrixType::IntMatrix => {
+                    let promoted = self
+                        .call_runtime_fn(
+                            "intmatrix_to_matrix",
+                            ptr_type.fn_type(&[ptr_type.into()], false),
+                            &[val.into()],
+                            expr,
+                        )?
+                        .ok_or_else(|| CodegenError::MissingValue {
+                            what: "promoted matrix value".to_string(),
+                            context: format!("ONNXModel.{} input", method),
+                            span: Some(arg.span.clone()),
+                        })?;
+                    temps.push((promoted.into_pointer_value(), BrixType::Matrix));
+                    promoted
+                }
+                other => {
+                    return Err(CodegenError::TypeError {
+                        expected: "a Matrix or int[] (one per model input)".to_string(),
+                        found: crate::types::format_brix_type(&other),
+                        context: format!("ONNXModel.{} input", method),
+                        span: Some(arg.span.clone()),
+                    });
+                }
+            };
+            if owned {
+                temps.push((val.into_pointer_value(), ty));
+            }
+            input_ptrs.push(matrix);
+        }
+
+        let array_type = ptr_type.array_type(input_ptrs.len().max(1) as u32);
+        let array = self.create_entry_block_alloca(array_type.into(), "onnx_inputs")?;
+        for (i, ptr) in input_ptrs.iter().enumerate() {
+            let slot = unsafe {
+                self.builder.build_gep(
+                    ptr_type,
+                    array,
+                    &[i64_type.const_int(i as u64, false)],
+                    "onnx_input",
+                )
+            }
+            .map_err(|_| CodegenError::LLVMError {
+                operation: "build_gep".to_string(),
+                details: "Failed to address an ONNX input slot".to_string(),
+                span: Some(expr.span.clone()),
+            })?;
+            self.builder
+                .build_store(slot, *ptr)
+                .map_err(|_| CodegenError::LLVMError {
+                    operation: "build_store".to_string(),
+                    details: "Failed to store an ONNX input".to_string(),
+                    span: Some(expr.span.clone()),
+                })?;
+        }
+
+        let fn_type = ptr_type.fn_type(
+            &[
+                ptr_type.into(),
+                ptr_type.into(),
+                i64_type.into(),
+                i64_type.into(),
+                i64_type.into(),
+            ],
+            false,
+        );
+        let result = self
+            .call_runtime_fn(
+                "brix_onnx_infer",
+                fn_type,
+                &[
+                    receiver_val.into(),
+                    array.into(),
+                    i64_type.const_int(input_ptrs.len() as u64, false).into(),
+                    output.into(),
+                    i64_type.const_int(u64::from(via_output), false).into(),
+                ],
+                expr,
+            )?
+            .ok_or_else(|| CodegenError::MissingValue {
+                what: "brix_onnx_infer result".to_string(),
+                context: format!("ONNXModel.{}", method),
+                span: Some(expr.span.clone()),
+            })?;
+        for (ptr, ty) in temps {
+            self.insert_release(ptr, &ty)?;
+        }
+        if !self.is_borrowed_ref_expr(receiver_expr) {
+            self.insert_release(receiver_val.into_pointer_value(), &BrixType::OnnxModel)?;
+        }
+        Ok((result, BrixType::Matrix))
     }
 
     /// Compile `HashMap<K,V>()` -> a fresh, empty BrixHashMap* (ref_count = 1).
@@ -19453,6 +19621,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                 "input_shape" | "output_shape" => {
                                     return Some(BrixType::IntMatrix);
                                 }
+                                "infer" | "infer_output" => return Some(BrixType::Matrix),
                                 _ => {}
                             },
                             BrixType::HashMap(_, val) => match field.as_str() {

@@ -33,3 +33,36 @@ test.describe("ONNXModel inspection (v2.2 Grupo A Fase 1)", () -> {
         test.expect(m.input_shape(2)).toHaveLength(0)
     })
 })
+
+test.describe("ONNXModel inference (v2.2 Grupo A Fase 2)", () -> {
+    test.it("infer returns the first output", () -> {
+        var m := onnx.load("tests/integration/models/multi.onnx")
+        var out := m.infer([1.0, 2.0, 3.0], [10, 20, 30], [2.0])
+        test.expect(out).toEqual([11.0, 22.0, 33.0])
+    })
+
+    test.it("infer_output picks an output by name or index", () -> {
+        var m := onnx.load("tests/integration/models/multi.onnx")
+        var by_name := m.infer_output("scaled", [1.0, 2.0, 3.0], [1.0, 1.0, 1.0], [0.5])
+        var by_index := m.infer_output(1, [1.0, 2.0, 3.0], [1.0, 1.0, 1.0], [0.5])
+        test.expect(by_name).toEqual([1.0, 1.5, 2.0])
+        test.expect(by_index).toEqual(by_name)
+    })
+
+    test.it("the batch dimension follows the input rows", () -> {
+        var m := onnx.load("tests/integration/models/multi.onnx")
+        var x := zeros(4, 3)
+        var out := m.infer(x, [1.0, 2.0, 3.0], [1.0])
+        test.expect(out.rows).toBe(4)
+        test.expect(out.cols).toBe(3)
+        test.expect(out[11]).toBeCloseTo(3.0)
+    })
+
+    test.it("converts int64 inputs and rank-3 outputs", () -> {
+        var m := onnx.load("tests/integration/models/typed.onnx")
+        var out := m.infer_output("trunc", [-1, 2, 3, 4, 5, 6], [2.5])
+        test.expect(out.rows).toBe(1)
+        test.expect(out.cols).toBe(6)
+        test.expect(out).toEqual([0.0, 5.0, 7.0, 10.0, 12.0, 15.0])
+    })
+})
