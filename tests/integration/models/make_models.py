@@ -17,6 +17,11 @@ typed.onnx (opset 17), one input per element type Brix converts:
     relu  = Relu(Cast(a, float))       float  [n, 2, 3]
     wd    = Mul(Cast(relu, double), w) double [n, 2, 3]
     trunc = Cast(wd, int32)            int32  [n, 2, 3]
+
+fixed.onnx (opset 17), a fixed batch dimension of 2:
+    x float [2, 2, 2]
+    sq  = Mul(x, x) float [2, 2, 2]
+    neg = Neg(x)    float [2, 2, 2]
 """
 import os
 
@@ -80,6 +85,16 @@ def typed():
                 + field(12, value_info("trunc", dims, INT32)))
 
 
+def fixed():
+    dims = [2, 2, 2]
+    return wrap(field(1, node("Mul", ["x", "x"], ["sq"], "sq"))
+                + field(1, node("Neg", ["x"], ["neg"], "neg"))
+                + field(2, "fixed")
+                + field(11, value_info("x", dims))
+                + field(12, value_info("sq", dims))
+                + field(12, value_info("neg", dims)))
+
+
 def model():
     graph = (field(1, node("Add", ["x", "y"], ["sum"], "add"))
              + field(1, node("Mul", ["sum", "scale"], ["scaled"], "mul"))
@@ -98,5 +113,7 @@ if __name__ == "__main__":
         f.write(model())
     with open(os.path.join(here, "typed.onnx"), "wb") as f:
         f.write(typed())
+    with open(os.path.join(here, "fixed.onnx"), "wb") as f:
+        f.write(fixed())
     with open(os.path.join(here, "broken.onnx"), "wb") as f:
         f.write(b"this is not an ONNX model\n")

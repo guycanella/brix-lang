@@ -7192,6 +7192,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                 | "output_shape"
                                 | "infer"
                                 | "infer_output"
+                                | "batch_infer"
+                                | "batch_infer_output"
                         );
                         // A receiver compiled by the guard below that matched no
                         // builtin dispatch is reused by the arbitrary-expression
@@ -17674,7 +17676,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         args: &[Expr],
         expr: &Expr,
     ) -> CodegenResult<(BasicValueEnum<'ctx>, BrixType)> {
-        if matches!(method, "infer" | "infer_output") {
+        if matches!(
+            method,
+            "infer" | "infer_output" | "batch_infer" | "batch_infer_output"
+        ) {
             return self.compile_onnx_infer(receiver_val, method, receiver_expr, args, expr);
         }
         let indexed = !matches!(method, "num_inputs" | "num_outputs");
@@ -17740,7 +17745,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     /// index (`int`) or name (`string`); `infer` returns output 0. The inputs
     /// go to the runtime as a stack array of `Matrix*`. Owned temporaries
     /// (inputs, promoted copies, the name, the receiver) are released after
-    /// the call.
+    /// the call. `batch_infer` / `batch_infer_output` take the same arguments,
+    /// the first input being a batch with one sample per row (required).
     fn compile_onnx_infer(
         &mut self,
         receiver_val: BasicValueEnum<'ctx>,
@@ -17749,11 +17755,19 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         args: &[Expr],
         expr: &Expr,
     ) -> CodegenResult<(BasicValueEnum<'ctx>, BrixType)> {
-        let via_output = method == "infer_output";
-        if via_output && args.is_empty() {
+        let via_output = method.ends_with("_output");
+        let batch = method.starts_with("batch_");
+        let required = usize::from(via_output) + usize::from(batch);
+        if args.len() < required {
             return Err(CodegenError::InvalidOperation {
-                operation: "ONNXModel.infer_output".to_string(),
-                reason: "expects infer_output(output, inputs...), got 0 arguments".to_string(),
+                operation: format!("ONNXModel.{}", method),
+                reason: format!(
+                    "expects {}({}{}inputs...), got {} argument(s)",
+                    method,
+                    if via_output { "output, " } else { "" },
+                    if batch { "batch, " } else { "" },
+                    args.len()
+                ),
                 span: Some(expr.span.clone()),
             });
         }
@@ -17769,8 +17783,15 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     let index = self
                         .call_runtime_fn(
                             "brix_onnx_output_index",
-                            i64_type.fn_type(&[ptr_type.into(), ptr_type.into()], false),
-                            &[receiver_val.into(), val.into()],
+                            i64_type.fn_type(
+                                &[ptr_type.into(), ptr_type.into(), i64_type.into()],
+                                false,
+                            ),
+                            &[
+                                receiver_val.into(),
+                                val.into(),
+                                i64_type.const_int(u64::from(batch), false).into(),
+                            ],
                             expr,
                         )?
                         .ok_or_else(|| CodegenError::MissingValue {
@@ -17787,7 +17808,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     return Err(CodegenError::TypeError {
                         expected: "int (output index) or string (output name)".to_string(),
                         found: crate::types::format_brix_type(&other),
-                        context: "ONNXModel.infer_output output".to_string(),
+                        context: format!("ONNXModel.{} output", method),
                         span: Some(args[0].span.clone()),
                     });
                 }
@@ -17859,6 +17880,11 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 })?;
         }
 
+        let rt_name = if batch {
+            "brix_onnx_batch_infer"
+        } else {
+            "brix_onnx_infer"
+        };
         let fn_type = ptr_type.fn_type(
             &[
                 ptr_type.into(),
@@ -17871,7 +17897,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         );
         let result = self
             .call_runtime_fn(
-                "brix_onnx_infer",
+                rt_name,
                 fn_type,
                 &[
                     receiver_val.into(),
@@ -17883,7 +17909,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 expr,
             )?
             .ok_or_else(|| CodegenError::MissingValue {
-                what: "brix_onnx_infer result".to_string(),
+                what: format!("{} result", rt_name),
                 context: format!("ONNXModel.{}", method),
                 span: Some(expr.span.clone()),
             })?;
@@ -19621,7 +19647,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                 "input_shape" | "output_shape" => {
                                     return Some(BrixType::IntMatrix);
                                 }
-                                "infer" | "infer_output" => return Some(BrixType::Matrix),
+                                "infer" | "infer_output" | "batch_infer" | "batch_infer_output" => {
+                                    return Some(BrixType::Matrix);
+                                }
                                 _ => {}
                             },
                             BrixType::HashMap(_, val) => match field.as_str() {

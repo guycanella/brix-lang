@@ -2992,3 +2992,40 @@ fn test_302_onnx_infer_int_overflow() {
         stderr
     );
 }
+
+#[test]
+fn test_303_onnx_batch_infer_fixed() {
+    assert_output(
+        "tests/integration/success/303_onnx_batch_infer_fixed.bx",
+        0,
+        Some(
+            "5x4\n[1, 4, 9, 16, 25, 36, 49, 64, 81, 100, 121, 144, 169, 196, 225, 256, 289, 324, 361, 400]\n[-1, -2, -3, -4, -5, -6, -7, -8, -9, -10, -11, -12, -13, -14, -15, -16, -17, -18, -19, -20]\n[1, 4, 9, 16]\n[1, 4, 9, 16]\n0x0",
+        ),
+    );
+}
+
+#[test]
+fn test_304_onnx_batch_infer_dynamic() {
+    assert_output(
+        "tests/integration/success/304_onnx_batch_infer_dynamic.bx",
+        0,
+        Some(
+            "[2, 4, 6, 8, 10, 12, 14, 16, 18]\n[2, 4, 6, 8, 10, 12, 14, 16, 18]\n2x6\n[0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5]\n[0, 0, 0, 0, 0, 0, 0, 0.5, 1, 1.5, 2, 2.5]",
+        ),
+    );
+}
+
+#[test]
+fn test_305_onnx_batch_infer_sample_size() {
+    let (stdout, stderr, exit_code) =
+        run_brix_file("tests/integration/success/305_onnx_batch_infer_sample_size.bx");
+    assert_eq!(exit_code, 1, "Stdout: {}\nStderr: {}", stdout, stderr);
+    assert_eq!(stdout.trim(), "[1, 4, 9, 16]");
+    assert!(
+        stderr.contains(
+            "Error: ONNXModel.batch_infer: input 0 (\"x\", shape [2, 2, 2]) expects samples of shape [2, 2], got rows of 3 element(s)"
+        ),
+        "Stderr: {}",
+        stderr
+    );
+}

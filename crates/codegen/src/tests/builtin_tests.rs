@@ -4769,3 +4769,100 @@ fn test_onnx_infer_result_is_matrix() {
         );
     }
 }
+
+#[test]
+fn test_onnx_batch_infer_calls() {
+    let ir = ir_from_source(&format!(
+        "{}var m := onnx.load(\"m.onnx\")\nvar x := [1.0, 2.0]\nvar a := m.batch_infer(x, [3.0])\nvar b := m.batch_infer_output(1, x)\nvar c := m.batch_infer_output(\"out\", x)\n",
+        ONNX_PRELUDE
+    ));
+    for call in [
+        "call ptr @brix_onnx_batch_infer(",
+        "i64 2, i64 0, i64 0)",
+        "i64 1, i64 1, i64 1)",
+        "i64 1, i64 %brix_onnx_output_index, i64 1)",
+        // The name lookup is told it serves batch_infer_output.
+        "call i64 @brix_onnx_output_index(ptr %",
+    ] {
+        assert!(ir.contains(call), "{}\n{}", call, ir);
+    }
+    assert!(
+        ir.lines()
+            .any(|l| l.contains("@brix_onnx_output_index(") && l.trim_end().ends_with("i64 1)")),
+        "{}",
+        ir
+    );
+    assert!(!ir.contains("call ptr @brix_onnx_infer("), "{}", ir);
+    assert!(!ir.contains("Ort"), "{}", ir);
+}
+
+#[test]
+fn test_onnx_batch_infer_releases_temporaries() {
+    let ir = ir_from_source(&format!(
+        "{}var r := onnx.load(\"m.onnx\").batch_infer_output(\"out\", [1, 2], [3.0])\n",
+        ONNX_PRELUDE
+    ));
+    let body = function_body(&ir, "main");
+    let after = &body[body.find("@brix_onnx_batch_infer(").expect("batch call")..];
+    let releases = &after[..after.find("_old_release").unwrap_or(after.len())];
+    // The promoted copy and the [3.0] literal, the int[] literal, the name
+    // literal and the temporary receiver.
+    assert_eq!(
+        releases.matches("@matrix_release(").count(),
+        2,
+        "{}",
+        releases
+    );
+    assert_eq!(
+        releases.matches("@intmatrix_release(").count(),
+        1,
+        "{}",
+        releases
+    );
+    assert_eq!(
+        releases.matches("@string_release(").count(),
+        1,
+        "{}",
+        releases
+    );
+    assert_eq!(
+        releases.matches("@brix_onnx_release(").count(),
+        1,
+        "{}",
+        releases
+    );
+}
+
+#[test]
+fn test_onnx_batch_infer_errors() {
+    use crate::error::CodegenError;
+    let load = "var m := onnx.load(\"m.onnx\")\n";
+    for (src, want_type_error) in [
+        ("var r := m.batch_infer()\n", false),
+        ("var r := m.batch_infer_output(0)\n", false),
+        ("var r := m.batch_infer_output()\n", false),
+        ("var r := m.batch_infer(2.0)\n", true),
+        ("var r := m.batch_infer_output(1.5, [1.0])\n", true),
+    ] {
+        let err = onnx_error(&format!("{}{}", load, src));
+        let ok = if want_type_error {
+            matches!(err, CodegenError::TypeError { .. })
+        } else {
+            matches!(err, CodegenError::InvalidOperation { .. })
+        };
+        assert!(ok, "{}: {:?}", src, err);
+    }
+}
+
+#[test]
+fn test_onnx_batch_infer_result_is_matrix() {
+    let history = "import onnx\nvar m := onnx.load(\"m.onnx\")\n";
+    for expr in ["m.batch_infer([1.0])", "m.batch_infer_output(0, [1.0])"] {
+        assert_eq!(
+            crate::infer_type_of_expr_in_context(history, expr),
+            Ok(crate::types::BrixType::Matrix),
+            "{}",
+            expr
+        );
+    }
+}
