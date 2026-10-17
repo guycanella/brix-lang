@@ -7543,19 +7543,24 @@ static void onnx_input_dims(BrixOnnxModel *m, const char *method, long i, Matrix
   onnx_infer_fail(method, msg);
 }
 
-// Copy a Matrix into a fresh tensor of input `i`'s element type.
+// Copy a Matrix into a fresh tensor of input `i`'s element type, with the
+// shape `dims` (NULL: worked out from the matrix by onnx_input_dims).
 static void *onnx_make_input(BrixOnnxModel *m, const char *method, void *alloc, long i,
-                             Matrix *x) {
+                             Matrix *x, const int64_t *dims) {
   onnx_check_type(m, method, i);
   long rank = m->ranks[i];
-  int64_t *dims = calloc(rank ? rank : 1, sizeof(int64_t));
-  if (!dims) onnx_infer_fail(method, "out of memory");
-  onnx_input_dims(m, method, i, x, dims);
+  int64_t *own = NULL;
+  if (!dims) {
+    own = calloc(rank ? rank : 1, sizeof(int64_t));
+    if (!own) onnx_infer_fail(method, "out of memory");
+    onnx_input_dims(m, method, i, x, own);
+    dims = own;
+  }
   void *value = NULL;
   onnx_infer_check(method, ORT_FN(ORT_CREATE_TENSOR_AS_ORT_VALUE,
                                   OrtStatusPtr *(*)(void *, const int64_t *, size_t, int, void **))(
                                alloc, dims, (size_t)rank, m->types[i], &value));
-  free(dims);
+  free(own);
   void *data = NULL;
   onnx_infer_check(method, ORT_FN(ORT_GET_TENSOR_MUTABLE_DATA, OrtStatusPtr *(*)(void *, void **))(
                                value, &data));
@@ -7584,8 +7589,10 @@ static void *onnx_make_input(BrixOnnxModel *m, const char *method, void *alloc, 
 }
 
 // Convert an output tensor to a Matrix: a scalar is 1x1, [n] is 1xn, [r, c]
-// is r x c and [d0, d1, ...] is d0 x (d1*d2*...).
-static Matrix *onnx_output_matrix(const char *method, void *value) {
+// is r x c and [d0, d1, ...] is d0 x (d1*d2*...). With `batch` >= 0 the
+// first dimension must be `batch`, and each sample becomes one row ([n] is
+// then n x 1).
+static Matrix *onnx_output_matrix(const char *method, void *value, long batch) {
   void *info = NULL;
   onnx_infer_check(method, ORT_FN(ORT_GET_TENSOR_TYPE_AND_SHAPE,
                                   OrtStatusPtr *(*)(const void *, void **))(value, &info));
@@ -7608,7 +7615,18 @@ static Matrix *onnx_output_matrix(const char *method, void *value) {
     onnx_infer_fail(method, msg);
   }
   long rows = 1, cols = 1;
-  if (rank == 1) {
+  if (batch >= 0) {
+    if (rank == 0 || dims[0] != batch) {
+      char msg[256];
+      snprintf(msg, sizeof(msg),
+               "the output has no batch dimension (its first dimension is %ld, the batch "
+               "has %ld rows)",
+               rank ? (long)dims[0] : 0L, batch);
+      onnx_infer_fail(method, msg);
+    }
+    rows = batch;
+    for (size_t d = 1; d < rank; d++) cols *= (long)dims[d];
+  } else if (rank == 1) {
     cols = (long)dims[0];
   } else if (rank >= 2) {
     rows = (long)dims[0];
@@ -7631,24 +7649,22 @@ static Matrix *onnx_output_matrix(const char *method, void *value) {
   return out;
 }
 
-// Index of the output named `name`; aborts when there is none.
-long brix_onnx_output_index(BrixOnnxModel *m, BrixString *name) {
+// Index of the output named `name`; aborts when there is none. `batch` only
+// picks the method name used in the error message.
+long brix_onnx_output_index(BrixOnnxModel *m, BrixString *name, long batch) {
   const char *want = name ? name->data : "";
   for (long i = 0; i < m->num_outputs; i++) {
     if (strcmp(m->names[m->num_inputs + i], want) == 0) return i;
   }
   char msg[512];
   snprintf(msg, sizeof(msg), "the model has no output named \"%s\"", want);
-  onnx_infer_fail("infer_output", msg);
+  onnx_infer_fail(batch ? "batch_infer_output" : "infer_output", msg);
   return -1;
 }
 
-// Run the model on `n` inputs (one Matrix per model input, in order) and
-// return output `output` as a Matrix (owned). `via_infer_output` only picks
-// the method name used in error messages.
-Matrix *brix_onnx_infer(BrixOnnxModel *m, Matrix **inputs, long n, long output,
-                        long via_infer_output) {
-  const char *method = via_infer_output ? "infer_output" : "infer";
+// Abort unless there is one input per model input and output `output`
+// exists and is a supported tensor; returns that output's slot.
+static long onnx_check_call(BrixOnnxModel *m, const char *method, long n, long output) {
   if (n != m->num_inputs) {
     char names[256] = "", msg[512];
     size_t used = 0;
@@ -7662,12 +7678,20 @@ Matrix *brix_onnx_infer(BrixOnnxModel *m, Matrix **inputs, long n, long output,
   }
   long out_slot = onnx_slot(m, method, 1, output);
   onnx_check_type(m, method, out_slot);
+  return out_slot;
+}
+
+static void *onnx_allocator(const char *method) {
   void *alloc = NULL;
   onnx_infer_check(method, ORT_FN(ORT_GET_ALLOCATOR_WITH_DEFAULT_OPTIONS,
                                   OrtStatusPtr *(*)(void **))(&alloc));
-  void **values = calloc(n ? n : 1, sizeof(void *));
-  if (!values) onnx_infer_fail(method, "out of memory");
-  for (long i = 0; i < n; i++) values[i] = onnx_make_input(m, method, alloc, i, inputs[i]);
+  return alloc;
+}
+
+// One Run on the `n` input tensors; returns output `out_slot` as a Matrix
+// (see onnx_output_matrix for `batch`).
+static Matrix *onnx_run(BrixOnnxModel *m, const char *method, void **values, long n,
+                        long out_slot, long batch) {
   void *result = NULL;
   const char *out_name = m->names[out_slot];
   onnx_infer_check(method, ORT_FN(ORT_RUN, OrtStatusPtr *(*)(void *, const void *,
@@ -7678,10 +7702,128 @@ Matrix *brix_onnx_infer(BrixOnnxModel *m, Matrix **inputs, long n, long output,
                                m->session, NULL, (const char *const *)m->names,
                                (const void *const *)values, (size_t)n, &out_name, 1,
                                &result));
-  for (long i = 0; i < n; i++) ORT_FN(ORT_RELEASE_VALUE, void (*)(void *))(values[i]);
-  free(values);
-  Matrix *out = onnx_output_matrix(method, result);
+  Matrix *out = onnx_output_matrix(method, result, batch);
   ORT_FN(ORT_RELEASE_VALUE, void (*)(void *))(result);
+  return out;
+}
+
+static void onnx_release_values(void **values, long n) {
+  for (long i = 0; i < n; i++) {
+    if (values[i]) ORT_FN(ORT_RELEASE_VALUE, void (*)(void *))(values[i]);
+  }
+  free(values);
+}
+
+// Run the model on `n` inputs (one Matrix per model input, in order) and
+// return output `output` as a Matrix (owned). `via_infer_output` only picks
+// the method name used in error messages.
+Matrix *brix_onnx_infer(BrixOnnxModel *m, Matrix **inputs, long n, long output,
+                        long via_infer_output) {
+  const char *method = via_infer_output ? "infer_output" : "infer";
+  long out_slot = onnx_check_call(m, method, n, output);
+  void *alloc = onnx_allocator(method);
+  void **values = calloc(n ? n : 1, sizeof(void *));
+  if (!values) onnx_infer_fail(method, "out of memory");
+  for (long i = 0; i < n; i++) values[i] = onnx_make_input(m, method, alloc, i, inputs[i], NULL);
+  Matrix *out = onnx_run(m, method, values, n, out_slot, -1);
+  onnx_release_values(values, n);
+  return out;
+}
+
+// model.batch_infer(batch, ...) / batch_infer_output(out, batch, ...): input
+// 0 is a batch with one sample per row; each row fills the input's shape
+// after its first (batch) dimension. A dynamic batch dimension takes every
+// row in one Run; a fixed one (b) runs the rows in chunks of b, zero-padding
+// the last chunk and dropping the padded rows' outputs. The other inputs are
+// passed unchanged to every Run. Returns rows x (output elements per sample).
+Matrix *brix_onnx_batch_infer(BrixOnnxModel *m, Matrix **inputs, long n, long output,
+                              long via_output) {
+  const char *method = via_output ? "batch_infer_output" : "batch_infer";
+  long out_slot = onnx_check_call(m, method, n, output);
+  onnx_check_type(m, method, 0);
+  long rank = m->ranks[0];
+  const long *want = m->shapes[0];
+  char shape[256], msg[600];
+  onnx_fmt_shape(shape, sizeof(shape), want, rank);
+  if (rank == 0) {
+    snprintf(msg, sizeof(msg), "input 0 (\"%s\") has no batch dimension (shape %s)",
+             m->names[0], shape);
+    onnx_infer_fail(method, msg);
+  }
+  Matrix *batch = inputs[0];
+  long rows = batch->rows, per_sample = batch->cols;
+
+  // Shape of one chunk: dims[0] = chunk rows, the rest filled from a row,
+  // with at most one dynamic dimension deduced from its length.
+  int64_t *dims = calloc((size_t)rank, sizeof(int64_t));
+  if (!dims) onnx_infer_fail(method, "out of memory");
+  long fixed = 1, dynamic = -1, n_dynamic = 0;
+  for (long d = 1; d < rank; d++) {
+    dims[d] = want[d];
+    if (want[d] < 0) {
+      dynamic = d;
+      n_dynamic++;
+    } else {
+      fixed *= want[d];
+    }
+  }
+  int ok = n_dynamic == 0   ? fixed == per_sample
+           : n_dynamic == 1 ? (fixed > 0 ? per_sample % fixed == 0 : per_sample == 0)
+                            : 0;
+  if (!ok) {
+    char sample[256];
+    onnx_fmt_shape(sample, sizeof(sample), want + 1, rank - 1);
+    snprintf(msg, sizeof(msg),
+             "input 0 (\"%s\", shape %s) expects samples of shape %s, got rows of %ld "
+             "element(s) (each row fills one sample in order; at most one dimension can be "
+             "dynamic)",
+             m->names[0], shape, sample, per_sample);
+    onnx_infer_fail(method, msg);
+  }
+  // An empty batch runs nothing, but its width is still checked above.
+  if (rows == 0) {
+    free(dims);
+    return matrix_new(0, 0);
+  }
+  if (n_dynamic == 1) dims[dynamic] = fixed > 0 ? per_sample / fixed : 0;
+  long chunk = want[0] < 0 ? rows : want[0];
+  if (chunk <= 0) {
+    snprintf(msg, sizeof(msg), "input 0 (\"%s\") has a batch dimension of %ld (shape %s)",
+             m->names[0], chunk, shape);
+    onnx_infer_fail(method, msg);
+  }
+  dims[0] = chunk;
+
+  void *alloc = onnx_allocator(method);
+  void **values = calloc((size_t)n, sizeof(void *));
+  if (!values) onnx_infer_fail(method, "out of memory");
+  for (long i = 1; i < n; i++) values[i] = onnx_make_input(m, method, alloc, i, inputs[i], NULL);
+
+  Matrix *rows_in = matrix_new(chunk, per_sample); // calloc: padding rows stay zero
+  Matrix *out = NULL;
+  for (long start = 0; start < rows; start += chunk) {
+    long take = rows - start < chunk ? rows - start : chunk;
+    memcpy(rows_in->data, batch->data + start * per_sample,
+           (size_t)(take * per_sample) * sizeof(double));
+    if (take < chunk) {
+      memset(rows_in->data + take * per_sample, 0,
+             (size_t)((chunk - take) * per_sample) * sizeof(double));
+    }
+    values[0] = onnx_make_input(m, method, alloc, 0, rows_in, dims);
+    Matrix *part = onnx_run(m, method, values, n, out_slot, chunk);
+    ORT_FN(ORT_RELEASE_VALUE, void (*)(void *))(values[0]);
+    values[0] = NULL;
+    if (!out) out = matrix_new(rows, part->cols);
+    if (part->cols != out->cols) {
+      onnx_infer_fail(method, "the output size per sample changed between chunks");
+    }
+    memcpy(out->data + start * out->cols, part->data,
+           (size_t)(take * out->cols) * sizeof(double));
+    matrix_release(part);
+  }
+  matrix_release(rows_in);
+  onnx_release_values(values, n);
+  free(dims);
   return out;
 }
 

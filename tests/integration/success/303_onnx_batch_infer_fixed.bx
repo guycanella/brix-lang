@@ -1,0 +1,20 @@
+// v2.2 Grupo A Fase 3: batch_infer on a model with a fixed batch dimension
+// (fixed.onnx: x [2, 2, 2]; sq = x * x, neg = -x). Five samples run as
+// chunks of 2 + 2 + 1; the last chunk is zero-padded and the padded row's
+// output is dropped.
+import onnx
+
+var model := onnx.load("tests/integration/models/fixed.onnx")
+var batch := zeros(5, 4)
+for i in 0..<20 {
+    batch[i] = i + 1.0
+}
+var sq := model.batch_infer(batch)
+println(f"{sq.rows}x{sq.cols}")
+println(sq)
+println(model.batch_infer_output("neg", batch))
+println(model.batch_infer_output(0, [1.0, 2.0, 3.0, 4.0]))
+// An int[] batch is promoted; an empty batch runs nothing.
+println(model.batch_infer([1, 2, 3, 4]))
+var empty := model.batch_infer(zeros(0, 4))
+println(f"{empty.rows}x{empty.cols}")

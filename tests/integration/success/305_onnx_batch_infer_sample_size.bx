@@ -1,0 +1,6 @@
+// A batch whose rows don't fill one sample aborts before running the model.
+import onnx
+
+var model := onnx.load("tests/integration/models/fixed.onnx")
+println(model.batch_infer([1.0, 2.0, 3.0, 4.0]))
+println(model.batch_infer([1.0, 2.0, 3.0]))

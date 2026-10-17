@@ -66,3 +66,31 @@ test.describe("ONNXModel inference (v2.2 Grupo A Fase 2)", () -> {
         test.expect(out).toEqual([0.0, 5.0, 7.0, 10.0, 12.0, 15.0])
     })
 })
+
+// tests/integration/models/fixed.onnx: x [2, 2, 2] (a fixed batch of 2);
+// outputs sq = x * x, neg = -x.
+test.describe("ONNXModel batch inference (v2.2 Grupo A Fase 3)", () -> {
+    test.it("runs a fixed-batch model over any number of rows", () -> {
+        var m := onnx.load("tests/integration/models/fixed.onnx")
+        var batch := zeros(3, 4)
+        batch[8] = 3.0
+        var out := m.batch_infer(batch)
+        test.expect(out.rows).toBe(3)
+        test.expect(out.cols).toBe(4)
+        test.expect(out[8]).toBeCloseTo(9.0)
+    })
+
+    test.it("matches infer on a dynamic batch dimension", () -> {
+        var m := onnx.load("tests/integration/models/multi.onnx")
+        var x := zeros(2, 3)
+        x[4] = 5.0
+        var batched := m.batch_infer_output("scaled", x, [1.0, 1.0, 1.0], [3.0])
+        test.expect(batched).toEqual(m.infer_output("scaled", x, [1.0, 1.0, 1.0], [3.0]))
+    })
+
+    test.it("an empty batch returns an empty matrix", () -> {
+        var m := onnx.load("tests/integration/models/fixed.onnx")
+        var out := m.batch_infer_output("neg", zeros(0, 4))
+        test.expect(out.rows).toBe(0)
+    })
+})

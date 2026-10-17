@@ -1,0 +1,24 @@
+// v2.2 Grupo A Fase 3: batch_infer on models with a dynamic batch dimension
+// runs every row in one Run and matches infer.
+import onnx
+
+var multi := onnx.load("tests/integration/models/multi.onnx")
+var x := zeros(3, 3)
+for i in 0..<9 {
+    x[i] = i * 1.0
+}
+var y := [1, 1, 1]
+var batched := multi.batch_infer_output("scaled", x, y, [2.0])
+println(batched)
+println(multi.infer_output("scaled", x, y, [2.0]))
+
+// typed.onnx: a [n, 2, 3] -> each row of 6 values is one [2, 3] sample.
+var typed := onnx.load("tests/integration/models/typed.onnx")
+var a := zeros(2, 6)
+for i in 0..<12 {
+    a[i] = i - 6.0
+}
+var relu := typed.batch_infer(a, [1.0])
+println(f"{relu.rows}x{relu.cols}")
+println(relu)
+println(typed.batch_infer_output("wd", a, [0.5]))
