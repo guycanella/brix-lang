@@ -3029,3 +3029,16 @@ fn test_305_onnx_batch_infer_sample_size() {
         stderr
     );
 }
+
+#[test]
+fn test_306_onnx_batch_infer_empty_sample_size() {
+    let (stdout, stderr, exit_code) =
+        run_brix_file("tests/integration/success/306_onnx_batch_infer_empty_sample_size.bx");
+    assert_eq!(exit_code, 1, "Stdout: {}\nStderr: {}", stdout, stderr);
+    assert_eq!(stdout.trim(), "0x0");
+    assert!(
+        stderr.contains("expects samples of shape [2, 2], got rows of 3 element(s)"),
+        "Stderr: {}",
+        stderr
+    );
+}

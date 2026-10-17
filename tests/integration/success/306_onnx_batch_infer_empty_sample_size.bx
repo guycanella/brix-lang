@@ -1,0 +1,8 @@
+// An empty batch runs nothing, but its row width is still checked: 0 rows
+// of 3 elements don't fit samples of 4 and abort like a non-empty batch.
+import onnx
+
+var model := onnx.load("tests/integration/models/fixed.onnx")
+var ok := model.batch_infer(zeros(0, 4))
+println(f"{ok.rows}x{ok.cols}")
+println(model.batch_infer(zeros(0, 3)))

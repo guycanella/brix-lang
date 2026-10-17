@@ -7752,7 +7752,6 @@ Matrix *brix_onnx_batch_infer(BrixOnnxModel *m, Matrix **inputs, long n, long ou
   }
   Matrix *batch = inputs[0];
   long rows = batch->rows, per_sample = batch->cols;
-  if (rows == 0) return matrix_new(0, 0);
 
   // Shape of one chunk: dims[0] = chunk rows, the rest filled from a row,
   // with at most one dynamic dimension deduced from its length.
@@ -7780,6 +7779,11 @@ Matrix *brix_onnx_batch_infer(BrixOnnxModel *m, Matrix **inputs, long n, long ou
              "dynamic)",
              m->names[0], shape, sample, per_sample);
     onnx_infer_fail(method, msg);
+  }
+  // An empty batch runs nothing, but its width is still checked above.
+  if (rows == 0) {
+    free(dims);
+    return matrix_new(0, 0);
   }
   if (n_dynamic == 1) dims[dynamic] = fixed > 0 ? per_sample / fixed : 0;
   long chunk = want[0] < 0 ? rows : want[0];
