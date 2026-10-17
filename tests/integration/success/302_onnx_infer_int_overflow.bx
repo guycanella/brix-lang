@@ -1,0 +1,7 @@
+// A value an integer input can't hold (here 1e19 for an int64) aborts
+// instead of reaching the model as garbage.
+import onnx
+
+var model := onnx.load("tests/integration/models/typed.onnx")
+println(model.infer([1.9, 2.0, 3.0, 4.0, 5.0, 6.0], [1.0]))
+println(model.infer([1.0, 2.0, 1.0e19, 4.0, 5.0, 6.0], [1.0]))

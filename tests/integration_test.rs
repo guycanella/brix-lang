@@ -2977,3 +2977,18 @@ fn test_301_onnx_infer_unknown_output() {
         stderr
     );
 }
+
+#[test]
+fn test_302_onnx_infer_int_overflow() {
+    let (stdout, stderr, exit_code) =
+        run_brix_file("tests/integration/success/302_onnx_infer_int_overflow.bx");
+    assert_eq!(exit_code, 1, "Stdout: {}\nStderr: {}", stdout, stderr);
+    assert_eq!(stdout.trim(), "[1, 2, 3, 4, 5, 6]");
+    assert!(
+        stderr.contains(
+            "Error: ONNXModel.infer: input 0 (\"a\") element 2 (1e+19) does not fit in an int64"
+        ),
+        "Stderr: {}",
+        stderr
+    );
+}

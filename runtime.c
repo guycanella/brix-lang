@@ -7560,9 +7560,20 @@ static void *onnx_make_input(BrixOnnxModel *m, const char *method, void *alloc, 
   onnx_infer_check(method, ORT_FN(ORT_GET_TENSOR_MUTABLE_DATA, OrtStatusPtr *(*)(void *, void **))(
                                value, &data));
   long total = x->rows * x->cols;
+  int type = m->types[i];
   for (long k = 0; k < total; k++) {
     double v = x->data[k];
-    switch (m->types[i]) {
+    // Integer inputs truncate toward zero (1.9 -> 1); a value the integer
+    // type can't hold (NaN, Inf, out of range) aborts: converting it is
+    // undefined behavior in C.
+    if ((type == ORT_INT32 && !(v > -2147483649.0 && v < 2147483648.0)) ||
+        (type == ORT_INT64 && !(v >= -9223372036854775808.0 && v < 9223372036854775808.0))) {
+      char msg[512];
+      snprintf(msg, sizeof(msg), "input %ld (\"%s\") element %ld (%g) does not fit in an %s", i,
+               m->names[i], k, v, type == ORT_INT32 ? "int32" : "int64");
+      onnx_infer_fail(method, msg);
+    }
+    switch (type) {
     case ORT_FLOAT: ((float *)data)[k] = (float)v; break;
     case ORT_DOUBLE: ((double *)data)[k] = v; break;
     case ORT_INT32: ((int32_t *)data)[k] = (int32_t)v; break;
