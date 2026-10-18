@@ -3042,3 +3042,35 @@ fn test_306_onnx_batch_infer_empty_sample_size() {
         stderr
     );
 }
+
+#[test]
+fn test_307_onnx_try_load() {
+    assert_output(
+        "tests/integration/success/307_onnx_try_load.bx",
+        0,
+        Some(
+            "1\n0\n0\n0x0\nONNXModel.infer: the model was not loaded (see the error of onnx.try_load)\n1\n[] 3 x\n[2, 3, 4]\n1\nstill running",
+        ),
+    );
+}
+
+#[test]
+fn test_308_onnx_graceful_errors() {
+    assert_output(
+        "tests/integration/success/308_onnx_graceful_errors.bx",
+        0,
+        Some(
+            "[] ONNXModel.input_name(7): index out of range (3 inputs)\n0 ONNXModel.output_shape(9): index out of range (2 outputs)\ny\n[]\n0x0 ONNXModel.infer: the model takes 3 input(s) (x, y, scale), got 1\nONNXModel.infer: input 0 (\"x\") expects shape [-1, 3], got a 1x4 matrix\nONNXModel.infer_output: the model has no output named \"logits\"\nONNXModel.infer_output(-1): index out of range (2 outputs)\n[2, 4, 6]\n[]\nONNXModel.infer: input 0 (\"a\") element 0 (1e+19) does not fit in an int64\nONNXModel.batch_infer: input 0 (\"x\", shape [2, 2, 2]) expects samples of shape [2, 2], got rows of 3 element(s) (each row fills one sample in order; at most one dimension can be dynamic)\nONNXModel.batch_infer_output: the model has no output named \"nope\"\n[1, 4, 9, 16]\n[]",
+        ),
+    );
+}
+
+#[test]
+fn test_309_onnx_try_load_runtime_missing() {
+    let (stdout, stderr, exit_code) = run_brix_file_env(
+        "tests/integration/success/309_onnx_try_load_runtime_missing.bx",
+        &[("BRIX_ONNXRUNTIME_LIB", "/nonexistent/libonnxruntime")],
+    );
+    assert_eq!(exit_code, 0, "Stdout: {}\nStderr: {}", stdout, stderr);
+    assert_eq!(stdout.trim(), "1\n0\nstill running");
+}

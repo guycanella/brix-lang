@@ -1,0 +1,23 @@
+// v2.2 Grupo A Fase 4: onnx.try_load never aborts. A failed load is an
+// empty model with the reason in last_error(); its methods report that it
+// was not loaded instead of aborting.
+import onnx
+
+var missing := onnx.try_load("tests/integration/models/nope.onnx")
+println(missing.last_error().contains("File doesn't exist"))
+println(missing.num_inputs())
+println(missing.num_outputs())
+var r := missing.infer([1.0])
+println(f"{r.rows}x{r.cols}")
+println(missing.last_error())
+
+var broken := onnx.try_load("tests/integration/models/broken.onnx")
+println(broken.last_error().contains("Protobuf parsing failed"))
+
+var model := onnx.try_load("tests/integration/models/multi.onnx")
+println(f"[{model.last_error()}] {model.num_inputs()} {model.input_name(0)}")
+println(model.infer([1.0, 2.0, 3.0], [1.0, 1.0, 1.0], [2.0]))
+
+// A model from onnx.load never has an error to report.
+println(onnx.load("tests/integration/models/multi.onnx").last_error() == "")
+println("still running")

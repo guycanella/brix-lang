@@ -4866,3 +4866,116 @@ fn test_onnx_batch_infer_result_is_matrix() {
         );
     }
 }
+
+#[test]
+fn test_onnx_try_load_and_last_error() {
+    let ir = ir_from_source(&format!(
+        "{}var m := onnx.try_load(\"m.onnx\")\nvar e := m.last_error()\nvar n := onnx.load(\"m.onnx\").last_error()\n",
+        ONNX_PRELUDE
+    ));
+    for call in [
+        "call ptr @brix_onnx_try_load(ptr",
+        "call ptr @brix_onnx_load(ptr",
+        "call ptr @brix_onnx_last_error(ptr",
+    ] {
+        assert!(ir.contains(call), "{}\n{}", call, ir);
+    }
+    // The temporary receiver of the second last_error() is released.
+    assert!(
+        ir.contains("call void @brix_onnx_release(ptr %brix_onnx_load)"),
+        "{}",
+        ir
+    );
+    assert!(!ir.contains("Ort"), "{}", ir);
+}
+
+#[test]
+fn test_onnx_try_load_errors() {
+    use crate::error::CodegenError;
+    assert!(matches!(
+        onnx_error("var m := onnx.try_load()\n"),
+        CodegenError::InvalidOperation { .. }
+    ));
+    assert!(matches!(
+        onnx_error("var m := onnx.try_load(\"a\", \"b\")\n"),
+        CodegenError::InvalidOperation { .. }
+    ));
+    assert!(matches!(
+        onnx_error("var m := onnx.try_load(3)\n"),
+        CodegenError::TypeError { .. }
+    ));
+    assert!(matches!(
+        onnx_error("var m := onnx.load(\"m.onnx\")\nvar e := m.last_error(1)\n"),
+        CodegenError::InvalidOperation { .. }
+    ));
+}
+
+#[test]
+fn test_onnx_try_load_types() {
+    let history = "import onnx\nvar m := onnx.try_load(\"m.onnx\")\n";
+    assert_eq!(
+        crate::infer_type_of_expr_in_context("import onnx\n", "onnx.try_load(\"m.onnx\")"),
+        Ok(crate::types::BrixType::OnnxModel)
+    );
+    assert_eq!(
+        crate::infer_type_of_expr_in_context(history, "m.last_error()"),
+        Ok(crate::types::BrixType::String)
+    );
+}
+
+#[test]
+fn test_onnx_last_error_vs_vectordb_and_struct() {
+    // last_error() dispatches by receiver type: VectorDB and a user struct
+    // method with the same name keep their own.
+    let ir = ir_from_source(&format!(
+        "{}import vectordb\nstruct S {{\n    n: int\n}}\nfn (s: S) last_error() -> int {{\n    return s.n\n}}\nvar m := onnx.try_load(\"m.onnx\")\nvar db := vectordb.connect(\"pinecone\", \"https://h\", \"k\")\nvar a := m.last_error()\nvar b := db.last_error()\nvar c := S {{ n: 1 }}.last_error()\n",
+        ONNX_PRELUDE
+    ));
+    assert!(ir.contains("@brix_onnx_last_error("), "{}", ir);
+    assert!(ir.contains("@brix_vectordb_last_error("), "{}", ir);
+    assert_eq!(ir.matches("@brix_onnx_last_error(").count(), 2, "{}", ir);
+}
+
+#[test]
+fn test_module_call_inference_respects_variable_shadowing() {
+    // A variable named like an imported module shadows it, as in the call
+    // dispatch: the call is the struct's method, not the module function.
+    let history = "import onnx\nimport json\nstruct L {\n    n: int\n}\nfn (l: L) try_load(path: string) -> int {\n    return l.n\n}\nfn (l: L) stringify(x: int) -> float {\n    return 1.5\n}\nvar onnx := L { n: 1 }\nvar json := L { n: 2 }\n";
+    assert_ne!(
+        crate::infer_type_of_expr_in_context(history, "onnx.try_load(\"m.onnx\")"),
+        Ok(crate::types::BrixType::OnnxModel)
+    );
+    assert_ne!(
+        crate::infer_type_of_expr_in_context(history, "json.stringify(1)"),
+        Ok(crate::types::BrixType::String)
+    );
+    // Without the shadowing variable, the module function is inferred.
+    assert_eq!(
+        crate::infer_type_of_expr_in_context("import onnx\n", "onnx.try_load(\"m.onnx\")"),
+        Ok(crate::types::BrixType::OnnxModel)
+    );
+}
+
+#[test]
+fn test_closure_return_type_from_struct_method_call() {
+    // Without an annotation, a closure returning a struct method call gets
+    // the method's return type (it used to be declared void while its body
+    // returned an i64: invalid IR, caught by module.verify()).
+    let ir = ir_from_source(
+        "struct P {\n    n: int\n}\nfn (p: P) twice() -> int {\n    return p.n * 2\n}\nvar f := (p: P) -> {\n    return p.twice()\n}\n",
+    );
+    assert!(ir.contains("define i64 @__closure_0("), "{}", ir);
+}
+
+#[test]
+fn test_closure_param_shadows_module_in_inference() {
+    // A closure parameter named like an imported module shadows it in the
+    // return-type inference, as it does when the body is compiled.
+    let ir = ir_from_source(&format!(
+        "{}struct L {{\n    n: int\n}}\nfn (l: L) try_load(path: string) -> int {{\n    return l.n\n}}\nvar f := (onnx: L) -> {{\n    return onnx.try_load(\"m.onnx\")\n}}\n",
+        ONNX_PRELUDE
+    ));
+    assert!(ir.contains("define i64 @__closure_0("), "{}", ir);
+    assert!(ir.contains("call i64 @L_try_load("), "{}", ir);
+    assert!(!ir.contains("@brix_onnx_try_load("), "{}", ir);
+}

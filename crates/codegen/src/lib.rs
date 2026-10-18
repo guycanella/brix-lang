@@ -7194,6 +7194,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                 | "infer_output"
                                 | "batch_infer"
                                 | "batch_infer_output"
+                                | "last_error"
                         );
                         // A receiver compiled by the guard below that matched no
                         // builtin dispatch is reused by the arbitrary-expression
@@ -17611,17 +17612,19 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         Ok(result)
     }
 
-    /// Compile an `onnx.*` module call. Only `load(path)` -> ONNXModel exists
-    /// so far; it aborts at runtime when ONNX Runtime is missing or the model
-    /// can't be loaded (libonnxruntime is dlopen'ed by the runtime, nothing
-    /// links it).
+    /// Compile an `onnx.*` module call: `load(path)` / `try_load(path)` ->
+    /// ONNXModel. `load` aborts at runtime when ONNX Runtime is missing or the
+    /// model can't be loaded; `try_load` never aborts (a failed load is an
+    /// empty model with the reason in `last_error()`, and the model's methods
+    /// record their errors there too). libonnxruntime is dlopen'ed by the
+    /// runtime, nothing links it.
     fn compile_onnx_call(
         &mut self,
         fn_name: &str,
         args: &[Expr],
         expr: &Expr,
     ) -> CodegenResult<(BasicValueEnum<'ctx>, BrixType)> {
-        if fn_name != "load" {
+        if !matches!(fn_name, "load" | "try_load") {
             return Err(CodegenError::UndefinedSymbol {
                 name: format!("onnx.{}", fn_name),
                 context: "onnx module call".to_string(),
@@ -17630,7 +17633,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         }
         if args.len() != 1 {
             return Err(CodegenError::InvalidOperation {
-                operation: "onnx.load".to_string(),
+                operation: format!("onnx.{}", fn_name),
                 reason: format!("expects (path), got {} argument(s)", args.len()),
                 span: Some(expr.span.clone()),
             });
@@ -17640,21 +17643,21 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             return Err(CodegenError::TypeError {
                 expected: "string".to_string(),
                 found: crate::types::format_brix_type(&ty),
-                context: "onnx.load path".to_string(),
+                context: format!("onnx.{} path", fn_name),
                 span: Some(args[0].span.clone()),
             });
         }
         let ptr_type = self.context.ptr_type(AddressSpace::default());
         let model = self
             .call_runtime_fn(
-                "brix_onnx_load",
+                &format!("brix_onnx_{}", fn_name),
                 ptr_type.fn_type(&[ptr_type.into()], false),
                 &[path.into()],
                 expr,
             )?
             .ok_or_else(|| CodegenError::MissingValue {
-                what: "brix_onnx_load result".to_string(),
-                context: "onnx.load".to_string(),
+                what: format!("brix_onnx_{} result", fn_name),
+                context: format!("onnx.{}", fn_name),
                 span: Some(expr.span.clone()),
             })?;
         if !self.is_borrowed_ref_expr(&args[0]) {
@@ -17666,8 +17669,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     /// Compile a method on an `ONNXModel`: `num_inputs()` / `num_outputs()`
     /// -> int, `input_name(i)` / `output_name(i)` -> string and
     /// `input_shape(i)` / `output_shape(i)` -> int[] (1×rank, -1 for a dynamic
-    /// dimension). An index out of range aborts at runtime. An owned temporary
-    /// receiver is released after the call.
+    /// dimension) and `last_error()` -> string. An index out of range aborts at
+    /// runtime (or, for a `try_load` model, returns an empty value and sets
+    /// `last_error()`). An owned temporary receiver is released after the
+    /// call.
     fn compile_onnx_method(
         &mut self,
         receiver_val: BasicValueEnum<'ctx>,
@@ -17682,7 +17687,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         ) {
             return self.compile_onnx_infer(receiver_val, method, receiver_expr, args, expr);
         }
-        let indexed = !matches!(method, "num_inputs" | "num_outputs");
+        let indexed = !matches!(method, "num_inputs" | "num_outputs" | "last_error");
         let want = usize::from(indexed);
         if args.len() != want {
             return Err(CodegenError::InvalidOperation {
@@ -17716,7 +17721,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         }
         let result_type = match method {
             "num_inputs" | "num_outputs" => BrixType::Int,
-            "input_name" | "output_name" => BrixType::String,
+            "input_name" | "output_name" | "last_error" => BrixType::String,
             _ => BrixType::IntMatrix,
         };
         let fn_type = if result_type == BrixType::Int {
@@ -19460,7 +19465,20 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 // Method calls: .split() on a String returns StringMatrix;
                 // v1.7 Group B array methods return based on the receiver's element type.
                 if let ExprKind::FieldAccess { target, field } = &func.kind {
-                    if let ExprKind::Identifier(module_name) = &target.kind {
+                    // A variable or closure parameter shadows a module alias, as
+                    // in the real call dispatch (`receiver_is_variable`):
+                    // `onnx.try_load(...)` on a struct named `onnx` is that
+                    // struct's method.
+                    let module_target = match &target.kind {
+                        ExprKind::Identifier(name)
+                            if !self.variables.contains_key(name.as_str())
+                                && !params.iter().any(|(p, _)| p == name) =>
+                        {
+                            Some(name)
+                        }
+                        _ => None,
+                    };
+                    if let Some(module_name) = module_target {
                         let is_dt = self
                             .imported_modules
                             .iter()
@@ -19533,7 +19551,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             return Some(BrixType::VectorDB);
                         }
 
-                        if field == "load"
+                        if matches!(field.as_str(), "load" | "try_load")
                             && self
                                 .imported_modules
                                 .iter()
@@ -19643,7 +19661,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             },
                             BrixType::OnnxModel => match field.as_str() {
                                 "num_inputs" | "num_outputs" => return Some(BrixType::Int),
-                                "input_name" | "output_name" => return Some(BrixType::String),
+                                "input_name" | "output_name" | "last_error" => {
+                                    return Some(BrixType::String);
+                                }
                                 "input_shape" | "output_shape" => {
                                     return Some(BrixType::IntMatrix);
                                 }
@@ -19652,6 +19672,15 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                 }
                                 _ => {}
                             },
+                            // A user struct method: its declared return type
+                            // (registered as `Struct_method`).
+                            BrixType::Struct(struct_name) => {
+                                return self
+                                    .functions
+                                    .get(&format!("{}_{}", struct_name, field))
+                                    .and_then(|(_, ret)| ret.as_ref())
+                                    .and_then(|types| types.first().cloned());
+                            }
                             BrixType::HashMap(_, val) => match field.as_str() {
                                 "get" => {
                                     return Some(BrixType::Union(vec![
