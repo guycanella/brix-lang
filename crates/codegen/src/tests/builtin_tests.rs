@@ -4955,3 +4955,27 @@ fn test_module_call_inference_respects_variable_shadowing() {
         Ok(crate::types::BrixType::OnnxModel)
     );
 }
+
+#[test]
+fn test_closure_return_type_from_struct_method_call() {
+    // Without an annotation, a closure returning a struct method call gets
+    // the method's return type (it used to be declared void while its body
+    // returned an i64: invalid IR, caught by module.verify()).
+    let ir = ir_from_source(
+        "struct P {\n    n: int\n}\nfn (p: P) twice() -> int {\n    return p.n * 2\n}\nvar f := (p: P) -> {\n    return p.twice()\n}\n",
+    );
+    assert!(ir.contains("define i64 @__closure_0("), "{}", ir);
+}
+
+#[test]
+fn test_closure_param_shadows_module_in_inference() {
+    // A closure parameter named like an imported module shadows it in the
+    // return-type inference, as it does when the body is compiled.
+    let ir = ir_from_source(&format!(
+        "{}struct L {{\n    n: int\n}}\nfn (l: L) try_load(path: string) -> int {{\n    return l.n\n}}\nvar f := (onnx: L) -> {{\n    return onnx.try_load(\"m.onnx\")\n}}\n",
+        ONNX_PRELUDE
+    ));
+    assert!(ir.contains("define i64 @__closure_0("), "{}", ir);
+    assert!(ir.contains("call i64 @L_try_load("), "{}", ir);
+    assert!(!ir.contains("@brix_onnx_try_load("), "{}", ir);
+}
