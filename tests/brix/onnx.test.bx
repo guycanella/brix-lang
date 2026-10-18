@@ -94,3 +94,28 @@ test.describe("ONNXModel batch inference (v2.2 Grupo A Fase 3)", () -> {
         test.expect(out.rows).toBe(0)
     })
 })
+
+test.describe("ONNXModel graceful errors (v2.2 Grupo A Fase 4)", () -> {
+    test.it("try_load reports a missing model instead of aborting", () -> {
+        var m := onnx.try_load("tests/integration/models/nope.onnx")
+        test.expect(m.last_error()).toContain("File doesn't exist")
+        test.expect(m.num_inputs()).toBe(0)
+    })
+
+    test.it("a failed inference returns an empty matrix and keeps the model usable", () -> {
+        var m := onnx.try_load("tests/integration/models/multi.onnx")
+        var bad := m.infer([1.0, 2.0, 3.0])
+        test.expect(bad.rows).toBe(0)
+        test.expect(m.last_error()).toStartWith("ONNXModel.infer: the model takes 3 input(s)")
+        var ok := m.infer([1.0, 2.0, 3.0], [1.0, 1.0, 1.0], [1.0])
+        test.expect(ok).toEqual([2.0, 3.0, 4.0])
+        test.expect(m.last_error()).toBe("")
+    })
+
+    test.it("inspection errors return empty values", () -> {
+        var m := onnx.try_load("tests/integration/models/multi.onnx")
+        test.expect(m.output_name(5)).toBe("")
+        test.expect(m.last_error()).toBe("ONNXModel.output_name(5): index out of range (2 outputs)")
+        test.expect(m.input_shape(-1)).toHaveLength(0)
+    })
+})

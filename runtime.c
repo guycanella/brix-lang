@@ -7212,6 +7212,7 @@ enum {
   ORT_GET_TENSOR_TYPE_AND_SHAPE = 65,
   ORT_ALLOCATOR_FREE = 76,
   ORT_GET_ALLOCATOR_WITH_DEFAULT_OPTIONS = 78,
+  ORT_RELEASE_STATUS = 93,
   ORT_RELEASE_SESSION = 95,
   ORT_RELEASE_VALUE = 96,
   ORT_RELEASE_TYPE_INFO = 98,
@@ -7232,33 +7233,59 @@ static void *const *brix_ort; // the OrtApi table, NULL until loaded
 static void *brix_ort_env;    // OrtEnv*, shared by every model
 
 #define ORT_FN(slot, type) ((type)brix_ort[slot])
+#define ONNX_ERR_SIZE 600
 
 typedef struct {
   long ref_count;
-  void *session;   // OrtSession*
+  void *session;   // OrtSession*; NULL when try_load failed
   long num_inputs;
   long num_outputs;
   char **names;    // inputs, then outputs
   long **shapes;   // per input/output; -1 = a dynamic dimension, NULL = not a tensor
   long *ranks;
   int *types;      // per input/output: ONNXTensorElementDataType (0 = not a tensor)
+  int graceful;    // from onnx.try_load: errors go to last_error instead of aborting
+  char last_error[ONNX_ERR_SIZE]; // "" after a success
 } BrixOnnxModel;
 
-static void onnx_fail(const char *path, const char *msg) {
-  fprintf(stderr, "Error: onnx.load(\"%s\"): %s\n", path, msg);
-  exit(1);
+// --- Errors ------------------------------------------------------------------
+// Internal functions never exit: they write the reason into `err` (the
+// message without "Error: ") and return -1 / NULL, releasing what they
+// allocated. The public functions then either abort (onnx.load models) or
+// record it in the model (onnx.try_load models).
+
+static int onnx_errf(char *err, const char *fmt, ...) {
+  va_list ap;
+  va_start(ap, fmt);
+  vsnprintf(err, ONNX_ERR_SIZE, fmt, ap);
+  va_end(ap);
+  return -1;
 }
 
-// Abort with the message of a failed ORT call.
-static void onnx_check(const char *path, OrtStatusPtr *st) {
-  if (!st) return;
+// 0 for a successful ORT call; otherwise its message after `prefix`, the
+// status released, and -1.
+static int onnx_status(char *err, const char *prefix, OrtStatusPtr *st) {
+  if (!st) return 0;
   const char *msg = ORT_FN(ORT_GET_ERROR_MESSAGE, const char *(*)(OrtStatusPtr *))(st);
-  onnx_fail(path, msg ? msg : "ONNX Runtime error");
+  onnx_errf(err, "%s%s", prefix, msg ? msg : "ONNX Runtime error");
+  ORT_FN(ORT_RELEASE_STATUS, void (*)(OrtStatusPtr *))(st);
+  return -1;
 }
+
+// Abort with `err`, or record it in a graceful model.
+static void onnx_report(BrixOnnxModel *m, const char *err) {
+  if (!m->graceful) {
+    fprintf(stderr, "Error: %s\n", err);
+    exit(1);
+  }
+  snprintf(m->last_error, sizeof(m->last_error), "%s", err);
+}
+
+// --- Loading -----------------------------------------------------------------
 
 // dlopen libonnxruntime and create the shared OrtEnv, once.
-static void onnx_init(const char *path) {
-  if (brix_ort) return;
+static int onnx_init(char *err, const char *prefix) {
+  if (brix_ort) return 0;
   const char *env = getenv("BRIX_ONNXRUNTIME_LIB");
   // ponytail: fixed search list (env; Linux: the loader's path; macOS:
   // Homebrew); add a
@@ -7282,100 +7309,184 @@ static void onnx_init(const char *path) {
     }
   }
   if (!lib) {
-    char msg[600];
-    snprintf(msg, sizeof(msg),
-             "ONNX Runtime not found (%s); install it (macOS: brew install "
-             "onnxruntime; Linux: the onnxruntime release from GitHub) or set "
-             "BRIX_ONNXRUNTIME_LIB to the path of libonnxruntime",
-             dlerror());
-    onnx_fail(path, msg);
+    return onnx_errf(err,
+                     "%sONNX Runtime not found (%s); install it (macOS: brew install "
+                     "onnxruntime; Linux: the onnxruntime release from GitHub) or set "
+                     "BRIX_ONNXRUNTIME_LIB to the path of libonnxruntime",
+                     prefix, dlerror());
   }
   const BrixOrtApiBase *(*get_base)(void) =
       (const BrixOrtApiBase *(*)(void))dlsym(lib, "OrtGetApiBase");
   const BrixOrtApiBase *base = get_base ? get_base() : NULL;
   void *const *api = base ? (void *const *)base->GetApi(BRIX_ORT_API_VERSION) : NULL;
-  if (!api) onnx_fail(path, "the library found is not a usable ONNX Runtime");
+  if (!api) {
+    dlclose(lib);
+    return onnx_errf(err, "%sthe library found is not a usable ONNX Runtime", prefix);
+  }
   brix_ort = api;
-  onnx_check(path, ORT_FN(ORT_CREATE_ENV, OrtStatusPtr *(*)(int, const char *, void **))(
-                       BRIX_ORT_LOGGING_LEVEL_ERROR, "brix", &brix_ort_env));
+  if (onnx_status(err, prefix,
+                  ORT_FN(ORT_CREATE_ENV, OrtStatusPtr *(*)(int, const char *, void **))(
+                      BRIX_ORT_LOGGING_LEVEL_ERROR, "brix", &brix_ort_env)) < 0) {
+    brix_ort = NULL; // retried by the next load
+    return -1;
+  }
+  return 0;
 }
 
-// Name and shape of input/output `i` (`output` selects which), copied into
-// the model.
-static void onnx_read_io(BrixOnnxModel *m, const char *path, void *alloc,
-                         int output, long i) {
+// Name, shape and element type of input/output `i` (`output` selects
+// which), copied into the model.
+static int onnx_read_io(BrixOnnxModel *m, char *err, const char *prefix, void *alloc,
+                        int output, long i) {
   long slot = output ? m->num_inputs + i : i;
   char *name = NULL;
-  onnx_check(path, ORT_FN(output ? ORT_SESSION_GET_OUTPUT_NAME : ORT_SESSION_GET_INPUT_NAME,
-                          OrtStatusPtr *(*)(void *, size_t, void *, char **))(
-                       m->session, (size_t)i, alloc, &name));
+  if (onnx_status(err, prefix,
+                  ORT_FN(output ? ORT_SESSION_GET_OUTPUT_NAME : ORT_SESSION_GET_INPUT_NAME,
+                         OrtStatusPtr *(*)(void *, size_t, void *, char **))(
+                      m->session, (size_t)i, alloc, &name)) < 0) {
+    return -1;
+  }
   m->names[slot] = strdup(name);
   ORT_FN(ORT_ALLOCATOR_FREE, OrtStatusPtr *(*)(void *, void *))(alloc, name);
+  if (!m->names[slot]) return onnx_errf(err, "%sout of memory", prefix);
 
   void *type_info = NULL;
-  onnx_check(path, ORT_FN(output ? ORT_SESSION_GET_OUTPUT_TYPE_INFO
-                                 : ORT_SESSION_GET_INPUT_TYPE_INFO,
-                          OrtStatusPtr *(*)(void *, size_t, void **))(
-                       m->session, (size_t)i, &type_info));
+  if (onnx_status(err, prefix,
+                  ORT_FN(output ? ORT_SESSION_GET_OUTPUT_TYPE_INFO
+                                : ORT_SESSION_GET_INPUT_TYPE_INFO,
+                         OrtStatusPtr *(*)(void *, size_t, void **))(m->session, (size_t)i,
+                                                                    &type_info)) < 0) {
+    return -1;
+  }
   const void *tensor = NULL; // NULL when the value is not a tensor
-  onnx_check(path, ORT_FN(ORT_CAST_TYPE_INFO_TO_TENSOR_INFO,
-                          OrtStatusPtr *(*)(const void *, const void **))(type_info, &tensor));
-  if (tensor) {
+  int rc = onnx_status(err, prefix,
+                       ORT_FN(ORT_CAST_TYPE_INFO_TO_TENSOR_INFO,
+                              OrtStatusPtr *(*)(const void *, const void **))(type_info, &tensor));
+  if (rc == 0 && tensor) {
     size_t rank = 0;
-    onnx_check(path, ORT_FN(ORT_GET_DIMENSIONS_COUNT, OrtStatusPtr *(*)(const void *, size_t *))(
+    int64_t *dims = NULL;
+    rc = onnx_status(err, prefix,
+                     ORT_FN(ORT_GET_DIMENSIONS_COUNT, OrtStatusPtr *(*)(const void *, size_t *))(
                          tensor, &rank));
-    int64_t *dims = calloc(rank ? rank : 1, sizeof(int64_t));
-    m->shapes[slot] = calloc(rank ? rank : 1, sizeof(long));
-    if (!dims || !m->shapes[slot]) onnx_fail(path, "out of memory");
-    onnx_check(path, ORT_FN(ORT_GET_DIMENSIONS,
-                            OrtStatusPtr *(*)(const void *, int64_t *, size_t))(tensor, dims, rank));
-    for (size_t d = 0; d < rank; d++) m->shapes[slot][d] = dims[d] < 0 ? -1 : (long)dims[d];
-    m->ranks[slot] = (long)rank;
+    if (rc == 0) {
+      dims = calloc(rank ? rank : 1, sizeof(int64_t));
+      m->shapes[slot] = calloc(rank ? rank : 1, sizeof(long));
+      if (!dims || !m->shapes[slot]) rc = onnx_errf(err, "%sout of memory", prefix);
+    }
+    if (rc == 0) {
+      rc = onnx_status(err, prefix,
+                       ORT_FN(ORT_GET_DIMENSIONS,
+                              OrtStatusPtr *(*)(const void *, int64_t *, size_t))(tensor, dims,
+                                                                                  rank));
+    }
+    if (rc == 0) {
+      for (size_t d = 0; d < rank; d++) m->shapes[slot][d] = dims[d] < 0 ? -1 : (long)dims[d];
+      m->ranks[slot] = (long)rank;
+      rc = onnx_status(err, prefix,
+                       ORT_FN(ORT_GET_TENSOR_ELEMENT_TYPE, OrtStatusPtr *(*)(const void *, int *))(
+                           tensor, &m->types[slot]));
+    }
     free(dims);
-    int type = 0;
-    onnx_check(path, ORT_FN(ORT_GET_TENSOR_ELEMENT_TYPE, OrtStatusPtr *(*)(const void *, int *))(
-                         tensor, &type));
-    m->types[slot] = type;
   }
   ORT_FN(ORT_RELEASE_TYPE_INFO, void (*)(void *))(type_info);
-  if (!m->names[slot]) onnx_fail(path, "out of memory");
+  return rc;
 }
 
-// onnx.load(path) -> ONNXModel. Aborts when ONNX Runtime is missing or the
-// model can't be loaded (the message is ONNX Runtime's).
-BrixOnnxModel *brix_onnx_load(BrixString *path_str) {
-  const char *path = path_str ? path_str->data : "";
-  onnx_init(path);
+// Release the session and the copied names/shapes; the model is left empty.
+static void onnx_clear(BrixOnnxModel *m) {
+  if (m->session) ORT_FN(ORT_RELEASE_SESSION, void (*)(void *))(m->session);
+  for (long i = 0; i < m->num_inputs + m->num_outputs; i++) {
+    if (m->names) free(m->names[i]);
+    if (m->shapes) free(m->shapes[i]);
+  }
+  free(m->names);
+  free(m->shapes);
+  free(m->ranks);
+  free(m->types);
+  m->session = NULL;
+  m->names = NULL;
+  m->shapes = NULL;
+  m->ranks = NULL;
+  m->types = NULL;
+  m->num_inputs = m->num_outputs = 0;
+}
+
+static int onnx_open(BrixOnnxModel *m, char *err, const char *prefix, const char *path) {
+  if (onnx_init(err, prefix) < 0) return -1;
   void *opts = NULL;
-  onnx_check(path, ORT_FN(ORT_CREATE_SESSION_OPTIONS, OrtStatusPtr *(*)(void **))(&opts));
-  BrixOnnxModel *m = calloc(1, sizeof(BrixOnnxModel));
-  if (!m) onnx_fail(path, "out of memory");
-  m->ref_count = 1;
+  if (onnx_status(err, prefix,
+                  ORT_FN(ORT_CREATE_SESSION_OPTIONS, OrtStatusPtr *(*)(void **))(&opts)) < 0) {
+    return -1;
+  }
   OrtStatusPtr *st = ORT_FN(ORT_CREATE_SESSION,
                             OrtStatusPtr *(*)(const void *, const char *, const void *, void **))(
       brix_ort_env, path, opts, &m->session);
   ORT_FN(ORT_RELEASE_SESSION_OPTIONS, void (*)(void *))(opts);
-  onnx_check(path, st);
+  if (onnx_status(err, prefix, st) < 0) return -1;
 
   size_t n_in = 0, n_out = 0;
-  onnx_check(path, ORT_FN(ORT_SESSION_GET_INPUT_COUNT, OrtStatusPtr *(*)(const void *, size_t *))(
-                       m->session, &n_in));
-  onnx_check(path, ORT_FN(ORT_SESSION_GET_OUTPUT_COUNT, OrtStatusPtr *(*)(const void *, size_t *))(
-                       m->session, &n_out));
-  m->num_inputs = (long)n_in;
-  m->num_outputs = (long)n_out;
+  if (onnx_status(err, prefix,
+                  ORT_FN(ORT_SESSION_GET_INPUT_COUNT, OrtStatusPtr *(*)(const void *, size_t *))(
+                      m->session, &n_in)) < 0 ||
+      onnx_status(err, prefix,
+                  ORT_FN(ORT_SESSION_GET_OUTPUT_COUNT, OrtStatusPtr *(*)(const void *, size_t *))(
+                      m->session, &n_out)) < 0) {
+    return -1;
+  }
   size_t n = n_in + n_out;
   m->names = calloc(n ? n : 1, sizeof(char *));
   m->shapes = calloc(n ? n : 1, sizeof(long *));
   m->ranks = calloc(n ? n : 1, sizeof(long));
   m->types = calloc(n ? n : 1, sizeof(int));
-  if (!m->names || !m->shapes || !m->ranks || !m->types) onnx_fail(path, "out of memory");
+  if (!m->names || !m->shapes || !m->ranks || !m->types) {
+    return onnx_errf(err, "%sout of memory", prefix);
+  }
+  m->num_inputs = (long)n_in;
+  m->num_outputs = (long)n_out;
   void *alloc = NULL;
-  onnx_check(path, ORT_FN(ORT_GET_ALLOCATOR_WITH_DEFAULT_OPTIONS, OrtStatusPtr *(*)(void **))(&alloc));
-  for (long i = 0; i < m->num_inputs; i++) onnx_read_io(m, path, alloc, 0, i);
-  for (long i = 0; i < m->num_outputs; i++) onnx_read_io(m, path, alloc, 1, i);
+  if (onnx_status(err, prefix,
+                  ORT_FN(ORT_GET_ALLOCATOR_WITH_DEFAULT_OPTIONS, OrtStatusPtr *(*)(void **))(
+                      &alloc)) < 0) {
+    return -1;
+  }
+  for (long i = 0; i < m->num_inputs; i++) {
+    if (onnx_read_io(m, err, prefix, alloc, 0, i) < 0) return -1;
+  }
+  for (long i = 0; i < m->num_outputs; i++) {
+    if (onnx_read_io(m, err, prefix, alloc, 1, i) < 0) return -1;
+  }
+  return 0;
+}
+
+static BrixOnnxModel *onnx_load(BrixString *path_str, int graceful) {
+  const char *path = path_str ? path_str->data : "";
+  BrixOnnxModel *m = calloc(1, sizeof(BrixOnnxModel));
+  if (!m) {
+    // ponytail: no model to record the error in, so even try_load aborts
+    // here; a static "failed" model would be needed to return one.
+    fprintf(stderr, "Error: onnx.%s(\"%s\"): out of memory\n", graceful ? "try_load" : "load",
+            path);
+    exit(1);
+  }
+  m->ref_count = 1;
+  m->graceful = graceful;
+  char prefix[ONNX_ERR_SIZE / 2], err[ONNX_ERR_SIZE];
+  snprintf(prefix, sizeof(prefix), "onnx.%s(\"%s\"): ", graceful ? "try_load" : "load", path);
+  if (onnx_open(m, err, prefix, path) < 0) {
+    onnx_clear(m);
+    onnx_report(m, err);
+  }
   return m;
 }
+
+// onnx.load(path) -> ONNXModel. Aborts when ONNX Runtime is missing or the
+// model can't be loaded (the message is ONNX Runtime's).
+BrixOnnxModel *brix_onnx_load(BrixString *path) { return onnx_load(path, 0); }
+
+// onnx.try_load(path) -> ONNXModel. Never aborts: a model that failed to
+// load is empty (no session, 0 inputs/outputs) with the reason in
+// last_error(), and every method of a try_load model records its errors
+// there instead of aborting.
+BrixOnnxModel *brix_onnx_try_load(BrixString *path) { return onnx_load(path, 1); }
 
 BrixOnnxModel *brix_onnx_retain(BrixOnnxModel *m) {
   if (m) m->ref_count++;
@@ -7384,44 +7495,52 @@ BrixOnnxModel *brix_onnx_retain(BrixOnnxModel *m) {
 
 void brix_onnx_release(BrixOnnxModel *m) {
   if (!m || --m->ref_count > 0) return;
-  ORT_FN(ORT_RELEASE_SESSION, void (*)(void *))(m->session);
-  for (long i = 0; i < m->num_inputs + m->num_outputs; i++) {
-    free(m->names[i]);
-    free(m->shapes[i]);
-  }
-  free(m->names);
-  free(m->shapes);
-  free(m->ranks);
-  free(m->types);
+  onnx_clear(m);
   free(m);
 }
+
+// model.last_error() -> string: "" after a success; always "" for a model
+// from onnx.load (its errors abort). num_inputs()/num_outputs() can't fail
+// and leave it as it is.
+BrixString *brix_onnx_last_error(BrixOnnxModel *m) { return str_new(m->last_error); }
 
 long brix_onnx_num_inputs(BrixOnnxModel *m) { return m->num_inputs; }
 long brix_onnx_num_outputs(BrixOnnxModel *m) { return m->num_outputs; }
 
-// Slot of input/output `i`; aborts when out of range.
-static long onnx_slot(BrixOnnxModel *m, const char *method, int output, long i) {
+// Slot of input/output `i`, or -1 (with `err`) when out of range.
+static long onnx_slot(BrixOnnxModel *m, char *err, const char *method, int output, long i) {
   long count = output ? m->num_outputs : m->num_inputs;
   if (i < 0 || i >= count) {
-    fprintf(stderr, "Error: ONNXModel.%s(%ld): index out of range (%ld %s)\n",
-            method, i, count, output ? "outputs" : "inputs");
-    exit(1);
+    return onnx_errf(err, "ONNXModel.%s(%ld): index out of range (%ld %s)", method, i, count,
+                     output ? "outputs" : "inputs");
   }
   return output ? m->num_inputs + i : i;
 }
 
 static BrixString *onnx_name(BrixOnnxModel *m, const char *method, int output, long i) {
-  return str_new(m->names[onnx_slot(m, method, output, i)]);
+  char err[ONNX_ERR_SIZE];
+  long slot = onnx_slot(m, err, method, output, i);
+  if (slot < 0) {
+    onnx_report(m, err);
+    return str_new("");
+  }
+  m->last_error[0] = '\0';
+  return str_new(m->names[slot]);
 }
 
 // 1×rank IntMatrix; -1 marks a dynamic dimension (a scalar is 1×0).
 static IntMatrix *onnx_shape(BrixOnnxModel *m, const char *method, int output, long i) {
-  long slot = onnx_slot(m, method, output, i);
-  if (!m->shapes[slot]) {
-    fprintf(stderr, "Error: ONNXModel.%s(%ld): %s %ld is not a tensor\n", method,
-            i, output ? "output" : "input", i);
-    exit(1);
+  char err[ONNX_ERR_SIZE];
+  long slot = onnx_slot(m, err, method, output, i);
+  if (slot >= 0 && !m->shapes[slot]) {
+    slot = onnx_errf(err, "ONNXModel.%s(%ld): %s %ld is not a tensor", method, i,
+                     output ? "output" : "input", i);
   }
+  if (slot < 0) {
+    onnx_report(m, err);
+    return intmatrix_new(1, 0);
+  }
+  m->last_error[0] = '\0';
   IntMatrix *out = intmatrix_new(1, m->ranks[slot]);
   for (long d = 0; d < m->ranks[slot]; d++) out->data[d] = m->shapes[slot][d];
   return out;
@@ -7440,22 +7559,12 @@ IntMatrix *brix_onnx_output_shape(BrixOnnxModel *m, long i) {
   return onnx_shape(m, "output_shape", 1, i);
 }
 
-// --- Inference (Fase 2) ---------------------------------------------------
+// --- Inference (Fases 2-3) ---------------------------------------------------
 // model.infer(x, ...) / model.infer_output(out, x, ...): one Matrix per model
 // input, converted to the input's element type (float, double, int32, int64);
-// one output, converted back to a f64 Matrix. Every error aborts (graceful
-// handling is Fase 4).
-
-static void onnx_infer_fail(const char *method, const char *msg) {
-  fprintf(stderr, "Error: ONNXModel.%s: %s\n", method, msg);
-  exit(1);
-}
-
-static void onnx_infer_check(const char *method, OrtStatusPtr *st) {
-  if (!st) return;
-  const char *msg = ORT_FN(ORT_GET_ERROR_MESSAGE, const char *(*)(OrtStatusPtr *))(st);
-  onnx_infer_fail(method, msg ? msg : "ONNX Runtime error");
-}
+// one output, converted back to a f64 Matrix. A failure aborts, or for a
+// try_load model returns an empty (0x0) matrix with the reason in
+// last_error().
 
 // "[-1, 3]" into buf.
 static void onnx_fmt_shape(char *buf, size_t size, const long *dims, long rank) {
@@ -7479,30 +7588,29 @@ static size_t onnx_elem_size(int type) {
   }
 }
 
-// Abort unless input/output `slot` is a tensor of a supported element type.
-static void onnx_check_type(BrixOnnxModel *m, const char *method, long slot) {
+// -1 (with `err`) unless input/output `slot` is a tensor of a supported
+// element type.
+static int onnx_check_type(BrixOnnxModel *m, char *err, const char *method, long slot) {
   int output = slot >= m->num_inputs;
   long i = output ? slot - m->num_inputs : slot;
-  char msg[512];
   if (!m->shapes[slot]) {
-    snprintf(msg, sizeof(msg), "%s %ld (\"%s\") is not a tensor", output ? "output" : "input",
-             i, m->names[slot]);
-    onnx_infer_fail(method, msg);
+    return onnx_errf(err, "ONNXModel.%s: %s %ld (\"%s\") is not a tensor", method,
+                     output ? "output" : "input", i, m->names[slot]);
   }
   if (!onnx_elem_size(m->types[slot])) {
-    snprintf(msg, sizeof(msg),
-             "%s %ld (\"%s\") has element type %d; only float, double, int32 and "
-             "int64 tensors are supported",
-             output ? "output" : "input", i, m->names[slot], m->types[slot]);
-    onnx_infer_fail(method, msg);
+    return onnx_errf(err,
+                     "ONNXModel.%s: %s %ld (\"%s\") has element type %d; only float, double, "
+                     "int32 and int64 tensors are supported",
+                     method, output ? "output" : "input", i, m->names[slot], m->types[slot]);
   }
+  return 0;
 }
 
 // Concrete shape of input `i` for `x`: a rank-2 input takes the matrix's
 // rows x cols; any other rank is filled in order from the element count, with
-// at most one dynamic dimension deduced from it. Aborts when `x` doesn't fit.
-static void onnx_input_dims(BrixOnnxModel *m, const char *method, long i, Matrix *x,
-                            int64_t *dims) {
+// at most one dynamic dimension deduced from it. -1 when `x` doesn't fit.
+static int onnx_input_dims(BrixOnnxModel *m, char *err, const char *method, long i, Matrix *x,
+                           int64_t *dims) {
   const long *want = m->shapes[i];
   long rank = m->ranks[i];
   long total = x->rows * x->cols;
@@ -7531,53 +7639,68 @@ static void onnx_input_dims(BrixOnnxModel *m, const char *method, long i, Matrix
       ok = fixed == total;
     }
   }
-  if (ok) return;
-  char shape[256], msg[512];
+  if (ok) return 0;
+  char shape[256];
   onnx_fmt_shape(shape, sizeof(shape), want, rank);
-  snprintf(msg, sizeof(msg),
-           "input %ld (\"%s\") expects shape %s, got a %ldx%ld matrix%s", i, m->names[i],
-           shape, x->rows, x->cols,
-           rank != 2 && total > 0 ? " (its elements fill the shape in order; "
-                                    "at most one dimension can be dynamic)"
-                                  : "");
-  onnx_infer_fail(method, msg);
+  return onnx_errf(err, "ONNXModel.%s: input %ld (\"%s\") expects shape %s, got a %ldx%ld matrix%s",
+                   method, i, m->names[i], shape, x->rows, x->cols,
+                   rank != 2 && total > 0 ? " (its elements fill the shape in order; "
+                                            "at most one dimension can be dynamic)"
+                                          : "");
 }
 
 // Copy a Matrix into a fresh tensor of input `i`'s element type, with the
-// shape `dims` (NULL: worked out from the matrix by onnx_input_dims).
-static void *onnx_make_input(BrixOnnxModel *m, const char *method, void *alloc, long i,
-                             Matrix *x, const int64_t *dims) {
-  onnx_check_type(m, method, i);
+// shape `dims` (NULL: worked out from the matrix by onnx_input_dims). NULL
+// (with `err`) on failure.
+static void *onnx_make_input(BrixOnnxModel *m, char *err, const char *method, void *alloc,
+                             long i, Matrix *x, const int64_t *dims) {
+  if (onnx_check_type(m, err, method, i) < 0) return NULL;
   long rank = m->ranks[i];
+  long total = x->rows * x->cols;
+  int type = m->types[i];
+  // Integer inputs truncate toward zero (1.9 -> 1); a value the integer type
+  // can't hold (NaN, Inf, out of range) is an error: converting it is
+  // undefined behavior in C. Checked before anything is allocated.
+  for (long k = 0; k < total; k++) {
+    double v = x->data[k];
+    if ((type == ORT_INT32 && !(v > -2147483649.0 && v < 2147483648.0)) ||
+        (type == ORT_INT64 && !(v >= -9223372036854775808.0 && v < 9223372036854775808.0))) {
+      onnx_errf(err, "ONNXModel.%s: input %ld (\"%s\") element %ld (%g) does not fit in an %s",
+                method, i, m->names[i], k, v, type == ORT_INT32 ? "int32" : "int64");
+      return NULL;
+    }
+  }
   int64_t *own = NULL;
   if (!dims) {
     own = calloc(rank ? rank : 1, sizeof(int64_t));
-    if (!own) onnx_infer_fail(method, "out of memory");
-    onnx_input_dims(m, method, i, x, own);
+    if (!own) {
+      onnx_errf(err, "ONNXModel.%s: out of memory", method);
+      return NULL;
+    }
+    if (onnx_input_dims(m, err, method, i, x, own) < 0) {
+      free(own);
+      return NULL;
+    }
     dims = own;
   }
+  char prefix[128];
+  snprintf(prefix, sizeof(prefix), "ONNXModel.%s: ", method);
   void *value = NULL;
-  onnx_infer_check(method, ORT_FN(ORT_CREATE_TENSOR_AS_ORT_VALUE,
-                                  OrtStatusPtr *(*)(void *, const int64_t *, size_t, int, void **))(
-                               alloc, dims, (size_t)rank, m->types[i], &value));
+  int rc = onnx_status(err, prefix,
+                       ORT_FN(ORT_CREATE_TENSOR_AS_ORT_VALUE,
+                              OrtStatusPtr *(*)(void *, const int64_t *, size_t, int, void **))(
+                           alloc, dims, (size_t)rank, type, &value));
   free(own);
+  if (rc < 0) return NULL;
   void *data = NULL;
-  onnx_infer_check(method, ORT_FN(ORT_GET_TENSOR_MUTABLE_DATA, OrtStatusPtr *(*)(void *, void **))(
-                               value, &data));
-  long total = x->rows * x->cols;
-  int type = m->types[i];
+  if (onnx_status(err, prefix,
+                  ORT_FN(ORT_GET_TENSOR_MUTABLE_DATA, OrtStatusPtr *(*)(void *, void **))(
+                      value, &data)) < 0) {
+    ORT_FN(ORT_RELEASE_VALUE, void (*)(void *))(value);
+    return NULL;
+  }
   for (long k = 0; k < total; k++) {
     double v = x->data[k];
-    // Integer inputs truncate toward zero (1.9 -> 1); a value the integer
-    // type can't hold (NaN, Inf, out of range) aborts: converting it is
-    // undefined behavior in C.
-    if ((type == ORT_INT32 && !(v > -2147483649.0 && v < 2147483648.0)) ||
-        (type == ORT_INT64 && !(v >= -9223372036854775808.0 && v < 9223372036854775808.0))) {
-      char msg[512];
-      snprintf(msg, sizeof(msg), "input %ld (\"%s\") element %ld (%g) does not fit in an %s", i,
-               m->names[i], k, v, type == ORT_INT32 ? "int32" : "int64");
-      onnx_infer_fail(method, msg);
-    }
     switch (type) {
     case ORT_FLOAT: ((float *)data)[k] = (float)v; break;
     case ORT_DOUBLE: ((double *)data)[k] = v; break;
@@ -7591,51 +7714,68 @@ static void *onnx_make_input(BrixOnnxModel *m, const char *method, void *alloc, 
 // Convert an output tensor to a Matrix: a scalar is 1x1, [n] is 1xn, [r, c]
 // is r x c and [d0, d1, ...] is d0 x (d1*d2*...). With `batch` >= 0 the
 // first dimension must be `batch`, and each sample becomes one row ([n] is
-// then n x 1).
-static Matrix *onnx_output_matrix(const char *method, void *value, long batch) {
+// then n x 1). NULL (with `err`) on failure.
+static Matrix *onnx_output_matrix(char *err, const char *method, void *value, long batch) {
+  char prefix[128];
+  snprintf(prefix, sizeof(prefix), "ONNXModel.%s: ", method);
   void *info = NULL;
-  onnx_infer_check(method, ORT_FN(ORT_GET_TENSOR_TYPE_AND_SHAPE,
-                                  OrtStatusPtr *(*)(const void *, void **))(value, &info));
+  if (onnx_status(err, prefix,
+                  ORT_FN(ORT_GET_TENSOR_TYPE_AND_SHAPE, OrtStatusPtr *(*)(const void *, void **))(
+                      value, &info)) < 0) {
+    return NULL;
+  }
   int type = 0;
   size_t rank = 0;
-  onnx_infer_check(method, ORT_FN(ORT_GET_TENSOR_ELEMENT_TYPE,
-                                  OrtStatusPtr *(*)(const void *, int *))(info, &type));
-  onnx_infer_check(method, ORT_FN(ORT_GET_DIMENSIONS_COUNT,
-                                  OrtStatusPtr *(*)(const void *, size_t *))(info, &rank));
-  int64_t *dims = calloc(rank ? rank : 1, sizeof(int64_t));
-  if (!dims) onnx_infer_fail(method, "out of memory");
-  onnx_infer_check(method, ORT_FN(ORT_GET_DIMENSIONS,
-                                  OrtStatusPtr *(*)(const void *, int64_t *, size_t))(info, dims,
-                                                                                      rank));
+  int64_t *dims = NULL;
+  int rc = onnx_status(err, prefix,
+                       ORT_FN(ORT_GET_TENSOR_ELEMENT_TYPE,
+                              OrtStatusPtr *(*)(const void *, int *))(info, &type));
+  if (rc == 0) {
+    rc = onnx_status(err, prefix,
+                     ORT_FN(ORT_GET_DIMENSIONS_COUNT, OrtStatusPtr *(*)(const void *, size_t *))(
+                         info, &rank));
+  }
+  if (rc == 0) {
+    dims = calloc(rank ? rank : 1, sizeof(int64_t));
+    if (!dims) rc = onnx_errf(err, "%sout of memory", prefix);
+  }
+  if (rc == 0) {
+    rc = onnx_status(err, prefix,
+                     ORT_FN(ORT_GET_DIMENSIONS,
+                            OrtStatusPtr *(*)(const void *, int64_t *, size_t))(info, dims, rank));
+  }
   ORT_FN(ORT_RELEASE_TENSOR_TYPE_AND_SHAPE_INFO, void (*)(void *))(info);
-  if (!onnx_elem_size(type)) {
-    char msg[128];
-    snprintf(msg, sizeof(msg), "the output has element type %d; only float, double, int32 "
-                               "and int64 tensors are supported", type);
-    onnx_infer_fail(method, msg);
+  if (rc == 0 && !onnx_elem_size(type)) {
+    rc = onnx_errf(err,
+                   "%sthe output has element type %d; only float, double, int32 and int64 "
+                   "tensors are supported",
+                   prefix, type);
   }
   long rows = 1, cols = 1;
-  if (batch >= 0) {
+  if (rc == 0 && batch >= 0) {
     if (rank == 0 || dims[0] != batch) {
-      char msg[256];
-      snprintf(msg, sizeof(msg),
-               "the output has no batch dimension (its first dimension is %ld, the batch "
-               "has %ld rows)",
-               rank ? (long)dims[0] : 0L, batch);
-      onnx_infer_fail(method, msg);
+      rc = onnx_errf(err,
+                     "%sthe output has no batch dimension (its first dimension is %ld, the "
+                     "batch has %ld rows)",
+                     prefix, rank ? (long)dims[0] : 0L, batch);
+    } else {
+      rows = batch;
+      for (size_t d = 1; d < rank; d++) cols *= (long)dims[d];
     }
-    rows = batch;
-    for (size_t d = 1; d < rank; d++) cols *= (long)dims[d];
-  } else if (rank == 1) {
+  } else if (rc == 0 && rank == 1) {
     cols = (long)dims[0];
-  } else if (rank >= 2) {
+  } else if (rc == 0 && rank >= 2) {
     rows = (long)dims[0];
     for (size_t d = 1; d < rank; d++) cols *= (long)dims[d];
   }
   free(dims);
   void *data = NULL;
-  onnx_infer_check(method, ORT_FN(ORT_GET_TENSOR_MUTABLE_DATA, OrtStatusPtr *(*)(void *, void **))(
-                               value, &data));
+  if (rc == 0) {
+    rc = onnx_status(err, prefix,
+                     ORT_FN(ORT_GET_TENSOR_MUTABLE_DATA, OrtStatusPtr *(*)(void *, void **))(
+                         value, &data));
+  }
+  if (rc < 0) return NULL;
   Matrix *out = matrix_new(rows, cols);
   long total = rows * cols;
   for (long k = 0; k < total; k++) {
@@ -7649,69 +7789,100 @@ static Matrix *onnx_output_matrix(const char *method, void *value, long batch) {
   return out;
 }
 
-// Index of the output named `name`; aborts when there is none. `batch` only
-// picks the method name used in the error message.
+// "No such output name" from brix_onnx_output_index: the following infer
+// call fails with the message already recorded instead of an index error.
+#define ONNX_NO_OUTPUT LONG_MIN
+
+// Index of the output named `name`, or ONNX_NO_OUTPUT when there is none
+// (aborted, or recorded for a try_load model). `batch` only picks the method
+// name used in the message.
 long brix_onnx_output_index(BrixOnnxModel *m, BrixString *name, long batch) {
   const char *want = name ? name->data : "";
   for (long i = 0; i < m->num_outputs; i++) {
     if (strcmp(m->names[m->num_inputs + i], want) == 0) return i;
   }
-  char msg[512];
-  snprintf(msg, sizeof(msg), "the model has no output named \"%s\"", want);
-  onnx_infer_fail(batch ? "batch_infer_output" : "infer_output", msg);
-  return -1;
+  char err[ONNX_ERR_SIZE];
+  onnx_errf(err, "ONNXModel.%s: the model has no output named \"%s\"",
+            batch ? "batch_infer_output" : "infer_output", want);
+  onnx_report(m, err);
+  return ONNX_NO_OUTPUT;
 }
 
-// Abort unless there is one input per model input and output `output`
-// exists and is a supported tensor; returns that output's slot.
-static long onnx_check_call(BrixOnnxModel *m, const char *method, long n, long output) {
+// -1 (with `err`) unless the model is loaded, there is one input per model
+// input and output `output` exists and is a supported tensor; otherwise that
+// output's slot. ONNX_NO_OUTPUT is a name brix_onnx_output_index already
+// failed to find: its message is kept.
+static long onnx_check_call(BrixOnnxModel *m, char *err, const char *method, long n,
+                            long output) {
+  if (!m->session) {
+    return onnx_errf(err, "ONNXModel.%s: the model was not loaded (see the error of "
+                          "onnx.try_load)",
+                     method);
+  }
+  if (output == ONNX_NO_OUTPUT) {
+    snprintf(err, ONNX_ERR_SIZE, "%s", m->last_error);
+    return -1;
+  }
   if (n != m->num_inputs) {
-    char names[256] = "", msg[512];
+    char names[256] = "";
     size_t used = 0;
     for (long i = 0; i < m->num_inputs && used < sizeof(names); i++) {
       used += (size_t)snprintf(names + used, sizeof(names) - used, "%s%s", i ? ", " : "",
                                m->names[i]);
     }
-    snprintf(msg, sizeof(msg), "the model takes %ld input(s) (%s), got %ld", m->num_inputs,
-             names, n);
-    onnx_infer_fail(method, msg);
+    return onnx_errf(err, "ONNXModel.%s: the model takes %ld input(s) (%s), got %ld", method,
+                     m->num_inputs, names, n);
   }
-  long out_slot = onnx_slot(m, method, 1, output);
-  onnx_check_type(m, method, out_slot);
+  long out_slot = onnx_slot(m, err, method, 1, output);
+  if (out_slot < 0 || onnx_check_type(m, err, method, out_slot) < 0) return -1;
   return out_slot;
 }
 
-static void *onnx_allocator(const char *method) {
+static void *onnx_allocator(char *err, const char *method) {
+  char prefix[128];
+  snprintf(prefix, sizeof(prefix), "ONNXModel.%s: ", method);
   void *alloc = NULL;
-  onnx_infer_check(method, ORT_FN(ORT_GET_ALLOCATOR_WITH_DEFAULT_OPTIONS,
-                                  OrtStatusPtr *(*)(void **))(&alloc));
+  if (onnx_status(err, prefix,
+                  ORT_FN(ORT_GET_ALLOCATOR_WITH_DEFAULT_OPTIONS, OrtStatusPtr *(*)(void **))(
+                      &alloc)) < 0) {
+    return NULL;
+  }
   return alloc;
 }
 
 // One Run on the `n` input tensors; returns output `out_slot` as a Matrix
-// (see onnx_output_matrix for `batch`).
-static Matrix *onnx_run(BrixOnnxModel *m, const char *method, void **values, long n,
+// (see onnx_output_matrix for `batch`), or NULL with `err`.
+static Matrix *onnx_run(BrixOnnxModel *m, char *err, const char *method, void **values, long n,
                         long out_slot, long batch) {
+  char prefix[128];
+  snprintf(prefix, sizeof(prefix), "ONNXModel.%s: ", method);
   void *result = NULL;
   const char *out_name = m->names[out_slot];
-  onnx_infer_check(method, ORT_FN(ORT_RUN, OrtStatusPtr *(*)(void *, const void *,
-                                                             const char *const *,
-                                                             const void *const *, size_t,
-                                                             const char *const *, size_t,
-                                                             void **))(
-                               m->session, NULL, (const char *const *)m->names,
-                               (const void *const *)values, (size_t)n, &out_name, 1,
-                               &result));
-  Matrix *out = onnx_output_matrix(method, result, batch);
+  if (onnx_status(err, prefix,
+                  ORT_FN(ORT_RUN, OrtStatusPtr *(*)(void *, const void *, const char *const *,
+                                                    const void *const *, size_t,
+                                                    const char *const *, size_t, void **))(
+                      m->session, NULL, (const char *const *)m->names,
+                      (const void *const *)values, (size_t)n, &out_name, 1, &result)) < 0) {
+    return NULL;
+  }
+  Matrix *out = onnx_output_matrix(err, method, result, batch);
   ORT_FN(ORT_RELEASE_VALUE, void (*)(void *))(result);
   return out;
 }
 
 static void onnx_release_values(void **values, long n) {
+  if (!values) return;
   for (long i = 0; i < n; i++) {
     if (values[i]) ORT_FN(ORT_RELEASE_VALUE, void (*)(void *))(values[i]);
   }
   free(values);
+}
+
+// Report `err` (abort, or record it) and return an empty matrix.
+static Matrix *onnx_infer_failed(BrixOnnxModel *m, const char *err) {
+  onnx_report(m, err);
+  return matrix_new(0, 0);
 }
 
 // Run the model on `n` inputs (one Matrix per model input, in order) and
@@ -7720,13 +7891,26 @@ static void onnx_release_values(void **values, long n) {
 Matrix *brix_onnx_infer(BrixOnnxModel *m, Matrix **inputs, long n, long output,
                         long via_infer_output) {
   const char *method = via_infer_output ? "infer_output" : "infer";
-  long out_slot = onnx_check_call(m, method, n, output);
-  void *alloc = onnx_allocator(method);
+  char err[ONNX_ERR_SIZE];
+  long out_slot = onnx_check_call(m, err, method, n, output);
+  if (out_slot < 0) return onnx_infer_failed(m, err);
+  void *alloc = onnx_allocator(err, method);
+  if (!alloc) return onnx_infer_failed(m, err);
   void **values = calloc(n ? n : 1, sizeof(void *));
-  if (!values) onnx_infer_fail(method, "out of memory");
-  for (long i = 0; i < n; i++) values[i] = onnx_make_input(m, method, alloc, i, inputs[i], NULL);
-  Matrix *out = onnx_run(m, method, values, n, out_slot, -1);
+  if (!values) {
+    onnx_errf(err, "ONNXModel.%s: out of memory", method);
+    return onnx_infer_failed(m, err);
+  }
+  Matrix *out = NULL;
+  long i = 0;
+  for (; i < n; i++) {
+    values[i] = onnx_make_input(m, err, method, alloc, i, inputs[i], NULL);
+    if (!values[i]) break;
+  }
+  if (i == n) out = onnx_run(m, err, method, values, n, out_slot, -1);
   onnx_release_values(values, n);
+  if (!out) return onnx_infer_failed(m, err);
+  m->last_error[0] = '\0';
   return out;
 }
 
@@ -7739,16 +7923,17 @@ Matrix *brix_onnx_infer(BrixOnnxModel *m, Matrix **inputs, long n, long output,
 Matrix *brix_onnx_batch_infer(BrixOnnxModel *m, Matrix **inputs, long n, long output,
                               long via_output) {
   const char *method = via_output ? "batch_infer_output" : "batch_infer";
-  long out_slot = onnx_check_call(m, method, n, output);
-  onnx_check_type(m, method, 0);
+  char err[ONNX_ERR_SIZE];
+  long out_slot = onnx_check_call(m, err, method, n, output);
+  if (out_slot < 0 || onnx_check_type(m, err, method, 0) < 0) return onnx_infer_failed(m, err);
   long rank = m->ranks[0];
   const long *want = m->shapes[0];
-  char shape[256], msg[600];
+  char shape[256];
   onnx_fmt_shape(shape, sizeof(shape), want, rank);
   if (rank == 0) {
-    snprintf(msg, sizeof(msg), "input 0 (\"%s\") has no batch dimension (shape %s)",
-             m->names[0], shape);
-    onnx_infer_fail(method, msg);
+    onnx_errf(err, "ONNXModel.%s: input 0 (\"%s\") has no batch dimension (shape %s)", method,
+              m->names[0], shape);
+    return onnx_infer_failed(m, err);
   }
   Matrix *batch = inputs[0];
   long rows = batch->rows, per_sample = batch->cols;
@@ -7756,7 +7941,10 @@ Matrix *brix_onnx_batch_infer(BrixOnnxModel *m, Matrix **inputs, long n, long ou
   // Shape of one chunk: dims[0] = chunk rows, the rest filled from a row,
   // with at most one dynamic dimension deduced from its length.
   int64_t *dims = calloc((size_t)rank, sizeof(int64_t));
-  if (!dims) onnx_infer_fail(method, "out of memory");
+  if (!dims) {
+    onnx_errf(err, "ONNXModel.%s: out of memory", method);
+    return onnx_infer_failed(m, err);
+  }
   long fixed = 1, dynamic = -1, n_dynamic = 0;
   for (long d = 1; d < rank; d++) {
     dims[d] = want[d];
@@ -7770,38 +7958,47 @@ Matrix *brix_onnx_batch_infer(BrixOnnxModel *m, Matrix **inputs, long n, long ou
   int ok = n_dynamic == 0   ? fixed == per_sample
            : n_dynamic == 1 ? (fixed > 0 ? per_sample % fixed == 0 : per_sample == 0)
                             : 0;
+  long chunk = want[0] < 0 ? rows : want[0];
   if (!ok) {
     char sample[256];
     onnx_fmt_shape(sample, sizeof(sample), want + 1, rank - 1);
-    snprintf(msg, sizeof(msg),
-             "input 0 (\"%s\", shape %s) expects samples of shape %s, got rows of %ld "
-             "element(s) (each row fills one sample in order; at most one dimension can be "
-             "dynamic)",
-             m->names[0], shape, sample, per_sample);
-    onnx_infer_fail(method, msg);
+    onnx_errf(err,
+              "ONNXModel.%s: input 0 (\"%s\", shape %s) expects samples of shape %s, got rows "
+              "of %ld element(s) (each row fills one sample in order; at most one dimension "
+              "can be dynamic)",
+              method, m->names[0], shape, sample, per_sample);
+  } else if (rows > 0 && chunk <= 0) {
+    ok = 0;
+    onnx_errf(err, "ONNXModel.%s: input 0 (\"%s\") has a batch dimension of %ld (shape %s)",
+              method, m->names[0], chunk, shape);
+  }
+  if (!ok) {
+    free(dims);
+    return onnx_infer_failed(m, err);
   }
   // An empty batch runs nothing, but its width is still checked above.
   if (rows == 0) {
     free(dims);
+    m->last_error[0] = '\0';
     return matrix_new(0, 0);
   }
   if (n_dynamic == 1) dims[dynamic] = fixed > 0 ? per_sample / fixed : 0;
-  long chunk = want[0] < 0 ? rows : want[0];
-  if (chunk <= 0) {
-    snprintf(msg, sizeof(msg), "input 0 (\"%s\") has a batch dimension of %ld (shape %s)",
-             m->names[0], chunk, shape);
-    onnx_infer_fail(method, msg);
-  }
   dims[0] = chunk;
 
-  void *alloc = onnx_allocator(method);
-  void **values = calloc((size_t)n, sizeof(void *));
-  if (!values) onnx_infer_fail(method, "out of memory");
-  for (long i = 1; i < n; i++) values[i] = onnx_make_input(m, method, alloc, i, inputs[i], NULL);
-
-  Matrix *rows_in = matrix_new(chunk, per_sample); // calloc: padding rows stay zero
-  Matrix *out = NULL;
-  for (long start = 0; start < rows; start += chunk) {
+  Matrix *out = NULL, *rows_in = NULL;
+  void **values = NULL;
+  void *alloc = onnx_allocator(err, method);
+  int failed = !alloc;
+  if (!failed) {
+    values = calloc((size_t)n, sizeof(void *));
+    if (!values) failed = onnx_errf(err, "ONNXModel.%s: out of memory", method);
+  }
+  for (long i = 1; !failed && i < n; i++) {
+    values[i] = onnx_make_input(m, err, method, alloc, i, inputs[i], NULL);
+    failed = !values[i];
+  }
+  if (!failed) rows_in = matrix_new(chunk, per_sample);
+  for (long start = 0; !failed && start < rows; start += chunk) {
     long take = rows - start < chunk ? rows - start : chunk;
     memcpy(rows_in->data, batch->data + start * per_sample,
            (size_t)(take * per_sample) * sizeof(double));
@@ -7809,21 +8006,32 @@ Matrix *brix_onnx_batch_infer(BrixOnnxModel *m, Matrix **inputs, long n, long ou
       memset(rows_in->data + take * per_sample, 0,
              (size_t)((chunk - take) * per_sample) * sizeof(double));
     }
-    values[0] = onnx_make_input(m, method, alloc, 0, rows_in, dims);
-    Matrix *part = onnx_run(m, method, values, n, out_slot, chunk);
-    ORT_FN(ORT_RELEASE_VALUE, void (*)(void *))(values[0]);
+    values[0] = onnx_make_input(m, err, method, alloc, 0, rows_in, dims);
+    Matrix *part = values[0] ? onnx_run(m, err, method, values, n, out_slot, chunk) : NULL;
+    if (values[0]) ORT_FN(ORT_RELEASE_VALUE, void (*)(void *))(values[0]);
     values[0] = NULL;
+    if (!part) {
+      failed = 1;
+      break;
+    }
     if (!out) out = matrix_new(rows, part->cols);
     if (part->cols != out->cols) {
-      onnx_infer_fail(method, "the output size per sample changed between chunks");
+      failed = onnx_errf(err, "ONNXModel.%s: the output size per sample changed between chunks",
+                         method);
+    } else {
+      memcpy(out->data + start * out->cols, part->data,
+             (size_t)(take * out->cols) * sizeof(double));
     }
-    memcpy(out->data + start * out->cols, part->data,
-           (size_t)(take * out->cols) * sizeof(double));
     matrix_release(part);
   }
-  matrix_release(rows_in);
+  if (rows_in) matrix_release(rows_in);
   onnx_release_values(values, n);
   free(dims);
+  if (failed) {
+    if (out) matrix_release(out);
+    return onnx_infer_failed(m, err);
+  }
+  m->last_error[0] = '\0';
   return out;
 }
 

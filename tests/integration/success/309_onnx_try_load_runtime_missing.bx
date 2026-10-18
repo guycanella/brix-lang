@@ -1,0 +1,8 @@
+// try_load without ONNX Runtime (BRIX_ONNXRUNTIME_LIB points nowhere) is a
+// recorded error, not an abort.
+import onnx
+
+var model := onnx.try_load("tests/integration/models/multi.onnx")
+println(model.last_error().contains("ONNX Runtime not found"))
+println(model.num_inputs())
+println("still running")

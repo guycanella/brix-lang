@@ -4866,3 +4866,72 @@ fn test_onnx_batch_infer_result_is_matrix() {
         );
     }
 }
+
+#[test]
+fn test_onnx_try_load_and_last_error() {
+    let ir = ir_from_source(&format!(
+        "{}var m := onnx.try_load(\"m.onnx\")\nvar e := m.last_error()\nvar n := onnx.load(\"m.onnx\").last_error()\n",
+        ONNX_PRELUDE
+    ));
+    for call in [
+        "call ptr @brix_onnx_try_load(ptr",
+        "call ptr @brix_onnx_load(ptr",
+        "call ptr @brix_onnx_last_error(ptr",
+    ] {
+        assert!(ir.contains(call), "{}\n{}", call, ir);
+    }
+    // The temporary receiver of the second last_error() is released.
+    assert!(
+        ir.contains("call void @brix_onnx_release(ptr %brix_onnx_load)"),
+        "{}",
+        ir
+    );
+    assert!(!ir.contains("Ort"), "{}", ir);
+}
+
+#[test]
+fn test_onnx_try_load_errors() {
+    use crate::error::CodegenError;
+    assert!(matches!(
+        onnx_error("var m := onnx.try_load()\n"),
+        CodegenError::InvalidOperation { .. }
+    ));
+    assert!(matches!(
+        onnx_error("var m := onnx.try_load(\"a\", \"b\")\n"),
+        CodegenError::InvalidOperation { .. }
+    ));
+    assert!(matches!(
+        onnx_error("var m := onnx.try_load(3)\n"),
+        CodegenError::TypeError { .. }
+    ));
+    assert!(matches!(
+        onnx_error("var m := onnx.load(\"m.onnx\")\nvar e := m.last_error(1)\n"),
+        CodegenError::InvalidOperation { .. }
+    ));
+}
+
+#[test]
+fn test_onnx_try_load_types() {
+    let history = "import onnx\nvar m := onnx.try_load(\"m.onnx\")\n";
+    assert_eq!(
+        crate::infer_type_of_expr_in_context("import onnx\n", "onnx.try_load(\"m.onnx\")"),
+        Ok(crate::types::BrixType::OnnxModel)
+    );
+    assert_eq!(
+        crate::infer_type_of_expr_in_context(history, "m.last_error()"),
+        Ok(crate::types::BrixType::String)
+    );
+}
+
+#[test]
+fn test_onnx_last_error_vs_vectordb_and_struct() {
+    // last_error() dispatches by receiver type: VectorDB and a user struct
+    // method with the same name keep their own.
+    let ir = ir_from_source(&format!(
+        "{}import vectordb\nstruct S {{\n    n: int\n}}\nfn (s: S) last_error() -> int {{\n    return s.n\n}}\nvar m := onnx.try_load(\"m.onnx\")\nvar db := vectordb.connect(\"pinecone\", \"https://h\", \"k\")\nvar a := m.last_error()\nvar b := db.last_error()\nvar c := S {{ n: 1 }}.last_error()\n",
+        ONNX_PRELUDE
+    ));
+    assert!(ir.contains("@brix_onnx_last_error("), "{}", ir);
+    assert!(ir.contains("@brix_vectordb_last_error("), "{}", ir);
+    assert_eq!(ir.matches("@brix_onnx_last_error(").count(), 2, "{}", ir);
+}

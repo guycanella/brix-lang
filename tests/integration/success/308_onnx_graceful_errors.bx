@@ -1,0 +1,35 @@
+// v2.2 Grupo A Fase 4: on a try_load model every error of Fases 1-3 returns
+// an empty value and sets last_error() instead of aborting; the model stays
+// usable and the next success clears last_error().
+import onnx
+
+var model := onnx.try_load("tests/integration/models/multi.onnx")
+var x := [1.0, 2.0, 3.0]
+
+println(f"[{model.input_name(7)}] {model.last_error()}")
+println(f"{model.output_shape(9).cols} {model.last_error()}")
+println(model.input_name(1))
+println(f"[{model.last_error()}]")
+
+var bad := model.infer(x)
+println(f"{bad.rows}x{bad.cols} {model.last_error()}")
+var bad_shape := model.infer([1.0, 2.0, 3.0, 4.0], x, [1.0])
+println(model.last_error())
+var no_output := model.infer_output("logits", x, x, [1.0])
+println(model.last_error())
+var bad_index := model.infer_output(-1, x, x, [1.0])
+println(model.last_error())
+println(model.infer(x, x, [2.0]))
+println(f"[{model.last_error()}]")
+
+var typed := onnx.try_load("tests/integration/models/typed.onnx")
+var overflow := typed.infer([1.0e19, 1, 1, 1, 1, 1], [1.0])
+println(typed.last_error())
+
+var fixed := onnx.try_load("tests/integration/models/fixed.onnx")
+var bad_rows := fixed.batch_infer(x)
+println(fixed.last_error())
+var no_batch_output := fixed.batch_infer_output("nope", [1.0, 2.0, 3.0, 4.0])
+println(fixed.last_error())
+println(fixed.batch_infer([1.0, 2.0, 3.0, 4.0]))
+println(f"[{fixed.last_error()}]")
