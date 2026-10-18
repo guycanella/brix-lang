@@ -17619,12 +17619,46 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     /// empty model with the reason in `last_error()`, and the model's methods
     /// record their errors there too). libonnxruntime is dlopen'ed by the
     /// runtime, nothing links it.
+    /// Compile `onnx.available_devices()` -> json: an array of
+    /// `{"type": "metal" | "cpu"}`, fastest first; `[]` when ONNX Runtime
+    /// can't be loaded (never aborts).
+    fn compile_onnx_available_devices(
+        &mut self,
+        args: &[Expr],
+        expr: &Expr,
+    ) -> CodegenResult<(BasicValueEnum<'ctx>, BrixType)> {
+        if !args.is_empty() {
+            return Err(CodegenError::InvalidOperation {
+                operation: "onnx.available_devices".to_string(),
+                reason: format!("expects (), got {} argument(s)", args.len()),
+                span: Some(expr.span.clone()),
+            });
+        }
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let devices = self
+            .call_runtime_fn(
+                "brix_onnx_available_devices",
+                ptr_type.fn_type(&[], false),
+                &[],
+                expr,
+            )?
+            .ok_or_else(|| CodegenError::MissingValue {
+                what: "brix_onnx_available_devices result".to_string(),
+                context: "onnx.available_devices".to_string(),
+                span: Some(expr.span.clone()),
+            })?;
+        Ok((devices, BrixType::Json))
+    }
+
     fn compile_onnx_call(
         &mut self,
         fn_name: &str,
         args: &[Expr],
         expr: &Expr,
     ) -> CodegenResult<(BasicValueEnum<'ctx>, BrixType)> {
+        if fn_name == "available_devices" {
+            return self.compile_onnx_available_devices(args, expr);
+        }
         if !matches!(fn_name, "load" | "try_load") {
             return Err(CodegenError::UndefinedSymbol {
                 name: format!("onnx.{}", fn_name),
@@ -19567,13 +19601,16 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             return Some(BrixType::VectorDB);
                         }
 
-                        if matches!(field.as_str(), "load" | "try_load")
-                            && self
-                                .imported_modules
-                                .iter()
-                                .any(|(m, p)| m == "onnx" && p == module_name)
+                        if self
+                            .imported_modules
+                            .iter()
+                            .any(|(m, p)| m == "onnx" && p == module_name)
                         {
-                            return Some(BrixType::OnnxModel);
+                            match field.as_str() {
+                                "load" | "try_load" => return Some(BrixType::OnnxModel),
+                                "available_devices" => return Some(BrixType::Json),
+                                _ => {}
+                            }
                         }
 
                         let is_json = self

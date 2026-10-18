@@ -3110,6 +3110,31 @@ fn test_311_onnx_unknown_device() {
     );
 }
 
+#[test]
+fn test_312_onnx_available_devices() {
+    let devices = if onnxruntime_has_coreml() {
+        r#"[{"type":"metal"},{"type":"cpu"}]"#
+    } else {
+        r#"[{"type":"cpu"}]"#
+    };
+    let expected = format!("{devices}\ncpu\n1\n[2, 3, 4]\n{devices}");
+    assert_output(
+        "tests/integration/success/312_onnx_available_devices.bx",
+        0,
+        Some(&expected),
+    );
+}
+
+#[test]
+fn test_313_onnx_available_devices_runtime_missing() {
+    let (stdout, stderr, exit_code) = run_brix_file_env(
+        "tests/integration/success/313_onnx_available_devices_runtime_missing.bx",
+        &[("BRIX_ONNXRUNTIME_LIB", "/nonexistent/libonnxruntime")],
+    );
+    assert_eq!(exit_code, 0, "Stdout: {}\nStderr: {}", stdout, stderr);
+    assert_eq!(stdout.trim(), "[]\n0\nstill running");
+}
+
 /// Whether the ONNX Runtime library a Brix program loads exports the CoreML
 /// provider. Mirrors the runtime's search (`onnx_init`): BRIX_ONNXRUNTIME_LIB,
 /// else the Homebrew paths on macOS. Linux builds of ONNX Runtime have no

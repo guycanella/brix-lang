@@ -1,0 +1,17 @@
+// v2.2 Grupo B Fase 3: onnx.available_devices() lists the devices
+// onnx.load accepts here, fastest first, as JSON.
+import onnx
+import json
+
+var devices := onnx.available_devices()
+println(json.stringify(devices))
+var last := devices[json.array_len(devices) - 1]
+println(json.as_string(last["type"]) ?: "")
+
+// The first one goes straight into onnx.load.
+var first := devices[0]
+var best := json.as_string(first["type"]) ?: "cpu"
+var model := onnx.load("tests/integration/models/multi.onnx", best)
+println(model.device() == best)
+println(model.infer([1.0, 2.0, 3.0], [1.0, 1.0, 1.0], [2.0]))
+println(json.stringify(onnx.available_devices()))

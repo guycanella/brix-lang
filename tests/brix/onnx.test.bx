@@ -1,5 +1,6 @@
 import test
 import onnx
+import json
 
 // tests/integration/models/multi.onnx (make_models.py): inputs x [batch, 3],
 // y [1, 3], scale []; outputs sum, scaled [batch, 3].
@@ -134,5 +135,15 @@ test.describe("ONNXModel devices (v2.2 Grupo B Fase 2)", () -> {
         var m := onnx.try_load("tests/integration/models/multi.onnx", "npu")
         test.expect(m.last_error()).toContain("unknown device \"npu\"")
         test.expect(m.device()).toBe("cpu")
+    })
+})
+
+test.describe("onnx.available_devices (v2.2 Grupo B Fase 3)", () -> {
+    test.it("lists the CPU last, after any GPU", () -> {
+        var devices := onnx.available_devices()
+        var n := json.array_len(devices)
+        test.expect(n).toBeGreaterThan(0)
+        var last := devices[n - 1]
+        test.expect(json.as_string(last["type"]) ?: "").toBe("cpu")
     })
 })
