@@ -4981,6 +4981,36 @@ fn test_onnx_device_vs_struct_method() {
 }
 
 #[test]
+fn test_onnx_available_devices_ir() {
+    let ir = ir_from_source(&format!(
+        "{}var d := onnx.available_devices()\n",
+        ONNX_PRELUDE
+    ));
+    assert!(
+        ir.contains("call ptr @brix_onnx_available_devices()"),
+        "{}",
+        ir
+    );
+}
+
+#[test]
+fn test_onnx_available_devices_errors() {
+    use crate::error::CodegenError;
+    assert!(matches!(
+        onnx_error("var d := onnx.available_devices(\"cpu\")\n"),
+        CodegenError::InvalidOperation { .. }
+    ));
+}
+
+#[test]
+fn test_onnx_available_devices_type() {
+    assert_eq!(
+        crate::infer_type_of_expr_in_context("import onnx\n", "onnx.available_devices()"),
+        Ok(crate::types::BrixType::Json)
+    );
+}
+
+#[test]
 fn test_onnx_last_error_vs_vectordb_and_struct() {
     // last_error() dispatches by receiver type: VectorDB and a user struct
     // method with the same name keep their own.

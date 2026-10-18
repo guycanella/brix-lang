@@ -1,0 +1,9 @@
+// Without ONNX Runtime (BRIX_ONNXRUNTIME_LIB points nowhere) there is no
+// device: an empty list, not an abort.
+import onnx
+import json
+
+var devices := onnx.available_devices()
+println(json.stringify(devices))
+println(json.array_len(devices))
+println("still running")
