@@ -4935,3 +4935,23 @@ fn test_onnx_last_error_vs_vectordb_and_struct() {
     assert!(ir.contains("@brix_vectordb_last_error("), "{}", ir);
     assert_eq!(ir.matches("@brix_onnx_last_error(").count(), 2, "{}", ir);
 }
+
+#[test]
+fn test_module_call_inference_respects_variable_shadowing() {
+    // A variable named like an imported module shadows it, as in the call
+    // dispatch: the call is the struct's method, not the module function.
+    let history = "import onnx\nimport json\nstruct L {\n    n: int\n}\nfn (l: L) try_load(path: string) -> int {\n    return l.n\n}\nfn (l: L) stringify(x: int) -> float {\n    return 1.5\n}\nvar onnx := L { n: 1 }\nvar json := L { n: 2 }\n";
+    assert_ne!(
+        crate::infer_type_of_expr_in_context(history, "onnx.try_load(\"m.onnx\")"),
+        Ok(crate::types::BrixType::OnnxModel)
+    );
+    assert_ne!(
+        crate::infer_type_of_expr_in_context(history, "json.stringify(1)"),
+        Ok(crate::types::BrixType::String)
+    );
+    // Without the shadowing variable, the module function is inferred.
+    assert_eq!(
+        crate::infer_type_of_expr_in_context("import onnx\n", "onnx.try_load(\"m.onnx\")"),
+        Ok(crate::types::BrixType::OnnxModel)
+    );
+}

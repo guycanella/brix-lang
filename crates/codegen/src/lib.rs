@@ -19465,7 +19465,18 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 // Method calls: .split() on a String returns StringMatrix;
                 // v1.7 Group B array methods return based on the receiver's element type.
                 if let ExprKind::FieldAccess { target, field } = &func.kind {
-                    if let ExprKind::Identifier(module_name) = &target.kind {
+                    // A variable shadows a module alias, as in the real call
+                    // dispatch (`receiver_is_variable`): `onnx.try_load(...)` on
+                    // a struct variable named `onnx` is that struct's method.
+                    let module_target = match &target.kind {
+                        ExprKind::Identifier(name)
+                            if !self.variables.contains_key(name.as_str()) =>
+                        {
+                            Some(name)
+                        }
+                        _ => None,
+                    };
+                    if let Some(module_name) = module_target {
                         let is_dt = self
                             .imported_modules
                             .iter()

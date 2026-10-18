@@ -7254,6 +7254,7 @@ typedef struct {
 // allocated. The public functions then either abort (onnx.load models) or
 // record it in the model (onnx.try_load models).
 
+static int onnx_errf(char *err, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
 static int onnx_errf(char *err, const char *fmt, ...) {
   va_list ap;
   va_start(ap, fmt);
