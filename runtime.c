@@ -7218,8 +7218,8 @@ enum {
   ORT_RELEASE_TYPE_INFO = 98,
   ORT_RELEASE_TENSOR_TYPE_AND_SHAPE_INFO = 99,
   ORT_RELEASE_SESSION_OPTIONS = 100,
-  ORT_GET_AVAILABLE_PROVIDERS = 125,
-  ORT_RELEASE_AVAILABLE_PROVIDERS = 126,
+  ORT_GET_AVAILABLE_PROVIDERS = 125,     // API version 4 (ONNX Runtime 1.4)
+  ORT_RELEASE_AVAILABLE_PROVIDERS = 126, // API version 4
 };
 #define BRIX_ORT_LOGGING_LEVEL_ERROR 3
 // ONNXTensorElementDataType values Brix converts to/from f64.
@@ -7234,6 +7234,7 @@ typedef struct {
 static void *const *brix_ort; // the OrtApi table, NULL until loaded
 static void *brix_ort_env;    // OrtEnv*, shared by every model
 static void *brix_ort_lib;    // the dlopen handle, for provider symbols outside OrtApi
+static const BrixOrtApiBase *brix_ort_base; // to ask whether newer API versions exist
 
 #define ORT_FN(slot, type) ((type)brix_ort[slot])
 #define ONNX_ERR_SIZE 600
@@ -7330,6 +7331,7 @@ static int onnx_init(char *err, const char *prefix) {
   }
   brix_ort = api;
   brix_ort_lib = lib;
+  brix_ort_base = base;
   if (onnx_status(err, prefix,
                   ORT_FN(ORT_CREATE_ENV, OrtStatusPtr *(*)(int, const char *, void **))(
                       BRIX_ORT_LOGGING_LEVEL_ERROR, "brix", &brix_ort_env)) < 0) {
@@ -7598,6 +7600,14 @@ JsonValue *brix_onnx_available_devices(void) {
   JsonValue *list = json_array();
   char err[ONNX_ERR_SIZE];
   if (onnx_init(err, "") < 0) return list;
+  // The provider query only exists from API version 4 on; GetApi returns
+  // NULL for a version newer than the library. An older ONNX Runtime has
+  // no table slot there, so it gets the CPU alone (its CoreML provider, if
+  // any, is still tried by onnx.load).
+  if (!brix_ort_base->GetApi(4)) {
+    onnx_add_device(list, "cpu");
+    return list;
+  }
   char **names = NULL;
   int n = 0;
   if (onnx_status(err, "",
