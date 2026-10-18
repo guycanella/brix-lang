@@ -27,10 +27,10 @@ Each entry recompiles and re-runs the whole accumulated session through the same
 
 **Run Rust unit tests:**
 ```bash
-cargo test -p lexer -p parser -p codegen  # All unit tests: 322 + 229 + 941 = 1,492 (all passing)
+cargo test -p lexer -p parser -p codegen  # All unit tests: 322 + 229 + 945 = 1,496 (all passing)
 cargo test -p lexer                       # Only lexer (322 tests)
 cargo test -p parser                      # Only parser (229 tests)
-cargo test -p codegen                     # Only codegen (941 tests)
+cargo test -p codegen                     # Only codegen (945 tests)
 cargo test -p codegen json_tests          # Specific test module in codegen
 cargo test <pattern>                      # Tests matching pattern
 cargo test -- --nocapture                 # Show println! output
@@ -38,12 +38,12 @@ cargo test -- --nocapture                 # Show println! output
 
 **Run integration tests (must be sequential):**
 ```bash
-cargo test --test integration_test -- --test-threads=1 # 316 tests passing
+cargo test --test integration_test -- --test-threads=1 # 318 tests passing
 ```
 
 **Run Brix language tests (Test Library):**
 ```bash
-cargo run -- test                   # All *.test.bx and *.spec.bx (35 suites passing, 598 tests)
+cargo run -- test                   # All *.test.bx and *.spec.bx (35 suites passing, 600 tests)
 cargo run -- test json              # Files matching "json" in path
 ```
 
@@ -67,7 +67,7 @@ The driver (`src/main.rs`, ~520 lines; REPL in `src/repl.rs`) orchestrates all s
 ```
 brix/
 ├── src/main.rs              # CLI + compilation pipeline driver
-├── runtime.c                # C runtime (~9,737 lines) — must be in project root
+├── runtime.c                # C runtime (~9,806 lines) — must be in project root
 ├── crates/
 │   ├── lexer/src/token.rs   # Token enum (logos)
 │   ├── parser/src/
@@ -76,7 +76,7 @@ brix/
 │   │   ├── closure_analysis.rs  # Capture analysis pass (runs after parse)
 │   │   └── error.rs         # Ariadne-based parse error reporting
 │   └── codegen/src/
-│       ├── lib.rs           # Main compiler (~20,763 lines — post-refactor 11,014, grew with v1.8–v2.0 + rustfmt expansion)
+│       ├── lib.rs           # Main compiler (~20,779 lines — post-refactor 11,014, grew with v1.8–v2.0 + rustfmt expansion)
 │       ├── stmt.rs          # Statement compilation (~1,516 lines)
 │       ├── expr.rs          # Expression compilation + list comprehension (~2,028 lines)
 │       ├── helpers.rs       # LLVM helpers
@@ -88,7 +88,7 @@ brix/
 │                            #   iterator.rs, match_compiler.rs, async_compiler.rs, closure_compiler.rs
 ├── tests/
 │   ├── integration/         # End-to-end .bx files (success/, parser_errors/, codegen_errors/, runtime_errors/, test_library_failures/)
-│   └── brix/                # Language test files (*.test.bx) — 35 files, 598 tests, all passing
+│   └── brix/                # Language test files (*.test.bx) — 35 files, 600 tests, all passing
 ├── benchmarks/              # Informative benchmarks (run.sh + .bx), not CI gates
 └── examples/                # Example .bx programs
 ```
@@ -206,7 +206,7 @@ Jest-style framework. 17 matchers (all support `.not.` — `toEqual`, `toBeClose
 
 **Test baseline at v1.9 completion:** 1,357 unit (317 lexer + 209 parser + 831 codegen) + 264 integration + 517 Test Library (31 `.test.bx` files).
 
-**Current test baseline (v2.2 Grupo A Fase 4):** 1,492 unit (322 lexer + 229 parser + 941 codegen) + 316 integration + 598 Test Library (35 `.test.bx` files) = 2,406. All green.
+**Current test baseline (v2.2 Grupo B Fase 2):** 1,496 unit (322 lexer + 229 parser + 945 codegen) + 318 integration + 600 Test Library (35 `.test.bx` files) = 2,414. All green.
 
 **Completed in v1.9 (Grupo F):**
 - **Grupo F — `brix repl` — COMPLETE, as a "replay REPL", not the roadmap's original incremental-JIT design:**
@@ -538,7 +538,18 @@ Two groups: **A** (ONNX models, CPU inference) and **B** (GPU: CUDA + Metal).
 - Tests: +7 codegen unit (`test_onnx_try_load_and_last_error`, `_errors`, `_types`, `test_onnx_last_error_vs_vectordb_and_struct`, `test_module_call_inference_respects_variable_shadowing`, `test_closure_return_type_from_struct_method_call`, `test_closure_param_shadows_module_in_inference`), integration 307 (missing file, broken file, success, `onnx.load` has no error), 308 (every error of Fases 1-3 becomes a message, the model stays usable and the next success clears it), 309 (`BRIX_ONNXRUNTIME_LIB` pointing nowhere is a message, not an abort), +3 Test Library (`onnx.test.bx`, 14 tests in all). ARC checked with `leaks --atExit` (0 leaks).
 - **Known, not fixed (pre-existing):** calling a closure stored in a variable with a **struct argument** (`var f := (p: P) -> {...}; f(P { n: 4 })`) generates a call with a mismatched signature (same family as the closure-through-a-variable signature loss in v2.0 Fase 2).
 
-**Next — v2.2 Grupo B** (GPU: CUDA + Metal) in `ROADMAP_V2.2.md`.
+**Grupo B Fase 2 — COMPLETE** — Apple GPU through CoreML (the roadmap's "Metal"):
+- `onnx.load(path[, device])` / `onnx.try_load(path[, device])`: `device` is `"cpu"` (default) or `"metal"`; `model.device() -> string` says where the session really runs. **Deviation from the roadmap:** `device="metal"` is a positional argument (no keyword args in Brix), and the GPU path is ONNX Runtime's **CoreML execution provider** (compute units `CPU_AND_GPU`, ML Program format), the way ORT reaches the Apple GPU.
+- **Automatic fallback to the CPU, never an error:** the CoreML provider is missing (Linux, an ORT built without it), **or the session can't be created with it** (CoreML converts the model only at that point: an ML Program needs macOS 12, and a model CoreML can't convert fails there). In the second case `onnx_open` recreates the session options without CoreML and retries; a real error (a missing file) fails again on the CPU attempt and is reported with its message. `device()` is `"cpu"` after a fallback. Nodes CoreML doesn't support (e.g. `double` tensors) go to the CPU **inside the same session**, by ONNX Runtime itself; `device()` still says `"metal"` then.
+- **Device errors:** `"cuda"` / `"gpu..."` = "not supported yet" (CUDA is Fase 1, not built), any other value = "unknown device". `onnx.load` aborts **before ONNX Runtime is loaded**; `try_load` records it in `last_error()` and the model reports `"cpu"`.
+- **Runtime (SECTION 2.13):** `onnx_add_coreml` resolves `OrtSessionOptionsAppendExecutionProvider_CoreML` with `dlsym` on the already-open library. It is a separate exported function, **not an `OrtApi` slot**, so no new slot index and still no vendored header. `BrixOnnxModel` gained `device`; `brix_onnx_load` / `brix_onnx_try_load` take the device (`NULL` = `"cpu"`); `brix_onnx_device`. The ORT library handle is kept (`brix_ort_lib`).
+- **Codegen:** `compile_onnx_call` takes 1 or 2 string arguments (`E102` for a non-string device, `E104` for another arity) and releases owned temporaries; `device()` in the dispatch guard, `compile_onnx_method` and `infer_expr_type_static`; a user struct method named `device()` still dispatches to the struct.
+- **Checked on a real GPU path:** with `session.disable_cpu_ep_fallback` set (a throwaway C probe, not part of the suite), `multi.onnx` loads, so every node runs on CoreML; `typed.onnx` and `fixed.onnx` have nodes that go to the CPU. Results are identical to the CPU on all three test models, including a fixed-batch `batch_infer`.
+- Tests: +4 codegen unit (IR with and without a device, argument errors, `:type`, `device()` vs a struct method; two arity tests now use 3 arguments), integration 310 (`"metal"` vs CPU on the three models, `try_load` device errors; the expected device is derived by `onnxruntime_has_coreml()`, which checks that the library the programs load exports the CoreML provider, so a macOS host with an ORT built without CoreML expects `cpu`), 311 (an unknown device aborts `onnx.load`), +2 Test Library (`onnx.test.bx`). ARC checked with `leaks --atExit` (0 leaks).
+- **Not tested:** the CPU retry after a failed CoreML session can't be triggered on a current macOS; it was checked once with a temporary mutation that forced the failure (CPU result correct, a missing file keeps its message), not by a permanent test. The `macos-14` CI runner is a VM and may not expose the GPU; CoreML should then run on its CPU units.
+- **Known, not fixed (pre-existing):** string concatenation leaks (`var s := "a" + "b"` alone loses 2 allocations).
+
+**Next — v2.2 Grupo B Fase 1 (CUDA, needs an NVIDIA GPU to test: a GitHub larger runner, which needs an organization on the Team plan, or a cloud VM) or Fase 3 (`onnx.available_devices()`)** in `ROADMAP_V2.2.md`.
 
 ## CI (GitHub Actions) — `.github/workflows/ci.yml`
 
