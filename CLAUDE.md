@@ -27,10 +27,10 @@ Each entry recompiles and re-runs the whole accumulated session through the same
 
 **Run Rust unit tests:**
 ```bash
-cargo test -p lexer -p parser -p codegen  # All unit tests: 322 + 229 + 934 = 1,485 (all passing)
+cargo test -p lexer -p parser -p codegen  # All unit tests: 322 + 229 + 941 = 1,492 (all passing)
 cargo test -p lexer                       # Only lexer (322 tests)
 cargo test -p parser                      # Only parser (229 tests)
-cargo test -p codegen                     # Only codegen (934 tests)
+cargo test -p codegen                     # Only codegen (941 tests)
 cargo test -p codegen json_tests          # Specific test module in codegen
 cargo test <pattern>                      # Tests matching pattern
 cargo test -- --nocapture                 # Show println! output
@@ -38,12 +38,12 @@ cargo test -- --nocapture                 # Show println! output
 
 **Run integration tests (must be sequential):**
 ```bash
-cargo test --test integration_test -- --test-threads=1 # 313 tests passing
+cargo test --test integration_test -- --test-threads=1 # 316 tests passing
 ```
 
 **Run Brix language tests (Test Library):**
 ```bash
-cargo run -- test                   # All *.test.bx and *.spec.bx (35 suites passing, 595 tests)
+cargo run -- test                   # All *.test.bx and *.spec.bx (35 suites passing, 598 tests)
 cargo run -- test json              # Files matching "json" in path
 ```
 
@@ -67,7 +67,7 @@ The driver (`src/main.rs`, ~520 lines; REPL in `src/repl.rs`) orchestrates all s
 ```
 brix/
 ├── src/main.rs              # CLI + compilation pipeline driver
-├── runtime.c                # C runtime (~9,528 lines) — must be in project root
+├── runtime.c                # C runtime (~9,737 lines) — must be in project root
 ├── crates/
 │   ├── lexer/src/token.rs   # Token enum (logos)
 │   ├── parser/src/
@@ -76,7 +76,7 @@ brix/
 │   │   ├── closure_analysis.rs  # Capture analysis pass (runs after parse)
 │   │   └── error.rs         # Ariadne-based parse error reporting
 │   └── codegen/src/
-│       ├── lib.rs           # Main compiler (~20,734 lines — post-refactor 11,014, grew with v1.8–v2.0 + rustfmt expansion)
+│       ├── lib.rs           # Main compiler (~20,763 lines — post-refactor 11,014, grew with v1.8–v2.0 + rustfmt expansion)
 │       ├── stmt.rs          # Statement compilation (~1,516 lines)
 │       ├── expr.rs          # Expression compilation + list comprehension (~2,028 lines)
 │       ├── helpers.rs       # LLVM helpers
@@ -88,7 +88,7 @@ brix/
 │                            #   iterator.rs, match_compiler.rs, async_compiler.rs, closure_compiler.rs
 ├── tests/
 │   ├── integration/         # End-to-end .bx files (success/, parser_errors/, codegen_errors/, runtime_errors/, test_library_failures/)
-│   └── brix/                # Language test files (*.test.bx) — 35 files, 595 tests, all passing
+│   └── brix/                # Language test files (*.test.bx) — 35 files, 598 tests, all passing
 ├── benchmarks/              # Informative benchmarks (run.sh + .bx), not CI gates
 └── examples/                # Example .bx programs
 ```
@@ -206,7 +206,7 @@ Jest-style framework. 17 matchers (all support `.not.` — `toEqual`, `toBeClose
 
 **Test baseline at v1.9 completion:** 1,357 unit (317 lexer + 209 parser + 831 codegen) + 264 integration + 517 Test Library (31 `.test.bx` files).
 
-**Current test baseline (v2.2 Grupo A Fase 3):** 1,485 unit (322 lexer + 229 parser + 934 codegen) + 313 integration + 595 Test Library (35 `.test.bx` files) = 2,393. All green.
+**Current test baseline (v2.2 Grupo A Fase 4):** 1,492 unit (322 lexer + 229 parser + 941 codegen) + 316 integration + 598 Test Library (35 `.test.bx` files) = 2,406. All green.
 
 **Completed in v1.9 (Grupo F):**
 - **Grupo F — `brix repl` — COMPLETE, as a "replay REPL", not the roadmap's original incremental-JIT design:**
@@ -527,7 +527,18 @@ Two groups: **A** (ONNX models, CPU inference) and **B** (GPU: CUDA + Metal).
 - Tests: +4 codegen unit, integration 303 (fixed batch, 5 samples as chunks 2+2+1, by name/index, `int[]` batch, empty batch), 304 (dynamic batch vs `infer`, rank-3 `typed.onnx`), 305 (sample-size mismatch), 306 (empty batch with the wrong width), +3 Test Library (`onnx.test.bx`). ARC checked with `leaks --atExit` (0 leaks).
 - **Note:** matrices have no `==` in Brix (`E102`), so tests compare printed output or `toEqual`.
 
-**Next — Grupo A Fase 4** (error handling and robustness: graceful failures instead of aborts) in `ROADMAP_V2.2.md`.
+**Grupo A Fase 4 — COMPLETE** — errors without aborting (**v2.2 Grupo A is now complete**):
+- `onnx.try_load(path) -> ONNXModel` and `model.last_error() -> string`. `try_load` never aborts: a missing file, a file ORT cannot parse or a missing ONNX Runtime library gives a **failed model** (a valid `ONNXModel` whose `last_error()` says why). `onnx.load` is unchanged and still aborts.
+- **Deviation from the roadmap:** the roadmap's `ONNXModel?` / `model.infer(x) -> Matrix?` do not work: `Matrix` has no usable optional (`float[]?` and `float[] | nil` do not parse, `nil` is not a `match` pattern; `json?` / `datetime?` only work through per-type unwrapping). The error state lives on the model instead, like `VectorDB.last_error()`.
+- **Failed model:** `num_inputs()` / `num_outputs()` return 0, `input_name` / `output_name` return `""`, `input_shape` / `output_shape` return a 1x0 matrix; `infer*` / `batch_infer*` return a **0x0 matrix** with the reason in `last_error()`. A model from `onnx.load` has no recorded error: a call on it that fails still aborts, as before.
+- **What becomes an error on a `try_load` model** (everything `infer` / `batch_infer` aborted on): wrong input count, shape mismatch, sample-size mismatch, missing batch dimension, unknown output name, output index out of range, unsupported element type, integer overflow / NaN / Inf, an ORT failure. Even **`input_name(i)` / `input_shape(i)` with an index out of range** now records an error. A failed `try_load` model that is inferred says "the model was not loaded (see the error of onnx.try_load)". `last_error()` is `""` after a success: **a successful `infer*` / `batch_infer*` or name/shape accessor clears it**; `num_inputs()` / `num_outputs()` never touch it.
+- **Runtime (SECTION 2.13) restructured:** `BrixOnnxModel` gained `graceful` and `last_error[ONNX_ERR_SIZE]` (600 bytes); internal functions return -1 / NULL and write the message into a buffer (`onnx_errf`, with `__attribute__((format(printf, 2, 3)))` so the compiler checks every format); `onnx_report` either aborts or records the message; loading is split into `onnx_init` / `onnx_read_io` / `onnx_clear` / `onnx_open` / `onnx_load(path, graceful)`. One more `OrtApi` slot, `ReleaseStatus` (93). `ONNX_NO_OUTPUT = LONG_MIN` is the "unknown output name" sentinel (`-1` was ambiguous with an index a user passes).
+- **Codegen:** `compile_onnx_call` handles `load` | `try_load`; `compile_onnx_method` handles `last_error` (no index arg); dispatch guard and `infer_expr_type_static` extended (`try_load` -> `OnnxModel`, `last_error` -> `String`).
+- **Bugs fixed in review (CodeRabbit, all confirmed with the LLVM verifier — invalid IR, not just a wrong type):** (1) the static inference of `onnx.try_load(...)` ignored that a **variable or a closure parameter shadows a module alias** (the real call dispatch already did: `receiver_is_variable`), so a closure returning `o.try_load()` on a struct named `onnx` was declared with the wrong return type; (2) **a struct method call had no arm in `infer_expr_type_static`**, so any closure without `-> type` returning `p.method()` was declared `void` while its body did `ret i64` — a general pre-existing gap, now resolved through the method's registered return type (`Struct_method` in `self.functions`).
+- Tests: +7 codegen unit (`test_onnx_try_load_and_last_error`, `_errors`, `_types`, `test_onnx_last_error_vs_vectordb_and_struct`, `test_module_call_inference_respects_variable_shadowing`, `test_closure_return_type_from_struct_method_call`, `test_closure_param_shadows_module_in_inference`), integration 307 (missing file, broken file, success, `onnx.load` has no error), 308 (every error of Fases 1-3 becomes a message, the model stays usable and the next success clears it), 309 (`BRIX_ONNXRUNTIME_LIB` pointing nowhere is a message, not an abort), +3 Test Library (`onnx.test.bx`, 14 tests in all). ARC checked with `leaks --atExit` (0 leaks).
+- **Known, not fixed (pre-existing):** calling a closure stored in a variable with a **struct argument** (`var f := (p: P) -> {...}; f(P { n: 4 })`) generates a call with a mismatched signature (same family as the closure-through-a-variable signature loss in v2.0 Fase 2).
+
+**Next — v2.2 Grupo B** (GPU: CUDA + Metal) in `ROADMAP_V2.2.md`.
 
 ## CI (GitHub Actions) — `.github/workflows/ci.yml`
 
