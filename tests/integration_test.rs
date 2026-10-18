@@ -3074,3 +3074,69 @@ fn test_309_onnx_try_load_runtime_missing() {
     assert_eq!(exit_code, 0, "Stdout: {}\nStderr: {}", stdout, stderr);
     assert_eq!(stdout.trim(), "1\n0\nstill running");
 }
+
+#[test]
+fn test_310_onnx_metal() {
+    // "metal" runs on CoreML when the ONNX Runtime library the programs load
+    // has that provider; otherwise the model falls back to the CPU with the
+    // same results.
+    let device = if onnxruntime_has_coreml() {
+        "metal"
+    } else {
+        "cpu"
+    };
+    let expected = format!(
+        "cpu\n{device}\n[2.5, 3, 4]\n[2.5, 3, 4]\n[2.5, 3, 4]\n[]\n[0.5, 0, 1.5, 2, 2.5, 3]\n[0, 0, 1, 2, 2, 3]\n[16, 6.25, 1, 0.25, 4, 12.25, 25, 42.25, 64, 90.25, 121, 156.25]\n[16, 6.25, 1, 0.25, 4, 12.25, 25, 42.25, 64, 90.25, 121, 156.25]\nonnx.try_load(\"tests/integration/models/multi.onnx\", \"tpu\"): unknown device \"tpu\" (use \"cpu\" or \"metal\")\ncpu\nonnx.try_load(\"tests/integration/models/multi.onnx\", \"cuda\"): device \"cuda\" is not supported yet (use \"cpu\" or \"metal\")\ncpu\n1"
+    );
+    assert_output(
+        "tests/integration/success/310_onnx_metal.bx",
+        0,
+        Some(&expected),
+    );
+}
+
+#[test]
+fn test_311_onnx_unknown_device() {
+    let (stdout, stderr, exit_code) =
+        run_brix_file("tests/integration/success/311_onnx_unknown_device.bx");
+    assert_eq!(exit_code, 1, "Stdout: {}\nStderr: {}", stdout, stderr);
+    assert_eq!(stdout.trim(), "before");
+    assert!(
+        stderr.contains(
+            "Error: onnx.load(\"tests/integration/models/multi.onnx\", \"gpu:0\"): device \"gpu:0\" is not supported yet (use \"cpu\" or \"metal\")"
+        ),
+        "Stderr: {}",
+        stderr
+    );
+}
+
+/// Whether the ONNX Runtime library a Brix program loads exports the CoreML
+/// provider. Mirrors the runtime's search (`onnx_init`): BRIX_ONNXRUNTIME_LIB,
+/// else the Homebrew paths on macOS. Linux builds of ONNX Runtime have no
+/// CoreML.
+fn onnxruntime_has_coreml() -> bool {
+    if !cfg!(target_os = "macos") {
+        return false;
+    }
+    let lib = std::env::var("BRIX_ONNXRUNTIME_LIB")
+        .ok()
+        .filter(|p| !p.is_empty())
+        .or_else(|| {
+            [
+                "/opt/homebrew/lib/libonnxruntime.dylib",
+                "/usr/local/lib/libonnxruntime.dylib",
+            ]
+            .into_iter()
+            .find(|p| std::path::Path::new(p).exists())
+            .map(String::from)
+        });
+    let Some(lib) = lib else { return false };
+    Command::new("nm")
+        .args(["-gU", &lib])
+        .output()
+        .map(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .contains("_OrtSessionOptionsAppendExecutionProvider_CoreML")
+        })
+        .unwrap_or(false)
+}

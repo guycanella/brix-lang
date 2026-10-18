@@ -1,0 +1,6 @@
+// An unknown device makes onnx.load abort, before ONNX Runtime is loaded.
+import onnx
+
+println("before")
+var m := onnx.load("tests/integration/models/multi.onnx", "gpu:0")
+println("not reached")
