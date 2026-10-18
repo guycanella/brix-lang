@@ -3077,9 +3077,10 @@ fn test_309_onnx_try_load_runtime_missing() {
 
 #[test]
 fn test_310_onnx_metal() {
-    // CoreML (and so "metal") only exists in macOS builds of ONNX Runtime;
-    // elsewhere the model falls back to the CPU with the same results.
-    let device = if cfg!(target_os = "macos") {
+    // "metal" runs on CoreML when the ONNX Runtime library the programs load
+    // has that provider; otherwise the model falls back to the CPU with the
+    // same results.
+    let device = if onnxruntime_has_coreml() {
         "metal"
     } else {
         "cpu"
@@ -3107,4 +3108,35 @@ fn test_311_onnx_unknown_device() {
         "Stderr: {}",
         stderr
     );
+}
+
+/// Whether the ONNX Runtime library a Brix program loads exports the CoreML
+/// provider. Mirrors the runtime's search (`onnx_init`): BRIX_ONNXRUNTIME_LIB,
+/// else the Homebrew paths on macOS. Linux builds of ONNX Runtime have no
+/// CoreML.
+fn onnxruntime_has_coreml() -> bool {
+    if !cfg!(target_os = "macos") {
+        return false;
+    }
+    let lib = std::env::var("BRIX_ONNXRUNTIME_LIB")
+        .ok()
+        .filter(|p| !p.is_empty())
+        .or_else(|| {
+            [
+                "/opt/homebrew/lib/libonnxruntime.dylib",
+                "/usr/local/lib/libonnxruntime.dylib",
+            ]
+            .into_iter()
+            .find(|p| std::path::Path::new(p).exists())
+            .map(String::from)
+        });
+    let Some(lib) = lib else { return false };
+    Command::new("nm")
+        .args(["-gU", &lib])
+        .output()
+        .map(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .contains("_OrtSessionOptionsAppendExecutionProvider_CoreML")
+        })
+        .unwrap_or(false)
 }

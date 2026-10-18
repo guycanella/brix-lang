@@ -7446,20 +7446,35 @@ static int onnx_open(BrixOnnxModel *m, char *err, const char *prefix, const char
                      device);
   }
   if (onnx_init(err, prefix) < 0) return -1;
-  void *opts = NULL;
-  if (onnx_status(err, prefix,
-                  ORT_FN(ORT_CREATE_SESSION_OPTIONS, OrtStatusPtr *(*)(void **))(&opts)) < 0) {
-    return -1;
+  // "metal" falls back to the CPU when the CoreML provider is missing or
+  // the session can't be created with it (CoreML converts the model only
+  // then: an ML Program needs macOS 12, and a model CoreML can't convert
+  // fails here). device() tells which one the session got. Single nodes
+  // CoreML can't run go to the CPU inside ONNX Runtime itself.
+  int want_coreml = strcmp(device, "metal") == 0;
+  for (;;) {
+    void *opts = NULL;
+    if (onnx_status(err, prefix,
+                    ORT_FN(ORT_CREATE_SESSION_OPTIONS, OrtStatusPtr *(*)(void **))(&opts)) < 0) {
+      return -1;
+    }
+    int coreml = want_coreml && onnx_add_coreml(opts) == 0;
+    OrtStatusPtr *st = ORT_FN(ORT_CREATE_SESSION,
+                              OrtStatusPtr *(*)(const void *, const char *, const void *, void **))(
+        brix_ort_env, path, opts, &m->session);
+    ORT_FN(ORT_RELEASE_SESSION_OPTIONS, void (*)(void *))(opts);
+    if (st && coreml) {
+      // Retry on the CPU alone; a real error (a missing file...) fails
+      // again there and is reported with the CPU attempt's message.
+      ORT_FN(ORT_RELEASE_STATUS, void (*)(OrtStatusPtr *))(st);
+      m->session = NULL;
+      want_coreml = 0;
+      continue;
+    }
+    if (onnx_status(err, prefix, st) < 0) return -1;
+    m->device = coreml ? "metal" : "cpu";
+    break;
   }
-  // "metal" without the CoreML provider falls back to the CPU; device()
-  // tells which one the session got. Nodes CoreML can't run go to the CPU
-  // inside ONNX Runtime itself.
-  m->device = (strcmp(device, "metal") == 0 && onnx_add_coreml(opts) == 0) ? "metal" : "cpu";
-  OrtStatusPtr *st = ORT_FN(ORT_CREATE_SESSION,
-                            OrtStatusPtr *(*)(const void *, const char *, const void *, void **))(
-      brix_ort_env, path, opts, &m->session);
-  ORT_FN(ORT_RELEASE_SESSION_OPTIONS, void (*)(void *))(opts);
-  if (onnx_status(err, prefix, st) < 0) return -1;
 
   size_t n_in = 0, n_out = 0;
   if (onnx_status(err, prefix,
