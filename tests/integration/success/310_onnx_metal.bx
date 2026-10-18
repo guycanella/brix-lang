@@ -1,0 +1,40 @@
+// v2.2 Grupo B Fase 2: onnx.load(path, "metal") runs the model on the
+// Apple GPU through the CoreML provider and gives the same results as the
+// CPU. Without CoreML (Linux) "metal" falls back to the CPU; device() says
+// which one the model got.
+import onnx
+
+var cpu := onnx.load("tests/integration/models/multi.onnx")
+var dev := "metal"
+var gpu := onnx.load("tests/integration/models/multi.onnx", dev)
+println(cpu.device())
+println(gpu.device())
+var x := [1.5, 2.0, 3.0]
+println(cpu.infer(x, [1.0, 1.0, 1.0], [2.0]))
+println(gpu.infer(x, [1.0, 1.0, 1.0], [2.0]))
+println(gpu.infer_output("sum", x, [1.0, 1.0, 1.0], [2.0]))
+
+// typed.onnx has double nodes, which CoreML leaves to the CPU.
+var typed := onnx.try_load("tests/integration/models/typed.onnx", "me" + "tal")
+println(f"[{typed.last_error()}]")
+println(typed.infer_output("wd", [1, -2, 3, 4, 5, 6], [0.5]))
+println(typed.infer_output("trunc", [1, -2, 3, 4, 5, 6], [0.5]))
+
+// Fixed batch of 2, three samples: chunks 2 + 1 (padded).
+var b := zeros(3, 4)
+for i in 0..<12 {
+    b[i] = i * 1.5 - 4.0
+}
+var fixed := onnx.load("tests/integration/models/fixed.onnx", "metal")
+println(fixed.batch_infer(b))
+println(onnx.load("tests/integration/models/fixed.onnx", "cpu").batch_infer(b))
+
+// Device errors: a try_load model records them.
+var tpu := onnx.try_load("tests/integration/models/multi.onnx", "tpu")
+println(tpu.last_error())
+println(tpu.device())
+var cuda := onnx.try_load("tests/integration/models/multi.onnx", "cuda")
+println(cuda.last_error())
+var missing := onnx.try_load("tests/integration/models/nope.onnx", "metal")
+println(missing.device())
+println(missing.last_error().contains("File doesn't exist"))

@@ -119,3 +119,20 @@ test.describe("ONNXModel graceful errors (v2.2 Grupo A Fase 4)", () -> {
         test.expect(m.input_shape(-1)).toHaveLength(0)
     })
 })
+
+test.describe("ONNXModel devices (v2.2 Grupo B Fase 2)", () -> {
+    test.it("metal gives the same results as the CPU", () -> {
+        var m := onnx.load("tests/integration/models/multi.onnx", "metal")
+        test.expect(m.device()).not.toBe("")
+        var out := m.infer([1.0, 2.0, 3.0], [1.0, 1.0, 1.0], [2.0])
+        test.expect(out).toEqual([2.0, 3.0, 4.0])
+        test.expect(m.infer_output("scaled", [1.0, 2.0, 3.0], [1.0, 1.0, 1.0], [2.0])).toEqual([4.0, 6.0, 8.0])
+        test.expect(onnx.load("tests/integration/models/multi.onnx").device()).toBe("cpu")
+    })
+
+    test.it("an unknown device is an error of try_load", () -> {
+        var m := onnx.try_load("tests/integration/models/multi.onnx", "npu")
+        test.expect(m.last_error()).toContain("unknown device \"npu\"")
+        test.expect(m.device()).toBe("cpu")
+    })
+})

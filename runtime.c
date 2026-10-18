@@ -7231,6 +7231,7 @@ typedef struct {
 
 static void *const *brix_ort; // the OrtApi table, NULL until loaded
 static void *brix_ort_env;    // OrtEnv*, shared by every model
+static void *brix_ort_lib;    // the dlopen handle, for provider symbols outside OrtApi
 
 #define ORT_FN(slot, type) ((type)brix_ort[slot])
 #define ONNX_ERR_SIZE 600
@@ -7245,6 +7246,7 @@ typedef struct {
   long *ranks;
   int *types;      // per input/output: ONNXTensorElementDataType (0 = not a tensor)
   int graceful;    // from onnx.try_load: errors go to last_error instead of aborting
+  const char *device; // "cpu" or "metal": where the session really runs (static string)
   char last_error[ONNX_ERR_SIZE]; // "" after a success
 } BrixOnnxModel;
 
@@ -7325,6 +7327,7 @@ static int onnx_init(char *err, const char *prefix) {
     return onnx_errf(err, "%sthe library found is not a usable ONNX Runtime", prefix);
   }
   brix_ort = api;
+  brix_ort_lib = lib;
   if (onnx_status(err, prefix,
                   ORT_FN(ORT_CREATE_ENV, OrtStatusPtr *(*)(int, const char *, void **))(
                       BRIX_ORT_LOGGING_LEVEL_ERROR, "brix", &brix_ort_env)) < 0) {
@@ -7411,13 +7414,47 @@ static void onnx_clear(BrixOnnxModel *m) {
   m->num_inputs = m->num_outputs = 0;
 }
 
-static int onnx_open(BrixOnnxModel *m, char *err, const char *prefix, const char *path) {
+// COREMLFlags from coreml_provider_factory.h: compute units CPU + GPU, and
+// an ML Program (the current Core ML model format; the default
+// NeuralNetwork format supports fewer operators).
+#define BRIX_COREML_FLAG_USE_CPU_AND_GPU 0x020
+#define BRIX_COREML_FLAG_CREATE_MLPROGRAM 0x010
+
+// Apple GPU through the CoreML execution provider. That provider is a
+// separate exported function, not an OrtApi slot, and only macOS builds of
+// ONNX Runtime have it: 0 when it was added, -1 when it isn't available
+// (the session then runs on the CPU).
+static int onnx_add_coreml(void *opts) {
+  OrtStatusPtr *(*append)(void *, uint32_t) = (OrtStatusPtr * (*)(void *, uint32_t))
+      dlsym(brix_ort_lib, "OrtSessionOptionsAppendExecutionProvider_CoreML");
+  if (!append) return -1;
+  OrtStatusPtr *st =
+      append(opts, BRIX_COREML_FLAG_USE_CPU_AND_GPU | BRIX_COREML_FLAG_CREATE_MLPROGRAM);
+  if (!st) return 0;
+  ORT_FN(ORT_RELEASE_STATUS, void (*)(OrtStatusPtr *))(st);
+  return -1;
+}
+
+static int onnx_open(BrixOnnxModel *m, char *err, const char *prefix, const char *path,
+                     const char *device) {
+  if (strcmp(device, "cpu") != 0 && strcmp(device, "metal") != 0) {
+    if (strcmp(device, "cuda") == 0 || strncmp(device, "gpu", 3) == 0) {
+      return onnx_errf(err, "%sdevice \"%s\" is not supported yet (use \"cpu\" or \"metal\")",
+                       prefix, device);
+    }
+    return onnx_errf(err, "%sunknown device \"%s\" (use \"cpu\" or \"metal\")", prefix,
+                     device);
+  }
   if (onnx_init(err, prefix) < 0) return -1;
   void *opts = NULL;
   if (onnx_status(err, prefix,
                   ORT_FN(ORT_CREATE_SESSION_OPTIONS, OrtStatusPtr *(*)(void **))(&opts)) < 0) {
     return -1;
   }
+  // "metal" without the CoreML provider falls back to the CPU; device()
+  // tells which one the session got. Nodes CoreML can't run go to the CPU
+  // inside ONNX Runtime itself.
+  m->device = (strcmp(device, "metal") == 0 && onnx_add_coreml(opts) == 0) ? "metal" : "cpu";
   OrtStatusPtr *st = ORT_FN(ORT_CREATE_SESSION,
                             OrtStatusPtr *(*)(const void *, const char *, const void *, void **))(
       brix_ort_env, path, opts, &m->session);
@@ -7458,8 +7495,9 @@ static int onnx_open(BrixOnnxModel *m, char *err, const char *prefix, const char
   return 0;
 }
 
-static BrixOnnxModel *onnx_load(BrixString *path_str, int graceful) {
+static BrixOnnxModel *onnx_load(BrixString *path_str, BrixString *device_str, int graceful) {
   const char *path = path_str ? path_str->data : "";
+  const char *device = device_str ? device_str->data : "cpu";
   BrixOnnxModel *m = calloc(1, sizeof(BrixOnnxModel));
   if (!m) {
     // ponytail: no model to record the error in, so even try_load aborts
@@ -7470,24 +7508,36 @@ static BrixOnnxModel *onnx_load(BrixString *path_str, int graceful) {
   }
   m->ref_count = 1;
   m->graceful = graceful;
+  m->device = "cpu";
   char prefix[ONNX_ERR_SIZE / 2], err[ONNX_ERR_SIZE];
-  snprintf(prefix, sizeof(prefix), "onnx.%s(\"%s\"): ", graceful ? "try_load" : "load", path);
-  if (onnx_open(m, err, prefix, path) < 0) {
+  if (device_str) {
+    snprintf(prefix, sizeof(prefix), "onnx.%s(\"%s\", \"%s\"): ",
+             graceful ? "try_load" : "load", path, device);
+  } else {
+    snprintf(prefix, sizeof(prefix), "onnx.%s(\"%s\"): ", graceful ? "try_load" : "load", path);
+  }
+  if (onnx_open(m, err, prefix, path, device) < 0) {
     onnx_clear(m);
+    m->device = "cpu";
     onnx_report(m, err);
   }
   return m;
 }
 
-// onnx.load(path) -> ONNXModel. Aborts when ONNX Runtime is missing or the
-// model can't be loaded (the message is ONNX Runtime's).
-BrixOnnxModel *brix_onnx_load(BrixString *path) { return onnx_load(path, 0); }
+// onnx.load(path[, device]) -> ONNXModel. Aborts when ONNX Runtime is
+// missing, the device is unknown or the model can't be loaded (the message
+// is ONNX Runtime's). `device` NULL = "cpu".
+BrixOnnxModel *brix_onnx_load(BrixString *path, BrixString *device) {
+  return onnx_load(path, device, 0);
+}
 
 // onnx.try_load(path) -> ONNXModel. Never aborts: a model that failed to
 // load is empty (no session, 0 inputs/outputs) with the reason in
 // last_error(), and every method of a try_load model records its errors
 // there instead of aborting.
-BrixOnnxModel *brix_onnx_try_load(BrixString *path) { return onnx_load(path, 1); }
+BrixOnnxModel *brix_onnx_try_load(BrixString *path, BrixString *device) {
+  return onnx_load(path, device, 1);
+}
 
 BrixOnnxModel *brix_onnx_retain(BrixOnnxModel *m) {
   if (m) m->ref_count++;
@@ -7504,6 +7554,10 @@ void brix_onnx_release(BrixOnnxModel *m) {
 // from onnx.load (its errors abort). num_inputs()/num_outputs() can't fail
 // and leave it as it is.
 BrixString *brix_onnx_last_error(BrixOnnxModel *m) { return str_new(m->last_error); }
+
+// model.device() -> string: "metal" or "cpu", where the session runs
+// ("cpu" also when "metal" fell back, and for a model that failed to load).
+BrixString *brix_onnx_device(BrixOnnxModel *m) { return str_new((char *)m->device); }
 
 long brix_onnx_num_inputs(BrixOnnxModel *m) { return m->num_inputs; }
 long brix_onnx_num_outputs(BrixOnnxModel *m) { return m->num_outputs; }

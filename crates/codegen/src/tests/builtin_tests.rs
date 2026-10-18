@@ -4616,7 +4616,7 @@ fn test_onnx_load_errors() {
         CodegenError::InvalidOperation { .. }
     ));
     assert!(matches!(
-        onnx_error("var m := onnx.load(\"a\", \"b\")\n"),
+        onnx_error("var m := onnx.load(\"a\", \"b\", \"c\")\n"),
         CodegenError::InvalidOperation { .. }
     ));
     assert!(matches!(
@@ -4897,7 +4897,7 @@ fn test_onnx_try_load_errors() {
         CodegenError::InvalidOperation { .. }
     ));
     assert!(matches!(
-        onnx_error("var m := onnx.try_load(\"a\", \"b\")\n"),
+        onnx_error("var m := onnx.try_load(\"a\", \"b\", \"c\")\n"),
         CodegenError::InvalidOperation { .. }
     ));
     assert!(matches!(
@@ -4921,6 +4921,63 @@ fn test_onnx_try_load_types() {
         crate::infer_type_of_expr_in_context(history, "m.last_error()"),
         Ok(crate::types::BrixType::String)
     );
+}
+
+#[test]
+fn test_onnx_load_device_ir() {
+    // The device is a second string; without it the runtime gets NULL (cpu).
+    let ir = ir_from_source(&format!(
+        "{}var a := onnx.load(\"m.onnx\")\nvar b := onnx.try_load(\"m.onnx\", \"metal\")\nvar d := b.device()\n",
+        ONNX_PRELUDE
+    ));
+    assert!(ir.contains("@brix_onnx_load(ptr"), "{}", ir);
+    assert!(ir.contains(", ptr null)"), "{}", ir);
+    assert!(ir.contains("@brix_onnx_try_load(ptr"), "{}", ir);
+    assert!(ir.contains("@brix_onnx_device("), "{}", ir);
+}
+
+#[test]
+fn test_onnx_load_device_errors() {
+    use crate::error::CodegenError;
+    assert!(matches!(
+        onnx_error("var m := onnx.load(\"m.onnx\", 0)\n"),
+        CodegenError::TypeError { .. }
+    ));
+    assert!(matches!(
+        onnx_error("var m := onnx.load(\"m.onnx\", \"metal\", \"x\")\n"),
+        CodegenError::InvalidOperation { .. }
+    ));
+    assert!(matches!(
+        onnx_error("var m := onnx.load(\"m.onnx\")\nvar d := m.device(0)\n"),
+        CodegenError::InvalidOperation { .. }
+    ));
+}
+
+#[test]
+fn test_onnx_device_type() {
+    assert_eq!(
+        crate::infer_type_of_expr_in_context(
+            "import onnx\nvar m := onnx.load(\"m.onnx\", \"metal\")\n",
+            "m.device()"
+        ),
+        Ok(crate::types::BrixType::String)
+    );
+}
+
+#[test]
+fn test_onnx_device_vs_struct_method() {
+    // A user struct method named device() keeps its own dispatch.
+    let ir = ir_from_source(&format!(
+        "{}struct D {{\n    n: int\n}}\nfn (d: D) device() -> int {{\n    return d.n\n}}\nvar m := onnx.load(\"m.onnx\", \"metal\")\nvar a := m.device()\nvar b := D {{ n: 1 }}.device()\n",
+        ONNX_PRELUDE
+    ));
+    assert_eq!(
+        ir.matches("call ptr @brix_onnx_device(").count(),
+        1,
+        "{}",
+        ir
+    );
+    assert!(ir.contains("@D_device("), "{}", ir);
 }
 
 #[test]

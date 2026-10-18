@@ -7195,6 +7195,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                 | "batch_infer"
                                 | "batch_infer_output"
                                 | "last_error"
+                                | "device"
                         );
                         // A receiver compiled by the guard below that matched no
                         // builtin dispatch is reused by the arbitrary-expression
@@ -17631,28 +17632,38 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 span: Some(expr.span.clone()),
             });
         }
-        if args.len() != 1 {
+        if !matches!(args.len(), 1 | 2) {
             return Err(CodegenError::InvalidOperation {
                 operation: format!("onnx.{}", fn_name),
-                reason: format!("expects (path), got {} argument(s)", args.len()),
+                reason: format!("expects (path[, device]), got {} argument(s)", args.len()),
                 span: Some(expr.span.clone()),
             });
         }
-        let (path, ty) = self.compile_expr(&args[0])?;
-        if ty != BrixType::String {
-            return Err(CodegenError::TypeError {
-                expected: "string".to_string(),
-                found: crate::types::format_brix_type(&ty),
-                context: format!("onnx.{} path", fn_name),
-                span: Some(args[0].span.clone()),
-            });
+        // path, then the optional device ("cpu" / "metal"; checked at
+        // runtime). A missing device is passed as NULL (= "cpu").
+        let mut strings = Vec::with_capacity(args.len());
+        for (arg, what) in args.iter().zip(["path", "device"]) {
+            let (val, ty) = self.compile_expr(arg)?;
+            if ty != BrixType::String {
+                return Err(CodegenError::TypeError {
+                    expected: "string".to_string(),
+                    found: crate::types::format_brix_type(&ty),
+                    context: format!("onnx.{} {}", fn_name, what),
+                    span: Some(arg.span.clone()),
+                });
+            }
+            strings.push((val, arg));
         }
         let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let device: BasicMetadataValueEnum<'ctx> = match strings.get(1) {
+            Some((val, _)) => (*val).into(),
+            None => ptr_type.const_null().into(),
+        };
         let model = self
             .call_runtime_fn(
                 &format!("brix_onnx_{}", fn_name),
-                ptr_type.fn_type(&[ptr_type.into()], false),
-                &[path.into()],
+                ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false),
+                &[strings[0].0.into(), device],
                 expr,
             )?
             .ok_or_else(|| CodegenError::MissingValue {
@@ -17660,8 +17671,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 context: format!("onnx.{}", fn_name),
                 span: Some(expr.span.clone()),
             })?;
-        if !self.is_borrowed_ref_expr(&args[0]) {
-            self.insert_release(path.into_pointer_value(), &BrixType::String)?;
+        for (val, arg) in strings {
+            if !self.is_borrowed_ref_expr(arg) {
+                self.insert_release(val.into_pointer_value(), &BrixType::String)?;
+            }
         }
         Ok((model, BrixType::OnnxModel))
     }
@@ -17669,7 +17682,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     /// Compile a method on an `ONNXModel`: `num_inputs()` / `num_outputs()`
     /// -> int, `input_name(i)` / `output_name(i)` -> string and
     /// `input_shape(i)` / `output_shape(i)` -> int[] (1×rank, -1 for a dynamic
-    /// dimension) and `last_error()` -> string. An index out of range aborts at
+    /// dimension), `last_error()` and `device()` -> string. An index out of range aborts at
     /// runtime (or, for a `try_load` model, returns an empty value and sets
     /// `last_error()`). An owned temporary receiver is released after the
     /// call.
@@ -17687,7 +17700,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         ) {
             return self.compile_onnx_infer(receiver_val, method, receiver_expr, args, expr);
         }
-        let indexed = !matches!(method, "num_inputs" | "num_outputs" | "last_error");
+        let indexed = !matches!(
+            method,
+            "num_inputs" | "num_outputs" | "last_error" | "device"
+        );
         let want = usize::from(indexed);
         if args.len() != want {
             return Err(CodegenError::InvalidOperation {
@@ -17721,7 +17737,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         }
         let result_type = match method {
             "num_inputs" | "num_outputs" => BrixType::Int,
-            "input_name" | "output_name" | "last_error" => BrixType::String,
+            "input_name" | "output_name" | "last_error" | "device" => BrixType::String,
             _ => BrixType::IntMatrix,
         };
         let fn_type = if result_type == BrixType::Int {
@@ -19661,7 +19677,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             },
                             BrixType::OnnxModel => match field.as_str() {
                                 "num_inputs" | "num_outputs" => return Some(BrixType::Int),
-                                "input_name" | "output_name" | "last_error" => {
+                                "input_name" | "output_name" | "last_error" | "device" => {
                                     return Some(BrixType::String);
                                 }
                                 "input_shape" | "output_shape" => {
